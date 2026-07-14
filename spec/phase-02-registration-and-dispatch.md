@@ -154,9 +154,67 @@ Tests MUST cover:
 8. missing handlers produce typed errors;
 9. command/query results return through the bus facade;
 10. handler errors become replies and are re-raised by the facade;
-11. event publication returns after enqueue and does not await event handler completion;
+11. event publication delegates enqueue-only semantics to the transport; concrete non-blocking handler execution is verified in Phase 4;
 12. building does not start transports or create background tasks.
 
 ## Exit Criteria
 
 Phase 2 is complete when a fake transport can exercise all bus facades and registry rules without an asyncio queue implementation. Phase 3 may then replace the fake transport with `InMemoryTransport` without changing message or handler registration APIs.
+
+## Implemented Artifacts
+
+The current implementation is split into these core modules:
+
+- `cqrs_core.registrations`: handler kinds, styles, target modes, decorator metadata, `@CommandHandler`, `@QueryHandler`, `@EventsHandler`, and `@handles`;
+- `cqrs_core.registry`: immutable command/query/event handler mappings and duplicate validation;
+- `cqrs_core.provider`: explicit instance/class/function/factory materialization without constructor inspection;
+- `cqrs_core.context`: function-handler context and late-bound bus handles;
+- `cqrs_core.dispatch`: request reply creation, error conversion, class/function invocation, and event routing;
+- `cqrs_core.buses`: `CommandBus`, `QueryBus`, and `EventBus` facades;
+- `cqrs_core.builder`: mutable configure-then-build composition API and `CqrsBuses` result.
+
+The builder supports:
+
+- decorated classes/functions passed explicitly;
+- explicit `(message_type, handler)` instance/function registration;
+- explicit handler factories;
+- one transport per bus;
+- an optional custom `HandlerProvider`, with `DefaultHandlerProvider` as the no-DI default.
+
+The registry validates async handler shape at build time. Ready instances are allowed even though they are not themselves callable; class and factory targets must be callable, and function targets must be async callables.
+
+The event dispatcher currently invokes handlers sequentially after the transport consumer receives an event. Phase 4 owns the transition to tracked fire-and-forget task management and must preserve the public `EventBus.publish()` contract.
+
+## Verified Results
+
+Phase 2 was verified through the locked `uv` environment:
+
+```text
+uv run ruff check .
+uv run ruff format --check .
+uv run ty check packages/cqrs-core/src packages/cqrs-core/tests packages/cqrs-fastapi/src packages/cqrs-fastapi/tests
+uv run pytest
+```
+
+Observed results:
+
+- Ruff lint: successful;
+- Ruff format check: successful;
+- ty type check: successful;
+- root workspace suite: `40 passed`;
+- core has no relative imports;
+- command, query, event, builder, registry, provider, and error paths are covered by tests.
+
+## Review Verdict
+
+Phase 2 received a multi-axis review covering correctness, readability, architecture, security, performance, and test coverage. Required findings were fixed and regression-tested:
+
+- buses now reject work before startup, during lifecycle transitions, and after shutdown;
+- each bus requires a distinct transport instance because one transport owns one consumer;
+- function handlers are validated as async functions with the exact `(message, context)` shape;
+- class decorators and `@handles` enforce their distinct class/function roles;
+- decorator metadata is direct-only, preventing inherited registrations from silently changing routing;
+- request routing validates message category and turns missing handlers into correlated error replies;
+- registration validates concrete message types and exhaustive enum values.
+
+No required Phase 2 findings remain. The concrete queue, worker, reply-future, backpressure, cancellation-isolation, and shutdown-drain behavior belongs to Phase 3. Fire-and-forget event tasks, error hooks, non-blocking event-handler proof, and event draining belong to Phase 4.

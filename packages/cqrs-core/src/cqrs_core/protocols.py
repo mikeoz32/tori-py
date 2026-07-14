@@ -5,7 +5,7 @@ from contextlib import AbstractAsyncContextManager
 from typing import Protocol, runtime_checkable
 
 from cqrs_core.envelope import DeliveryReceipt, Envelope, ReplyEnvelope
-from cqrs_core.messages import Message
+from cqrs_core.messages import Command, Event, Message, Query
 
 
 @runtime_checkable
@@ -47,6 +47,65 @@ class HandlerProvider[HandlerT](Protocol):
 
 
 @runtime_checkable
+class CommandBusHandle(Protocol):
+    """Minimal command bus handle exposed through handler context."""
+
+    async def execute(
+        self,
+        command: Command[object],
+        *,
+        timeout: float | None = None,
+    ) -> object:
+        """Execute a command from a function handler."""
+
+
+@runtime_checkable
+class QueryBusHandle(Protocol):
+    """Minimal query bus handle exposed through handler context."""
+
+    async def execute(
+        self,
+        query: Query[object],
+        *,
+        timeout: float | None = None,
+    ) -> object:
+        """Execute a query from a function handler."""
+
+
+@runtime_checkable
+class EventBusHandle(Protocol):
+    """Minimal event bus handle exposed through handler context."""
+
+    async def publish(
+        self,
+        event: Event,
+        *,
+        timeout: float | None = None,
+    ) -> DeliveryReceipt:
+        """Publish an event from a function handler."""
+
+
+class FunctionHandlerContext(Protocol):
+    """Metadata and bus handles passed to a function handler."""
+
+    @property
+    def envelope(self) -> Envelope[Message]:
+        """Return the envelope currently being handled."""
+
+    @property
+    def command_bus(self) -> CommandBusHandle:
+        """Return the command bus available to the handler."""
+
+    @property
+    def query_bus(self) -> QueryBusHandle:
+        """Return the query bus available to the handler."""
+
+    @property
+    def event_bus(self) -> EventBusHandle:
+        """Return the event bus available to the handler."""
+
+
+@runtime_checkable
 class TransportConsumer(Protocol):
     """Callback invoked by a transport worker."""
 
@@ -84,4 +143,7 @@ class Transport(Protocol):
         """Stop accepting work and shut down the transport."""
 
 
-HandlerFunction = Callable[..., Awaitable[object]]
+type HandlerFunction[MessageT: Message, ResultT] = Callable[
+    [MessageT, FunctionHandlerContext],
+    Awaitable[ResultT],
+]

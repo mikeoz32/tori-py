@@ -57,6 +57,5 @@ These points must be settled before the phase that uses them is implemented:
 
 - exact public module/export names;
 - whether event handlers run concurrently or sequentially after an event is dequeued;
-- exact function-handler context signature and context typing;
 - exact FastAPI provider API for request/app dependency scopes;
 - final development lint/format tooling.

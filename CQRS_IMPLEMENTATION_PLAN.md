@@ -1,6 +1,6 @@
 # CQRS Library Implementation Plan
 
-Status: Phases 0-1 complete; Phase 2 implementation is not started.
+Status: Phases 0-2 complete; Phase 3 implementation is not started.
 
 The executable phase specifications are in [`spec/README.md`](spec/README.md). Each phase document defines entry criteria, required artifacts, contracts, failure behavior, tests, and exit criteria. Update the relevant specification before changing an agreed behavior in code.
 

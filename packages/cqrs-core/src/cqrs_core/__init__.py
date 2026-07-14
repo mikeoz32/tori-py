@@ -1,5 +1,8 @@
 """Framework-agnostic CQRS primitives."""
 
+from cqrs_core.builder import CqrsBuilder, CqrsBuses
+from cqrs_core.buses import CommandBus, EventBus, QueryBus
+from cqrs_core.context import BusHandles, HandlerContext
 from cqrs_core.envelope import (
     DeliveryMetadata,
     DeliveryReceipt,
@@ -27,18 +30,41 @@ from cqrs_core.identity import message_type_for
 from cqrs_core.messages import Command, Event, Message, Query
 from cqrs_core.protocols import (
     AsyncMessageHandler,
+    CommandBusHandle,
     DispatchContext,
+    EventBusHandle,
+    FunctionHandlerContext,
     HandlerFunction,
     HandlerProvider,
     HandlerRegistration,
+    QueryBusHandle,
     Transport,
     TransportConsumer,
 )
+from cqrs_core.provider import DefaultHandlerProvider
+from cqrs_core.registrations import (
+    CommandHandler,
+    EventsHandler,
+    HandlerKind,
+    HandlerMetadata,
+    HandlerStyle,
+    QueryHandler,
+    RegisteredHandler,
+    TargetMode,
+    handles,
+)
+from cqrs_core.registry import HandlerRegistry
 
 __all__ = [
     "AsyncMessageHandler",
+    "BusHandles",
     "Command",
+    "CommandBus",
+    "CommandBusHandle",
+    "CommandHandler",
     "CqrsError",
+    "CqrsBuilder",
+    "CqrsBuses",
     "CqrsValidationError",
     "DeliveryMetadata",
     "DeliveryReceipt",
@@ -49,22 +75,38 @@ __all__ = [
     "Envelope",
     "EnvelopeValidationError",
     "Event",
+    "EventBus",
+    "EventBusHandle",
+    "EventsHandler",
+    "DefaultHandlerProvider",
     "HandlerFunction",
+    "HandlerContext",
+    "FunctionHandlerContext",
+    "HandlerKind",
+    "HandlerMetadata",
     "HandlerProvider",
     "HandlerRegistration",
+    "HandlerRegistry",
+    "HandlerStyle",
     "InvalidHandlerRegistrationError",
     "InvalidLifecycleTransitionError",
     "InvalidReplyCorrelationError",
     "Message",
     "MissingHandlerError",
     "Query",
+    "QueryBus",
+    "QueryBusHandle",
+    "QueryHandler",
     "QueueCapacityError",
     "ReplyEnvelope",
     "RequestTimeoutError",
+    "RegisteredHandler",
+    "TargetMode",
     "Transport",
     "TransportConsumer",
     "TransportLifecycleError",
     "TransportNotStartedError",
     "TransportStoppedError",
+    "handles",
     "message_type_for",
 ]
