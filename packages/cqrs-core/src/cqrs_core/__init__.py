@@ -19,6 +19,7 @@ from cqrs_core.errors import (
     InvalidHandlerRegistrationError,
     InvalidLifecycleTransitionError,
     InvalidReplyCorrelationError,
+    InvalidTransportReplyError,
     MissingHandlerError,
     QueueCapacityError,
     RequestTimeoutError,
@@ -27,6 +28,7 @@ from cqrs_core.errors import (
     TransportStoppedError,
 )
 from cqrs_core.identity import message_type_for
+from cqrs_core.inmemory import InMemoryTransport, TransportState
 from cqrs_core.messages import Command, Event, Message, Query
 from cqrs_core.protocols import (
     AsyncMessageHandler,
@@ -91,6 +93,8 @@ __all__ = [
     "InvalidHandlerRegistrationError",
     "InvalidLifecycleTransitionError",
     "InvalidReplyCorrelationError",
+    "InvalidTransportReplyError",
+    "InMemoryTransport",
     "Message",
     "MissingHandlerError",
     "Query",
@@ -107,6 +111,7 @@ __all__ = [
     "TransportLifecycleError",
     "TransportNotStartedError",
     "TransportStoppedError",
+    "TransportState",
     "handles",
     "message_type_for",
 ]

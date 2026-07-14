@@ -101,3 +101,7 @@ class InvalidReplyCorrelationError(CqrsError):
         super().__init__(
             f"reply correlation {actual} does not match expected {expected}"
         )
+
+
+class InvalidTransportReplyError(CqrsError):
+    """Raised when a request consumer returns no valid reply."""
