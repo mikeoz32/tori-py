@@ -1,0 +1,70 @@
+"""Framework-agnostic CQRS primitives."""
+
+from cqrs_core.envelope import (
+    DeliveryMetadata,
+    DeliveryReceipt,
+    Envelope,
+    ReplyEnvelope,
+)
+from cqrs_core.errors import (
+    CqrsError,
+    CqrsValidationError,
+    DuplicateCommandHandlerError,
+    DuplicateHandlerError,
+    DuplicateQueryHandlerError,
+    EnvelopeValidationError,
+    InvalidHandlerRegistrationError,
+    InvalidLifecycleTransitionError,
+    InvalidReplyCorrelationError,
+    MissingHandlerError,
+    QueueCapacityError,
+    RequestTimeoutError,
+    TransportLifecycleError,
+    TransportNotStartedError,
+    TransportStoppedError,
+)
+from cqrs_core.identity import message_type_for
+from cqrs_core.messages import Command, Event, Message, Query
+from cqrs_core.protocols import (
+    AsyncMessageHandler,
+    DispatchContext,
+    HandlerFunction,
+    HandlerProvider,
+    HandlerRegistration,
+    Transport,
+    TransportConsumer,
+)
+
+__all__ = [
+    "AsyncMessageHandler",
+    "Command",
+    "CqrsError",
+    "CqrsValidationError",
+    "DeliveryMetadata",
+    "DeliveryReceipt",
+    "DispatchContext",
+    "DuplicateCommandHandlerError",
+    "DuplicateHandlerError",
+    "DuplicateQueryHandlerError",
+    "Envelope",
+    "EnvelopeValidationError",
+    "Event",
+    "HandlerFunction",
+    "HandlerProvider",
+    "HandlerRegistration",
+    "InvalidHandlerRegistrationError",
+    "InvalidLifecycleTransitionError",
+    "InvalidReplyCorrelationError",
+    "Message",
+    "MissingHandlerError",
+    "Query",
+    "QueueCapacityError",
+    "ReplyEnvelope",
+    "RequestTimeoutError",
+    "Transport",
+    "TransportConsumer",
+    "TransportLifecycleError",
+    "TransportNotStartedError",
+    "TransportStoppedError",
+    "message_type_for",
+]

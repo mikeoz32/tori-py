@@ -1,0 +1,40 @@
+[project]
+name = "kinker"
+version = "0.1.0"
+requires-python = ">=3.14,<3.15"
+dependencies = [
+    "cqrs-core",
+    "cqrs-fastapi",
+]
+
+[tool.uv.workspace]
+members = [
+    "packages/cqrs-core",
+    "packages/cqrs-fastapi",
+]
+
+[tool.uv.sources]
+cqrs-core = { workspace = true }
+cqrs-fastapi = { workspace = true }
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
+    "ruff>=0.15.21",
+    "ty>=0.0.59",
+]
+
+[tool.ruff]
+target-version = "py314"
+line-length = 88
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.ty.environment]
+python-version = "3.14"
