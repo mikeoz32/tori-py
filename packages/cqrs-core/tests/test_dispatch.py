@@ -354,4 +354,5 @@ async def test_event_dispatcher_invokes_registered_handlers() -> None:
     result = await event_transport.consumer(make_envelope(ProfileCreated(profile_id=7)))
 
     assert result is None
+    await buses.event_bus.drain()
     assert handled_profile_ids == [7]

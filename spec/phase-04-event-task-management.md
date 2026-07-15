@@ -32,6 +32,8 @@ The first slice must explicitly choose one of these behaviors before implementat
 
 The recommended initial behavior is concurrent handler tasks with no ordering guarantee, because the event API is fire-and-forget and events have no transactional ordering guarantee. If sequential behavior is selected, add a test that proves it and update this document.
 
+This phase selects concurrent handlers. Matching handlers are scheduled independently in registration order, but their start and completion order are not guaranteed. `EventBus.drain()` waits for the tracked tasks and error observers present while draining; it does not wait for new event envelopes submitted concurrently to a still-running transport. Shutdown stops transport intake before draining, so no new event tasks are admitted during shutdown drain.
+
 Regardless of the choice, one transport worker still dequeues event envelopes sequentially. Handler task concurrency is a separate concern.
 
 ## Error Hook

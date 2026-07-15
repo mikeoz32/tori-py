@@ -84,6 +84,7 @@ class InMemoryTransport:
         self._active_request: _RequestItem | None = None
         self._worker_ready = asyncio.Event()
         self._stop_event = asyncio.Event()
+        self._force_shutdown_event = asyncio.Event()
         self._shutdown_complete = asyncio.Event()
         self._lifecycle_lock = asyncio.Lock()
         self._state = TransportState.NEW
@@ -224,13 +225,7 @@ class InMemoryTransport:
         deadline = self._deadline(timeout, use_default=False)
         try:
             if worker is not None:
-                if deadline is None:
-                    await self._queue.join()
-                else:
-                    remaining = deadline - asyncio.get_running_loop().time()
-                    if remaining <= 0:
-                        raise TimeoutError
-                    await asyncio.wait_for(self._queue.join(), remaining)
+                await self._wait_for_queue_drain(deadline)
         except TimeoutError:
             pass
         except asyncio.CancelledError:
@@ -245,7 +240,7 @@ class InMemoryTransport:
             if worker is not None and not worker.done():
                 worker.cancel()
             try:
-                await self._wait_for_worker(worker)
+                await self._wait_for_worker(worker, deadline=deadline)
             finally:
                 self._drain_pending()
                 self._state = TransportState.STOPPED
@@ -349,6 +344,7 @@ class InMemoryTransport:
         )
 
     def _force_shutdown(self) -> None:
+        self._force_shutdown_event.set()
         active = self._active_request
         if active is not None:
             _set_future_error(
@@ -359,6 +355,24 @@ class InMemoryTransport:
         if worker is not None and not worker.done():
             worker.cancel()
         self._drain_pending()
+
+    async def _wait_for_queue_drain(self, deadline: float | None) -> None:
+        join_task = asyncio.create_task(self._queue.join())
+        force_task = asyncio.create_task(self._force_shutdown_event.wait())
+        try:
+            timeout = None if deadline is None else _remaining(deadline)
+            done, _ = await asyncio.wait(
+                {join_task, force_task},
+                timeout=timeout,
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            if not done:
+                raise TimeoutError
+        finally:
+            for task in (join_task, force_task):
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(join_task, force_task, return_exceptions=True)
 
     async def _worker_loop(self) -> None:
         self._worker_ready.set()
@@ -519,6 +533,8 @@ class InMemoryTransport:
     async def _wait_for_worker(
         self,
         worker: asyncio.Task[None] | None,
+        *,
+        deadline: float | None = None,
     ) -> None:
         if worker is None:
             return
@@ -528,7 +544,15 @@ class InMemoryTransport:
             self._observe_worker(worker)
             return
         try:
-            await asyncio.wait_for(asyncio.shield(worker), self._CANCELLATION_GRACE)
+            grace = (
+                self._CANCELLATION_GRACE if deadline is None else _remaining(deadline)
+            )
+            if grace is not None and grace <= 0:
+                await asyncio.sleep(0)
+                if not worker.done():
+                    self._observe_worker(worker)
+                return
+            await asyncio.wait_for(asyncio.shield(worker), grace)
         except TimeoutError:
             logger.error("In-memory transport worker did not stop before deadline")
             self._observe_worker(worker)
@@ -567,6 +591,12 @@ def _set_future_error(
 ) -> None:
     if not future.done():
         future.set_exception(error)
+
+
+def _remaining(deadline: float | None) -> float | None:
+    if deadline is None:
+        return None
+    return max(0.0, deadline - asyncio.get_running_loop().time())
 
 
 def _current_task_is_cancelling() -> bool:

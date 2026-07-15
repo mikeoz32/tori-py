@@ -1,7 +1,13 @@
 """Framework-agnostic CQRS primitives."""
 
 from cqrs_core.builder import CqrsBuilder, CqrsBuses
-from cqrs_core.buses import CommandBus, EventBus, QueryBus
+from cqrs_core.buses import (
+    CommandBus,
+    EventBus,
+    EventErrorHandler,
+    EventHandlerFailure,
+    QueryBus,
+)
 from cqrs_core.context import BusHandles, HandlerContext
 from cqrs_core.envelope import (
     DeliveryMetadata,
@@ -78,6 +84,8 @@ __all__ = [
     "EnvelopeValidationError",
     "Event",
     "EventBus",
+    "EventErrorHandler",
+    "EventHandlerFailure",
     "EventBusHandle",
     "EventsHandler",
     "DefaultHandlerProvider",

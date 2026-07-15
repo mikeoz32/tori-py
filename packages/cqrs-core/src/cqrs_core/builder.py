@@ -2,7 +2,12 @@
 
 from dataclasses import dataclass
 
-from cqrs_core.buses import CommandBus, EventBus, QueryBus
+from cqrs_core.buses import (
+    CommandBus,
+    EventBus,
+    EventErrorHandler,
+    QueryBus,
+)
 from cqrs_core.context import BusHandles
 from cqrs_core.dispatch import Dispatcher
 from cqrs_core.errors import CqrsValidationError, InvalidHandlerRegistrationError
@@ -39,6 +44,7 @@ class CqrsBuilder:
         self._query_transport: Transport | None = None
         self._event_transport: Transport | None = None
         self._provider: HandlerProvider[object] = DefaultHandlerProvider()
+        self._event_error_handler: EventErrorHandler | None = None
 
     def add_command_handler(
         self,
@@ -101,6 +107,13 @@ class CqrsBuilder:
         self._provider = provider
         return self
 
+    def with_event_error_handler(
+        self,
+        error_handler: EventErrorHandler,
+    ) -> CqrsBuilder:
+        self._event_error_handler = error_handler
+        return self
+
     def build(self) -> CqrsBuses:
         if self._command_transport is None:
             raise CqrsValidationError("command transport is required")
@@ -126,7 +139,11 @@ class CqrsBuilder:
         buses = CqrsBuses(
             command_bus=CommandBus(self._command_transport, dispatcher),
             query_bus=QueryBus(self._query_transport, dispatcher),
-            event_bus=EventBus(self._event_transport, dispatcher),
+            event_bus=EventBus(
+                self._event_transport,
+                dispatcher,
+                error_handler=self._event_error_handler,
+            ),
         )
         bus_handles.command_bus = buses.command_bus
         bus_handles.query_bus = buses.query_bus

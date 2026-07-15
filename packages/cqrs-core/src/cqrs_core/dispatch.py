@@ -1,7 +1,9 @@
 """Registry-backed message dispatch used by bus transports."""
 
 import inspect
-from typing import cast
+from collections.abc import Coroutine
+from dataclasses import dataclass
+from typing import Any, cast
 from uuid import uuid4
 
 from cqrs_core.context import BusHandles
@@ -11,6 +13,14 @@ from cqrs_core.messages import Command, Event, Message, Query
 from cqrs_core.protocols import HandlerFunction, HandlerProvider
 from cqrs_core.registrations import HandlerKind, HandlerStyle, RegisteredHandler
 from cqrs_core.registry import HandlerRegistry
+
+
+@dataclass(frozen=True, slots=True)
+class EventInvocation:
+    """One event handler coroutine and the registration that created it."""
+
+    registration: RegisteredHandler
+    operation: Coroutine[Any, Any, object]
 
 
 class Dispatcher:
@@ -54,6 +64,22 @@ class Dispatcher:
             raise EnvelopeValidationError("event dispatcher requires an Event envelope")
         for registration in self._registry.event_handlers(type(envelope.message)):
             await self._invoke(registration, envelope)
+
+    def event_invocations(
+        self,
+        envelope: Envelope[Message],
+    ) -> tuple[EventInvocation, ...]:
+        """Prepare matching event handler operations without awaiting them."""
+
+        if not isinstance(envelope.message, Event):
+            raise EnvelopeValidationError("event dispatcher requires an Event envelope")
+        return tuple(
+            EventInvocation(
+                registration=registration,
+                operation=self._invoke(registration, envelope),
+            )
+            for registration in self._registry.event_handlers(type(envelope.message))
+        )
 
     @staticmethod
     def _validate_request_category(
