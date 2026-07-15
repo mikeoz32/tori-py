@@ -1,6 +1,6 @@
 # CQRS Library Implementation Plan
 
-Status: Phases 0-4 complete; Phase 5 FastAPI adapter is next.
+Status: Phases 0-5 complete; Phase 6 review and hardening is next.
 
 The executable phase specifications are in [`spec/README.md`](spec/README.md). Each phase document defines entry criteria, required artifacts, contracts, failure behavior, tests, and exit criteria. Update the relevant specification before changing an agreed behavior in code.
 

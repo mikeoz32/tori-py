@@ -135,10 +135,10 @@ class _BusLifecycle:
             if self._state is _BusState.STOPPED:
                 return
             if self._state is _BusState.NEW:
-                self._state = _BusState.STOPPED
-                self._shutdown_complete.set()
-                return
-            if self._state is _BusState.STOPPING:
+                wait_for_existing = False
+                wait_for_start = False
+                self._state = _BusState.STOPPING
+            elif self._state is _BusState.STOPPING:
                 wait_for_existing = True
                 wait_for_start = False
             else:
