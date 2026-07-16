@@ -41,3 +41,6 @@ indent-style = "space"
 
 [tool.ty.environment]
 python-version = "3.14"
+
+[tool.pytest.ini_options]
+pythonpath = ["."]

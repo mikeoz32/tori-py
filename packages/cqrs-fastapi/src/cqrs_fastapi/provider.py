@@ -3,9 +3,9 @@
 import asyncio
 import inspect
 import logging
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Callable, Mapping
 from contextlib import asynccontextmanager
-from typing import cast
+from typing import cast, get_type_hints
 
 from cqrs_core.protocols import DispatchContext, HandlerRegistration
 from cqrs_core.registrations import RegisteredHandler, TargetMode
@@ -21,8 +21,9 @@ class FastAPIHandlerProvider:
     lifespan ends.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, dependencies: Mapping[object, object] | None = None) -> None:
         self._app: object | None = None
+        self._dependencies = dict(dependencies or {})
         self._app_resources: dict[int, tuple[object, object]] = {}
         self._active_scopes: set[object] = set()
         self._scopes_empty = asyncio.Event()
@@ -109,6 +110,10 @@ class FastAPIHandlerProvider:
                 raise TimeoutError(
                     "handler scopes did not finish before shutdown"
                 ) from error
+            except asyncio.CancelledError:
+                self._closed = True
+                self._schedule_deferred_cleanup()
+                raise
         self._closed = True
         first_error: BaseException | None = None
         resources = tuple(
@@ -120,12 +125,19 @@ class FastAPIHandlerProvider:
                 self._schedule_deferred_cleanup(resources[index:])
                 raise TimeoutError("handler resources did not close before shutdown")
             close_task = asyncio.create_task(_close_resource(resource))
-            done, _ = await asyncio.wait({close_task}, timeout=remaining)
+            try:
+                done, _ = await asyncio.wait({close_task}, timeout=remaining)
+            except asyncio.CancelledError:
+                self._schedule_deferred_cleanup(resources[index:], close_task)
+                raise
             if not done:
-                self._schedule_deferred_cleanup(resources[index + 1 :], close_task)
+                self._schedule_deferred_cleanup(resources[index:], close_task)
                 raise TimeoutError("handler resources did not close before shutdown")
             try:
                 await close_task
+            except asyncio.CancelledError:
+                self._schedule_deferred_cleanup(resources[index:])
+                raise
             except BaseException as error:
                 if first_error is None:
                     first_error = error
@@ -155,12 +167,15 @@ class FastAPIHandlerProvider:
     ) -> None:
         if self._active_scopes:
             await self._scopes_empty.wait()
+        pending_failed = False
         if pending_close is not None:
             try:
                 await pending_close
             except BaseException:
+                pending_failed = True
                 logger.exception("Deferred handler resource cleanup failed")
-        for resource in resources:
+        start = 0 if pending_close is None or pending_failed else 1
+        for resource in resources[start:]:
             try:
                 await _close_resource(resource)
             except BaseException:
@@ -176,10 +191,46 @@ class FastAPIHandlerProvider:
             return target, False
         if not callable(target):
             raise TypeError("handler target must be callable")
-        resolved = cast(Callable[[], object], target)()
+        if registration.target_mode is TargetMode.CLASS:
+            resolved = self._construct(target)
+        else:
+            resolved = cast(Callable[[], object], target)()
         if inspect.isawaitable(resolved):
             resolved = await resolved
         return resolved, True
+
+    def _construct(self, target: object) -> object:
+        class_target = cast(type[object], target)
+        parameters = inspect.signature(class_target).parameters.values()
+        try:
+            annotations = get_type_hints(
+                class_target.__init__,
+                include_extras=True,
+            )
+        except NameError, TypeError, ValueError:
+            annotations = {}
+        arguments: dict[str, object] = {}
+        missing = object()
+        for parameter in parameters:
+            if parameter.kind in {
+                inspect.Parameter.VAR_POSITIONAL,
+                inspect.Parameter.VAR_KEYWORD,
+            }:
+                continue
+            annotation = annotations.get(parameter.name, parameter.annotation)
+            dependency = self._dependencies.get(annotation, missing)
+            if dependency is not missing:
+                arguments[parameter.name] = dependency
+            elif parameter.default is inspect.Parameter.empty:
+                for key, resource in self._app_resources.values():
+                    if key is annotation:
+                        arguments[parameter.name] = resource
+                        break
+                else:
+                    raise TypeError(
+                        f"no explicit dependency for handler parameter {parameter.name}"
+                    )
+        return cast(Callable[..., object], class_target)(**arguments)
 
 
 async def _close_resource(resource: object) -> None:

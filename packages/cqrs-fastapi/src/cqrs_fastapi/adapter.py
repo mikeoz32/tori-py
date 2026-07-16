@@ -8,8 +8,11 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import cast
 
-from cqrs_core.builder import CqrsBuses
-from cqrs_core.buses import CommandBus, EventBus, QueryBus
+from cqrs_core.builder import CqrsBuilder, CqrsBuses
+from cqrs_core.buses import CommandBus, EventBus, EventErrorHandler, QueryBus
+from cqrs_core.inmemory import InMemoryTransport
+from cqrs_core.messages import Message
+from cqrs_core.protocols import HandlerProvider, Transport
 from fastapi import FastAPI, Request
 
 logger = logging.getLogger(__name__)
@@ -19,7 +22,7 @@ class FastAPIConfigurationError(RuntimeError):
     """Raised when a FastAPI app has not been initialized with CQRS buses."""
 
 
-type BusesFactory = Callable[[], CqrsBuses | Awaitable[CqrsBuses]]
+type BusesReadyHook = Callable[[CqrsBuses], object | Awaitable[object]]
 
 
 @dataclass(slots=True)
@@ -33,17 +36,95 @@ class FastAPIAdapter:
 
     def __init__(
         self,
-        buses_factory: BusesFactory,
         *,
-        provider: object | None = None,
+        command_transport: Transport | None = None,
+        query_transport: Transport | None = None,
+        event_transport: Transport | None = None,
+        provider: HandlerProvider[object] | None = None,
+        event_error_handler: EventErrorHandler | None = None,
+        on_buses_built: BusesReadyHook | None = None,
         shutdown_timeout: float | None = None,
     ) -> None:
-        self._buses_factory = buses_factory
+        self._builder = CqrsBuilder()
+        self._builder.with_command_transport(
+            command_transport
+            if command_transport is not None
+            else InMemoryTransport(name="fastapi-command")
+        )
+        self._builder.with_query_transport(
+            query_transport
+            if query_transport is not None
+            else InMemoryTransport(name="fastapi-query")
+        )
+        self._builder.with_event_transport(
+            event_transport
+            if event_transport is not None
+            else InMemoryTransport(name="fastapi-event")
+        )
+        if provider is not None:
+            self._builder.with_handler_provider(provider)
+        if event_error_handler is not None:
+            self._builder.with_event_error_handler(event_error_handler)
+        self._on_buses_built = on_buses_built
         self._provider = provider
         self._shutdown_timeout = shutdown_timeout
         self._lock = asyncio.Lock()
         self._lifespan_active = False
         self._lifespan_used = False
+
+    def command_handler(self, message_type: type[Message]):
+        """Register a command handler through an adapter decorator."""
+
+        def decorate(target: object) -> object:
+            self._builder.add_command_handler(message_type, target)
+            return target
+
+        return decorate
+
+    def query_handler(self, message_type: type[Message]):
+        """Register a query handler through an adapter decorator."""
+
+        def decorate(target: object) -> object:
+            self._builder.add_query_handler(message_type, target)
+            return target
+
+        return decorate
+
+    def event_handler(self, message_type: type[Message]):
+        """Register an event handler through an adapter decorator."""
+
+        def decorate(target: object) -> object:
+            self._builder.add_event_handler(message_type, target)
+            return target
+
+        return decorate
+
+    def command_handler_factory(self, message_type: type[Message]):
+        """Register a command handler factory through an adapter decorator."""
+
+        def decorate(target: object) -> object:
+            self._builder.add_command_handler_factory(message_type, target)
+            return target
+
+        return decorate
+
+    def query_handler_factory(self, message_type: type[Message]):
+        """Register a query handler factory through an adapter decorator."""
+
+        def decorate(target: object) -> object:
+            self._builder.add_query_handler_factory(message_type, target)
+            return target
+
+        return decorate
+
+    def event_handler_factory(self, message_type: type[Message]):
+        """Register an event handler factory through an adapter decorator."""
+
+        def decorate(target: object) -> object:
+            self._builder.add_event_handler_factory(message_type, target)
+            return target
+
+        return decorate
 
     async def get_buses(self, app: FastAPI) -> CqrsBuses:
         """Build or return the one CQRS graph associated with ``app``."""
@@ -56,11 +137,18 @@ class FastAPIAdapter:
             state = getattr(app.state, "cqrs", None)
             if isinstance(state, _AppCqrsState):
                 return state.buses
-            result = self._buses_factory()
-            if inspect.isawaitable(result):
-                buses = await cast(Awaitable[CqrsBuses], result)
-            else:
-                buses = cast(CqrsBuses, result)
+            buses = self._builder.build()
+            try:
+                if self._on_buses_built is not None:
+                    result = self._on_buses_built(buses)
+                    if inspect.isawaitable(result):
+                        await result
+            except BaseException:
+                try:
+                    await self._close_provider(timeout=self._shutdown_timeout)
+                except BaseException:
+                    logger.exception("Failed to close provider after build failure")
+                raise
             app.state.cqrs = _AppCqrsState(buses=buses)
             app.state.cqrs_buses = buses
             app.state.cqrs_ready = False
@@ -78,6 +166,7 @@ class FastAPIAdapter:
             self._lifespan_active = True
             self._lifespan_used = True
 
+        buses: CqrsBuses | None = None
         try:
             buses = await self.get_buses(app)
             if self._provider is not None:
@@ -85,6 +174,13 @@ class FastAPIAdapter:
                 if callable(bind_app):
                     bind_app(app)
         except BaseException:
+            try:
+                if buses is not None:
+                    await self._shutdown_components(buses)
+                else:
+                    await self._close_provider(timeout=self._shutdown_timeout)
+            except BaseException:
+                logger.exception("Failed to clean up after lifespan setup failure")
             async with self._lock:
                 self._lifespan_active = False
             raise
@@ -134,18 +230,23 @@ class FastAPIAdapter:
                     first_error = error
                 logger.exception("Failed to shut down CQRS bus")
 
-        if self._provider is not None:
-            close = getattr(self._provider, "close", None)
-            if callable(close):
-                try:
-                    result = close(timeout=_remaining(deadline))
-                    if inspect.isawaitable(result):
-                        await result
-                except BaseException as error:
-                    if first_error is None:
-                        first_error = error
-                    logger.exception("Failed to close CQRS handler provider")
+        try:
+            await self._close_provider(timeout=_remaining(deadline))
+        except BaseException as error:
+            if first_error is None:
+                first_error = error
+            logger.exception("Failed to close CQRS handler provider")
         return first_error
+
+    async def _close_provider(self, *, timeout: float | None) -> None:
+        if self._provider is None:
+            return
+        close = getattr(self._provider, "close", None)
+        if not callable(close):
+            return
+        result = close(timeout=timeout)
+        if inspect.isawaitable(result):
+            await result
 
 
 def _set_ready(app: FastAPI, ready: bool) -> None:
