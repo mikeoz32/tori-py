@@ -1,5 +1,8 @@
 """Framework-agnostic Nestpy declarations."""
 
+from nestpy.core.compiler import (
+    compile_graph,
+)
 from nestpy.core.errors import (
     DIAGNOSTIC_CODES,
     ApplicationStateError,
@@ -118,6 +121,7 @@ __all__ = [
     "Token",
     "ValueProvider",
     "controller",
+    "compile_graph",
     "delete",
     "get",
     "get_controller_metadata",
