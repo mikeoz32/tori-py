@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, replace
+from typing import TYPE_CHECKING
 
 from nestpy.core.compiler import CompiledGraph, ModuleId, compile_graph
 from nestpy.core.errors import BootstrapError
@@ -17,6 +18,12 @@ from nestpy.core.providers import (
     ValueProvider,
 )
 from nestpy.core.runtime import ApplicationKernel
+
+if TYPE_CHECKING:
+    from starlette.types import ASGIApp
+
+    from nestpy.core.options import ApplicationOptions, StarletteOptions
+    from nestpy.starlette.application import StarletteBinder
 
 
 @dataclass(frozen=True, slots=True)
@@ -120,7 +127,12 @@ class TestingModule:
         self._check_open()
         return ProviderOverride(self, token, None)
 
-    async def compile(self) -> TestingApplication:
+    async def compile(
+        self,
+        *,
+        options: ApplicationOptions | None = None,
+        http: StarletteOptions | None = None,
+    ) -> TestingApplication:
         self._check_open()
         self._sealed = True
         graph = await compile_graph(
@@ -129,9 +141,13 @@ class TestingModule:
             spec_transformer=self._transform_spec,
         )
         self._validate_override_targets(graph)
-        kernel = ApplicationKernel(graph)
+        from nestpy.core.options import StarletteOptions
+        from nestpy.starlette.application import StarletteBinder
+
+        binder = StarletteBinder(graph, http or StarletteOptions())
+        kernel = ApplicationKernel(graph, options=options, binder=binder)
         await kernel.start()
-        return TestingApplication(kernel)
+        return TestingApplication(kernel, binder)
 
     def _add_provider_override(
         self,
@@ -202,9 +218,16 @@ class TestingModule:
 class TestingApplication:
     """Testing facade over the production application kernel and container."""
 
-    def __init__(self, kernel: ApplicationKernel) -> None:
+    def __init__(self, kernel: ApplicationKernel, binder: StarletteBinder) -> None:
         self.kernel = kernel
         self.graph = kernel.graph
+        self.binder = binder
+
+    @property
+    def asgi(self) -> ASGIApp:
+        if self.binder.app is None:
+            raise BootstrapError("testing application is not started")
+        return self.binder.app
 
     async def resolve(
         self,

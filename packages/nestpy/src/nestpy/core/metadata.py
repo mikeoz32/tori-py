@@ -49,6 +49,64 @@ class StatusMetadata:
             )
 
 
+@dataclass(frozen=True, slots=True)
+class Body:
+    """Bind one JSON request body without applying type conversion."""
+
+
+@dataclass(frozen=True, slots=True)
+class Path:
+    """Bind one raw path value by its explicit source name."""
+
+    name: str
+
+    def __post_init__(self) -> None:
+        _validate_binding_name(self.name, "path")
+
+
+@dataclass(frozen=True, slots=True)
+class Query:
+    """Bind one raw query value by its explicit source name."""
+
+    name: str
+
+    def __post_init__(self) -> None:
+        _validate_binding_name(self.name, "query")
+
+
+@dataclass(frozen=True, slots=True)
+class Header:
+    """Bind one raw header value by its explicit source name."""
+
+    name: str
+
+    def __post_init__(self) -> None:
+        _validate_binding_name(self.name, "header")
+
+
+@dataclass(frozen=True, slots=True)
+class Cookie:
+    """Bind one raw cookie value by its explicit source name."""
+
+    name: str
+
+    def __post_init__(self) -> None:
+        _validate_binding_name(self.name, "cookie")
+
+
+@dataclass(frozen=True, slots=True)
+class Context:
+    """Bind the driver-neutral request execution context."""
+
+
+def _validate_binding_name(name: str, kind: str) -> None:
+    if not isinstance(name, str) or not name:
+        raise BootstrapError(
+            f"{kind} binding source name must be non-empty",
+            code="route.invalid_binding",
+        )
+
+
 def _attach(target: Any, attribute: str, metadata: object, code: str) -> Any:
     if attribute in getattr(target, "__dict__", {}):
         raise BootstrapError(
@@ -151,7 +209,13 @@ def get_status_metadata(target: Any) -> StatusMetadata | None:
 
 
 __all__ = [
+    "Body",
+    "Context",
+    "Cookie",
     "ControllerMetadata",
+    "Header",
+    "Path",
+    "Query",
     "RouteMetadata",
     "StatusMetadata",
     "controller",

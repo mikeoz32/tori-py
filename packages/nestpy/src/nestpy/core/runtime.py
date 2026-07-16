@@ -484,6 +484,13 @@ class RequestScope(AbstractAsyncContextManager[ScopedResolver]):
             self._on_open(self)
         return self.resolver
 
+    def resolver_for(self, module_id: ModuleId) -> ScopedResolver:
+        """Create a resolver for another module using this request lease."""
+
+        if not self._entered or self._closed:
+            raise ScopeError("request scope is not open")
+        return _Resolver(self._container, module_id, self.state)
+
     async def __aexit__(self, exc_type: object, exc: object, tb: object) -> None:
         del exc_type, exc, tb
         if self._closed:
