@@ -5,17 +5,20 @@ requires-python = ">=3.14,<3.15"
 dependencies = [
     "cqrs-core",
     "cqrs-fastapi",
+    "nestpy",
 ]
 
 [tool.uv.workspace]
 members = [
     "packages/cqrs-core",
     "packages/cqrs-fastapi",
+    "packages/nestpy",
 ]
 
 [tool.uv.sources]
 cqrs-core = { workspace = true }
 cqrs-fastapi = { workspace = true }
+nestpy = { workspace = true }
 
 [dependency-groups]
 dev = [

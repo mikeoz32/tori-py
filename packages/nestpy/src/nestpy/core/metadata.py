@@ -1,0 +1,170 @@
+"""Immutable declaration metadata for controllers and route methods."""
+
+from dataclasses import dataclass
+from typing import Any
+
+from nestpy.core.errors import BootstrapError
+
+
+@dataclass(frozen=True, slots=True)
+class ControllerMetadata:
+    prefix: str = ""
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.prefix, str):
+            raise BootstrapError(
+                "controller prefix must be a string",
+                code="controller.invalid_declaration",
+            )
+
+
+@dataclass(frozen=True, slots=True)
+class RouteMetadata:
+    method: str
+    path: str
+
+    def __post_init__(self) -> None:
+        if not self.method or not isinstance(self.method, str):
+            raise BootstrapError(
+                "route method must be a non-empty string",
+                code="route.invalid_signature",
+            )
+        if not isinstance(self.path, str):
+            raise BootstrapError(
+                "route path must be a string",
+                code="route.invalid_signature",
+            )
+        object.__setattr__(self, "method", self.method.upper())
+
+
+@dataclass(frozen=True, slots=True)
+class StatusMetadata:
+    status_code: int
+
+    def __post_init__(self) -> None:
+        if type(self.status_code) is not int or not 100 <= self.status_code <= 599:
+            raise BootstrapError(
+                "route status must be an HTTP status code",
+                code="route.invalid_signature",
+            )
+
+
+def _attach(target: Any, attribute: str, metadata: object, code: str) -> Any:
+    if attribute in getattr(target, "__dict__", {}):
+        raise BootstrapError(
+            f"{attribute} is already declared on this target",
+            code=code,
+        )
+    setattr(target, attribute, metadata)
+    return target
+
+
+def controller(prefix: str = "") -> Any:
+    """Attach controller metadata directly to a class."""
+
+    metadata = ControllerMetadata(prefix)
+
+    def decorate(target: type[object]) -> type[object]:
+        return _attach(
+            target,
+            "__nestpy_controller_metadata__",
+            metadata,
+            "controller.duplicate_metadata",
+        )
+
+    return decorate
+
+
+def route(method: str, path: str = "") -> Any:
+    """Attach one route declaration to a method without creating a router."""
+
+    metadata = RouteMetadata(method, path)
+
+    def decorate(target: Any) -> Any:
+        return _attach(
+            target,
+            "__nestpy_route_metadata__",
+            metadata,
+            "route.duplicate_metadata",
+        )
+
+    return decorate
+
+
+def status(status_code: int) -> Any:
+    """Attach an encoded-response status to a route method."""
+
+    metadata = StatusMetadata(status_code)
+
+    def decorate(target: Any) -> Any:
+        return _attach(
+            target,
+            "__nestpy_status_metadata__",
+            metadata,
+            "route.duplicate_metadata",
+        )
+
+    return decorate
+
+
+def get(path: str = "") -> Any:
+    return route("GET", path)
+
+
+def post(path: str = "") -> Any:
+    return route("POST", path)
+
+
+def put(path: str = "") -> Any:
+    return route("PUT", path)
+
+
+def patch(path: str = "") -> Any:
+    return route("PATCH", path)
+
+
+def delete(path: str = "") -> Any:
+    return route("DELETE", path)
+
+
+def options(path: str = "") -> Any:
+    return route("OPTIONS", path)
+
+
+def head(path: str = "") -> Any:
+    return route("HEAD", path)
+
+
+def get_controller_metadata(target: type[object]) -> ControllerMetadata | None:
+    metadata = target.__dict__.get("__nestpy_controller_metadata__")
+    return metadata if isinstance(metadata, ControllerMetadata) else None
+
+
+def get_route_metadata(target: Any) -> RouteMetadata | None:
+    metadata = getattr(target, "__nestpy_route_metadata__", None)
+    return metadata if isinstance(metadata, RouteMetadata) else None
+
+
+def get_status_metadata(target: Any) -> StatusMetadata | None:
+    metadata = getattr(target, "__nestpy_status_metadata__", None)
+    return metadata if isinstance(metadata, StatusMetadata) else None
+
+
+__all__ = [
+    "ControllerMetadata",
+    "RouteMetadata",
+    "StatusMetadata",
+    "controller",
+    "delete",
+    "get",
+    "get_controller_metadata",
+    "get_route_metadata",
+    "get_status_metadata",
+    "head",
+    "options",
+    "patch",
+    "post",
+    "put",
+    "route",
+    "status",
+]
