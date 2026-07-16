@@ -1,5 +1,10 @@
 # CQRS Specifications
 
+Nestpy has a separate architecture and phase map under
+[`spec/nestpy/README.md`](nestpy/README.md). Its N0-N6 phases do not alter the
+CQRS core contracts below; future integration requires a separately designed
+`nestpy-cqrs` bridge.
+
 These documents turn `CQRS_IMPLEMENTATION_PLAN.md` into executable implementation specifications. They are the source of truth for the first CQRS slice until code and tests establish a more precise behavior.
 
 ## How To Read

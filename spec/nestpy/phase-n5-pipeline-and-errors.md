@@ -1,0 +1,178 @@
+# Phase N5: HTTP Pipeline and Errors
+
+## Purpose
+
+Implement the full global/controller/route execution pipeline, typed conversion
+through pipes, and exception filters while preserving cancellation and
+response-transmission safety. Reuse and extend N4's base Problem Details
+renderer rather than creating a second renderer.
+
+## Entry Criteria
+
+- N4 direct route invocation, scopes, contexts, binding, and response ownership
+  pass.
+- Pipeline declarations/protocols from N0 are stable.
+
+## Qualified Pipeline Providers
+
+Pipeline declarations are provider tokens.
+
+- global tokens resolve once from root-module visibility during compilation;
+- controller and route tokens resolve from the owning module;
+- compiled plans store qualified provider references;
+- runtime never resolves an unqualified global token from a route module;
+- request-scoped and transient pipeline providers are allowed and owned by the
+  request scope.
+
+## Execution Order
+
+After route match/request scope creation:
+
+```text
+filter boundary(
+  global middleware -> controller middleware -> route middleware ->
+  global guards -> controller guards -> route guards ->
+  bind raw arguments ->
+  global/controller/route pipes per HTTP-bound argument ->
+  global interceptors -> controller interceptors -> route interceptors ->
+  handler -> response encoding
+)
+```
+
+404/405 use global filters only with partial context.
+
+Registration order is tuple order at each level. Repeating the same pipeline
+decorator kind on one controller/route is a bootstrap error.
+
+## Middleware and Interceptor Next
+
+`Next` is a one-shot async callable. Its second invocation raises
+`PipelineStateError`. Middleware/interceptors nest in registration order and
+unwind in reverse order. They may short-circuit with a `PipelineResult`.
+
+## Guards
+
+Guards run sequentially. First `False` raises standard forbidden
+`HttpException`. Exceptions continue to filters. Nestpy provides no built-in
+authentication implementation.
+
+## Binding and Pipes
+
+N4 binding extracts all raw values before pipes run.
+
+Pipes execute per HTTP-bound argument in handler parameter order:
+
+1. global pipes;
+2. controller pipes;
+3. route pipes.
+
+`Context()` and `Inject()` arguments never pass through pipes.
+
+Provide opt-in `MsgspecValidationPipe`:
+
+- converts raw value to declared annotation;
+- handles scalar/repeated/body conversion;
+- emits structured validation errors;
+- does not run automatically unless registered;
+- supports dataclasses/msgspec structs and msgspec-compatible types.
+
+There is one conversion point: the pipe. Binding does not pre-convert.
+
+## Filters and Cancellation
+
+Filters accept `Exception`, not `BaseException`.
+
+The framework MUST always propagate:
+
+- `asyncio.CancelledError`;
+- `KeyboardInterrupt`;
+- `SystemExit`;
+- any other `BaseException` not derived from `Exception`.
+
+Filter order is route, controller, global. A filter handles by returning a
+`PipelineResult`; re-raising selects the next filter. A filter's own `Exception`
+also proceeds to the next filter. The default renderer runs last.
+
+Global filters may receive routing 404/405 through partial context. Route and
+controller filters require a successful match.
+
+No replacement response is attempted after `http.response.start`; such errors
+are logged with request ID and propagated/observed according to ASGI behavior.
+
+## Problem Details
+
+Default content type is `application/problem+json`. Include:
+
+- `type`;
+- `title`;
+- `status`;
+- `detail`;
+- `instance`;
+- optional structured `errors` extension.
+
+Default mappings:
+
+- malformed/missing/validation input -> 400;
+- guard false -> 403;
+- unmatched path -> 404;
+- method not allowed -> 405 with Starlette Allow header;
+- oversized body -> 413;
+- unsupported media type -> 415;
+- unexpected `Exception` -> 500 with generic detail.
+
+Unexpected exceptions are logged with traceback and request ID, never returned
+with source details.
+
+## Explicit Responses
+
+Filters/middleware/interceptors may return opaque explicit Starlette responses.
+Framework route status/static headers do not alter them. Request ID overwrite
+and request-scope lifetime remain N4 invariants.
+
+## Explicit Non-Goals
+
+N5 MUST NOT:
+
+- catch cancellation in filters;
+- add auth implementations;
+- create detached background cleanup;
+- add automatic MsgspecValidationPipe registration;
+- mutate `Context` or `Inject` arguments through global pipes;
+- replace a response after transmission starts.
+
+## Tests
+
+Tests MUST cover:
+
+1. exact global/controller/route ordering for every pipeline kind;
+2. nested unwind order;
+3. one-shot `Next` rejection;
+4. middleware/interceptor short circuit;
+5. guard false and guard exceptions;
+6. per-argument pipe order;
+7. context/inject exclusion from pipes;
+8. raw input without validation pipe;
+9. msgspec conversion/validation with pipe;
+10. no double decoding;
+11. route/controller/global filter precedence;
+12. filter fallthrough and filter failure;
+13. default Problem Details mappings;
+14. global 404/405 filtering;
+15. cancellation bypasses catch-all filters;
+16. client disconnect cancellation;
+17. KeyboardInterrupt/SystemExit bypass;
+18. response encoding failure before start is filterable;
+19. failure after response start is logged, not re-rendered;
+20. pipeline provider scopes/resources clean once;
+21. root-qualified global pipeline provider wins even when route module binds
+    the same unqualified token;
+22. duplicate same-kind pipeline decorator rejection;
+23. `ArgumentMetadata` exposes parameter, binding, source, annotation, route,
+    and module fields;
+24. request ID is preserved across all responses/errors.
+
+## Exit Criteria
+
+N5 is complete when every post-match failure and routing 404/405 follows the
+documented filter/default-renderer contract, typed conversion occurs only in
+pipes, and cancellation cannot be swallowed by user filters.
