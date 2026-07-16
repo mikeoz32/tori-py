@@ -8,7 +8,7 @@ from dataclasses import dataclass, replace
 from types import MappingProxyType
 from typing import Annotated, cast, get_args, get_origin, get_type_hints
 
-from nestpy.core.errors import BootstrapError
+from nestpy.core.errors import BootstrapError, SettingsError
 from nestpy.core.modules import (
     DeferredModule,
     ModuleImport,
@@ -121,13 +121,20 @@ class _ModuleNode:
 
 
 class _Compiler:
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        import_resolver: Callable[[ModuleImport], ModuleImport] | None = None,
+        spec_transformer: Callable[[ModuleId, ModuleSpec], ModuleSpec] | None = None,
+    ) -> None:
         self.nodes: dict[ModuleId, _ModuleNode] = {}
         self.states: dict[ModuleId, str] = {}
         self.order: list[ModuleId] = []
         self.static_ids: dict[type[object], ModuleId] = {}
         self.dynamic_ids: dict[tuple[type[object], str], DeferredModule] = {}
         self.descriptor_ids: dict[int, ModuleId] = {}
+        self.import_resolver = import_resolver
+        self.spec_transformer = spec_transformer
 
     async def compile(
         self,
@@ -138,6 +145,8 @@ class _Compiler:
         return self._finish(root_id)
 
     async def _ensure_import(self, imported: ModuleImport) -> ModuleId:
+        if self.import_resolver is not None:
+            imported = self.import_resolver(imported)
         if isinstance(imported, DeferredModule):
             return await self._ensure_dynamic(imported)
         if isinstance(imported, type):
@@ -160,6 +169,8 @@ class _Compiler:
         self.static_ids[module] = module_id
         metadata = get_module_metadata(module)
         spec = metadata if metadata is not None else ModuleSpec()
+        if self.spec_transformer is not None:
+            spec = self.spec_transformer(module_id, spec)
         self.nodes[module_id] = _ModuleNode(module_id, module, spec, [])
         return module_id
 
@@ -192,6 +203,8 @@ class _Compiler:
             result = descriptor.factory()
             if inspect.isawaitable(result):
                 result = await result
+        except SettingsError:
+            raise
         except Exception as error:
             raise self._error(
                 "module.materialization_error",
@@ -203,6 +216,8 @@ class _Compiler:
                 "dynamic module materializer must return ModuleSpec",
                 {"module": descriptor.module.__qualname__, "key": descriptor.key},
             )
+        if self.spec_transformer is not None:
+            result = self.spec_transformer(module_id, result)
         self.nodes[module_id] = _ModuleNode(
             module_id,
             descriptor.module,
@@ -417,10 +432,16 @@ class _Compiler:
 
 async def compile_graph(
     root: type[object] | DeferredModule,
+    *,
+    import_resolver: Callable[[ModuleImport], ModuleImport] | None = None,
+    spec_transformer: Callable[[ModuleId, ModuleSpec], ModuleSpec] | None = None,
 ) -> CompiledGraph:
     """Compile a root module and all imported modules without instantiation."""
 
-    return await _Compiler().compile(root)
+    return await _Compiler(
+        import_resolver=import_resolver,
+        spec_transformer=spec_transformer,
+    ).compile(root)
 
 
 def _validate_module_constructor(module: type[object]) -> None:

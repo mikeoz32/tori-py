@@ -1,3 +1,5 @@
-"""Testing namespace; overrides and ASGI support are introduced in N3/N4."""
+"""Testing helpers for pre-compilation provider and module overrides."""
 
-__all__: list[str] = []
+from nestpy.testing.runtime import ProviderOverride, TestingApplication, TestingModule
+
+__all__ = ["ProviderOverride", "TestingApplication", "TestingModule"]
