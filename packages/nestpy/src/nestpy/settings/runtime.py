@@ -74,7 +74,7 @@ class MsgspecCodec:
         path: str = "",
     ) -> object:
         try:
-            return msgspec.convert(value, type=target)
+            return msgspec.convert(value, type=target, strict=False)
         except Exception as error:
             raise SettingsError(
                 "settings value failed type conversion",

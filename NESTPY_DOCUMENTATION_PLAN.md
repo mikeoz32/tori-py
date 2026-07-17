@@ -1005,6 +1005,11 @@ Entry criteria:
 
 - All concept guides are complete.
 
+A foundation reference application MAY be implemented earlier as a code-first
+discovery slice when it has its own executable tests and does not claim that the
+surrounding user guides already exist. Its documentation integration, recipe
+links, and release review remain D9 work.
+
 Tasks:
 
 1. Implement and test all recipes from section 12.
@@ -1223,7 +1228,7 @@ Update this table after every documentation phase:
 | D6 | Pending | Settings and observability |
 | D7 | Pending | Testing guide |
 | D8 | Pending | CLI, deployment, security |
-| D9 | Pending | Recipes and reference apps |
+| D9 | In progress | Task API foundation reference application |
 | D10 | Pending | API reference and release review |
 
 Allowed status values:

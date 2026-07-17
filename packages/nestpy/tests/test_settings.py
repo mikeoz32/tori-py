@@ -73,20 +73,33 @@ def test_secret_paths_and_cli_redaction() -> None:
 
 
 def test_context_resets_and_custom_decoder_is_used() -> None:
+    class Codec:
+        called = False
+
+        def decode(self, value, target, *, path=""):
+            self.called = True
+            assert value == {}
+            assert path == ""
+            return target()
+
+        def encode(self, value):
+            return value
+
     class Decoder:
         called = False
 
         def decode(self, values, model, *, codec):
             self.called = True
             assert values == {"database": {"port": "6001"}}
-            assert codec is not None
-            return model()
+            return codec.decode({}, model)
 
     decoder = Decoder()
+    codec = Codec()
     options = SettingsOptions(
         model=AppSettings,
         base_dir=Path("."),
         decoder=decoder,
+        codec=codec,
     )
     assert isinstance(MsgspecSettingsDecoder(), MsgspecSettingsDecoder)
     with use_bootstrap_context(BootstrapContext((("database.port", "6001"),))):
@@ -94,7 +107,22 @@ def test_context_resets_and_custom_decoder_is_used() -> None:
         assert current_bootstrap_context().overrides
     assert current_bootstrap_context().overrides == ()
     assert decoder.called
+    assert codec.called
     assert isinstance(settings, AppSettings)
+
+
+def test_textual_environment_and_bootstrap_values_decode_to_model_types() -> None:
+    options = SettingsOptions(
+        model=AppSettings,
+        base_dir=Path("."),
+        env_prefix="APP_",
+        environment={"APP_DATABASE__PORT": "6001"},
+    )
+    with use_bootstrap_context(BootstrapContext((("database.host", "cli-host"),))):
+        settings = load_settings(options)
+    assert isinstance(settings, AppSettings)
+    assert settings.database.host == "cli-host"
+    assert settings.database.port == 6001
 
 
 def test_invalid_dotenv_and_yaml_without_extra_are_typed_errors(tmp_path: Path) -> None:
