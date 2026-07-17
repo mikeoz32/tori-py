@@ -6,7 +6,9 @@ import argparse
 import importlib
 import importlib.metadata
 import inspect
+import sys
 from collections.abc import Callable, Sequence
+from pathlib import Path
 from typing import Any, cast
 
 from nestpy.settings import BootstrapContext, use_bootstrap_context
@@ -57,6 +59,9 @@ def _load_factory(target: str) -> Callable[[], object]:
     module_name, separator, attribute_name = target.partition(":")
     if not separator or not module_name or not attribute_name:
         raise CLIError("target must use the module:factory form")
+    working_directory = str(Path.cwd())
+    if working_directory not in sys.path:
+        sys.path.insert(0, working_directory)
     try:
         module = importlib.import_module(module_name)
     except Exception as error:
