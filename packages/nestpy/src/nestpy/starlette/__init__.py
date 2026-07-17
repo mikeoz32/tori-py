@@ -15,11 +15,14 @@ if TYPE_CHECKING:
         current_request_scope,
     )
     from nestpy.starlette.errors import HttpException
+    from nestpy.starlette.pipeline import MsgspecValidationPipe, PipelineExecutor
 
 __all__ = [
     "ASGIApplication",
     "HttpException",
+    "MsgspecValidationPipe",
     "NestApplication",
+    "PipelineExecutor",
     "RequestContext",
     "StarletteBinder",
     "asgi",
@@ -41,4 +44,8 @@ def __getattr__(name: str) -> Any:
         from nestpy.starlette.errors import HttpException
 
         return HttpException
+    if name in {"MsgspecValidationPipe", "PipelineExecutor"}:
+        from nestpy.starlette import pipeline
+
+        return getattr(pipeline, name)
     raise AttributeError(name)

@@ -13,7 +13,7 @@ from starlette.requests import Request
 from starlette.responses import Response
 from starlette.routing import Route
 
-from nestpy.core.compiler import CompiledGraph, ModuleId
+from nestpy.core.compiler import CompiledGraph, ModuleId, ProviderRef
 from nestpy.core.errors import BootstrapError
 from nestpy.core.metadata import (
     Body,
@@ -23,11 +23,12 @@ from nestpy.core.metadata import (
     Path,
     Query,
     get_controller_metadata,
+    get_pipeline_metadata,
     get_route_metadata,
     get_status_metadata,
 )
+from nestpy.core.protocols import PipelineResult
 from nestpy.core.providers import Inject, Token
-from nestpy.core.runtime import ApplicationKernel
 from nestpy.starlette.context import (
     RequestContext,
     _reset_context,
@@ -35,6 +36,7 @@ from nestpy.starlette.context import (
     current_request_scope,
 )
 from nestpy.starlette.errors import HttpException
+from nestpy.starlette.pipeline import PipelineExecutor
 
 
 @dataclass(frozen=True, slots=True)
@@ -49,6 +51,15 @@ class ParameterPlan:
 
 
 @dataclass(frozen=True, slots=True)
+class PipelineBindings:
+    middleware: tuple[Token | ProviderRef, ...] = ()
+    guards: tuple[Token | ProviderRef, ...] = ()
+    pipes: tuple[Token | ProviderRef, ...] = ()
+    interceptors: tuple[Token | ProviderRef, ...] = ()
+    filters: tuple[Token | ProviderRef, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
 class RoutePlan:
     module_id: ModuleId
     controller: type[object]
@@ -58,6 +69,8 @@ class RoutePlan:
     route_id: str
     status_code: int
     parameters: tuple[ParameterPlan, ...]
+    controller_pipeline: PipelineBindings
+    route_pipeline: PipelineBindings
 
 
 def compile_routes(graph: CompiledGraph) -> tuple[RoutePlan, ...]:
@@ -106,6 +119,8 @@ def compile_routes(graph: CompiledGraph) -> tuple[RoutePlan, ...]:
                             else status_metadata.status_code
                         ),
                         parameters=parameters,
+                        controller_pipeline=_pipeline_bindings(controller),
+                        route_pipeline=_pipeline_bindings(handler),
                     )
                 )
     return tuple(plans)
@@ -113,7 +128,7 @@ def compile_routes(graph: CompiledGraph) -> tuple[RoutePlan, ...]:
 
 def build_starlette_routes(
     plans: tuple[RoutePlan, ...],
-    kernel: ApplicationKernel,
+    pipeline: PipelineExecutor,
     *,
     application_id: str,
     body_size_limit: int,
@@ -122,7 +137,7 @@ def build_starlette_routes(
     for plan in plans:
         endpoint = _endpoint(
             plan,
-            kernel,
+            pipeline,
             application_id=application_id,
             body_size_limit=body_size_limit,
         )
@@ -132,7 +147,7 @@ def build_starlette_routes(
 
 def _endpoint(
     plan: RoutePlan,
-    kernel: ApplicationKernel,
+    pipeline: PipelineExecutor,
     *,
     application_id: str,
     body_size_limit: int,
@@ -151,20 +166,37 @@ def _endpoint(
         )
         context_token = _set_context(context)
         try:
-            controller = await request_scope.resolver_for(plan.module_id).resolve(
-                plan.controller
-            )
-            arguments = await _bind_arguments(
+
+            async def bind_arguments() -> dict[str, object]:
+                return await _bind_arguments(
+                    plan,
+                    request,
+                    context,
+                    body_size_limit=body_size_limit,
+                )
+
+            async def invoke_handler(arguments: dict[str, object]) -> object:
+                controller = await request_scope.resolver_for(plan.module_id).resolve(
+                    plan.controller
+                )
+                handler = getattr(controller, plan.method_name)
+                result = handler(**arguments)
+                return await result if inspect.isawaitable(result) else result
+
+            async def encode_result(result: object) -> Response:
+                return await _encode_pipeline_result(
+                    result,
+                    plan.status_code,
+                    request,
+                )
+
+            return await pipeline.run(
                 plan,
-                request,
                 context,
-                body_size_limit=body_size_limit,
+                bind_arguments=bind_arguments,
+                invoke_handler=invoke_handler,
+                encode_result=encode_result,
             )
-            handler = getattr(controller, plan.method_name)
-            result = handler(**arguments)
-            if inspect.isawaitable(result):
-                result = await result
-            return await _encode_result(result, plan.status_code, request)
         finally:
             _reset_context(context_token)
 
@@ -266,6 +298,18 @@ async def _encode_result(
     )
 
 
+async def _encode_pipeline_result(
+    result: object,
+    status_code: int,
+    request: Request,
+) -> Response:
+    if isinstance(result, PipelineResult):
+        if result.is_response and not isinstance(result.value, Response):
+            raise HttpException(500, "Pipeline response is not a Starlette response.")
+        result = result.value
+    return await _encode_result(result, status_code, request)
+
+
 def _compile_parameters(handler: object) -> tuple[ParameterPlan, ...]:
     try:
         signature = inspect.signature(cast(Callable[..., object], handler))
@@ -330,6 +374,16 @@ def _compile_parameters(handler: object) -> tuple[ParameterPlan, ...]:
     return tuple(plans)
 
 
+def _pipeline_bindings(target: object) -> PipelineBindings:
+    return PipelineBindings(
+        middleware=get_pipeline_metadata(target, "middleware"),
+        guards=get_pipeline_metadata(target, "guards"),
+        pipes=get_pipeline_metadata(target, "pipes"),
+        interceptors=get_pipeline_metadata(target, "interceptors"),
+        filters=get_pipeline_metadata(target, "filters"),
+    )
+
+
 def _annotation_markers(annotation: object) -> tuple[object, list[object]]:
     if get_origin(annotation) is not Annotated:
         return annotation, []
@@ -387,4 +441,4 @@ def _collapse_values(values: list[str]) -> object:
 _MISSING = object()
 
 
-__all__ = ["RoutePlan", "compile_routes"]
+__all__ = ["PipelineBindings", "RoutePlan", "compile_routes"]

@@ -491,6 +491,13 @@ class RequestScope(AbstractAsyncContextManager[ScopedResolver]):
             raise ScopeError("request scope is not open")
         return _Resolver(self._container, module_id, self.state)
 
+    async def resolve_ref(self, ref: ProviderRef) -> object:
+        """Resolve a compiler-qualified provider reference in this lease."""
+
+        if not self._entered or self._closed:
+            raise ScopeError("request scope is not open")
+        return await self._container.resolve_ref(ref, scope=self.state)
+
     async def __aexit__(self, exc_type: object, exc: object, tb: object) -> None:
         del exc_type, exc, tb
         if self._closed:

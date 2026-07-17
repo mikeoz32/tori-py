@@ -7,7 +7,7 @@ import inspect
 import logging
 import re
 import uuid
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, MutableMapping
 from enum import StrEnum
 from typing import Any
 
@@ -25,14 +25,13 @@ from nestpy.starlette.context import (
     _reset_scope,
     _set_context,
     _set_scope,
+    current_request_context,
 )
 from nestpy.starlette.errors import (
     HttpException,
-    method_not_allowed_handler,
-    not_found_handler,
     problem_response,
-    server_error_handler,
 )
+from nestpy.starlette.pipeline import PipelineExecutor
 from nestpy.starlette.routes import build_starlette_routes, compile_routes
 
 logger = logging.getLogger("nestpy.starlette")
@@ -49,6 +48,8 @@ class StarletteBinder:
         self.graph = graph
         self.http_options = http_options
         self.plans = compile_routes(graph)
+        self.pipeline = PipelineExecutor(graph, global_tokens=http_options)
+        self.plans = self.pipeline.qualify(self.plans)
         self.app: ASGIApp | None = None
         self._kernel: ApplicationKernel | None = None
 
@@ -57,17 +58,17 @@ class StarletteBinder:
         application_id = graph_label(self.graph)
         routes = build_starlette_routes(
             self.plans,
-            kernel,
+            self.pipeline,
             application_id=application_id,
             body_size_limit=self.http_options.body_size_limit,
         )
         starlette_app = Starlette(
             routes=routes,
             exception_handlers={
-                HttpException: _http_exception_handler,
-                404: not_found_handler,
-                405: method_not_allowed_handler,
-                Exception: server_error_handler,
+                HttpException: _pipeline_http_exception_handler(self.pipeline),
+                404: _pipeline_status_handler(self.pipeline, 404),
+                405: _pipeline_status_handler(self.pipeline, 405),
+                Exception: _pipeline_exception_handler(self.pipeline),
             },
         )
         self.app = RequestScopeMiddleware(
@@ -119,12 +120,28 @@ class RequestScopeMiddleware:
                 )
             )
             try:
+                response_started = False
+
+                async def tracked_send(message: MutableMapping[str, Any]) -> None:
+                    nonlocal response_started
+                    if message.get("type") == "http.response.start":
+                        response_started = True
+                    await send(message)
+
                 with use_log_context(
                     application=self.application_id,
                     request_id=request_id,
                     scope="request",
                 ):
-                    await self.app(scope, receive, send)
+                    try:
+                        await self.app(scope, receive, tracked_send)
+                    except Exception:
+                        if response_started:
+                            logger.exception(
+                                "HTTP response failed after transmission started",
+                                extra={"request_id": request_id},
+                            )
+                        raise
             finally:
                 _reset_context(context_token)
                 _reset_scope(scope_token)
@@ -194,7 +211,7 @@ class ASGIApplication:
                 await application.http_app(scope, receive, send)
                 return
         if scope["type"] == "http":
-            await _send_problem(send, 503, "Application is not ready.")
+            await _send_problem(send, 503, "Application is not ready.", scope)
             return
         await _send_empty(send, 204)
 
@@ -266,16 +283,59 @@ def asgi(
     return ASGIApplication(factory)
 
 
-async def _http_exception_handler(request: Request, error: Exception):
-    if not isinstance(error, HttpException):
-        return await server_error_handler(request, error)
-    return problem_response(
-        error.status_code,
-        error.detail,
-        request=request,
-        title=error.title,
-        headers=error.headers,
-    )
+def _pipeline_http_exception_handler(pipeline: PipelineExecutor):
+    async def handle(request: Request, error: Exception):
+        if not isinstance(error, HttpException):
+            return await _pipeline_exception_handler(pipeline)(request, error)
+        return await _pipeline_error_response(pipeline, request, error)
+
+    return handle
+
+
+def _pipeline_status_handler(pipeline: PipelineExecutor, status_code: int):
+    async def handle(request: Request, error: Exception):
+        detail = (
+            "The requested resource was not found."
+            if status_code == 404
+            else "The HTTP method is not allowed."
+        )
+        headers = getattr(error, "headers", None)
+        return await _pipeline_error_response(
+            pipeline,
+            request,
+            HttpException(status_code, detail, headers=headers),
+        )
+
+    return handle
+
+
+def _pipeline_exception_handler(pipeline: PipelineExecutor):
+    async def handle(request: Request, error: Exception):
+        return await _pipeline_error_response(
+            pipeline,
+            request,
+            error,
+        )
+
+    return handle
+
+
+async def _pipeline_error_response(
+    pipeline: PipelineExecutor,
+    request: Request,
+    error: Exception,
+):
+    context = current_request_context()
+    if context is None:
+        if isinstance(error, HttpException):
+            return problem_response(error.status_code, error.detail, request=request)
+        return problem_response(500, "Internal server error.", request=request)
+    from nestpy.starlette.routes import _encode_pipeline_result
+
+    async def encode(result: object):
+        return await _encode_pipeline_result(result, 200, request)
+
+    return await pipeline.handle_routing_error(error, context, encode_result=encode)
 
 
 def request_id_from_scope(scope: Scope) -> str:
@@ -295,9 +355,17 @@ def request_id_from_scope(scope: Scope) -> str:
     return str(uuid7())
 
 
-async def _send_problem(send: Send, status_code: int, detail: str) -> None:
-    response = problem_response(status_code, detail)
-    await response({"type": "http", "method": "GET", "path": "/"}, _empty_receive, send)
+async def _send_problem(
+    send: Send,
+    status_code: int,
+    detail: str,
+    scope: Scope,
+) -> None:
+    request_scope = dict(scope)
+    request_scope["nestpy_request_id"] = request_id_from_scope(scope)
+    request = Request(request_scope, _empty_receive)
+    response = problem_response(status_code, detail, request=request)
+    await response(request_scope, _empty_receive, send)
 
 
 async def _send_empty(send: Send, status_code: int) -> None:

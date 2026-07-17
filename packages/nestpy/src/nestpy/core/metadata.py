@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from nestpy.core.errors import BootstrapError
+from nestpy.core.providers import Token, validate_token
 
 
 @dataclass(frozen=True, slots=True)
@@ -97,6 +98,63 @@ class Cookie:
 @dataclass(frozen=True, slots=True)
 class Context:
     """Bind the driver-neutral request execution context."""
+
+
+_PIPELINE_ATTRIBUTES = {
+    "middleware": "__nestpy_middleware_metadata__",
+    "guards": "__nestpy_guards_metadata__",
+    "pipes": "__nestpy_pipes_metadata__",
+    "interceptors": "__nestpy_interceptors_metadata__",
+    "filters": "__nestpy_filters_metadata__",
+}
+
+
+def _pipeline_decorator(kind: str, tokens: tuple[Token, ...]) -> Any:
+    attribute = _PIPELINE_ATTRIBUTES[kind]
+    normalized = tuple(validate_token(token) for token in tokens)
+
+    def decorate(target: Any) -> Any:
+        return _attach(
+            target,
+            attribute,
+            normalized,
+            "route.duplicate_pipeline_decorator",
+        )
+
+    return decorate
+
+
+def use_middleware(*tokens: Token) -> Any:
+    return _pipeline_decorator("middleware", tokens)
+
+
+def use_guards(*tokens: Token) -> Any:
+    return _pipeline_decorator("guards", tokens)
+
+
+def use_pipes(*tokens: Token) -> Any:
+    return _pipeline_decorator("pipes", tokens)
+
+
+def use_interceptors(*tokens: Token) -> Any:
+    return _pipeline_decorator("interceptors", tokens)
+
+
+def use_filters(*tokens: Token) -> Any:
+    return _pipeline_decorator("filters", tokens)
+
+
+middleware = use_middleware
+guards = use_guards
+pipes = use_pipes
+interceptors = use_interceptors
+filters = use_filters
+
+
+def get_pipeline_metadata(target: Any, kind: str) -> tuple[Token, ...]:
+    attribute = _PIPELINE_ATTRIBUTES[kind]
+    value = getattr(target, attribute, ())
+    return value if isinstance(value, tuple) else ()
 
 
 def _validate_binding_name(name: str, kind: str) -> None:
@@ -213,8 +271,14 @@ __all__ = [
     "Context",
     "Cookie",
     "ControllerMetadata",
+    "filters",
+    "get_pipeline_metadata",
+    "guards",
     "Header",
+    "interceptors",
+    "middleware",
     "Path",
+    "pipes",
     "Query",
     "RouteMetadata",
     "StatusMetadata",
@@ -231,4 +295,9 @@ __all__ = [
     "put",
     "route",
     "status",
+    "use_filters",
+    "use_guards",
+    "use_interceptors",
+    "use_middleware",
+    "use_pipes",
 ]
