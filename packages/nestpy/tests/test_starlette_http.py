@@ -1,5 +1,4 @@
 import json
-from collections.abc import Awaitable, Callable
 from typing import Annotated, Any, cast
 
 import pytest
@@ -29,61 +28,15 @@ from nestpy.starlette import (
 )
 from nestpy.testing import TestingModule
 from starlette.responses import Response
-from starlette.types import ASGIApp, Message
-
-
-async def call_http(
-    app: Callable[..., Awaitable[None]],
-    *,
-    method: str = "GET",
-    path: str = "/",
-    body: bytes = b"",
-    headers: list[tuple[bytes, bytes]] | None = None,
-) -> list[dict[str, object]]:
-    messages: list[dict[str, object]] = []
-    sent = False
-
-    async def receive() -> Message:
-        nonlocal sent
-        if sent:
-            return {"type": "http.disconnect"}
-        sent = True
-        return {
-            "type": "http.request",
-            "body": body,
-            "more_body": False,
-        }
-
-    async def send(message: Message) -> None:
-        messages.append(dict(message))
-
-    scope = {
-        "type": "http",
-        "asgi": {"version": "3.0"},
-        "http_version": "1.1",
-        "method": method,
-        "scheme": "http",
-        "path": path.split("?", 1)[0],
-        "raw_path": path.encode(),
-        "query_string": (path.split("?", 1)[1].encode() if "?" in path else b""),
-        "headers": headers or [],
-        "client": ("test", 1),
-        "server": ("test", 80),
-    }
-    await cast(ASGIApp, app)(scope, receive, send)
-    return messages
-
-
-def message_body(message: dict[str, object]) -> bytes:
-    return cast(bytes, message["body"])
-
-
-def message_headers(message: dict[str, object]) -> list[tuple[bytes, bytes]]:
-    return cast(list[tuple[bytes, bytes]], message["headers"])
+from starlette.types import Message
 
 
 @pytest.mark.asyncio
-async def test_testing_application_serves_raw_bindings_and_context() -> None:
+async def test_testing_application_serves_raw_bindings_and_context(
+    call_http,
+    message_body,
+    message_headers,
+) -> None:
     @controller("/users")
     class UsersController:
         @get("/{user_id}")
@@ -118,7 +71,11 @@ async def test_testing_application_serves_raw_bindings_and_context() -> None:
 
 
 @pytest.mark.asyncio
-async def test_body_binding_repeated_query_and_explicit_response_request_id() -> None:
+async def test_body_binding_repeated_query_and_explicit_response_request_id(
+    call_http,
+    message_body,
+    message_headers,
+) -> None:
     @controller()
     class Controller:
         @post("/body")
@@ -168,7 +125,10 @@ async def test_body_binding_repeated_query_and_explicit_response_request_id() ->
 
 
 @pytest.mark.asyncio
-async def test_header_cookie_and_request_provider_bindings_remain_raw() -> None:
+async def test_header_cookie_and_request_provider_bindings_remain_raw(
+    call_http,
+    message_body,
+) -> None:
     @controller()
     class Controller:
         @get("/headers")
@@ -208,7 +168,7 @@ async def test_header_cookie_and_request_provider_bindings_remain_raw() -> None:
 
 
 @pytest.mark.asyncio
-async def test_body_media_and_size_errors_are_problem_details() -> None:
+async def test_body_media_and_size_errors_are_problem_details(call_http) -> None:
     @controller()
     class Controller:
         @post("/body")
@@ -252,6 +212,8 @@ async def test_body_media_and_size_errors_are_problem_details() -> None:
 @pytest.mark.asyncio
 async def test_invalid_request_id_is_replaced_without_echoing_raw_value(
     caplog: pytest.LogCaptureFixture,
+    call_http,
+    message_headers,
 ) -> None:
     @controller()
     class Controller:
@@ -278,7 +240,7 @@ async def test_invalid_request_id_is_replaced_without_echoing_raw_value(
 
 
 @pytest.mark.asyncio
-async def test_http_errors_and_lifespan_wrapper() -> None:
+async def test_http_errors_and_lifespan_wrapper(call_http) -> None:
     @controller()
     class Controller:
         @get("/ok")

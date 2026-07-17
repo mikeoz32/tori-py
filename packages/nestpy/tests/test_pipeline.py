@@ -26,7 +26,6 @@ from nestpy import (
 from nestpy.starlette import RequestContext
 from nestpy.testing import TestingModule
 from starlette.responses import Response
-from test_n4_starlette import call_http, message_body
 
 
 class Payload(msgspec.Struct):
@@ -34,7 +33,7 @@ class Payload(msgspec.Struct):
 
 
 @pytest.mark.asyncio
-async def test_pipeline_order_and_argument_metadata() -> None:
+async def test_pipeline_order_and_argument_metadata(call_http, message_body) -> None:
     events: list[str] = []
     pipe_names: list[str] = []
 
@@ -203,7 +202,10 @@ async def test_pipeline_order_and_argument_metadata() -> None:
 
 
 @pytest.mark.asyncio
-async def test_validation_pipe_is_opt_in_and_context_inject_are_excluded() -> None:
+async def test_validation_pipe_is_opt_in_and_context_inject_are_excluded(
+    call_http,
+    message_body,
+) -> None:
     @controller()
     class Controller:
         @get("/number")
@@ -269,7 +271,7 @@ async def test_validation_pipe_is_opt_in_and_context_inject_are_excluded() -> No
 
 
 @pytest.mark.asyncio
-async def test_guard_false_and_filter_precedence() -> None:
+async def test_guard_false_and_filter_precedence(call_http) -> None:
     class DenyGuard:
         async def can_activate(self, context) -> bool:
             return False
@@ -316,7 +318,10 @@ async def test_guard_false_and_filter_precedence() -> None:
 
 
 @pytest.mark.asyncio
-async def test_raw_annotation_is_not_converted_without_validation_pipe() -> None:
+async def test_raw_annotation_is_not_converted_without_validation_pipe(
+    call_http,
+    message_body,
+) -> None:
     @controller()
     class Controller:
         @get("/raw")
@@ -350,7 +355,9 @@ async def test_pipeline_visibility_fails_before_application_start() -> None:
 
 
 @pytest.mark.asyncio
-async def test_middleware_next_is_one_shot_and_short_circuit_is_allowed() -> None:
+async def test_middleware_next_is_one_shot_and_short_circuit_is_allowed(
+    call_http,
+) -> None:
     class DoubleNext:
         async def handle(self, context, next):
             await next()
