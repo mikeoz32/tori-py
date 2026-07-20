@@ -15,14 +15,27 @@ renderer rather than creating a second renderer.
 
 ## Qualified Pipeline Providers
 
-Pipeline declarations are provider tokens.
+Middleware declarations are provider tokens. Guard, pipe, interceptor, and
+filter declarations accept provider tokens, implementation classes, or
+preconstructed protocol instances.
 
 - global tokens resolve once from root-module visibility during compilation;
 - controller and route tokens resolve from the owning module;
+- unregistered implementation classes become implicit class providers in the
+  declaring module and retain normal DI, scope, and lifecycle behavior;
+- any explicit provider visible for the class token takes precedence over
+  implicit registration;
+- preconstructed instances are shared and externally owned; the framework does
+  not inject into, scope, initialize, or clean them up;
 - compiled plans store qualified provider references;
 - runtime never resolves an unqualified global token from a route module;
 - request-scoped and transient pipeline providers are allowed and owned by the
   request scope.
+
+`use_guard`, `use_pipe`, `use_interceptor`, and `use_filter` are singular
+convenience decorators. Their plural forms accept one or more ordered
+registrations. Middleware remains provider-token based rather than adopting the
+class-or-instance enhancer contract.
 
 ## Execution Order
 

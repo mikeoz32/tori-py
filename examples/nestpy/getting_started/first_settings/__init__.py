@@ -1,0 +1,1 @@
+"""First settings example."""

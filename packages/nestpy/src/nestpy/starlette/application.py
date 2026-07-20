@@ -31,7 +31,10 @@ from nestpy.starlette.errors import (
     HttpException,
     problem_response,
 )
-from nestpy.starlette.pipeline import PipelineExecutor
+from nestpy.starlette.pipeline import (
+    PipelineExecutor,
+    pipeline_class_provider_fallbacks,
+)
 from nestpy.starlette.routes import build_starlette_routes, compile_routes
 
 logger = logging.getLogger("nestpy.starlette")
@@ -162,8 +165,18 @@ class NestApplication:
         options: ApplicationOptions | None = None,
         http: StarletteOptions | None = None,
     ) -> NestApplication:
-        graph = await compile_graph(root)
-        binder = StarletteBinder(graph, http or StarletteOptions())
+        http_options = http or StarletteOptions()
+        graph = await compile_graph(
+            root,
+            fallback_provider_collector=lambda module_id, spec, is_root: (
+                pipeline_class_provider_fallbacks(
+                    spec,
+                    is_root=is_root,
+                    global_bindings=http_options,
+                )
+            ),
+        )
+        binder = StarletteBinder(graph, http_options)
         kernel = ApplicationKernel(graph, options=options, binder=binder)
         return cls(kernel, binder)
 

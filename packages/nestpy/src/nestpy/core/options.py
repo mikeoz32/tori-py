@@ -3,7 +3,9 @@
 from dataclasses import dataclass
 
 from nestpy.core.errors import BootstrapError
-from nestpy.core.providers import Token, validate_token
+from nestpy.core.metadata import validate_pipeline_binding
+from nestpy.core.protocols import ExceptionFilter, Guard, Interceptor, Pipe
+from nestpy.core.providers import Token
 
 
 def _non_negative(name: str, value: object) -> None:
@@ -44,10 +46,10 @@ class StarletteOptions:
 
     body_size_limit: int = 1024 * 1024
     middleware: tuple[Token, ...] = ()
-    guards: tuple[Token, ...] = ()
-    pipes: tuple[Token, ...] = ()
-    interceptors: tuple[Token, ...] = ()
-    filters: tuple[Token, ...] = ()
+    guards: tuple[Token | Guard, ...] = ()
+    pipes: tuple[Token | Pipe, ...] = ()
+    interceptors: tuple[Token | Interceptor, ...] = ()
+    filters: tuple[Token | ExceptionFilter, ...] = ()
 
     def __post_init__(self) -> None:
         if type(self.body_size_limit) is not int:
@@ -69,10 +71,12 @@ class StarletteOptions:
         ):
             values = tuple(getattr(self, field_name))
             try:
-                values = tuple(validate_token(token) for token in values)
+                values = tuple(
+                    validate_pipeline_binding(field_name, binding) for binding in values
+                )
             except BootstrapError as error:
                 raise BootstrapError(
-                    f"{field_name} contains an invalid provider token",
+                    f"{field_name} contains an invalid registration",
                     code=error.diagnostic_code,
                 ) from error
             object.__setattr__(self, field_name, values)

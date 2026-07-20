@@ -47,10 +47,14 @@ from nestpy.core.metadata import (
     put,
     route,
     status,
+    use_filter,
     use_filters,
+    use_guard,
     use_guards,
+    use_interceptor,
     use_interceptors,
     use_middleware,
+    use_pipe,
     use_pipes,
 )
 from nestpy.core.modules import (
@@ -168,9 +172,13 @@ __all__ = [
     "route",
     "status",
     "use_filters",
+    "use_filter",
+    "use_guard",
     "use_guards",
+    "use_interceptor",
     "use_interceptors",
     "use_middleware",
+    "use_pipe",
     "use_pipes",
     "validate_token",
 ]

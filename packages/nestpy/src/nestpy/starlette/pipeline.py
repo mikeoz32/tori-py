@@ -14,6 +14,8 @@ from starlette.responses import Response
 
 from nestpy.core.compiler import CompiledGraph, ModuleId, ProviderRef
 from nestpy.core.errors import BootstrapError, PipelineStateError
+from nestpy.core.metadata import get_pipeline_metadata, get_route_metadata
+from nestpy.core.modules import ModuleSpec
 from nestpy.core.options import StarletteOptions
 from nestpy.core.protocols import (
     ArgumentMetadata,
@@ -24,7 +26,7 @@ from nestpy.core.protocols import (
     Pipe,
     PipelineResult,
 )
-from nestpy.core.providers import Token
+from nestpy.core.providers import ClassProvider
 from nestpy.starlette.context import RequestContext, current_request_scope
 from nestpy.starlette.errors import HttpException, problem_response
 
@@ -35,6 +37,58 @@ logger = logging.getLogger("nestpy.starlette.pipeline")
 
 
 type AsyncStep = Callable[[], Awaitable[PipelineResult]]
+
+_ENHANCER_METHODS = {
+    "guards": "can_activate",
+    "pipes": "transform",
+    "interceptors": "intercept",
+    "filters": "catch",
+}
+
+
+def pipeline_class_provider_fallbacks(
+    spec: ModuleSpec,
+    *,
+    is_root: bool,
+    global_bindings: StarletteOptions,
+) -> tuple[ClassProvider, ...]:
+    """Return enhancer classes that can back unresolved pipeline registrations."""
+
+    bindings: list[tuple[str, object]] = []
+    for controller in spec.controllers:
+        route_handlers = tuple(
+            handler
+            for handler in controller.__dict__.values()
+            if get_route_metadata(handler) is not None
+        )
+        if not route_handlers:
+            continue
+        for kind in _ENHANCER_METHODS:
+            bindings.extend(
+                (kind, binding) for binding in get_pipeline_metadata(controller, kind)
+            )
+        for handler in route_handlers:
+            for kind in _ENHANCER_METHODS:
+                bindings.extend(
+                    (kind, binding) for binding in get_pipeline_metadata(handler, kind)
+                )
+    if is_root:
+        for kind in _ENHANCER_METHODS:
+            bindings.extend(
+                (kind, binding) for binding in getattr(global_bindings, kind)
+            )
+
+    providers: list[ClassProvider] = []
+    collected: set[type[object]] = set()
+    for kind, binding in bindings:
+        if (
+            isinstance(binding, type)
+            and callable(getattr(binding, _ENHANCER_METHODS[kind], None))
+            and binding not in collected
+        ):
+            providers.append(ClassProvider(binding, binding))
+            collected.add(binding)
+    return tuple(providers)
 
 
 class PipelineExecutor:
@@ -410,7 +464,7 @@ class PipelineExecutor:
 
     async def _resolve_pipeline(
         self,
-        tokens: Sequence[Token | ProviderRef],
+        bindings: Sequence[object],
         module_id: ModuleId,
     ) -> list[object]:
         request_scope = current_request_scope()
@@ -419,31 +473,35 @@ class PipelineExecutor:
                 "pipeline resolution requires a request scope",
                 code="pipeline.invalid_state",
             )
-        resolver = request_scope.resolver_for(module_id)
+        del module_id
         return [
-            await request_scope.resolve_ref(token)
-            if isinstance(token, ProviderRef)
-            else await resolver.resolve(token)
-            for token in tokens
+            await request_scope.resolve_ref(binding)
+            if isinstance(binding, ProviderRef)
+            else binding
+            for binding in bindings
         ]
 
     def _qualify_bindings(
         self,
-        middleware: Sequence[Token],
-        guards: Sequence[Token],
-        pipes: Sequence[Token],
-        interceptors: Sequence[Token],
-        filters: Sequence[Token],
+        middleware: Sequence[object],
+        guards: Sequence[object],
+        pipes: Sequence[object],
+        interceptors: Sequence[object],
+        filters: Sequence[object],
         module_id: ModuleId,
     ):
         from nestpy.starlette.routes import PipelineBindings
 
         return PipelineBindings(
-            middleware=self._qualify_tokens(middleware, module_id),
-            guards=self._qualify_tokens(guards, module_id),
-            pipes=self._qualify_tokens(pipes, module_id),
-            interceptors=self._qualify_tokens(interceptors, module_id),
-            filters=self._qualify_tokens(filters, module_id),
+            middleware=self._qualify_bindings_for_kind(
+                middleware, module_id, "middleware"
+            ),
+            guards=self._qualify_bindings_for_kind(guards, module_id, "guards"),
+            pipes=self._qualify_bindings_for_kind(pipes, module_id, "pipes"),
+            interceptors=self._qualify_bindings_for_kind(
+                interceptors, module_id, "interceptors"
+            ),
+            filters=self._qualify_bindings_for_kind(filters, module_id, "filters"),
         )
 
     def _qualify_pipeline(self, pipeline, module_id: ModuleId):
@@ -456,19 +514,23 @@ class PipelineExecutor:
             module_id,
         )
 
-    def _qualify_tokens(
+    def _qualify_bindings_for_kind(
         self,
-        tokens: Sequence[Token],
+        bindings: Sequence[object],
         module_id: ModuleId,
-    ) -> tuple[ProviderRef, ...]:
-        qualified: list[ProviderRef] = []
-        for token in tokens:
-            ref = self.graph.visibility.get((module_id, token))
+        kind: str,
+    ) -> tuple[object, ...]:
+        qualified: list[object] = []
+        for binding in bindings:
+            if not isinstance(binding, str | type):
+                qualified.append(binding)
+                continue
+            ref = self.graph.visibility.get((module_id, binding))
             if ref is None:
                 raise BootstrapError(
                     "pipeline provider is not visible from its owning module",
                     code="provider.unresolved",
-                    details={"token": repr(token)},
+                    details={"kind": kind, "token": repr(binding)},
                 )
             qualified.append(ref)
         return tuple(qualified)

@@ -621,8 +621,18 @@ returns a response or re-raises; re-raising selects the next filter. Errors
 raised by a filter itself continue to the next eligible filter, then the
 default renderer.
 
-Pipeline registrations are provider tokens. They resolve from the current
-request scope, so request-scoped guards/pipes/interceptors/filters are valid.
+Middleware registrations are provider tokens. Guard, pipe, interceptor, and
+filter registrations accept provider tokens, implementation classes, or
+preconstructed protocol instances. An implementation class is implicitly added
+as a class provider in the declaring module only when no explicit provider for
+that token is visible; it therefore uses normal constructor injection, scope,
+and lifecycle behavior. A preconstructed instance is shared, externally owned,
+and does not receive injection, scope conversion, or lifecycle management.
+
+Provider-backed registrations resolve from the current request scope, so
+request-scoped guards/pipes/interceptors/filters are valid. Singular
+`use_guard`, `use_pipe`, `use_interceptor`, and `use_filter` decorators are
+convenience forms of their ordered plural counterparts.
 
 Ordering is deterministic:
 

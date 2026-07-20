@@ -135,16 +135,27 @@ class TestingModule:
     ) -> TestingApplication:
         self._check_open()
         self._sealed = True
+        from nestpy.core.options import StarletteOptions
+        from nestpy.starlette.application import StarletteBinder
+        from nestpy.starlette.pipeline import pipeline_class_provider_fallbacks
+
+        http_options = http or StarletteOptions()
+
         graph = await compile_graph(
             self.root,
             import_resolver=self._resolve_import,
             spec_transformer=self._transform_spec,
+            fallback_provider_collector=lambda module_id, spec, is_root: (
+                pipeline_class_provider_fallbacks(
+                    spec,
+                    is_root=is_root,
+                    global_bindings=http_options,
+                )
+            ),
         )
         self._validate_override_targets(graph)
-        from nestpy.core.options import StarletteOptions
-        from nestpy.starlette.application import StarletteBinder
 
-        binder = StarletteBinder(graph, http or StarletteOptions())
+        binder = StarletteBinder(graph, http_options)
         kernel = ApplicationKernel(graph, options=options, binder=binder)
         await kernel.start()
         return TestingApplication(kernel, binder)

@@ -1,0 +1,44 @@
+site_name: Nestpy
+site_description: Explicit modules, dependency injection, and ASGI applications for Python.
+site_url: https://example.invalid/nestpy/
+repo_name: kinker
+theme:
+  name: material
+  language: en
+  features:
+    - navigation.footer
+    - navigation.sections
+    - content.code.copy
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          options:
+            show_source: false
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.snippets:
+      base_path:
+        - .
+  - pymdownx.superfences
+nav:
+  - Home: index.md
+  - Why Nestpy: why-nestpy.md
+  - Getting Started:
+      - Installation: getting-started/installation.md
+      - First Application: getting-started/first-application.md
+      - Project Structure: getting-started/project-structure.md
+      - First Controller: getting-started/first-controller.md
+      - First Provider: getting-started/first-provider.md
+      - Configuration: getting-started/configuration.md
+      - Testing: getting-started/testing.md
+      - Next Steps: getting-started/next-steps.md
+  - Reference:
+      - Task API: reference/task-api.md
+  - Contributing:
+      - Public API Inventory: contributing/public-api-inventory.md
+      - Documentation Traceability: contributing/traceability.md

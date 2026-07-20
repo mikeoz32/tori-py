@@ -1,5 +1,5 @@
 import json
-from typing import Annotated
+from typing import Annotated, Any, cast
 
 import msgspec
 import pytest
@@ -8,19 +8,26 @@ from nestpy import (
     BootstrapError,
     ClassProvider,
     Context,
+    DeferredModule,
     Inject,
+    ModuleSpec,
     PipelineResult,
     Query,
+    Scope,
     StarletteOptions,
     ValueProvider,
     controller,
     get,
     module,
     post,
+    use_filter,
     use_filters,
+    use_guard,
     use_guards,
+    use_interceptor,
     use_interceptors,
     use_middleware,
+    use_pipe,
     use_pipes,
 )
 from nestpy.starlette import RequestContext
@@ -396,3 +403,428 @@ async def test_middleware_next_is_one_shot_and_short_circuit_is_allowed(
     short = await call_http(application.asgi, path="/short")
     assert short[0]["status"] == 202
     await application.close()
+
+
+@pytest.mark.asyncio
+async def test_enhancer_classes_are_implicit_injectable_providers(
+    call_http,
+    message_body,
+) -> None:
+    events: list[str] = []
+
+    class Dependency:
+        message = "injected"
+
+    class ClassGuard:
+        def __init__(self, dependency: Dependency) -> None:
+            self.dependency = dependency
+
+        async def can_activate(self, context) -> bool:
+            events.append(f"guard:{self.dependency.message}")
+            return True
+
+    class ClassPipe:
+        async def transform(self, value, metadata):
+            events.append("pipe")
+            return f"{value}-piped"
+
+    class ClassInterceptor:
+        async def intercept(self, context, next):
+            events.append("interceptor-in")
+            result = await next()
+            events.append("interceptor-out")
+            return result
+
+    class ClassFilter:
+        async def catch(self, error, context):
+            events.append(f"filter:{error}")
+            return Response("class-filter", status_code=418)
+
+    @controller()
+    class Controller:
+        @get("/class")
+        @use_guard(ClassGuard)
+        @use_pipe(ClassPipe)
+        @use_interceptor(ClassInterceptor)
+        async def enhanced(self, value: Annotated[str, Query("value")]) -> str:
+            events.append("handler")
+            return value
+
+        @get("/class-error")
+        @use_filter(ClassFilter)
+        async def failed(self) -> str:
+            raise RuntimeError("boom")
+
+    @module(
+        controllers=[Controller],
+        providers=[ClassProvider(Dependency)],
+    )
+    class Root:
+        pass
+
+    application = await TestingModule.create(Root).compile()
+    enhanced = await call_http(application.asgi, path="/class?value=raw")
+    assert json.loads(message_body(enhanced[1])) == "raw-piped"
+    failed = await call_http(application.asgi, path="/class-error")
+    assert failed[0]["status"] == 418
+    assert events == [
+        "guard:injected",
+        "pipe",
+        "interceptor-in",
+        "handler",
+        "interceptor-out",
+        "filter:boom",
+    ]
+    await application.close()
+
+
+@pytest.mark.asyncio
+async def test_enhancer_instances_are_shared_and_externally_owned(
+    call_http,
+    message_body,
+) -> None:
+    class InstanceGuard:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def can_activate(self, context) -> bool:
+            self.calls += 1
+            return True
+
+    class InstancePipe:
+        async def transform(self, value, metadata):
+            return f"{value}-instance"
+
+    class InstanceInterceptor:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def intercept(self, context, next):
+            self.calls += 1
+            return await next()
+
+    class InstanceFilter:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def catch(self, error, context):
+            self.calls += 1
+            return Response("instance-filter", status_code=419)
+
+    guard = InstanceGuard()
+    pipe = InstancePipe()
+    interceptor = InstanceInterceptor()
+    filter_ = InstanceFilter()
+
+    @controller()
+    class Controller:
+        @get("/instance")
+        @use_guard(guard)
+        @use_pipe(pipe)
+        @use_interceptor(interceptor)
+        async def enhanced(self, value: Annotated[str, Query("value")]) -> str:
+            return value
+
+        @get("/instance-error")
+        @use_filter(filter_)
+        async def failed(self) -> str:
+            raise RuntimeError("boom")
+
+    @module(controllers=[Controller])
+    class Root:
+        pass
+
+    application = await TestingModule.create(Root).compile()
+    first = await call_http(application.asgi, path="/instance?value=one")
+    second = await call_http(application.asgi, path="/instance?value=two")
+    failed = await call_http(application.asgi, path="/instance-error")
+    assert json.loads(message_body(first[1])) == "one-instance"
+    assert json.loads(message_body(second[1])) == "two-instance"
+    assert failed[0]["status"] == 419
+    assert guard.calls == 2
+    assert interceptor.calls == 2
+    assert filter_.calls == 1
+    await application.close()
+
+
+@pytest.mark.asyncio
+async def test_explicit_provider_takes_precedence_for_global_enhancer_class(
+    call_http,
+) -> None:
+    class GlobalGuard:
+        async def can_activate(self, context) -> bool:
+            return True
+
+    class DenyGuard:
+        async def can_activate(self, context) -> bool:
+            return False
+
+    @controller()
+    class Controller:
+        @get("/global-class")
+        async def endpoint(self) -> str:
+            return "allowed"
+
+    @module(
+        providers=[ValueProvider(GlobalGuard, DenyGuard())],
+        exports=[GlobalGuard],
+    )
+    class GuardsModule:
+        pass
+
+    @module(imports=[GuardsModule], controllers=[Controller])
+    class Root:
+        pass
+
+    application = await TestingModule.create(Root).compile(
+        http=StarletteOptions(guards=(GlobalGuard,))
+    )
+    response = await call_http(application.asgi, path="/global-class")
+    assert response[0]["status"] == 403
+    await application.close()
+
+
+@pytest.mark.asyncio
+async def test_global_enhancer_class_uses_effective_replaced_root(call_http) -> None:
+    class GlobalGuard:
+        async def can_activate(self, context) -> bool:
+            return True
+
+    @controller()
+    class Controller:
+        @get("/replacement")
+        async def endpoint(self) -> str:
+            return "replacement"
+
+    class DynamicRoot:
+        pass
+
+    descriptor = DeferredModule(DynamicRoot, "root", lambda: ModuleSpec())
+
+    @module(controllers=[Controller])
+    class Replacement:
+        pass
+
+    builder = TestingModule.create(descriptor)
+    builder.replace_module(descriptor, Replacement)
+    application = await builder.compile(http=StarletteOptions(guards=(GlobalGuard,)))
+    response = await call_http(application.asgi, path="/replacement")
+    assert response[0]["status"] == 200
+    await application.close()
+
+
+@pytest.mark.asyncio
+async def test_implicit_enhancer_class_can_be_exported(call_http) -> None:
+    class ExportedGuard:
+        async def can_activate(self, context) -> bool:
+            return True
+
+    @controller()
+    class Controller:
+        @get("/exported")
+        @use_guard(ExportedGuard)
+        async def endpoint(self) -> str:
+            return "exported"
+
+    @module(controllers=[Controller], exports=[ExportedGuard])
+    class Root:
+        pass
+
+    application = await TestingModule.create(Root).compile()
+    response = await call_http(application.asgi, path="/exported")
+    assert response[0]["status"] == 200
+    await application.close()
+
+
+@pytest.mark.asyncio
+async def test_non_route_enhancer_metadata_does_not_register_provider(
+    call_http,
+) -> None:
+    class MissingDependency:
+        pass
+
+    class UnusedGuard:
+        def __init__(self, missing: MissingDependency) -> None:
+            self.missing = missing
+
+        async def can_activate(self, context) -> bool:
+            return True
+
+    @controller()
+    class Controller:
+        @use_guard(UnusedGuard)
+        async def helper(self) -> None:
+            pass
+
+        @get("/without-helper")
+        async def endpoint(self) -> str:
+            return "ok"
+
+    @module(controllers=[Controller])
+    class Root:
+        pass
+
+    application = await TestingModule.create(Root).compile()
+    response = await call_http(application.asgi, path="/without-helper")
+    assert response[0]["status"] == 200
+    await application.close()
+
+
+@pytest.mark.asyncio
+async def test_explicit_request_scoped_guard_is_not_replaced_by_fallback(
+    call_http,
+) -> None:
+    instances: list[RequestGuard] = []
+
+    class RequestGuard:
+        def __init__(self) -> None:
+            instances.append(self)
+
+        async def can_activate(self, context) -> bool:
+            return True
+
+    @controller()
+    class Controller:
+        @get("/request-guard")
+        @use_guard(RequestGuard)
+        async def endpoint(self) -> str:
+            return "allowed"
+
+    @module(
+        controllers=[Controller],
+        providers=[ClassProvider(RequestGuard, scope=Scope.REQUEST)],
+    )
+    class Root:
+        pass
+
+    application = await TestingModule.create(Root).compile()
+    first = await call_http(application.asgi, path="/request-guard")
+    second = await call_http(application.asgi, path="/request-guard")
+    assert first[0]["status"] == 200
+    assert second[0]["status"] == 200
+    assert len(instances) == 2
+    assert instances[0] is not instances[1]
+    await application.close()
+
+
+@pytest.mark.asyncio
+async def test_global_enhancer_instances_are_shared_and_externally_owned(
+    call_http,
+    message_body,
+) -> None:
+    class GlobalGuard:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def can_activate(self, context) -> bool:
+            self.calls += 1
+            return True
+
+    class GlobalPipe:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def transform(self, value, metadata):
+            self.calls += 1
+            return f"{value}-global"
+
+    class GlobalInterceptor:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def intercept(self, context, next):
+            self.calls += 1
+            return await next()
+
+    class GlobalFilter:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def catch(self, error, context):
+            self.calls += 1
+            return Response("global-instance-filter", status_code=420)
+
+    guard = GlobalGuard()
+    pipe = GlobalPipe()
+    interceptor = GlobalInterceptor()
+    filter_ = GlobalFilter()
+
+    @controller()
+    class Controller:
+        @get("/global-instance")
+        async def endpoint(self, value: Annotated[str, Query("value")]) -> str:
+            return value
+
+        @get("/global-instance-error")
+        async def failed(self) -> str:
+            raise RuntimeError("boom")
+
+    @module(controllers=[Controller])
+    class Root:
+        pass
+
+    application = await TestingModule.create(Root).compile(
+        http=StarletteOptions(
+            guards=(guard,),
+            pipes=(pipe,),
+            interceptors=(interceptor,),
+            filters=(filter_,),
+        )
+    )
+    first = await call_http(application.asgi, path="/global-instance?value=one")
+    second = await call_http(application.asgi, path="/global-instance?value=two")
+    failed = await call_http(application.asgi, path="/global-instance-error")
+    assert json.loads(message_body(first[1])) == "one-global"
+    assert json.loads(message_body(second[1])) == "two-global"
+    assert failed[0]["status"] == 420
+    assert guard.calls == 3
+    assert pipe.calls == 2
+    assert interceptor.calls == 3
+    assert filter_.calls == 1
+    await application.close()
+
+
+@pytest.mark.asyncio
+async def test_global_module_export_takes_precedence_for_global_enhancer_class(
+    call_http,
+) -> None:
+    class GlobalGuard:
+        async def can_activate(self, context) -> bool:
+            return True
+
+    class DenyGuard:
+        async def can_activate(self, context) -> bool:
+            return False
+
+    @controller()
+    class Controller:
+        @get("/global-module")
+        async def endpoint(self) -> str:
+            return "allowed"
+
+    @module(
+        providers=[ValueProvider(GlobalGuard, DenyGuard())],
+        exports=[GlobalGuard],
+        global_=True,
+    )
+    class GlobalGuardsModule:
+        pass
+
+    @module(imports=[GlobalGuardsModule], controllers=[Controller])
+    class Root:
+        pass
+
+    application = await TestingModule.create(Root).compile(
+        http=StarletteOptions(guards=(GlobalGuard,))
+    )
+    response = await call_http(application.asgi, path="/global-module")
+    assert response[0]["status"] == 403
+    await application.close()
+
+
+def test_direct_enhancer_instances_are_validated_by_kind() -> None:
+    invalid = cast(Any, object())
+    with pytest.raises(BootstrapError, match="can_activate"):
+        use_guard(invalid)
+    with pytest.raises(BootstrapError, match="provider token"):
+        use_middleware(invalid)

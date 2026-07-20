@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from nestpy.core.errors import BootstrapError
+from nestpy.core.protocols import ExceptionFilter, Guard, Interceptor, Pipe
 from nestpy.core.providers import Token, validate_token
 
 
@@ -107,11 +108,43 @@ _PIPELINE_ATTRIBUTES = {
     "interceptors": "__nestpy_interceptors_metadata__",
     "filters": "__nestpy_filters_metadata__",
 }
+_PIPELINE_METHODS = {
+    "guards": "can_activate",
+    "pipes": "transform",
+    "interceptors": "intercept",
+    "filters": "catch",
+}
+
+type GuardBinding = Token | Guard
+type PipeBinding = Token | Pipe
+type InterceptorBinding = Token | Interceptor
+type FilterBinding = Token | ExceptionFilter
+type PipelineBinding = GuardBinding | PipeBinding | InterceptorBinding | FilterBinding
 
 
-def _pipeline_decorator(kind: str, tokens: tuple[Token, ...]) -> Any:
+def validate_pipeline_binding(kind: str, binding: object) -> object:
+    """Validate a provider token or direct enhancer instance."""
+
+    if isinstance(binding, str | type):
+        return validate_token(binding)
+    method_name = _PIPELINE_METHODS.get(kind)
+    if method_name is not None and callable(getattr(binding, method_name, None)):
+        return binding
+    if method_name is None:
+        message = f"{kind} registration must be a provider token"
+    else:
+        message = (
+            f"{kind} registration must be a provider token or {method_name} instance"
+        )
+    raise BootstrapError(
+        message,
+        code="route.invalid_signature",
+    )
+
+
+def _pipeline_decorator(kind: str, bindings: tuple[object, ...]) -> Any:
     attribute = _PIPELINE_ATTRIBUTES[kind]
-    normalized = tuple(validate_token(token) for token in tokens)
+    normalized = tuple(validate_pipeline_binding(kind, binding) for binding in bindings)
 
     def decorate(target: Any) -> Any:
         return _attach(
@@ -128,20 +161,36 @@ def use_middleware(*tokens: Token) -> Any:
     return _pipeline_decorator("middleware", tokens)
 
 
-def use_guards(*tokens: Token) -> Any:
-    return _pipeline_decorator("guards", tokens)
+def use_guards(*guards: GuardBinding) -> Any:
+    return _pipeline_decorator("guards", guards)
 
 
-def use_pipes(*tokens: Token) -> Any:
-    return _pipeline_decorator("pipes", tokens)
+def use_guard(guard: GuardBinding) -> Any:
+    return use_guards(guard)
 
 
-def use_interceptors(*tokens: Token) -> Any:
-    return _pipeline_decorator("interceptors", tokens)
+def use_pipes(*pipes: PipeBinding) -> Any:
+    return _pipeline_decorator("pipes", pipes)
 
 
-def use_filters(*tokens: Token) -> Any:
-    return _pipeline_decorator("filters", tokens)
+def use_pipe(pipe: PipeBinding) -> Any:
+    return use_pipes(pipe)
+
+
+def use_interceptors(*interceptors: InterceptorBinding) -> Any:
+    return _pipeline_decorator("interceptors", interceptors)
+
+
+def use_interceptor(interceptor: InterceptorBinding) -> Any:
+    return use_interceptors(interceptor)
+
+
+def use_filters(*filters: FilterBinding) -> Any:
+    return _pipeline_decorator("filters", filters)
+
+
+def use_filter(filter_: FilterBinding) -> Any:
+    return use_filters(filter_)
 
 
 middleware = use_middleware
@@ -151,7 +200,7 @@ interceptors = use_interceptors
 filters = use_filters
 
 
-def get_pipeline_metadata(target: Any, kind: str) -> tuple[Token, ...]:
+def get_pipeline_metadata(target: Any, kind: str) -> tuple[object, ...]:
     attribute = _PIPELINE_ATTRIBUTES[kind]
     value = getattr(target, attribute, ())
     return value if isinstance(value, tuple) else ()
@@ -296,8 +345,12 @@ __all__ = [
     "route",
     "status",
     "use_filters",
+    "use_filter",
+    "use_guard",
     "use_guards",
+    "use_interceptor",
     "use_interceptors",
     "use_middleware",
+    "use_pipe",
     "use_pipes",
 ]

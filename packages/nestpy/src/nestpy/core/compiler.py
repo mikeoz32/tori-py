@@ -126,6 +126,9 @@ class _Compiler:
         *,
         import_resolver: Callable[[ModuleImport], ModuleImport] | None = None,
         spec_transformer: Callable[[ModuleId, ModuleSpec], ModuleSpec] | None = None,
+        fallback_provider_collector: (
+            Callable[[ModuleId, ModuleSpec, bool], Iterable[ProviderDeclaration]] | None
+        ) = None,
     ) -> None:
         self.nodes: dict[ModuleId, _ModuleNode] = {}
         self.states: dict[ModuleId, str] = {}
@@ -135,6 +138,7 @@ class _Compiler:
         self.descriptor_ids: dict[int, ModuleId] = {}
         self.import_resolver = import_resolver
         self.spec_transformer = spec_transformer
+        self.fallback_provider_collector = fallback_provider_collector
 
     async def compile(
         self,
@@ -318,19 +322,41 @@ class _Compiler:
                 providers=tuple(plans),
             )
 
-        visibility: dict[tuple[ModuleId, Token], ProviderRef] = {}
-        for module_id in self.order:
-            self._validate_exports(module_id, local_refs, module_plans)
-            for token in _visible_tokens(
-                module_id, local_refs, module_plans, self.order
-            ):
-                visibility[(module_id, token)] = _resolve_visible(
+        if self.fallback_provider_collector is not None:
+            for module_id in self.order:
+                node = self.nodes[module_id]
+                for declaration in self.fallback_provider_collector(
                     module_id,
-                    token,
-                    local_refs,
-                    module_plans,
-                    self.order,
-                )
+                    node.spec,
+                    module_id == root_id,
+                ):
+                    token = declaration.token
+                    if _has_visible_provider(
+                        module_id,
+                        token,
+                        local_refs,
+                        module_plans,
+                        self.order,
+                    ):
+                        continue
+                    ref = ProviderRef(module_id, token)
+                    plan = ProviderPlan(
+                        key=ref,
+                        declaration=declaration,
+                        dependencies=_compile_dependencies(declaration),
+                        scope=(
+                            declaration.scope
+                            if not isinstance(declaration, AliasProvider)
+                            else Scope.SINGLETON
+                        ),
+                        canonical=ref,
+                    )
+                    local_refs[module_id][token] = ref
+                    module_plans[module_id] = replace(
+                        module_plans[module_id],
+                        providers=module_plans[module_id].providers + (plan,),
+                    )
+        visibility = self._compile_visibility(local_refs, module_plans)
 
         provider_map: dict[ProviderRef, ProviderPlan] = {}
         for module_plan in module_plans.values():
@@ -397,6 +423,26 @@ class _Compiler:
             provider_order=provider_order,
         )
 
+    def _compile_visibility(
+        self,
+        local_refs: Mapping[ModuleId, Mapping[Token, ProviderRef]],
+        module_plans: Mapping[ModuleId, ModulePlan],
+    ) -> dict[tuple[ModuleId, Token], ProviderRef]:
+        visibility: dict[tuple[ModuleId, Token], ProviderRef] = {}
+        for module_id in self.order:
+            self._validate_exports(module_id, local_refs, module_plans)
+            for token in _visible_tokens(
+                module_id, local_refs, module_plans, self.order
+            ):
+                visibility[(module_id, token)] = _resolve_visible(
+                    module_id,
+                    token,
+                    local_refs,
+                    module_plans,
+                    self.order,
+                )
+        return visibility
+
     def _validate_exports(
         self,
         module_id: ModuleId,
@@ -435,12 +481,16 @@ async def compile_graph(
     *,
     import_resolver: Callable[[ModuleImport], ModuleImport] | None = None,
     spec_transformer: Callable[[ModuleId, ModuleSpec], ModuleSpec] | None = None,
+    fallback_provider_collector: (
+        Callable[[ModuleId, ModuleSpec, bool], Iterable[ProviderDeclaration]] | None
+    ) = None,
 ) -> CompiledGraph:
     """Compile a root module and all imported modules without instantiation."""
 
     return await _Compiler(
         import_resolver=import_resolver,
         spec_transformer=spec_transformer,
+        fallback_provider_collector=fallback_provider_collector,
     ).compile(root)
 
 
@@ -637,6 +687,22 @@ def _resolve_visible(
         f"unresolved provider token {_token_label(token)}",
         code="provider.unresolved",
     )
+
+
+def _has_visible_provider(
+    module_id: ModuleId,
+    token: Token,
+    local_refs: Mapping[ModuleId, Mapping[Token, ProviderRef]],
+    module_plans: Mapping[ModuleId, ModulePlan],
+    order: Iterable[ModuleId],
+) -> bool:
+    try:
+        _resolve_visible(module_id, token, local_refs, module_plans, order)
+    except BootstrapError as error:
+        if error.diagnostic_code == "provider.unresolved":
+            return False
+        raise
+    return True
 
 
 def _visible_ref(

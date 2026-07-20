@@ -13,7 +13,7 @@ from starlette.requests import Request
 from starlette.responses import Response
 from starlette.routing import Route
 
-from nestpy.core.compiler import CompiledGraph, ModuleId, ProviderRef
+from nestpy.core.compiler import CompiledGraph, ModuleId
 from nestpy.core.errors import BootstrapError
 from nestpy.core.metadata import (
     Body,
@@ -52,11 +52,11 @@ class ParameterPlan:
 
 @dataclass(frozen=True, slots=True)
 class PipelineBindings:
-    middleware: tuple[Token | ProviderRef, ...] = ()
-    guards: tuple[Token | ProviderRef, ...] = ()
-    pipes: tuple[Token | ProviderRef, ...] = ()
-    interceptors: tuple[Token | ProviderRef, ...] = ()
-    filters: tuple[Token | ProviderRef, ...] = ()
+    middleware: tuple[object, ...] = ()
+    guards: tuple[object, ...] = ()
+    pipes: tuple[object, ...] = ()
+    interceptors: tuple[object, ...] = ()
+    filters: tuple[object, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

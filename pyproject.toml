@@ -27,6 +27,11 @@ dev = [
     "ruff>=0.15.21",
     "ty>=0.0.59",
 ]
+docs = [
+    "mkdocs-material>=9.7.7",
+    "mkdocstrings[python]>=1.0.6",
+    "pymdown-extensions>=11.0.1",
+]
 
 [tool.ruff]
 target-version = "py314"

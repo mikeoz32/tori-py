@@ -1219,9 +1219,9 @@ Update this table after every documentation phase:
 
 | Phase | Status | Primary output |
 | --- | --- | --- |
-| D0 | Pending | Inventory and traceability |
-| D1 | Pending | MkDocs and CI foundation |
-| D2 | Pending | Getting Started |
+| D0 | In progress | Inventory and traceability |
+| D1 | In progress | MkDocs and CI foundation |
+| D2 | In progress | Getting Started |
 | D3 | Pending | Fundamentals |
 | D4 | Pending | HTTP guide |
 | D5 | Pending | Pipeline guide |
