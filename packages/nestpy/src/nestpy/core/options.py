@@ -1,4 +1,4 @@
-"""Driver-neutral application and Starlette option declarations."""
+"""Driver-neutral application option declarations."""
 
 from dataclasses import dataclass
 
@@ -41,10 +41,9 @@ class ApplicationOptions:
 
 
 @dataclass(frozen=True, slots=True)
-class StarletteOptions:
-    """Starlette-driver limits and pipeline provider tokens."""
+class PipelineOptions:
+    """Driver-neutral global Nestpy pipeline registrations."""
 
-    body_size_limit: int = 1024 * 1024
     middleware: tuple[Token, ...] = ()
     guards: tuple[Token | Guard, ...] = ()
     pipes: tuple[Token | Pipe, ...] = ()
@@ -52,16 +51,6 @@ class StarletteOptions:
     filters: tuple[Token | ExceptionFilter, ...] = ()
 
     def __post_init__(self) -> None:
-        if type(self.body_size_limit) is not int:
-            raise BootstrapError(
-                "body_size_limit must be an integer",
-                code="application.invalid_options",
-            )
-        if self.body_size_limit < 0:
-            raise BootstrapError(
-                "body_size_limit cannot be negative",
-                code="application.invalid_options",
-            )
         for field_name in (
             "middleware",
             "guards",
@@ -82,4 +71,4 @@ class StarletteOptions:
             object.__setattr__(self, field_name, values)
 
 
-__all__ = ["ApplicationOptions", "StarletteOptions"]
+__all__ = ["ApplicationOptions", "PipelineOptions"]

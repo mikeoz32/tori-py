@@ -1,60 +1,26 @@
-"""Starlette request context and request-scope correlation storage."""
+"""Starlette-native view over the framework-owned HTTP context."""
 
 from __future__ import annotations
 
 import contextvars
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import TYPE_CHECKING
 
 from starlette.requests import Request
 
-from nestpy.core.compiler import ModuleId
-from nestpy.core.protocols import ScopedResolver
-
-if TYPE_CHECKING:
-    from nestpy.core.runtime import RequestScope
-
-
-_CURRENT_SCOPE: contextvars.ContextVar[RequestScope | None] = contextvars.ContextVar(
-    "nestpy_request_scope",
-    default=None,
-)
-_CURRENT_CONTEXT: contextvars.ContextVar[RequestContext | None] = (
-    contextvars.ContextVar("nestpy_request_context", default=None)
+from nestpy.http.context import (
+    HttpContext,
+    _reset_http_context,
+    _set_http_context,
+    current_http_context,
 )
 
 
 @dataclass(frozen=True, slots=True)
-class RequestContext:
-    """Driver-neutral execution context with an explicit Starlette request."""
+class RequestContext(HttpContext):
+    """HTTP execution context exposing the native Starlette request."""
 
     request: Request
-    scope: RequestScope
-    module_identity: ModuleId
-    application: str
-    route: str | None
-    request_id_value: str
-
-    @property
-    def application_id(self) -> str:
-        return self.application
-
-    @property
-    def module_id(self) -> str | None:
-        return _module_label(self.module_identity)
-
-    @property
-    def route_id(self) -> str | None:
-        return self.route
-
-    @property
-    def request_id(self) -> str | None:
-        return self.request_id_value
-
-    @property
-    def resolver(self) -> ScopedResolver:
-        return self.scope.resolver_for(self.module_identity)
 
     @property
     def metadata(self) -> MappingProxyType[str, object]:
@@ -67,10 +33,6 @@ class RequestContext:
                 "path_params": self.request.path_params,
             }
         )
-
-    @property
-    def execution_kind(self) -> str:
-        return "http"
 
     @property
     def method(self) -> str:
@@ -97,39 +59,22 @@ class RequestContext:
         return self.request.cookies
 
 
-def current_request_scope() -> RequestScope | None:
-    return _CURRENT_SCOPE.get()
-
-
 def current_request_context() -> RequestContext | None:
-    return _CURRENT_CONTEXT.get()
-
-
-def _set_scope(scope: RequestScope) -> contextvars.Token[RequestScope | None]:
-    return _CURRENT_SCOPE.set(scope)
-
-
-def _reset_scope(token: contextvars.Token[RequestScope | None]) -> None:
-    _CURRENT_SCOPE.reset(token)
+    context = current_http_context()
+    return context if isinstance(context, RequestContext) else None
 
 
 def _set_context(
     context: RequestContext,
-) -> contextvars.Token[RequestContext | None]:
-    return _CURRENT_CONTEXT.set(context)
+) -> contextvars.Token[HttpContext | None]:
+    return _set_http_context(context)
 
 
-def _reset_context(token: contextvars.Token[RequestContext | None]) -> None:
-    _CURRENT_CONTEXT.reset(token)
-
-
-def _module_label(module_id: ModuleId) -> str:
-    label = module_id.module.__qualname__
-    return label if module_id.key is None else f"{label}[{module_id.key}]"
+def _reset_context(token: contextvars.Token[HttpContext | None]) -> None:
+    _reset_http_context(token)
 
 
 __all__ = [
     "RequestContext",
     "current_request_context",
-    "current_request_scope",
 ]

@@ -1,7 +1,7 @@
 """Show that application creation compiles before lifecycle startup."""
 
-from nestpy import controller, get, module
-from nestpy.starlette import NestApplication
+from nestpy import NestApplication, controller, get, module
+from nestpy.starlette import StarletteAdapter
 
 
 @controller()
@@ -19,4 +19,4 @@ class AppModule:
 async def create_application() -> NestApplication:
     """Return an unstarted application for an ASGI server to start."""
 
-    return await NestApplication.create(AppModule)
+    return await NestApplication.create(AppModule, adapter=StarletteAdapter())

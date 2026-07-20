@@ -21,8 +21,10 @@ packages/nestpy/
   pyproject.toml
   src/nestpy/
     __init__.py
+    application.py
     py.typed
     core/
+    http/
     settings/
     starlette/
     testing/
@@ -67,7 +69,8 @@ N0 defines but does not execute:
 - `ValueProvider`, `ClassProvider`, `FactoryProvider`, `AliasProvider`;
 - `ProviderDeclaration` union;
 - `ModuleSpec`, `DeferredModule`;
-- `ApplicationOptions`, `StarletteOptions`;
+- `ApplicationOptions`, `PipelineOptions`, and driver-neutral
+  `ApplicationAdapter`, `ApplicationBinder`, and `ApplicationRuntime` protocols;
 - `ExecutionContext`, `ScopedResolver` protocols;
 - `Middleware`, `Guard`, `Pipe`, `Interceptor`, `ExceptionFilter` protocols;
 - `ArgumentMetadata`, `PipelineResult`;
@@ -80,7 +83,7 @@ Provider declaration validation in N0 is structural:
 - provider scope must be supported;
 - alias has no independent scope or cleanup;
 - a managed value provider must be explicit;
-- application and Starlette timeouts/limits cannot be negative.
+- application timeouts cannot be negative.
 - cancellation grace plus cleanup reserve cannot exceed shutdown timeout.
 
 ## Exception Contract

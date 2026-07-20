@@ -3,9 +3,10 @@ import sys
 import types
 
 import pytest
+from nestpy import NestApplication
 from nestpy.cli import CLIError, _load_factory, _parse_context, _serve, main
 from nestpy.settings import current_bootstrap_context
-from nestpy.starlette import NestApplication
+from nestpy.starlette import StarletteAdapter
 
 
 def test_cli_import_and_help_do_not_import_uvicorn() -> None:
@@ -54,7 +55,7 @@ def test_factory_runs_inside_bootstrap_context_and_resets(monkeypatch) -> None:
 
     async def factory() -> NestApplication:
         seen.append(("factory", current_bootstrap_context().overrides[0][1]))
-        return await NestApplication.create(Root)
+        return await NestApplication.create(Root, adapter=StarletteAdapter())
 
     async def run_lifespan(application) -> None:
         events = iter([{"type": "lifespan.startup"}, {"type": "lifespan.shutdown"}])

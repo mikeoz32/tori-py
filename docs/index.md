@@ -23,3 +23,12 @@ authorization policy implementations, WebSockets, templates, or Pydantic
 integration. Applications may integrate those concerns explicitly.
 
 See [Why Nestpy](why-nestpy.md) for the design boundaries.
+
+`NestApplication` owns driver-neutral compilation and lifecycle. HTTP delivery
+is enabled explicitly with `StarletteAdapter`; the core application package does
+not import Starlette.
+
+`nestpy.http` owns HTTP route plans, execution contexts, guards, pipes,
+interceptors, filters, errors, and validation. `nestpy.starlette` only connects
+those framework contracts to native Starlette requests, responses, routing, and
+ASGI lifecycle.

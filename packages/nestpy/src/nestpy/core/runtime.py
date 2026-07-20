@@ -554,7 +554,7 @@ class ApplicationKernel:
         self.graph = graph
         self.options = options or ApplicationOptions()
         self.container = Container(graph)
-        self.binder = binder or NoopDriverBinder()
+        self.binder = NoopDriverBinder() if binder is None else binder
         self.state = ApplicationState.COMPILED
         self._modules: list[object] = []
         self._module_initialized: list[object] = []

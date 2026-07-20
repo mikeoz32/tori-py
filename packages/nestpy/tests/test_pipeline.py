@@ -9,12 +9,14 @@ from nestpy import (
     ClassProvider,
     Context,
     DeferredModule,
+    FactoryProvider,
     Inject,
     ModuleSpec,
+    NestApplication,
+    PipelineOptions,
     PipelineResult,
     Query,
     Scope,
-    StarletteOptions,
     ValueProvider,
     controller,
     get,
@@ -30,9 +32,17 @@ from nestpy import (
     use_pipe,
     use_pipes,
 )
-from nestpy.starlette import RequestContext
+from nestpy.starlette import (
+    RequestContext,
+    StarletteAdapter,
+)
 from nestpy.testing import TestingModule
 from starlette.responses import Response
+from starlette.types import ASGIApp
+
+
+def _asgi(application) -> ASGIApp:
+    return application.get_adapter(StarletteAdapter).app
 
 
 class Payload(msgspec.Struct):
@@ -170,14 +180,17 @@ async def test_pipeline_order_and_argument_metadata(call_http, message_body) -> 
     class Root:
         pass
 
-    options = StarletteOptions(
+    options = PipelineOptions(
         middleware=("global-middleware",),
         guards=("global-guard",),
         pipes=("global-pipe",),
         interceptors=("global-interceptor",),
     )
-    application = await TestingModule.create(Root).compile(http=options)
-    messages = await call_http(application.asgi, path="/pipeline?value=raw")
+    application = await TestingModule.create(Root).compile(
+        pipeline=options,
+        adapter=StarletteAdapter(),
+    )
+    messages = await call_http(_asgi(application), path="/pipeline?value=raw")
     assert (
         json.loads(message_body(messages[1]))
         == "raw-global-pipe-controller-pipe-route-pipe"
@@ -234,7 +247,7 @@ async def test_validation_pipe_is_opt_in_and_context_inject_are_excluded(
 
     class ValidationPipe:
         async def transform(self, value, metadata):
-            from nestpy.starlette.pipeline import MsgspecValidationPipe
+            from nestpy.http import MsgspecValidationPipe
 
             return await MsgspecValidationPipe().transform(value, metadata)
 
@@ -249,10 +262,11 @@ async def test_validation_pipe_is_opt_in_and_context_inject_are_excluded(
         pass
 
     application = await TestingModule.create(Root).compile(
-        http=StarletteOptions(pipes=("validation",))
+        pipeline=PipelineOptions(pipes=("validation",)),
+        adapter=StarletteAdapter(),
     )
     messages = await call_http(
-        application.asgi,
+        _asgi(application),
         method="POST",
         path="/payload",
         body=b'{"value": 7}',
@@ -263,10 +277,10 @@ async def test_validation_pipe_is_opt_in_and_context_inject_are_excluded(
         "context": True,
         "injected": "injected-value",
     }
-    number = await call_http(application.asgi, path="/number?value=7")
+    number = await call_http(_asgi(application), path="/number?value=7")
     assert json.loads(message_body(number[1])) == 7
     invalid = await call_http(
-        application.asgi,
+        _asgi(application),
         method="POST",
         path="/payload",
         body=b'{"value": "bad"}',
@@ -315,12 +329,56 @@ async def test_guard_false_and_filter_precedence(call_http) -> None:
         pass
 
     application = await TestingModule.create(Root).compile(
-        http=StarletteOptions(filters=("global-filter",))
+        pipeline=PipelineOptions(filters=("global-filter",)),
+        adapter=StarletteAdapter(),
     )
-    denied = await call_http(application.asgi, path="/denied")
+    denied = await call_http(_asgi(application), path="/denied")
     assert denied[0]["status"] == 418
-    missing = await call_http(application.asgi, path="/missing")
+    missing = await call_http(_asgi(application), path="/missing")
     assert missing[0]["status"] == 419
+    await application.close()
+
+
+@pytest.mark.asyncio
+async def test_filter_resolution_failure_falls_through_to_later_filter(
+    call_http,
+) -> None:
+    def broken_filter() -> object:
+        raise RuntimeError("filter construction failed")
+
+    class GlobalFilter:
+        async def catch(self, error, context):
+            return PipelineResult.from_response(
+                Response("global-filter", status_code=419)
+            )
+
+    @controller()
+    class Controller:
+        @get("/failure")
+        @use_filter("broken-filter")
+        async def failure(self) -> str:
+            raise RuntimeError("handler failed")
+
+    @module(
+        controllers=[Controller],
+        providers=[
+            FactoryProvider(
+                "broken-filter",
+                broken_filter,
+                scope=Scope.REQUEST,
+            ),
+            ValueProvider("global-filter", GlobalFilter()),
+        ],
+    )
+    class Root:
+        pass
+
+    application = await TestingModule.create(Root).compile(
+        pipeline=PipelineOptions(filters=("global-filter",)),
+        adapter=StarletteAdapter(),
+    )
+    response = await call_http(_asgi(application), path="/failure")
+    assert response[0]["status"] == 419
     await application.close()
 
 
@@ -339,10 +397,128 @@ async def test_raw_annotation_is_not_converted_without_validation_pipe(
     class Root:
         pass
 
-    application = await TestingModule.create(Root).compile()
-    messages = await call_http(application.asgi, path="/raw?value=7")
+    application = await TestingModule.create(Root).compile(adapter=StarletteAdapter())
+    messages = await call_http(_asgi(application), path="/raw?value=7")
     assert json.loads(message_body(messages[1])) == {"value": "7", "type": "str"}
     await application.close()
+
+
+@pytest.mark.asyncio
+async def test_application_global_methods_reach_starlette_pipeline(
+    call_http,
+    message_body,
+    message_headers,
+) -> None:
+    events: list[str] = []
+
+    class InitialPipe:
+        async def transform(self, value, metadata):
+            events.append("initial-pipe")
+            return f"{value}-initial"
+
+    class AllowGuard:
+        async def can_activate(self, context) -> bool:
+            events.append("guard")
+            return True
+
+    class SuffixPipe:
+        async def on_module_init(self) -> None:
+            events.append("method-pipe-init")
+
+        async def transform(self, value, metadata):
+            events.append("method-pipe")
+            return f"{value}-method"
+
+        async def on_module_destroy(self) -> None:
+            events.append("method-pipe-destroy")
+
+    class RecordingInterceptor:
+        async def intercept(self, context, next):
+            events.append("interceptor-in")
+            result = await next()
+            events.append("interceptor-out")
+            return result
+
+    class GlobalFilter:
+        async def catch(self, error, context):
+            events.append(f"filter:{type(error).__name__}:{context.route_id}")
+            if not isinstance(error, RuntimeError):
+                return PipelineResult.from_response(
+                    Response(status_code=error.status_code, headers=error.headers)
+                )
+            return PipelineResult.from_response(
+                Response("global-filter", status_code=419)
+            )
+
+    @controller()
+    class Controller:
+        @get("/value")
+        async def value(self, value: Annotated[str, Query("value")]) -> str:
+            events.append("handler")
+            return value
+
+        @get("/failure")
+        async def failure(self) -> str:
+            events.append("failure-handler")
+            raise RuntimeError("failure")
+
+    @module(
+        controllers=[Controller],
+        providers=[
+            ValueProvider("allow", AllowGuard()),
+            ClassProvider(SuffixPipe, SuffixPipe),
+        ],
+    )
+    class Root:
+        pass
+
+    application = await NestApplication.create(
+        Root,
+        pipeline=PipelineOptions(pipes=(InitialPipe(),)),
+        adapter=StarletteAdapter(),
+    )
+    application.use_global_guard("allow").use_global_pipe(
+        SuffixPipe
+    ).use_global_interceptor(RecordingInterceptor()).use_global_filter(GlobalFilter())
+    await application.start()
+    assert events == ["method-pipe-init"]
+    events.clear()
+
+    value = await call_http(_asgi(application), path="/value?value=raw")
+    assert json.loads(message_body(value[1])) == "raw-initial-method"
+    assert events == [
+        "guard",
+        "initial-pipe",
+        "method-pipe",
+        "interceptor-in",
+        "handler",
+        "interceptor-out",
+    ]
+
+    events.clear()
+    failure = await call_http(_asgi(application), path="/failure")
+    assert failure[0]["status"] == 419
+    assert events == [
+        "guard",
+        "interceptor-in",
+        "failure-handler",
+        "filter:RuntimeError:GET /failure",
+    ]
+
+    events.clear()
+    missing = await call_http(_asgi(application), path="/missing")
+    assert missing[0]["status"] == 404
+    assert events == ["filter:HttpException:None"]
+
+    events.clear()
+    wrong_method = await call_http(_asgi(application), method="POST", path="/value")
+    assert wrong_method[0]["status"] == 405
+    allow = dict(message_headers(wrong_method[0]))[b"allow"].decode().split(", ")
+    assert set(allow) == {"GET", "HEAD"}
+    assert events == ["filter:HttpException:None"]
+    events.clear()
+    await application.shutdown()
+    assert events == ["method-pipe-destroy"]
 
 
 @pytest.mark.asyncio
@@ -356,7 +532,8 @@ async def test_pipeline_visibility_fails_before_application_start() -> None:
 
     with pytest.raises(BootstrapError, match="pipeline provider"):
         await TestingModule.create(Root).compile(
-            http=StarletteOptions(middleware=("missing",))
+            pipeline=PipelineOptions(middleware=("missing",)),
+            adapter=StarletteAdapter(),
         )
     assert events == []
 
@@ -397,10 +574,10 @@ async def test_middleware_next_is_one_shot_and_short_circuit_is_allowed(
     class Root:
         pass
 
-    application = await TestingModule.create(Root).compile()
-    double = await call_http(application.asgi, path="/double")
+    application = await TestingModule.create(Root).compile(adapter=StarletteAdapter())
+    double = await call_http(_asgi(application), path="/double")
     assert double[0]["status"] == 500
-    short = await call_http(application.asgi, path="/short")
+    short = await call_http(_asgi(application), path="/short")
     assert short[0]["status"] == 202
     await application.close()
 
@@ -462,10 +639,10 @@ async def test_enhancer_classes_are_implicit_injectable_providers(
     class Root:
         pass
 
-    application = await TestingModule.create(Root).compile()
-    enhanced = await call_http(application.asgi, path="/class?value=raw")
+    application = await TestingModule.create(Root).compile(adapter=StarletteAdapter())
+    enhanced = await call_http(_asgi(application), path="/class?value=raw")
     assert json.loads(message_body(enhanced[1])) == "raw-piped"
-    failed = await call_http(application.asgi, path="/class-error")
+    failed = await call_http(_asgi(application), path="/class-error")
     assert failed[0]["status"] == 418
     assert events == [
         "guard:injected",
@@ -534,10 +711,10 @@ async def test_enhancer_instances_are_shared_and_externally_owned(
     class Root:
         pass
 
-    application = await TestingModule.create(Root).compile()
-    first = await call_http(application.asgi, path="/instance?value=one")
-    second = await call_http(application.asgi, path="/instance?value=two")
-    failed = await call_http(application.asgi, path="/instance-error")
+    application = await TestingModule.create(Root).compile(adapter=StarletteAdapter())
+    first = await call_http(_asgi(application), path="/instance?value=one")
+    second = await call_http(_asgi(application), path="/instance?value=two")
+    failed = await call_http(_asgi(application), path="/instance-error")
     assert json.loads(message_body(first[1])) == "one-instance"
     assert json.loads(message_body(second[1])) == "two-instance"
     assert failed[0]["status"] == 419
@@ -577,9 +754,10 @@ async def test_explicit_provider_takes_precedence_for_global_enhancer_class(
         pass
 
     application = await TestingModule.create(Root).compile(
-        http=StarletteOptions(guards=(GlobalGuard,))
+        pipeline=PipelineOptions(guards=(GlobalGuard,)),
+        adapter=StarletteAdapter(),
     )
-    response = await call_http(application.asgi, path="/global-class")
+    response = await call_http(_asgi(application), path="/global-class")
     assert response[0]["status"] == 403
     await application.close()
 
@@ -607,8 +785,11 @@ async def test_global_enhancer_class_uses_effective_replaced_root(call_http) -> 
 
     builder = TestingModule.create(descriptor)
     builder.replace_module(descriptor, Replacement)
-    application = await builder.compile(http=StarletteOptions(guards=(GlobalGuard,)))
-    response = await call_http(application.asgi, path="/replacement")
+    application = await builder.compile(
+        pipeline=PipelineOptions(guards=(GlobalGuard,)),
+        adapter=StarletteAdapter(),
+    )
+    response = await call_http(_asgi(application), path="/replacement")
     assert response[0]["status"] == 200
     await application.close()
 
@@ -630,8 +811,8 @@ async def test_implicit_enhancer_class_can_be_exported(call_http) -> None:
     class Root:
         pass
 
-    application = await TestingModule.create(Root).compile()
-    response = await call_http(application.asgi, path="/exported")
+    application = await TestingModule.create(Root).compile(adapter=StarletteAdapter())
+    response = await call_http(_asgi(application), path="/exported")
     assert response[0]["status"] == 200
     await application.close()
 
@@ -664,8 +845,8 @@ async def test_non_route_enhancer_metadata_does_not_register_provider(
     class Root:
         pass
 
-    application = await TestingModule.create(Root).compile()
-    response = await call_http(application.asgi, path="/without-helper")
+    application = await TestingModule.create(Root).compile(adapter=StarletteAdapter())
+    response = await call_http(_asgi(application), path="/without-helper")
     assert response[0]["status"] == 200
     await application.close()
 
@@ -697,9 +878,9 @@ async def test_explicit_request_scoped_guard_is_not_replaced_by_fallback(
     class Root:
         pass
 
-    application = await TestingModule.create(Root).compile()
-    first = await call_http(application.asgi, path="/request-guard")
-    second = await call_http(application.asgi, path="/request-guard")
+    application = await TestingModule.create(Root).compile(adapter=StarletteAdapter())
+    first = await call_http(_asgi(application), path="/request-guard")
+    second = await call_http(_asgi(application), path="/request-guard")
     assert first[0]["status"] == 200
     assert second[0]["status"] == 200
     assert len(instances) == 2
@@ -764,16 +945,17 @@ async def test_global_enhancer_instances_are_shared_and_externally_owned(
         pass
 
     application = await TestingModule.create(Root).compile(
-        http=StarletteOptions(
+        pipeline=PipelineOptions(
             guards=(guard,),
             pipes=(pipe,),
             interceptors=(interceptor,),
             filters=(filter_,),
-        )
+        ),
+        adapter=StarletteAdapter(),
     )
-    first = await call_http(application.asgi, path="/global-instance?value=one")
-    second = await call_http(application.asgi, path="/global-instance?value=two")
-    failed = await call_http(application.asgi, path="/global-instance-error")
+    first = await call_http(_asgi(application), path="/global-instance?value=one")
+    second = await call_http(_asgi(application), path="/global-instance?value=two")
+    failed = await call_http(_asgi(application), path="/global-instance-error")
     assert json.loads(message_body(first[1])) == "one-global"
     assert json.loads(message_body(second[1])) == "two-global"
     assert failed[0]["status"] == 420
@@ -815,9 +997,10 @@ async def test_global_module_export_takes_precedence_for_global_enhancer_class(
         pass
 
     application = await TestingModule.create(Root).compile(
-        http=StarletteOptions(guards=(GlobalGuard,))
+        pipeline=PipelineOptions(guards=(GlobalGuard,)),
+        adapter=StarletteAdapter(),
     )
-    response = await call_http(application.asgi, path="/global-module")
+    response = await call_http(_asgi(application), path="/global-module")
     assert response[0]["status"] == 403
     await application.close()
 

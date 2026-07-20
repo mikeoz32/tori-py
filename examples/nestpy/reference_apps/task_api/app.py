@@ -14,10 +14,10 @@ from nestpy import (
     FactoryProvider,
     Inject,
     Logger,
+    NestApplication,
     Path,
     PipelineResult,
     Scope,
-    StarletteOptions,
     ValueProvider,
     controller,
     get,
@@ -26,12 +26,12 @@ from nestpy import (
     status,
     use_guards,
 )
+from nestpy.http import MsgspecValidationPipe
 from nestpy.logging import LoggingModule
 from nestpy.settings import SettingsModule, SettingsOptions
 from nestpy.starlette import (
-    MsgspecValidationPipe,
-    NestApplication,
     RequestContext,
+    StarletteAdapter,
     asgi,
 )
 from nestpy.starlette.errors import problem_response
@@ -250,13 +250,14 @@ class AppModule:
 async def create_application() -> NestApplication:
     """Create an unstarted Task API for ASGI lifespan ownership."""
 
-    return await NestApplication.create(
+    app = await NestApplication.create(
         AppModule,
-        http=StarletteOptions(
-            pipes=("validation",),
-            filters=("task-errors",),
-        ),
+        adapter=StarletteAdapter(),
     )
+    app.use_global_pipe("validation")
+    app.use_global_filter("task-errors")
+
+    return app
 
 
 application = asgi(create_application)

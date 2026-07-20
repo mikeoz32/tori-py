@@ -1,7 +1,9 @@
+import asyncio
 import json
 from typing import cast
 
 import pytest
+from nestpy.starlette import StarletteAdapter
 from starlette.types import Message
 
 from examples.nestpy.app import create_application
@@ -11,13 +13,15 @@ from examples.nestpy.app import create_application
 async def test_documented_example_serves_one_request() -> None:
     application = await create_application()
     await application.start()
+    http_app = application.get_adapter(StarletteAdapter).app
     messages: list[dict[str, object]] = []
     sent = False
 
     async def receive() -> dict[str, object]:
         nonlocal sent
         if sent:
-            return {"type": "http.disconnect"}
+            await asyncio.Event().wait()
+            raise AssertionError("unreachable")
         sent = True
         return {"type": "http.request", "body": b"", "more_body": False}
 
@@ -25,7 +29,7 @@ async def test_documented_example_serves_one_request() -> None:
         messages.append(dict(message))
 
     try:
-        await application.http_app(
+        await http_app(
             {
                 "type": "http",
                 "asgi": {"version": "3.0"},

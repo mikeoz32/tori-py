@@ -2,11 +2,12 @@
 
 ## Purpose
 
-Add the sole v1 HTTP driver: Starlette. Compile controller metadata to
-Starlette routes, create request scopes, extract raw HTTP input, encode outputs,
-own request IDs, expose an ASGI factory/lifespan wrapper, and provide the base
-RFC 9457 renderer/mappings. Pipeline behavior beyond direct handler invocation
-is N5.
+Add the framework-owned `nestpy.http` execution layer and the sole v1 transport
+adapter: Starlette. The HTTP layer compiles controller metadata to route plans
+and owns HTTP contexts/errors. Starlette registers native routes, creates
+request scopes, extracts raw HTTP input, encodes outputs, owns request IDs, and
+exposes the ASGI factory/lifespan wrapper. Pipeline behavior beyond direct
+handler invocation is N5.
 
 ## Entry Criteria
 
@@ -19,22 +20,28 @@ is N5.
 
 ```python
 async def create_application() -> NestApplication:
-    return await NestApplication.create(
+    application = await NestApplication.create(
         AppModule,
         options=ApplicationOptions(...),
-        http=StarletteOptions(...),
+        pipeline=PipelineOptions(...),
+        adapter=StarletteAdapter(StarletteOptions(...)),
     )
+    return application.use_global_filter(ExternalFilter())
 
 
 application = asgi(create_application)
 ```
 
-`create()` compiles only. Calling `asgi()` is synchronous and returns an
+`NestApplication` and `PipelineOptions` are imported from `nestpy`;
+`StarletteAdapter`, `StarletteOptions`, and `asgi` are imported from
+`nestpy.starlette`. `create()` compiles only. Calling `asgi()` is synchronous
+and returns an
 asynchronous ASGI3 callable. That callable awaits the factory and application
 startup exactly once during ASGI lifespan startup in the server event loop.
 The wrapper validates at runtime that calling the factory returns an awaitable
-and that awaiting it yields `NestApplication`; violations send lifespan startup
-failed and never start resources.
+and that awaiting it yields a `NestApplication` configured with
+`StarletteAdapter`; violations send lifespan startup failed and never start
+resources.
 
 Lifespan requirements:
 
@@ -49,8 +56,8 @@ Lifespan requirements:
 ## Controller and Route Compilation
 
 Controllers are explicit module metadata and mandatory eager singleton
-providers. Compile frozen route plans from decorators/signatures without
-creating Starlette objects during application compilation.
+providers. `nestpy.http` compiles frozen route plans from decorators/signatures
+without creating Starlette objects during application compilation.
 
 At startup, bind route plans once to started singleton controller instances and
 create Starlette `Route` objects in declaration order.
@@ -117,14 +124,16 @@ Except `self`, every route parameter has exactly one marker:
 - `Context()`;
 - `Inject(token)`.
 
-No source-name inference. `Context()` requires `RequestContext` compatibility.
-`Inject` and HTTP markers are mutually exclusive.
+No source-name inference. `Context()` requires `HttpContext` compatibility;
+the selected adapter additionally verifies that its concrete context subtype
+can satisfy the annotation. `Inject` and HTTP markers are mutually exclusive.
 
 N4 extraction is raw:
 
 - body -> JSON-compatible primitives/mapping/list;
 - path/query/header/cookie -> raw string or repeated sequence;
-- context -> `RequestContext`;
+- context -> portable `HttpContext` or an explicitly requested compatible
+  adapter subtype such as Starlette `RequestContext`;
 - inject -> resolved provider value.
 
 Typed msgspec conversion is N5's opt-in pipe. Without such a pipe a handler
@@ -177,13 +186,14 @@ pipeline exceptions into this N4 service.
 
 ## Testing Integration
 
-Extend `TestingApplication` with ASGI app access. Tests use ordinary ASGI clients
-or direct invocation. HTTP tests MUST enter the production-equivalent lifespan
-and close through the testing application's production shutdown path.
+`TestingModule.compile(adapter=StarletteAdapter(...))` uses the same application
+assembly and binder as production. HTTP tests access the started ASGI callable
+through `TestingApplication.get_adapter(StarletteAdapter).app` and close through
+the testing application's production shutdown path.
 
-N4 owns final route-aware testing compilation: `TestingModule.compile()` must
-run controller/route shape validation after N3 overrides and return an ASGI-
-capable started testing application.
+Without an adapter, `TestingModule.compile()` remains driver-neutral. With
+`StarletteAdapter`, controller/route shape validation runs after N3 overrides
+and the returned testing application is Starlette-capable.
 
 ## Explicit Non-Goals
 

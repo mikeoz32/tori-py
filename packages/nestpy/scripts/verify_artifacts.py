@@ -11,8 +11,8 @@ import asyncio
 import json
 from typing import Annotated
 
-from nestpy import Query, controller, get, module
-from nestpy.starlette import NestApplication
+from nestpy import NestApplication, Query, controller, get, module
+from nestpy.starlette import StarletteAdapter
 
 @controller()
 class Controller:
@@ -25,7 +25,8 @@ class Root:
     pass
 
 async def smoke() -> None:
-    application = await NestApplication.create(Root)
+    adapter = StarletteAdapter()
+    application = await NestApplication.create(Root, adapter=adapter)
     await application.start()
     messages = []
     sent = False
@@ -33,7 +34,8 @@ async def smoke() -> None:
     async def receive():
         nonlocal sent
         if sent:
-            return {"type": "http.disconnect"}
+            await asyncio.Event().wait()
+            raise AssertionError("unreachable")
         sent = True
         return {"type": "http.request", "body": b"", "more_body": False}
 
@@ -41,7 +43,7 @@ async def smoke() -> None:
         messages.append(message)
 
     try:
-        await application.http_app(
+        await adapter.app(
             {
                 "type": "http",
                 "asgi": {"version": "3.0"},

@@ -1,7 +1,7 @@
 """Inject a class provider into a controller constructor."""
 
-from nestpy import ClassProvider, controller, get, module
-from nestpy.starlette import NestApplication
+from nestpy import ClassProvider, NestApplication, controller, get, module
+from nestpy.starlette import StarletteAdapter
 
 
 class GreetingService:
@@ -28,4 +28,4 @@ class AppModule:
 
 
 async def create_application() -> NestApplication:
-    return await NestApplication.create(AppModule)
+    return await NestApplication.create(AppModule, adapter=StarletteAdapter())

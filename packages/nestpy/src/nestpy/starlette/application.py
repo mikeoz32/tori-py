@@ -13,54 +13,72 @@ from typing import Any
 
 from starlette.applications import Starlette
 from starlette.requests import Request
-from starlette.types import ASGIApp, Receive, Scope, Send
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from nestpy.core.compiler import CompiledGraph, ModuleId, compile_graph
-from nestpy.core.options import ApplicationOptions, StarletteOptions
-from nestpy.core.runtime import ApplicationKernel, ApplicationState
+from nestpy.application import (
+    ApplicationAdapter,
+    ApplicationBinder,
+    ApplicationRuntime,
+)
+from nestpy.application import (
+    NestApplication as _NestApplication,
+)
+from nestpy.core.compiler import CompiledGraph, ModuleId
+from nestpy.core.errors import ApplicationStateError, BootstrapError
+from nestpy.core.modules import ModuleSpec
+from nestpy.core.options import PipelineOptions
+from nestpy.core.providers import ProviderDeclaration
+from nestpy.http.errors import HttpException
+from nestpy.http.pipeline import PipelineExecutor
+from nestpy.http.routes import bind_routes, compile_routes
 from nestpy.logging import use_log_context
 from nestpy.starlette.context import (
     RequestContext,
     _reset_context,
-    _reset_scope,
     _set_context,
-    _set_scope,
     current_request_context,
 )
-from nestpy.starlette.errors import (
-    HttpException,
-    problem_response,
-)
-from nestpy.starlette.pipeline import (
-    PipelineExecutor,
-    pipeline_class_provider_fallbacks,
-)
-from nestpy.starlette.routes import build_starlette_routes, compile_routes
+from nestpy.starlette.errors import problem_response
+from nestpy.starlette.options import StarletteOptions
+from nestpy.starlette.pipeline import StarlettePipelineAdapter
+from nestpy.starlette.routes import build_starlette_routes, validate_context_bindings
 
 logger = logging.getLogger("nestpy.starlette")
 
 
-class StarletteBinder:
+class _StarletteBinder:
     """Driver binder that creates routes only after the kernel is starting."""
 
     def __init__(
         self,
         graph: CompiledGraph,
         http_options: StarletteOptions,
+        pipeline_options: PipelineOptions,
     ) -> None:
         self.graph = graph
         self.http_options = http_options
         self.plans = compile_routes(graph)
-        self.pipeline = PipelineExecutor(graph, global_tokens=http_options)
+        validate_context_bindings(self.plans)
+        self.pipeline = PipelineExecutor(
+            graph,
+            global_tokens=pipeline_options,
+            transport=StarlettePipelineAdapter(),
+        )
         self.plans = self.pipeline.qualify(self.plans)
         self.app: ASGIApp | None = None
-        self._kernel: ApplicationKernel | None = None
 
-    async def bind(self, kernel: ApplicationKernel) -> None:
-        self._kernel = kernel
+    def configure_pipeline(self, pipeline: PipelineOptions) -> None:
+        if self.app is not None:
+            raise ApplicationStateError(
+                "Starlette pipeline cannot be configured after binding"
+            )
+        self.pipeline.configure_global(pipeline)
+
+    async def bind(self, runtime: ApplicationRuntime) -> None:
         application_id = graph_label(self.graph)
+        plans = await bind_routes(self.plans, runtime.resolver)
         routes = build_starlette_routes(
-            self.plans,
+            plans,
             self.pipeline,
             application_id=application_id,
             body_size_limit=self.http_options.body_size_limit,
@@ -76,14 +94,59 @@ class StarletteBinder:
         )
         self.app = RequestScopeMiddleware(
             starlette_app,
-            kernel,
+            runtime,
             self.graph.root,
             application_id=application_id,
         )
 
     async def close(self) -> None:
         self.app = None
-        self._kernel = None
+
+
+class StarletteAdapter(ApplicationAdapter):
+    """Bind one driver-neutral NestApplication to Starlette HTTP delivery."""
+
+    def __init__(self, options: StarletteOptions | None = None) -> None:
+        self.options = StarletteOptions() if options is None else options
+        self._binder: _StarletteBinder | None = None
+
+    def collect_fallback_providers(
+        self,
+        module_id: ModuleId,
+        spec: ModuleSpec,
+        is_root: bool,
+        pipeline: PipelineOptions,
+    ) -> tuple[ProviderDeclaration, ...]:
+        del module_id, spec, is_root, pipeline
+        return ()
+
+    def create_binder(
+        self,
+        graph: CompiledGraph,
+        pipeline: PipelineOptions,
+    ) -> ApplicationBinder:
+        if self._binder is not None:
+            raise ApplicationStateError(
+                "StarletteAdapter cannot be reused across applications"
+            )
+        self._binder = _StarletteBinder(graph, self.options, pipeline)
+        return self._binder
+
+    def configure_pipeline(self, pipeline: PipelineOptions) -> None:
+        if self._binder is None:
+            raise ApplicationStateError(
+                "StarletteAdapter is not attached to an application"
+            )
+        self._binder.configure_pipeline(pipeline)
+
+    @property
+    def app(self) -> ASGIApp:
+        if self._binder is None or self._binder.app is None:
+            raise BootstrapError(
+                "StarletteAdapter is not started",
+                code="application.invalid_state",
+            )
+        return self._binder.app
 
 
 class RequestScopeMiddleware:
@@ -92,13 +155,13 @@ class RequestScopeMiddleware:
     def __init__(
         self,
         app: ASGIApp,
-        kernel: ApplicationKernel,
+        runtime: ApplicationRuntime,
         root_module: ModuleId,
         *,
         application_id: str,
     ) -> None:
         self.app = app
-        self.kernel = kernel
+        self.runtime = runtime
         self.root_module = root_module
         self.application_id = application_id
 
@@ -108,36 +171,77 @@ class RequestScopeMiddleware:
             return
         request_id = request_id_from_scope(scope)
         scope["nestpy_request_id"] = request_id
-        request_scope = self.kernel.request_scope(self.root_module)
-        async with request_scope:
-            scope_token = _set_scope(request_scope)
-            request = Request(scope, receive)
-            context_token = _set_context(
-                RequestContext(
-                    request=request,
-                    scope=request_scope,
-                    module_identity=self.root_module,
-                    application=self.application_id,
-                    route=None,
-                    request_id_value=request_id,
-                )
-            )
+        request_scope = self.runtime.request_scope(self.root_module)
+        context_token = None
+        with use_log_context(
+            application=self.application_id,
+            request_id=request_id,
+            scope="request",
+        ):
             try:
-                response_started = False
+                async with request_scope:
+                    messages: asyncio.Queue[Message] = asyncio.Queue(maxsize=1)
+                    disconnected = asyncio.Event()
+                    response_complete = asyncio.Event()
+                    request_task = asyncio.current_task()
+                    if request_task is None:
+                        raise RuntimeError("HTTP handling requires an asyncio task")
 
-                async def tracked_send(message: MutableMapping[str, Any]) -> None:
-                    nonlocal response_started
-                    if message.get("type") == "http.response.start":
-                        response_started = True
-                    await send(message)
+                    async def monitor_receive() -> None:
+                        while True:
+                            message = await receive()
+                            if message["type"] == "http.disconnect":
+                                disconnected.set()
+                                if not response_complete.is_set():
+                                    request_task.cancel()
+                                return
+                            await messages.put(message)
 
-                with use_log_context(
-                    application=self.application_id,
-                    request_id=request_id,
-                    scope="request",
-                ):
+                    async def monitored_receive() -> Message:
+                        return await messages.get()
+
+                    request = Request(scope, monitored_receive)
+                    context_token = _set_context(
+                        RequestContext(
+                            request=request,
+                            scope=request_scope,
+                            module_identity=self.root_module,
+                            application=self.application_id,
+                            route=None,
+                            request_id_value=request_id,
+                        )
+                    )
+                    response_started = False
+
+                    async def tracked_send(
+                        message: MutableMapping[str, Any],
+                    ) -> None:
+                        nonlocal response_started
+                        if message.get("type") == "http.response.start":
+                            response_started = True
+                            headers = [
+                                (name, value)
+                                for name, value in message.get("headers", [])
+                                if name.lower() != b"x-request-id"
+                            ]
+                            headers.append(
+                                (b"x-request-id", request_id.encode("ascii"))
+                            )
+                            message["headers"] = headers
+                        elif message.get(
+                            "type"
+                        ) == "http.response.body" and not message.get(
+                            "more_body", False
+                        ):
+                            response_complete.set()
+                        await send(message)
+
+                    monitor = asyncio.create_task(monitor_receive())
                     try:
-                        await self.app(scope, receive, tracked_send)
+                        await self.app(scope, monitored_receive, tracked_send)
+                    except asyncio.CancelledError:
+                        if not disconnected.is_set():
+                            raise
                     except Exception:
                         if response_started:
                             logger.exception(
@@ -145,61 +249,18 @@ class RequestScopeMiddleware:
                                 extra={"request_id": request_id},
                             )
                         raise
+                    finally:
+                        monitor.cancel()
+                        await asyncio.gather(monitor, return_exceptions=True)
             finally:
-                _reset_context(context_token)
-                _reset_scope(scope_token)
-
-
-class NestApplication:
-    """Compiled, driver-bound application with explicit lifecycle control."""
-
-    def __init__(self, kernel: ApplicationKernel, binder: StarletteBinder) -> None:
-        self.kernel = kernel
-        self.binder = binder
-
-    @classmethod
-    async def create(
-        cls,
-        root: type[object],
-        *,
-        options: ApplicationOptions | None = None,
-        http: StarletteOptions | None = None,
-    ) -> NestApplication:
-        http_options = http or StarletteOptions()
-        graph = await compile_graph(
-            root,
-            fallback_provider_collector=lambda module_id, spec, is_root: (
-                pipeline_class_provider_fallbacks(
-                    spec,
-                    is_root=is_root,
-                    global_bindings=http_options,
-                )
-            ),
-        )
-        binder = StarletteBinder(graph, http_options)
-        kernel = ApplicationKernel(graph, options=options, binder=binder)
-        return cls(kernel, binder)
-
-    @property
-    def state(self) -> ApplicationState:
-        return self.kernel.state
-
-    @property
-    def http_app(self) -> ASGIApp:
-        if self.binder.app is None:
-            raise RuntimeError("NestApplication has not started")
-        return self.binder.app
-
-    async def start(self) -> None:
-        await self.kernel.start()
-
-    async def shutdown(self) -> None:
-        await self.kernel.shutdown()
+                if context_token is not None:
+                    _reset_context(context_token)
 
 
 class _ASGIState(StrEnum):
     CREATED = "created"
     STARTED = "started"
+    STOPPING = "stopping"
     STOPPED = "stopped"
     FAILED = "failed"
 
@@ -207,9 +268,10 @@ class _ASGIState(StrEnum):
 class ASGIApplication:
     """ASGI3 wrapper that owns one factory-created NestApplication."""
 
-    def __init__(self, factory: Callable[[], Awaitable[NestApplication]]) -> None:
+    def __init__(self, factory: Callable[[], Awaitable[_NestApplication]]) -> None:
         self.factory = factory
-        self.application: NestApplication | None = None
+        self.application: _NestApplication | None = None
+        self._http_app: ASGIApp | None = None
         self.state = _ASGIState.CREATED
         self._lock = asyncio.Lock()
         self._lifespan_seen = False
@@ -219,9 +281,9 @@ class ASGIApplication:
             await self._lifespan(receive, send)
             return
         if scope["type"] == "http" and self.state is _ASGIState.STARTED:
-            application = self.application
-            if application is not None:
-                await application.http_app(scope, receive, send)
+            http_app = self._http_app
+            if http_app is not None:
+                await http_app(scope, receive, send)
                 return
         if scope["type"] == "http":
             await _send_problem(send, 503, "Application is not ready.", scope)
@@ -253,10 +315,12 @@ class ASGIApplication:
                 if not inspect.isawaitable(result):
                     raise TypeError("application factory must return an awaitable")
                 application = await result
-                if not isinstance(application, NestApplication):
+                if not isinstance(application, _NestApplication):
                     raise TypeError("application factory must yield NestApplication")
+                adapter = application.get_adapter(StarletteAdapter)
                 await application.start()
                 self.application = application
+                self._http_app = adapter.app
                 self.state = _ASGIState.STARTED
             except Exception as error:
                 self.state = _ASGIState.FAILED
@@ -272,6 +336,8 @@ class ASGIApplication:
         if shutdown["type"] != "lifespan.shutdown":
             return
         async with self._lock:
+            self.state = _ASGIState.STOPPING
+            self._http_app = None
             try:
                 if self.application is not None:
                     await self.application.shutdown()
@@ -289,7 +355,7 @@ class ASGIApplication:
 
 
 def asgi(
-    factory: Callable[[], Awaitable[NestApplication]],
+    factory: Callable[[], Awaitable[_NestApplication]],
 ) -> ASGIApplication:
     """Return an ASGI wrapper that starts the factory during lifespan startup."""
 
@@ -348,7 +414,12 @@ async def _pipeline_error_response(
     async def encode(result: object):
         return await _encode_pipeline_result(result, 200, request)
 
-    return await pipeline.handle_routing_error(error, context, encode_result=encode)
+    return await pipeline.handle_routing_error(
+        error,
+        context,
+        context.scope,
+        encode_result=encode,
+    )
 
 
 def request_id_from_scope(scope: Scope) -> str:
@@ -400,4 +471,4 @@ def graph_label(graph: CompiledGraph) -> str:
     return graph.root.module.__qualname__
 
 
-__all__ = ["ASGIApplication", "NestApplication", "StarletteBinder", "asgi"]
+__all__ = ["ASGIApplication", "StarletteAdapter", "asgi"]

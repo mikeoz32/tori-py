@@ -1,6 +1,13 @@
 """Framework-agnostic Nestpy declarations."""
 
 from nestpy.core.compiler import (
+    CompiledGraph,
+    DependencyPlan,
+    GraphShape,
+    ModuleId,
+    ModulePlan,
+    ProviderPlan,
+    ProviderRef,
     compile_graph,
 )
 from nestpy.core.errors import (
@@ -66,7 +73,7 @@ from nestpy.core.modules import (
     get_module_metadata,
     module,
 )
-from nestpy.core.options import ApplicationOptions, StarletteOptions
+from nestpy.core.options import ApplicationOptions, PipelineOptions
 from nestpy.core.protocols import (
     ArgumentMetadata,
     Codec,
@@ -95,21 +102,25 @@ from nestpy.core.providers import (
     provider_token,
     validate_token,
 )
+from nestpy.core.runtime import ApplicationState, RequestScope
 
 __all__ = [
     "AliasProvider",
     "ApplicationOptions",
+    "ApplicationState",
     "ApplicationStateError",
     "ArgumentMetadata",
     "Body",
     "BootstrapError",
     "ClassProvider",
+    "CompiledGraph",
     "Codec",
     "Context",
     "ControllerMetadata",
     "Cookie",
     "DIAGNOSTIC_CODES",
     "DeferredModule",
+    "DependencyPlan",
     "Diagnostic",
     "DiagnosticCode",
     "ExceptionFilter",
@@ -117,6 +128,7 @@ __all__ = [
     "FactoryProvider",
     "filters",
     "Guard",
+    "GraphShape",
     "guards",
     "Header",
     "Inject",
@@ -126,19 +138,25 @@ __all__ = [
     "Logger",
     "Middleware",
     "ModuleFactory",
+    "ModuleId",
     "ModuleImport",
     "ModuleMetadata",
+    "ModulePlan",
     "ModuleSpec",
     "NestpyError",
     "middleware",
     "Path",
     "Pipe",
     "PipelineResult",
+    "PipelineOptions",
     "PipelineStateError",
     "pipes",
     "ProviderDeclaration",
     "ProviderFactory",
+    "ProviderPlan",
+    "ProviderRef",
     "Query",
+    "RequestScope",
     "ResolutionError",
     "ResourceError",
     "RouteMetadata",
@@ -148,7 +166,6 @@ __all__ = [
     "ScopedResolver",
     "SettingsDecoder",
     "SettingsError",
-    "StarletteOptions",
     "StatusMetadata",
     "Token",
     "ValueProvider",

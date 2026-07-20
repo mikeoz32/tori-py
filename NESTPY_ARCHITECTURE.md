@@ -75,7 +75,9 @@ Nestpy becomes a standalone workspace package:
 ```text
 packages/nestpy/
   src/nestpy/
+    application.py
     core/
+    http/
     starlette/
     settings/
     testing/
@@ -86,9 +88,11 @@ The public package is one distribution with layered subpackages:
 
 ```text
 nestpy.core       No Starlette imports.
+nestpy.application Depends only on core and owns the public application shell.
+nestpy.http       Depends on core/msgspec and owns HTTP execution semantics.
 nestpy.settings   Depends on core and msgspec, never Starlette.
-nestpy.starlette  Depends on core/settings and Starlette.
-nestpy.testing    Depends on core and optionally the Starlette driver.
+nestpy.starlette  Adapts nestpy.http to ASGI and native Starlette objects.
+nestpy.testing    Depends on application/core and optional adapters.
 nestpy.cli        Depends on the Starlette driver and server integration.
 ```
 
@@ -118,18 +122,22 @@ An application exports an async factory:
 
 ```python
 from nestpy import NestApplication
+from nestpy.starlette import StarletteAdapter
 
 
 async def create_application() -> NestApplication:
-    return await NestApplication.create(AppModule)
+    return await NestApplication.create(AppModule, adapter=StarletteAdapter())
 ```
 
-`NestApplication.create()` performs asynchronous graph compilation only:
+`NestApplication` is driver-neutral and owned by `nestpy.application`.
+`NestApplication.create()` performs asynchronous graph compilation and adapter
+preparation only:
 
 1. materialize deferred dynamic module descriptors;
-2. validate the module/provider/route graph;
-3. build the resolution plan and immutable driver-neutral route definitions;
-4. return an unstarted `NestApplication`.
+2. let the selected adapter contribute explicit compilation extensions;
+3. validate and build the module/provider resolution graph;
+4. create the adapter binder and validate its driver plans;
+5. return an unstarted `NestApplication`.
 
 It MUST NOT open provider resources, call lifecycle hooks, or accept HTTP work.
 
@@ -144,9 +152,10 @@ from nestpy.starlette import asgi
 application = asgi(create_application)
 ```
 
-`asgi()` returns a normal ASGI callable. During the server lifespan startup it
+`asgi()` requires the factory result to use `StarletteAdapter` and returns a
+normal ASGI callable. During the server lifespan startup it
 awaits `create_application()` exactly once, then invokes
-`application.startup()`. The wrapper delegates HTTP to the compiled Starlette
+`application.start()`. The wrapper delegates HTTP to the adapter-owned Starlette
 application only after successful startup. HTTP before lifespan readiness
 returns 503 Problem Details.
 
@@ -393,19 +402,42 @@ class ApplicationOptions:
 
 
 @dataclass(frozen=True, slots=True)
+class PipelineOptions:
+    middleware: tuple[Token, ...] = ()
+    guards: tuple[Token | Guard, ...] = ()
+    pipes: tuple[Token | Pipe, ...] = ()
+    interceptors: tuple[Token | Interceptor, ...] = ()
+    filters: tuple[Token | ExceptionFilter, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
 class StarletteOptions:
     body_size_limit: int = 1024 * 1024
-    middleware: tuple[Token, ...] = ()
-    guards: tuple[Token, ...] = ()
-    pipes: tuple[Token, ...] = ()
-    interceptors: tuple[Token, ...] = ()
-    filters: tuple[Token, ...] = ()
 ```
 
-Global pipeline tokens are resolved once from root-module visibility during
-compilation and stored as module-qualified `ProviderRef` values. Controller and
-route pipeline tokens resolve from their owning module. Runtime dispatch never
-re-resolves an unqualified global token from a route module.
+`ApplicationOptions` and `PipelineOptions` belong to the driver-neutral
+application facade. `StarletteOptions` contains transport settings only, belongs
+to `nestpy.starlette`, and is passed to `StarletteAdapter`.
+
+An application factory MAY append global enhancer bindings with
+`NestApplication.use_global_guard()`,
+`use_global_pipe()`, `use_global_interceptor()`, and `use_global_filter()` while
+the application remains compiled but unstarted. These methods preserve
+registration order and return the application for chaining. Preconstructed
+instances are externally owned. Provider tokens and registered class tokens are
+accepted when visible from the compiled root module and retain DI scope and
+lifecycle ownership. An unregistered implementation class remains a compile-time
+`PipelineOptions` registration because implicit provider creation requires graph
+compilation. The application passes each updated immutable configuration
+snapshot through `ApplicationAdapter.configure_pipeline()` before binding.
+
+Global pipeline tokens are qualified once against the compiled root-module
+visibility and stored as module-qualified `ProviderRef` values before binding.
+Initial `PipelineOptions` are qualified during application creation; fluent
+registrations are revalidated and qualified when their immutable configuration
+snapshot reaches the adapter. Controller and route pipeline tokens resolve from
+their owning module. Runtime dispatch never re-resolves an unqualified global
+token from a route module.
 
 Options require `cancellation_grace + cleanup_reserve <= shutdown_timeout`.
 Request draining stops at
@@ -414,10 +446,19 @@ cancellation observation, hooks, and resource cleanup.
 
 `nestpy.core` owns an internal `ApplicationKernel` with the state machine,
 container, lifecycle, options, and an exact-once async `DriverBinder` protocol.
-N2 implements the kernel with a no-op binder for non-HTTP tests. N4 introduces
-the public Starlette-backed `NestApplication`, coordinates graph plus route-plan
-compilation, and supplies the concrete binder. Core never imports that public
-driver application.
+`nestpy.application` owns the public driver-neutral `NestApplication` and
+`ApplicationAdapter`, `ApplicationBinder`, and `ApplicationRuntime` protocols.
+Concrete adapters explicitly implement `ApplicationAdapter`; its pipeline
+configuration hook applies pre-start global binding snapshots without
+moving pipeline ordering or resolution into the transport.
+The immutable compiled graph identities used by adapter authors are public core
+contracts. N2 implements the kernel with a no-op adapter for non-HTTP
+applications and tests. The application layer compiles global/controller/route
+pipeline providers independently of a transport. N4 introduces `nestpy.http`
+for HTTP route plans, execution contexts, errors, validation, and pipeline
+orchestration. `StarletteAdapter` supplies native route registration, request
+binding, response rendering, ASGI lifecycle, and the concrete binder. Core,
+application, and HTTP layers never import the Starlette adapter.
 
 `DriverBinder.bind()` MUST be failure-atomic where possible. The lifecycle marks
 binding attempted before awaiting it and invokes idempotent `close()` after any
@@ -499,22 +540,24 @@ completion invalidates the lease exactly once and resets framework context
 variables; subsequent use raises `ScopeClosedError`. Detached tasks cannot
 silently resolve new request-scoped providers after request cleanup.
 
-It has no Starlette types or driver-specific methods.
-
-`nestpy.starlette.RequestContext` implements `ExecutionContext` and adds
-Starlette-specific details: normalized method/path, headers, route/query/path
-values, and an explicit driver extension escape hatch. Core contracts consume
-only `ExecutionContext`; Starlette-specific integrations may require
-`RequestContext`.
+It has no Starlette types or driver-specific methods. `nestpy.http.HttpContext`
+is the portable HTTP implementation and carries an opaque native request plus
+request-scope and route metadata. `nestpy.starlette.RequestContext` subclasses
+it and exposes Starlette-specific method/path/header/query/cookie access. Route
+handlers should annotate `HttpContext` unless they intentionally require the
+native Starlette request escape hatch.
 
 Settings validation uses a core `Codec`/`SettingsDecoder` protocol, not HTTP
 `Pipe`.
 
-## 9. Starlette HTTP Driver
+## 9. Nestpy HTTP and Starlette Driver
 
 ### 9.1 Controllers and routes
 
 ```python
+from nestpy.http import HttpContext
+
+
 @controller("/users")
 class UsersController:
     def __init__(self, service: UserService) -> None:
@@ -525,14 +568,14 @@ class UsersController:
     async def create(
         self,
         body: Annotated[CreateUser, Body()],
-        context: Annotated[RequestContext, Context()],
+        context: Annotated[HttpContext, Context()],
     ) -> User:
         return await self._service.create(body, context.request_id)
 ```
 
 Controllers are mandatory eager singleton class providers in v1. Request and
 transient controller scopes are bootstrap errors. Route methods receive request
-data through binding; they must not retain `RequestContext` beyond the request
+data through binding; they must not retain `HttpContext` beyond the request
 lifetime.
 
 ### 9.2 Route compilation
@@ -565,14 +608,15 @@ marker or `Inject` marker:
 - `Annotated[T, Query("source_name")]`;
 - `Annotated[T, Header("source-name")]`;
 - `Annotated[T, Cookie("source_name")]`;
-- `Annotated[RequestContext, Context()]`;
+- `Annotated[HttpContext, Context()]`;
 - `Annotated[T, Inject(token)]`.
 
 There is no parameter-name inference. Non-body HTTP markers require an explicit
 source name. Missing required values, duplicate body markers, unknown markers,
 and unsupported annotations are bootstrap or request validation errors as
-appropriate. An annotated default value makes an input optional; otherwise it
-is required.
+appropriate. An adapter validates that its concrete native context subtype can
+satisfy each declared `HttpContext` annotation. An annotated default value makes
+an input optional; otherwise it is required.
 
 The v1 body format is JSON. Binding extracts raw JSON-compatible values and raw
 path/query/header/cookie text without converting to the declared target type.
@@ -595,6 +639,12 @@ the Starlette escape hatch. Their portability to future drivers is not a v1
 guarantee.
 
 ## 10. Pipeline Contract
+
+Pipeline registration, qualification, DI resolution, and execution are Nestpy
+framework responsibilities. They MUST NOT be implemented by a concrete HTTP
+transport adapter. HTTP adapters provide native argument extraction, explicit
+response recognition/rendering, disconnect classification, and route
+registration callbacks to the framework-owned executor.
 
 After route matching and request-scope creation, the runtime executes:
 

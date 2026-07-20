@@ -1,4 +1,4 @@
-"""HTTP exception and RFC 9457 problem response helpers."""
+"""Render framework HTTP errors as native Starlette responses."""
 
 from __future__ import annotations
 
@@ -8,25 +8,7 @@ from collections.abc import Mapping
 from starlette.requests import Request
 from starlette.responses import Response
 
-
-class HttpException(Exception):
-    """An expected HTTP failure rendered as Problem Details."""
-
-    def __init__(
-        self,
-        status_code: int,
-        detail: str,
-        *,
-        title: str | None = None,
-        headers: Mapping[str, str] | None = None,
-        errors: object | None = None,
-    ) -> None:
-        super().__init__(detail)
-        self.status_code = status_code
-        self.detail = detail
-        self.title = title or _status_title(status_code)
-        self.headers = dict(headers or {})
-        self.errors = errors
+from nestpy.http.errors import status_title
 
 
 def problem_response(
@@ -40,7 +22,7 @@ def problem_response(
 ) -> Response:
     body = {
         "type": "about:blank",
-        "title": title or _status_title(status_code),
+        "title": title or status_title(status_code),
         "status": status_code,
         "detail": detail,
     }
@@ -67,45 +49,4 @@ def problem_response(
     )
 
 
-async def http_exception_handler(request: Request, error: HttpException) -> Response:
-    return problem_response(
-        error.status_code,
-        error.detail,
-        request=request,
-        title=error.title,
-        headers=error.headers,
-        errors=error.errors,
-    )
-
-
-async def not_found_handler(request: Request, _error: Exception) -> Response:
-    return problem_response(
-        404, "The requested resource was not found.", request=request
-    )
-
-
-async def method_not_allowed_handler(
-    request: Request,
-    _error: Exception,
-) -> Response:
-    return problem_response(405, "The HTTP method is not allowed.", request=request)
-
-
-async def server_error_handler(request: Request, _error: Exception) -> Response:
-    return problem_response(500, "Internal server error.", request=request)
-
-
-def _status_title(status_code: int) -> str:
-    return {
-        400: "Bad Request",
-        404: "Not Found",
-        405: "Method Not Allowed",
-        403: "Forbidden",
-        413: "Payload Too Large",
-        415: "Unsupported Media Type",
-        500: "Internal Server Error",
-        503: "Service Unavailable",
-    }.get(status_code, "HTTP Error")
-
-
-__all__ = ["HttpException", "problem_response"]
+__all__ = ["problem_response"]

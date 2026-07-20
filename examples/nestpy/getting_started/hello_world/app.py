@@ -1,7 +1,7 @@
 """The smallest Nestpy HTTP application."""
 
-from nestpy import controller, get, module
-from nestpy.starlette import NestApplication, asgi
+from nestpy import NestApplication, controller, get, module
+from nestpy.starlette import StarletteAdapter, asgi
 
 
 @controller()
@@ -17,7 +17,7 @@ class AppModule:
 
 
 async def create_application() -> NestApplication:
-    return await NestApplication.create(AppModule)
+    return await NestApplication.create(AppModule, adapter=StarletteAdapter())
 
 
 application = asgi(create_application)

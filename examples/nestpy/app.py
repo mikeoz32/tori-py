@@ -7,18 +7,20 @@ import msgspec
 from nestpy import (
     FactoryProvider,
     Inject,
+    NestApplication,
+    PipelineOptions,
     PipelineResult,
     Query,
     Scope,
-    StarletteOptions,
     ValueProvider,
     controller,
     get,
     module,
     use_guards,
 )
+from nestpy.http import MsgspecValidationPipe
 from nestpy.settings import SettingsModule, SettingsOptions
-from nestpy.starlette import MsgspecValidationPipe, NestApplication
+from nestpy.starlette import StarletteAdapter
 from starlette.responses import Response
 
 
@@ -80,5 +82,6 @@ async def create_application() -> NestApplication:
 
     return await NestApplication.create(
         AppModule,
-        http=StarletteOptions(pipes=("validation",), filters=("errors",)),
+        pipeline=PipelineOptions(pipes=("validation",), filters=()),
+        adapter=StarletteAdapter(),
     )

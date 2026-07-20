@@ -713,13 +713,15 @@ API reference must cover documented public symbols grouped by owning facade.
 
 ### 13.1 `nestpy`
 
+- Driver-neutral NestApplication, adapter/binder/runtime protocols, and compiled
+  graph identities.
 - Module decorators and metadata.
 - Provider declarations and scopes.
 - Tokens and `Inject`.
 - Controller and route decorators.
 - Binding markers.
-- Pipeline decorators and protocols.
-- Application and Starlette options.
+- Pipeline decorators, protocols, and PipelineOptions.
+- Application lifecycle options.
 - Public errors and diagnostics.
 
 ### 13.2 `nestpy.settings`
@@ -730,23 +732,28 @@ API reference must cover documented public symbols grouped by owning facade.
 - Codec and SettingsDecoder implementations.
 - Loading and secret-path helpers intended as public API.
 
-### 13.3 `nestpy.starlette`
+### 13.3 `nestpy.http`
 
-- NestApplication.
-- ASGI wrapper.
-- RequestContext.
+- HttpContext and current HTTP context access.
 - HttpException.
 - MsgspecValidationPipe.
+- Framework-owned HTTP route and pipeline semantics.
+
+### 13.4 `nestpy.starlette`
+
+- StarletteAdapter and transport-only StarletteOptions.
+- ASGI wrapper.
+- Native RequestContext view.
 - Driver-specific escape hatches.
 
-### 13.4 `nestpy.testing`
+### 13.5 `nestpy.testing`
 
 - TestingModule.
 - ProviderOverride.
 - TestingApplication.
 - Module identity forms.
 
-### 13.5 `nestpy.cli`
+### 13.6 `nestpy.cli`
 
 - Console command syntax only.
 - Internal parser/loader helpers are not public API documentation.

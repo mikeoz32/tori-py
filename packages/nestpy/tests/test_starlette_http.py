@@ -1,4 +1,7 @@
+import asyncio
 import json
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from typing import Annotated, Any, cast
 
 import pytest
@@ -10,25 +13,32 @@ from nestpy import (
     FactoryProvider,
     Header,
     Inject,
+    NestApplication,
     Path,
     Query,
     Scope,
-    StarletteOptions,
     controller,
     get,
     module,
     post,
 )
-from nestpy.core.runtime import ApplicationState
+from nestpy.core.runtime import ApplicationState, RequestScope
+from nestpy.http import HttpContext
+from nestpy.logging import current_log_context
 from nestpy.starlette import (
-    NestApplication,
-    RequestContext,
+    StarletteAdapter,
+    StarletteOptions,
     asgi,
     current_request_context,
 )
 from nestpy.testing import TestingModule
+from starlette.background import BackgroundTask
 from starlette.responses import Response
-from starlette.types import Message
+from starlette.types import ASGIApp, Message
+
+
+def _asgi(application) -> ASGIApp:
+    return application.get_adapter(StarletteAdapter).app
 
 
 @pytest.mark.asyncio
@@ -44,7 +54,7 @@ async def test_testing_application_serves_raw_bindings_and_context(
             self,
             user_id: Annotated[str, Path("user_id")],
             query: Annotated[str, Query("q")],
-            context: Annotated[RequestContext, Context()],
+            context: Annotated[HttpContext, Context()],
         ) -> dict[str, str]:
             return {
                 "user_id": user_id,
@@ -56,9 +66,9 @@ async def test_testing_application_serves_raw_bindings_and_context(
     class Root:
         pass
 
-    application = await TestingModule.create(Root).compile()
+    application = await TestingModule.create(Root).compile(adapter=StarletteAdapter())
     messages = await call_http(
-        application.asgi,
+        _asgi(application),
         path="/users/42?q=raw",
         headers=[(b"x-request-id", b"request-42")],
     )
@@ -66,6 +76,13 @@ async def test_testing_application_serves_raw_bindings_and_context(
     payload = json.loads(message_body(messages[1]))
     assert payload == {"user_id": "42", "query": "raw", "request_id": "request-42"}
     assert (b"x-request-id", b"request-42") in message_headers(messages[0])
+    redirect = await call_http(
+        _asgi(application),
+        path="/users/42/?q=raw",
+        headers=[(b"x-request-id", b"redirect-42")],
+    )
+    assert redirect[0]["status"] == 307
+    assert (b"x-request-id", b"redirect-42") in message_headers(redirect[0])
     assert current_request_context() is None
     await application.close()
 
@@ -97,9 +114,9 @@ async def test_body_binding_repeated_query_and_explicit_response_request_id(
     class Root:
         pass
 
-    application = await TestingModule.create(Root).compile()
+    application = await TestingModule.create(Root).compile(adapter=StarletteAdapter())
     body_messages = await call_http(
-        application.asgi,
+        _asgi(application),
         method="POST",
         path="/body",
         body=b'{"name":"test"}',
@@ -108,13 +125,13 @@ async def test_body_binding_repeated_query_and_explicit_response_request_id(
     assert json.loads(message_body(body_messages[1])) == {"name": "test"}
 
     query_messages = await call_http(
-        application.asgi,
+        _asgi(application),
         path="/query?value=one&value=two",
     )
     assert json.loads(message_body(query_messages[1])) == ["one", "two"]
 
     explicit_messages = await call_http(
-        application.asgi,
+        _asgi(application),
         path="/explicit",
         headers=[(b"x-request-id", b"framework-value")],
     )
@@ -149,9 +166,9 @@ async def test_header_cookie_and_request_provider_bindings_remain_raw(
     class Root:
         pass
 
-    application = await TestingModule.create(Root).compile()
+    application = await TestingModule.create(Root).compile(adapter=StarletteAdapter())
     messages = await call_http(
-        application.asgi,
+        _asgi(application),
         path="/headers",
         headers=[
             (b"x-value", b"raw-header"),
@@ -180,10 +197,10 @@ async def test_body_media_and_size_errors_are_problem_details(call_http) -> None
         pass
 
     application = await TestingModule.create(Root).compile(
-        http=StarletteOptions(body_size_limit=1)
+        adapter=StarletteAdapter(StarletteOptions(body_size_limit=1))
     )
     unsupported = await call_http(
-        application.asgi,
+        _asgi(application),
         method="POST",
         path="/body",
         body=b"{}",
@@ -191,7 +208,7 @@ async def test_body_media_and_size_errors_are_problem_details(call_http) -> None
     )
     assert unsupported[0]["status"] == 415
     oversized = await call_http(
-        application.asgi,
+        _asgi(application),
         method="POST",
         path="/body",
         body=b"{}",
@@ -199,7 +216,7 @@ async def test_body_media_and_size_errors_are_problem_details(call_http) -> None
     )
     assert oversized[0]["status"] == 413
     malformed = await call_http(
-        application.asgi,
+        _asgi(application),
         method="POST",
         path="/body",
         body=b"{",
@@ -225,10 +242,10 @@ async def test_invalid_request_id_is_replaced_without_echoing_raw_value(
     class Root:
         pass
 
-    application = await TestingModule.create(Root).compile()
+    application = await TestingModule.create(Root).compile(adapter=StarletteAdapter())
     with caplog.at_level("WARNING", logger="nestpy.starlette"):
         messages = await call_http(
-            application.asgi,
+            _asgi(application),
             path="/id",
             headers=[(b"x-request-id", b"bad value"), (b"x-request-id", b"second")],
         )
@@ -252,7 +269,7 @@ async def test_http_errors_and_lifespan_wrapper(call_http) -> None:
         pass
 
     async def factory() -> NestApplication:
-        return await NestApplication.create(Root)
+        return await NestApplication.create(Root, adapter=StarletteAdapter())
 
     application = asgi(factory)
     messages: list[dict[str, object]] = []
@@ -279,9 +296,9 @@ async def test_http_errors_and_lifespan_wrapper(call_http) -> None:
     not_ready = await call_http(before_ready, path="/ok")
     assert not_ready[0]["status"] == 503
 
-    started = await TestingModule.create(Root).compile()
-    missing = await call_http(started.asgi, path="/missing")
-    wrong_method = await call_http(started.asgi, method="POST", path="/ok")
+    started = await TestingModule.create(Root).compile(adapter=StarletteAdapter())
+    missing = await call_http(_asgi(started), path="/missing")
+    wrong_method = await call_http(_asgi(started), method="POST", path="/ok")
     assert missing[0]["status"] == 404
     assert wrong_method[0]["status"] == 405
     await started.close()
@@ -296,12 +313,56 @@ async def test_nest_application_create_is_unstarted_until_lifespan_startup() -> 
         def __init__(self) -> None:
             events.append("constructed")
 
-    application = await NestApplication.create(Root)
+    application = await NestApplication.create(Root, adapter=StarletteAdapter())
     assert application.state is ApplicationState.COMPILED
     assert events == []
     await application.start()
     assert events == ["constructed"]
     await application.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_asgi_returns_503_after_shutdown_begins(call_http) -> None:
+    shutdown_started = asyncio.Event()
+    release_shutdown = asyncio.Event()
+
+    @controller()
+    class Controller:
+        @get("/ok")
+        async def ok(self) -> str:
+            return "ok"
+
+    @module(controllers=[Controller])
+    class Root:
+        async def on_application_shutdown(self) -> None:
+            shutdown_started.set()
+            await release_shutdown.wait()
+
+    async def factory() -> NestApplication:
+        return await NestApplication.create(Root, adapter=StarletteAdapter())
+
+    application = asgi(factory)
+    events: asyncio.Queue[Message] = asyncio.Queue()
+    startup_complete = asyncio.Event()
+
+    async def receive() -> Message:
+        return await events.get()
+
+    async def send(message: Message) -> None:
+        if message["type"] == "lifespan.startup.complete":
+            startup_complete.set()
+
+    lifespan = asyncio.create_task(
+        application(cast(Any, {"type": "lifespan"}), receive, send)
+    )
+    await events.put({"type": "lifespan.startup"})
+    await startup_complete.wait()
+    await events.put({"type": "lifespan.shutdown"})
+    await shutdown_started.wait()
+    response = await call_http(application, path="/ok")
+    assert response[0]["status"] == 503
+    release_shutdown.set()
+    await lifespan
 
 
 @pytest.mark.asyncio
@@ -332,7 +393,7 @@ async def test_route_binding_validation_happens_at_compile() -> None:
         pass
 
     with pytest.raises(BootstrapError, match="exactly one binding marker"):
-        await TestingModule.create(InvalidRoot).compile()
+        await TestingModule.create(InvalidRoot).compile(adapter=StarletteAdapter())
 
 
 @pytest.mark.asyncio
@@ -352,7 +413,7 @@ async def test_duplicate_routes_and_invalid_context_are_compile_errors() -> None
         pass
 
     with pytest.raises(BootstrapError, match="duplicate"):
-        await TestingModule.create(DuplicateRoot).compile()
+        await TestingModule.create(DuplicateRoot).compile(adapter=StarletteAdapter())
 
     @controller()
     class InvalidContext:
@@ -364,5 +425,248 @@ async def test_duplicate_routes_and_invalid_context_are_compile_errors() -> None
     class InvalidContextRoot:
         pass
 
-    with pytest.raises(BootstrapError, match="RequestContext"):
-        await TestingModule.create(InvalidContextRoot).compile()
+    with pytest.raises(BootstrapError, match="HttpContext"):
+        await TestingModule.create(InvalidContextRoot).compile(
+            adapter=StarletteAdapter()
+        )
+
+    class UnsupportedContext(HttpContext):
+        pass
+
+    @controller()
+    class Unsupported:
+        @get("/unsupported")
+        async def context(
+            self,
+            value: Annotated[UnsupportedContext, Context()],
+        ) -> str:
+            return value.route_id or ""
+
+    @module(controllers=[Unsupported])
+    class UnsupportedRoot:
+        pass
+
+    with pytest.raises(BootstrapError, match="not compatible"):
+        await TestingModule.create(UnsupportedRoot).compile(adapter=StarletteAdapter())
+
+
+@pytest.mark.asyncio
+async def test_response_and_request_cleanup_keep_matched_context(call_http) -> None:
+    events: list[tuple[str | None, object]] = []
+
+    @asynccontextmanager
+    async def resource() -> AsyncIterator[str]:
+        yield "resource"
+        context = current_request_context()
+        events.append(
+            (
+                None if context is None else context.route_id,
+                current_log_context().fields.get("request_id"),
+            )
+        )
+
+    async def background() -> None:
+        context = current_request_context()
+        events.append(
+            (
+                None if context is None else context.route_id,
+                current_log_context().fields.get("request_id"),
+            )
+        )
+
+    @controller()
+    class Controller:
+        @get("/context-lifetime")
+        async def context_lifetime(
+            self,
+            value: Annotated[str, Inject("resource")],
+        ) -> Response:
+            return Response(value, background=BackgroundTask(background))
+
+    @module(
+        controllers=[Controller],
+        providers=[FactoryProvider("resource", resource, scope=Scope.REQUEST)],
+    )
+    class Root:
+        pass
+
+    application = await TestingModule.create(Root).compile(adapter=StarletteAdapter())
+    messages = await call_http(
+        _asgi(application),
+        path="/context-lifetime",
+        headers=[(b"x-request-id", b"context-lifetime")],
+    )
+    assert messages[0]["status"] == 200
+    assert events == [
+        ("GET /context-lifetime", "context-lifetime"),
+        ("GET /context-lifetime", "context-lifetime"),
+    ]
+    assert current_request_context() is None
+    await application.close()
+
+
+@pytest.mark.asyncio
+async def test_controller_is_bound_at_startup_not_resolved_per_request(
+    call_http,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    constructed = 0
+
+    @controller()
+    class Controller:
+        def __init__(self) -> None:
+            nonlocal constructed
+            constructed += 1
+
+        @get("/bound")
+        async def bound(self) -> str:
+            return "bound"
+
+    @module(controllers=[Controller])
+    class Root:
+        pass
+
+    application = await TestingModule.create(Root).compile(adapter=StarletteAdapter())
+    assert constructed == 1
+
+    def fail_request_resolution(self, module_id):
+        del self, module_id
+        raise AssertionError("controller was resolved during request execution")
+
+    monkeypatch.setattr(RequestScope, "resolver_for", fail_request_resolution)
+    first = await call_http(_asgi(application), path="/bound")
+    second = await call_http(_asgi(application), path="/bound")
+    assert first[0]["status"] == second[0]["status"] == 200
+    assert constructed == 1
+    await application.close()
+
+
+@pytest.mark.asyncio
+async def test_disconnect_after_final_body_does_not_cancel_background_work() -> None:
+    background_started = asyncio.Event()
+    release_background = asyncio.Event()
+    background_completed = asyncio.Event()
+
+    async def background() -> None:
+        background_started.set()
+        await release_background.wait()
+        background_completed.set()
+
+    @controller()
+    class Controller:
+        @get("/background")
+        async def response(self) -> Response:
+            return Response("ok", background=BackgroundTask(background))
+
+    @module(controllers=[Controller])
+    class Root:
+        pass
+
+    application = await TestingModule.create(Root).compile(adapter=StarletteAdapter())
+    incoming: asyncio.Queue[Message] = asyncio.Queue()
+    sent: list[Message] = []
+
+    async def receive() -> Message:
+        return await incoming.get()
+
+    async def send(message: Message) -> None:
+        sent.append(message)
+
+    scope = cast(
+        Any,
+        {
+            "type": "http",
+            "asgi": {"version": "3.0"},
+            "http_version": "1.1",
+            "method": "GET",
+            "scheme": "http",
+            "path": "/background",
+            "raw_path": b"/background",
+            "query_string": b"",
+            "headers": [],
+            "client": ("test", 1),
+            "server": ("test", 80),
+        },
+    )
+    await incoming.put({"type": "http.request", "body": b"", "more_body": False})
+    request = asyncio.ensure_future(_asgi(application)(scope, receive, send))
+    await asyncio.wait_for(background_started.wait(), timeout=1)
+    await incoming.put({"type": "http.disconnect"})
+    await asyncio.sleep(0)
+    assert not request.done()
+
+    release_background.set()
+    await asyncio.wait_for(request, timeout=1)
+    assert sent[-1]["type"] == "http.response.body"
+    assert background_completed.is_set()
+    await application.close()
+
+
+@pytest.mark.asyncio
+async def test_client_disconnect_cancels_handler_and_cleans_request_scope() -> None:
+    handler_started = asyncio.Event()
+    events: list[str | None] = []
+
+    @asynccontextmanager
+    async def resource() -> AsyncIterator[str]:
+        yield "resource"
+        context = current_request_context()
+        events.append(None if context is None else context.route_id)
+
+    @controller()
+    class Controller:
+        @get("/wait")
+        async def wait(
+            self,
+            value: Annotated[str, Inject("resource")],
+        ) -> None:
+            del value
+            handler_started.set()
+            try:
+                await asyncio.Event().wait()
+            finally:
+                events.append("cancelled")
+
+    @module(
+        controllers=[Controller],
+        providers=[FactoryProvider("resource", resource, scope=Scope.REQUEST)],
+    )
+    class Root:
+        pass
+
+    application = await TestingModule.create(Root).compile(adapter=StarletteAdapter())
+    incoming: asyncio.Queue[Message] = asyncio.Queue()
+    sent: list[Message] = []
+
+    async def receive() -> Message:
+        return await incoming.get()
+
+    async def send(message: Message) -> None:
+        sent.append(message)
+
+    scope = cast(
+        Any,
+        {
+            "type": "http",
+            "asgi": {"version": "3.0"},
+            "http_version": "1.1",
+            "method": "GET",
+            "scheme": "http",
+            "path": "/wait",
+            "raw_path": b"/wait",
+            "query_string": b"",
+            "headers": [],
+            "client": ("test", 1),
+            "server": ("test", 80),
+        },
+    )
+    await incoming.put({"type": "http.request", "body": b"", "more_body": False})
+    request = asyncio.ensure_future(_asgi(application)(scope, receive, send))
+    await asyncio.wait_for(handler_started.wait(), timeout=1)
+    await incoming.put({"type": "http.disconnect"})
+    await asyncio.wait_for(request, timeout=1)
+
+    assert sent == []
+    assert events == ["cancelled", "GET /wait"]
+    assert current_request_context() is None
+    await application.close()

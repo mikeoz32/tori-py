@@ -1,8 +1,9 @@
 import json
 
 import pytest
-from nestpy import StarletteOptions
+from nestpy import PipelineOptions
 from nestpy.settings import BootstrapContext, use_bootstrap_context
+from nestpy.starlette import StarletteAdapter
 from nestpy.testing import TestingModule
 
 from examples.nestpy.reference_apps.task_api.app import (
@@ -21,9 +22,10 @@ async def test_task_api_reference_application(
 ) -> None:
     application = await create_application()
     await application.start()
+    http_app = application.get_adapter(StarletteAdapter).app
     try:
         denied = await call_http(
-            application.http_app,
+            http_app,
             method="POST",
             path="/tasks",
             body=b'{"title":"blocked"}',
@@ -32,7 +34,7 @@ async def test_task_api_reference_application(
         assert denied[0]["status"] == 403
 
         created = await call_http(
-            application.http_app,
+            http_app,
             method="POST",
             path="/tasks",
             body=b'{"title":"  Document Task API  "}',
@@ -49,18 +51,18 @@ async def test_task_api_reference_application(
             "request_id": "task-api-test",
         }
 
-        listed = await call_http(application.http_app, path="/tasks")
+        listed = await call_http(http_app, path="/tasks")
         assert json.loads(message_body(listed[1])) == [
             {"id": 1, "title": "Document Task API"}
         ]
 
-        found = await call_http(application.http_app, path="/tasks/1")
+        found = await call_http(http_app, path="/tasks/1")
         assert json.loads(message_body(found[1])) == {
             "id": 1,
             "title": "Document Task API",
         }
 
-        missing = await call_http(application.http_app, path="/tasks/999")
+        missing = await call_http(http_app, path="/tasks/999")
         assert missing[0]["status"] == 404
         assert dict(message_headers(missing[0]))[b"content-type"] == (
             b"application/problem+json"
@@ -68,7 +70,7 @@ async def test_task_api_reference_application(
         assert json.loads(message_body(missing[1]))["detail"] == "Task was not found."
 
         invalid = await call_http(
-            application.http_app,
+            http_app,
             method="POST",
             path="/tasks",
             body=b'{"title": 3}',
@@ -87,9 +89,10 @@ async def test_task_api_reference_uses_bootstrap_settings_override(call_http) ->
     with use_bootstrap_context(BootstrapContext((("max_title_length", "4"),))):
         application = await create_application()
     await application.start()
+    http_app = application.get_adapter(StarletteAdapter).app
     try:
         response = await call_http(
-            application.http_app,
+            http_app,
             method="POST",
             path="/tasks",
             body=b'{"title":"longer"}',
@@ -115,10 +118,17 @@ async def test_task_api_reference_supports_repository_override(
         repository
     )
     application = await builder.compile(
-        http=StarletteOptions(pipes=("validation",), filters=("task-errors",))
+        pipeline=PipelineOptions(
+            pipes=("validation",),
+            filters=("task-errors",),
+        ),
+        adapter=StarletteAdapter(),
     )
     try:
-        response = await call_http(application.asgi, path="/tasks")
+        response = await call_http(
+            application.get_adapter(StarletteAdapter).app,
+            path="/tasks",
+        )
         assert json.loads(message_body(response[1])) == [
             {"id": 1, "title": "From test override"}
         ]

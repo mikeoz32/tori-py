@@ -24,5 +24,6 @@ site structure, links, and included snippets.
 
 No public-facade contradiction blocks Getting Started. The only intentional
 facade boundary is that `nestpy` does not import optional or driver-specific
-APIs. Use `nestpy.settings`, `nestpy.starlette`, and `nestpy.testing` directly
-for those features.
+APIs. Use `nestpy.http` for framework HTTP contracts, `nestpy.starlette` for the
+native transport adapter, and `nestpy.settings`/`nestpy.testing` for their
+respective features.

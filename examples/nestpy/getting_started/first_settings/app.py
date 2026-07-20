@@ -3,9 +3,9 @@
 from pathlib import Path
 
 import msgspec
-from nestpy import controller, get, module
+from nestpy import NestApplication, controller, get, module
 from nestpy.settings import SettingsModule, SettingsOptions
-from nestpy.starlette import NestApplication
+from nestpy.starlette import StarletteAdapter
 
 
 class GreetingSettings(msgspec.Struct):
@@ -38,4 +38,4 @@ class AppModule:
 
 
 async def create_application() -> NestApplication:
-    return await NestApplication.create(AppModule)
+    return await NestApplication.create(AppModule, adapter=StarletteAdapter())

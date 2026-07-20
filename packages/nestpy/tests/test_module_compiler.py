@@ -440,7 +440,8 @@ async def test_compiled_plans_are_immutable_and_do_not_import_starlette() -> Non
         for plan in graph.providers.values()
     )
     assert hasattr(nestpy, "compile_graph")
-    assert not hasattr(nestpy, "ModuleId")
+    assert isinstance(graph, nestpy.CompiledGraph)
+    assert isinstance(graph.root, nestpy.ModuleId)
     assert isinstance(graph.modules[0].spec.providers, tuple)
     with pytest.raises(TypeError):
         graph.visibility["invalid"] = object()  # type: ignore[index]

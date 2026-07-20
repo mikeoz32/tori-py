@@ -4,11 +4,16 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, replace
-from typing import TYPE_CHECKING
 
-from nestpy.core.compiler import CompiledGraph, ModuleId, compile_graph
+from nestpy.application import (
+    ApplicationAdapter,
+    NestApplication,
+    _create_application,
+)
+from nestpy.core.compiler import CompiledGraph, ModuleId
 from nestpy.core.errors import BootstrapError
 from nestpy.core.modules import DeferredModule, ModuleImport, ModuleSpec
+from nestpy.core.options import ApplicationOptions, PipelineOptions
 from nestpy.core.providers import (
     AliasProvider,
     ClassProvider,
@@ -17,13 +22,6 @@ from nestpy.core.providers import (
     Token,
     ValueProvider,
 )
-from nestpy.core.runtime import ApplicationKernel
-
-if TYPE_CHECKING:
-    from starlette.types import ASGIApp
-
-    from nestpy.core.options import ApplicationOptions, StarletteOptions
-    from nestpy.starlette.application import StarletteBinder
 
 
 @dataclass(frozen=True, slots=True)
@@ -131,34 +129,22 @@ class TestingModule:
         self,
         *,
         options: ApplicationOptions | None = None,
-        http: StarletteOptions | None = None,
+        pipeline: PipelineOptions | None = None,
+        adapter: ApplicationAdapter | None = None,
     ) -> TestingApplication:
         self._check_open()
         self._sealed = True
-        from nestpy.core.options import StarletteOptions
-        from nestpy.starlette.application import StarletteBinder
-        from nestpy.starlette.pipeline import pipeline_class_provider_fallbacks
-
-        http_options = http or StarletteOptions()
-
-        graph = await compile_graph(
+        application = await _create_application(
             self.root,
+            options=options,
+            pipeline=pipeline,
+            adapter=adapter,
             import_resolver=self._resolve_import,
             spec_transformer=self._transform_spec,
-            fallback_provider_collector=lambda module_id, spec, is_root: (
-                pipeline_class_provider_fallbacks(
-                    spec,
-                    is_root=is_root,
-                    global_bindings=http_options,
-                )
-            ),
+            graph_validator=self._validate_override_targets,
         )
-        self._validate_override_targets(graph)
-
-        binder = StarletteBinder(graph, http_options)
-        kernel = ApplicationKernel(graph, options=options, binder=binder)
-        await kernel.start()
-        return TestingApplication(kernel, binder)
+        await application.start()
+        return TestingApplication(application)
 
     def _add_provider_override(
         self,
@@ -227,18 +213,14 @@ class TestingModule:
 
 
 class TestingApplication:
-    """Testing facade over the production application kernel and container."""
+    """Testing facade over one production-equivalent NestApplication."""
 
-    def __init__(self, kernel: ApplicationKernel, binder: StarletteBinder) -> None:
-        self.kernel = kernel
-        self.graph = kernel.graph
-        self.binder = binder
+    def __init__(self, application: NestApplication) -> None:
+        self.application = application
+        self.graph = application.graph
 
-    @property
-    def asgi(self) -> ASGIApp:
-        if self.binder.app is None:
-            raise BootstrapError("testing application is not started")
-        return self.binder.app
+    def get_adapter[T: ApplicationAdapter](self, adapter_type: type[T]) -> T:
+        return self.application.get_adapter(adapter_type)
 
     async def resolve(
         self,
@@ -248,10 +230,10 @@ class TestingApplication:
         module_id = (
             self.graph.root if module is None else _module_id(self.graph, module)
         )
-        return await self.kernel.resolver(module_id).resolve(token)
+        return await self.application._kernel.resolver(module_id).resolve(token)
 
     async def close(self) -> None:
-        await self.kernel.shutdown()
+        await self.application.shutdown()
 
 
 def _module_key(

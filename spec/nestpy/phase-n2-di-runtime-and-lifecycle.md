@@ -182,8 +182,11 @@ N2 MUST NOT:
 - implement testing overrides;
 - implement middleware/guards/pipes/interceptors/filters.
 
-N2 supplies a no-op binder for core tests. The public Starlette-backed
-`NestApplication` is owned by N4.
+N2 supplies a no-op binder for core tests. The public driver-neutral
+`NestApplication` is owned by `nestpy.application`; concrete adapters are owned
+by their driver packages. Public adapter implementations depend on the narrow
+`ApplicationBinder` and `ApplicationRuntime` protocols plus immutable compiled
+graph identities, not on `ApplicationKernel` internals.
 
 ## Tests
 

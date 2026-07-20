@@ -1,3 +1,4 @@
+import asyncio
 from collections.abc import Awaitable, Callable
 from typing import cast
 
@@ -25,7 +26,8 @@ def call_http() -> HttpCall:
         async def receive() -> Message:
             nonlocal sent
             if sent:
-                return {"type": "http.disconnect"}
+                await asyncio.Event().wait()
+                raise AssertionError("unreachable")
             sent = True
             return {
                 "type": "http.request",

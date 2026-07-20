@@ -19,7 +19,26 @@ Middleware declarations are provider tokens. Guard, pipe, interceptor, and
 filter declarations accept provider tokens, implementation classes, or
 preconstructed protocol instances.
 
-- global tokens resolve once from root-module visibility during compilation;
+Application-wide registrations are declared through driver-neutral
+`PipelineOptions`; they are not Starlette transport options.
+After compilation and before startup, an application factory may append
+bindings through `NestApplication.use_global_guard()`,
+`use_global_pipe()`, `use_global_interceptor()`, and `use_global_filter()`.
+Preconstructed instances are externally owned and are not resolved, initialized,
+or closed by DI. Provider tokens and registered class tokens are accepted only
+when visible from the compiled root module and retain DI scope and lifecycle
+ownership. Unregistered implementation classes remain `PipelineOptions`
+registrations so fallback providers can be created during compilation. Calling
+these methods after startup is an application-state error.
+
+Provider fallback discovery, registration qualification, guards, pipes,
+interceptors, filters, and one-shot pipeline execution are framework-owned.
+Concrete transport adapters MUST NOT implement their ordering or DI resolution.
+An HTTP adapter supplies native request binding, response rendering, and abort
+classification through narrow callbacks/ports.
+
+- global tokens are qualified once against compiled root-module visibility
+  before binding, including each fluent configuration snapshot;
 - controller and route tokens resolve from the owning module;
 - unregistered implementation classes become implicit class providers in the
   declaring module and retain normal DI, scope, and lifecycle behavior;

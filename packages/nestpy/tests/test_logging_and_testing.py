@@ -9,6 +9,7 @@ from nestpy.core.errors import BootstrapError
 from nestpy.core.modules import DeferredModule
 from nestpy.core.protocols import Logger
 from nestpy.logging import LoggingModule, PythonLogger, use_log_context
+from nestpy.starlette import StarletteAdapter
 from nestpy.testing import TestingModule
 
 
@@ -144,8 +145,11 @@ async def test_unknown_override_target_is_rejected() -> None:
 
     builder = TestingModule.create(Root)
     builder.override_provider("value", module=Missing).use_value("replacement")
+    adapter = StarletteAdapter()
     with pytest.raises(BootstrapError, match="not present"):
-        await builder.compile()
+        await builder.compile(adapter=adapter)
+    application = await TestingModule.create(Root).compile(adapter=adapter)
+    await application.close()
 
 
 @pytest.mark.asyncio

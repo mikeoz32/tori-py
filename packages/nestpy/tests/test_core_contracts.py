@@ -12,9 +12,9 @@ from nestpy import (
     FactoryProvider,
     Inject,
     ModuleSpec,
+    PipelineOptions,
     Scope,
     ScopedResolver,
-    StarletteOptions,
     ValueProvider,
     controller,
     get,
@@ -23,6 +23,7 @@ from nestpy import (
     get_route_metadata,
     module,
 )
+from nestpy.starlette import StarletteOptions
 
 
 class _Resolver:
@@ -63,6 +64,17 @@ def test_execution_context_protocol_is_driver_neutral() -> None:
     assert context.request_id == "request"
     assert context.execution_kind == "test"
     assert set(context.metadata) == set()
+
+
+def test_global_pipeline_options_are_not_starlette_transport_options() -> None:
+    class Guard:
+        async def can_activate(self, context) -> bool:
+            return True
+
+    guard = Guard()
+    pipeline = PipelineOptions(guards=(guard,))
+    assert pipeline.guards == (guard,)
+    assert not hasattr(StarletteOptions(), "guards")
 
 
 def test_invalid_declarations_fail_without_runtime_work() -> None:
