@@ -187,9 +187,13 @@ pipeline exceptions into this N4 service.
 ## Testing Integration
 
 `TestingModule.compile(adapter=StarletteAdapter(...))` uses the same application
-assembly and binder as production. HTTP tests access the started ASGI callable
-through `TestingApplication.get_adapter(StarletteAdapter).app` and close through
-the testing application's production shutdown path.
+assembly and binder as production. High-level HTTP tests SHOULD use
+`TestingApplication.http_client()` or `nestpy.testing.http_client(application)`.
+The utility supplies `httpx.AsyncClient` over `ASGITransport` and requires the
+`nestpy[testing]` optional dependency. HTTPX does not own lifespan in this flow
+because `TestingModule.compile()` or the caller has already started the
+application. Direct ASGI scope/message calls remain appropriate for low-level
+transport, disconnect, streaming, and lifespan protocol tests.
 
 Without an adapter, `TestingModule.compile()` remains driver-neutral. With
 `StarletteAdapter`, controller/route shape validation runs after N3 overrides

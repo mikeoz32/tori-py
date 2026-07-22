@@ -16,10 +16,12 @@ Install an optional extra only when the application needs it:
 ```text
 uv add 'nestpy[settings-yaml]'
 uv add 'nestpy[cli]'
+uv add --dev 'nestpy[testing]'
 ```
 
 `settings-yaml` enables YAML settings files. `cli` installs Uvicorn for the
-`nestpy run` command. The core package does not import either optional feature.
+`nestpy run` command. `testing` installs HTTPX for the standard async HTTP test
+client. The base package does not eagerly import these optional dependencies.
 
 The examples in this repository run from its root after:
 

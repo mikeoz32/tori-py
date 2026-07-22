@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass, replace
+from typing import TYPE_CHECKING
 
 from nestpy.application import (
     ApplicationAdapter,
@@ -22,6 +24,9 @@ from nestpy.core.providers import (
     Token,
     ValueProvider,
 )
+
+if TYPE_CHECKING:
+    import httpx
 
 
 @dataclass(frozen=True, slots=True)
@@ -221,6 +226,24 @@ class TestingApplication:
 
     def get_adapter[T: ApplicationAdapter](self, adapter_type: type[T]) -> T:
         return self.application.get_adapter(adapter_type)
+
+    def http_client(
+        self,
+        *,
+        base_url: str = "http://testserver",
+        raise_app_exceptions: bool = False,
+        client_address: tuple[str, int] = ("testclient", 50000),
+    ) -> AbstractAsyncContextManager[httpx.AsyncClient]:
+        """Return an HTTPX client context for the started Starlette adapter."""
+
+        from nestpy.testing.http import http_client
+
+        return http_client(
+            self,
+            base_url=base_url,
+            raise_app_exceptions=raise_app_exceptions,
+            client_address=client_address,
+        )
 
     async def resolve(
         self,

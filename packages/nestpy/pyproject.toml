@@ -10,6 +10,9 @@ dependencies = [
 [project.optional-dependencies]
 settings-yaml = ["PyYAML>=6.0"]
 cli = ["uvicorn>=0.35.0"]
+testing = [
+    "httpx>=0.28.0",
+]
 
 [project.scripts]
 nestpy = "nestpy.cli:main"

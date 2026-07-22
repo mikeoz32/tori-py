@@ -6,6 +6,8 @@ dependencies = [
     "cqrs-core",
     "cqrs-fastapi",
     "nestpy",
+    "nestpy-cqrs",
+    "uvicorn>=0.51.0",
 ]
 
 [tool.uv.workspace]
@@ -13,15 +15,18 @@ members = [
     "packages/cqrs-core",
     "packages/cqrs-fastapi",
     "packages/nestpy",
+    "packages/nestpy-cqrs",
 ]
 
 [tool.uv.sources]
 cqrs-core = { workspace = true }
 cqrs-fastapi = { workspace = true }
 nestpy = { workspace = true }
+nestpy-cqrs = { workspace = true }
 
 [dependency-groups]
 dev = [
+    "httpx>=0.28.0",
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",
     "ruff>=0.15.21",

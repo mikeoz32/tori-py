@@ -24,6 +24,7 @@ invariants, tests, and exit criteria.
 | N4 | [Starlette HTTP](phase-n4-starlette-http.md) | N0-N3 | ASGI, controllers, raw binding, base Problem Details |
 | N5 | [Pipeline and errors](phase-n5-pipeline-and-errors.md) | N0-N4 | Middleware through filters and validation errors |
 | N6 | [CLI and hardening](phase-n6-cli-and-hardening.md) | N0-N5 | CLI, adversarial lifecycle and release gate |
+| N7 | [Reflection and discovery](phase-n7-reflection-and-discovery.md) | N0-N6 | Typed metadata and compiled-provider introspection |
 
 ## Cross-Phase Invariants
 
@@ -32,8 +33,9 @@ invariants, tests, and exit criteria.
    exclusively.
 3. `nestpy.core` never imports Starlette, Uvicorn, FastAPI, Pydantic,
    `dependency_injector`, or `cqrs-core`.
-4. Providers and modules are registered explicitly; there is no package scan or
-   process-global registry.
+4. Providers and modules are registered explicitly; discovery inspects only the
+   compiled application graph and never scans packages or uses a process-global
+   registry.
 5. Compilers inspect annotations once and freeze runtime plans. Runtime
    resolution does not repeat signature inspection.
 6. Static modules are unique by class. Dynamic modules are unique by
@@ -83,5 +85,5 @@ When implementation requires a behavior change:
 4. review downstream phase assumptions;
 5. do not silently resolve design questions in implementation.
 
-`nestpy-cqrs` is not N7. It requires a separate architecture interview and
-phase plan after N6.
+`nestpy-cqrs` discovery is specified separately in C2 and consumes only public
+N7 contracts.

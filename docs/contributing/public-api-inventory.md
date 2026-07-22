@@ -16,8 +16,11 @@ targets. Symbol groups map to the planned API-reference pages in
 | `controller`, `get`, `post`, `put`, `patch`, `delete`, `head`, `options`, `route`, `status`, `get_controller_metadata`, `get_route_metadata`, `get_status_metadata` | `nestpy.core.metadata` | Controllers and Routes | N4 |
 | `Body`, `Path`, `Query`, `Header`, `Cookie`, `Context`, `RouteMetadata`, `ControllerMetadata`, `StatusMetadata` | `nestpy.core.metadata` | HTTP Binding | N4 |
 | `middleware`, `guards`, `pipes`, `interceptors`, `filters`, `use_middleware`, `use_guard`, `use_guards`, `use_pipe`, `use_pipes`, `use_interceptor`, `use_interceptors`, `use_filter`, `use_filters`, `get_pipeline_metadata` | `nestpy.core.metadata` | Pipeline | N5 |
-| `Guard`, `Pipe`, `Interceptor`, `ExceptionFilter`, `Middleware`, `ExecutionContext`, `ArgumentMetadata`, `PipelineResult`, `ScopedResolver`, `Logger`, `Codec`, `SettingsDecoder` | `nestpy.core.protocols` | Pipeline, Settings, Observability | N2-N5 |
+| `Guard`, `Pipe`, `Interceptor`, `ExceptionFilter`, `Middleware`, `ExecutionContext`, `ArgumentMetadata`, `PipelineResult`, `ScopedResolver`, `WorkScopeFactory`, `ShutdownContext`, `Logger`, `Codec`, `SettingsDecoder` | `nestpy.core.protocols` | Pipeline, Settings, Scopes, Lifecycle, Observability | N2-N5 |
 | `ApplicationOptions`, `PipelineOptions`, `ApplicationState`, `RequestScope` | `nestpy.core.options` and `nestpy.core.runtime` | Application Lifecycle and Global Pipeline | N2-N5 |
+| `MetadataKey`, `MetadataDecorator`, `metadata`, `Reflector` | `nestpy.core.reflection` | Typed Reflection Metadata | N7 |
+| `ProviderView`, `ModuleView` | `nestpy.core.discovery` | Compiled Provider Discovery | N7 |
+| `ModulesContainer`, `DiscoveryService` | `nestpy.core.protocols` | Discovery Service Contracts | N7 |
 | `NestpyError`, `BootstrapError`, `ApplicationStateError`, `LifecycleError`, `PipelineStateError`, `ResolutionError`, `ResourceError`, `ScopeError`, `ScopeClosedError`, `SettingsError`, `Diagnostic`, `DiagnosticCode`, `DIAGNOSTIC_CODES` | `nestpy.core.errors` | Failure Diagnostics and Problem Details | N1-N5 |
 
 ## `nestpy.settings`
@@ -45,12 +48,13 @@ targets. Symbol groups map to the planned API-reference pages in
 | `StarletteAdapter`, `ASGIApplication`, `asgi` | `nestpy.starlette.application` | ASGI and Deployment | N4 |
 | `StarletteOptions` | `nestpy.starlette.options` | Starlette Transport Configuration | N4 |
 | `RequestContext`, `current_request_context` | `nestpy.starlette.context` | Native Starlette Context View | N4 |
+| `problem_response` | `nestpy.starlette.errors` | Problem Details Rendering | N4-N5 |
 
 ## `nestpy.testing` and CLI
 
 | Symbols | Owner | Planned location | Source contract |
 | --- | --- | --- | --- |
-| `TestingModule`, `TestingApplication`, `ProviderOverride` | `nestpy.testing.runtime` | Testing | N3 |
+| `TestingModule`, `TestingApplication`, `ProviderOverride`, `http_client` | `nestpy.testing` | Testing and HTTPX Client | N3-N4 |
 | `nestpy run` | `nestpy.cli:main` console command | CLI Run | N6 |
 
 `nestpy` re-exports framework-agnostic core declarations and the driver-neutral

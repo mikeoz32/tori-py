@@ -1,10 +1,8 @@
-import json
-
 import pytest
 from nestpy import PipelineOptions
 from nestpy.settings import BootstrapContext, use_bootstrap_context
 from nestpy.starlette import StarletteAdapter
-from nestpy.testing import TestingModule
+from nestpy.testing import TestingModule, http_client
 
 from examples.nestpy.reference_apps.task_api.app import (
     AppModule,
@@ -15,102 +13,69 @@ from examples.nestpy.reference_apps.task_api.app import (
 
 
 @pytest.mark.asyncio
-async def test_task_api_reference_application(
-    call_http,
-    message_body,
-    message_headers,
-) -> None:
+async def test_task_api_reference_application() -> None:
     application = await create_application()
     await application.start()
-    http_app = application.get_adapter(StarletteAdapter).app
     try:
-        denied = await call_http(
-            http_app,
-            method="POST",
-            path="/tasks",
-            body=b'{"title":"blocked"}',
-            headers=[(b"content-type", b"application/json")],
-        )
-        assert denied[0]["status"] == 403
+        async with http_client(application) as client:
+            denied = await client.post("/tasks", json={"title": "blocked"})
+            assert denied.status_code == 403
 
-        created = await call_http(
-            http_app,
-            method="POST",
-            path="/tasks",
-            body=b'{"title":"  Document Task API  "}',
-            headers=[
-                (b"content-type", b"application/json"),
-                (b"x-task-write", b"allow"),
-                (b"x-request-id", b"task-api-test"),
-            ],
-        )
-        assert created[0]["status"] == 201
-        assert json.loads(message_body(created[1])) == {
-            "task": {"id": 1, "title": "Document Task API"},
-            "marker": "request-scope",
-            "request_id": "task-api-test",
-        }
+            created = await client.post(
+                "/tasks",
+                json={"title": "  Document Task API  "},
+                headers={
+                    "x-task-write": "allow",
+                    "x-request-id": "task-api-test",
+                },
+            )
+            assert created.status_code == 201
+            assert created.json() == {
+                "task": {"id": 1, "title": "Document Task API"},
+                "marker": "request-scope",
+                "request_id": "task-api-test",
+            }
 
-        listed = await call_http(http_app, path="/tasks")
-        assert json.loads(message_body(listed[1])) == [
-            {"id": 1, "title": "Document Task API"}
-        ]
+            listed = await client.get("/tasks")
+            assert listed.json() == [{"id": 1, "title": "Document Task API"}]
 
-        found = await call_http(http_app, path="/tasks/1")
-        assert json.loads(message_body(found[1])) == {
-            "id": 1,
-            "title": "Document Task API",
-        }
+            found = await client.get("/tasks/1")
+            assert found.json() == {"id": 1, "title": "Document Task API"}
 
-        missing = await call_http(http_app, path="/tasks/999")
-        assert missing[0]["status"] == 404
-        assert dict(message_headers(missing[0]))[b"content-type"] == (
-            b"application/problem+json"
-        )
-        assert json.loads(message_body(missing[1]))["detail"] == "Task was not found."
+            missing = await client.get("/tasks/999")
+            assert missing.status_code == 404
+            assert missing.headers["content-type"] == "application/problem+json"
+            assert missing.json()["detail"] == "Task was not found."
 
-        invalid = await call_http(
-            http_app,
-            method="POST",
-            path="/tasks",
-            body=b'{"title": 3}',
-            headers=[
-                (b"content-type", b"application/json"),
-                (b"x-task-write", b"allow"),
-            ],
-        )
-        assert invalid[0]["status"] == 400
+            invalid = await client.post(
+                "/tasks",
+                json={"title": 3},
+                headers={"x-task-write": "allow"},
+            )
+            assert invalid.status_code == 400
     finally:
         await application.shutdown()
 
 
 @pytest.mark.asyncio
-async def test_task_api_reference_uses_bootstrap_settings_override(call_http) -> None:
+async def test_task_api_reference_uses_bootstrap_settings_override() -> None:
     with use_bootstrap_context(BootstrapContext((("max_title_length", "4"),))):
         application = await create_application()
     await application.start()
-    http_app = application.get_adapter(StarletteAdapter).app
     try:
-        response = await call_http(
-            http_app,
-            method="POST",
-            path="/tasks",
-            body=b'{"title":"longer"}',
-            headers=[
-                (b"content-type", b"application/json"),
-                (b"x-task-write", b"allow"),
-            ],
-        )
-        assert response[0]["status"] == 400
+        async with http_client(application) as client:
+            response = await client.post(
+                "/tasks",
+                json={"title": "longer"},
+                headers={"x-task-write": "allow"},
+            )
+            assert response.status_code == 400
     finally:
         await application.shutdown()
 
 
 @pytest.mark.asyncio
-async def test_task_api_reference_supports_repository_override(
-    call_http,
-    message_body,
-) -> None:
+async def test_task_api_reference_supports_repository_override() -> None:
     repository = TaskRepository()
     repository.create("From test override")
     builder = TestingModule.create(AppModule)
@@ -125,12 +90,8 @@ async def test_task_api_reference_supports_repository_override(
         adapter=StarletteAdapter(),
     )
     try:
-        response = await call_http(
-            application.get_adapter(StarletteAdapter).app,
-            path="/tasks",
-        )
-        assert json.loads(message_body(response[1])) == [
-            {"id": 1, "title": "From test override"}
-        ]
+        async with application.http_client() as client:
+            response = await client.get("/tasks")
+            assert response.json() == [{"id": 1, "title": "From test override"}]
     finally:
         await application.close()

@@ -59,6 +59,7 @@ from cqrs_core.registrations import (
     QueryHandler,
     RegisteredHandler,
     TargetMode,
+    get_handler_metadata,
     handles,
 )
 from cqrs_core.registry import HandlerRegistry
@@ -120,6 +121,7 @@ __all__ = [
     "TransportNotStartedError",
     "TransportStoppedError",
     "TransportState",
+    "get_handler_metadata",
     "handles",
     "message_type_for",
 ]

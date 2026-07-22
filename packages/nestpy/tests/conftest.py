@@ -1,9 +1,9 @@
-import asyncio
 from collections.abc import Awaitable, Callable
 from typing import cast
 
+import httpx
 import pytest
-from starlette.types import ASGIApp, Message
+from starlette.types import ASGIApp
 
 type HttpCall = Callable[..., Awaitable[list[dict[str, object]]]]
 type MessageBody = Callable[[dict[str, object]], bytes]
@@ -20,39 +20,32 @@ def call_http() -> HttpCall:
         body: bytes = b"",
         headers: list[tuple[bytes, bytes]] | None = None,
     ) -> list[dict[str, object]]:
-        messages: list[dict[str, object]] = []
-        sent = False
-
-        async def receive() -> Message:
-            nonlocal sent
-            if sent:
-                await asyncio.Event().wait()
-                raise AssertionError("unreachable")
-            sent = True
-            return {
-                "type": "http.request",
-                "body": body,
-                "more_body": False,
-            }
-
-        async def send(message: Message) -> None:
-            messages.append(dict(message))
-
-        scope = {
-            "type": "http",
-            "asgi": {"version": "3.0"},
-            "http_version": "1.1",
-            "method": method,
-            "scheme": "http",
-            "path": path.split("?", 1)[0],
-            "raw_path": path.encode(),
-            "query_string": (path.split("?", 1)[1].encode() if "?" in path else b""),
-            "headers": headers or [],
-            "client": ("test", 1),
-            "server": ("test", 80),
-        }
-        await cast(ASGIApp, app)(scope, receive, send)
-        return messages
+        transport = httpx.ASGITransport(
+            app=cast(ASGIApp, app),
+            raise_app_exceptions=False,
+            client=("test", 1),
+        )
+        async with httpx.AsyncClient(
+            transport=transport,
+            base_url="http://testserver",
+        ) as client:
+            response = await client.request(
+                method,
+                path,
+                content=body,
+                headers=headers,
+            )
+        return [
+            {
+                "type": "http.response.start",
+                "status": response.status_code,
+                "headers": response.headers.raw,
+            },
+            {
+                "type": "http.response.body",
+                "body": response.content,
+            },
+        ]
 
     return call
 

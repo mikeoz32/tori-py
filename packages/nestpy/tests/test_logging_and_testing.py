@@ -1,16 +1,23 @@
 import logging
+import sys
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import cast
 
 import pytest
-from nestpy import ModuleSpec, ValueProvider, module
+from nestpy import (
+    ApplicationStateError,
+    ModuleSpec,
+    NestApplication,
+    ValueProvider,
+    module,
+)
 from nestpy.core.errors import BootstrapError
 from nestpy.core.modules import DeferredModule
 from nestpy.core.protocols import Logger
 from nestpy.logging import LoggingModule, PythonLogger, use_log_context
 from nestpy.starlette import StarletteAdapter
-from nestpy.testing import TestingModule
+from nestpy.testing import TestingModule, http_client
 
 
 def test_logger_preserves_reserved_framework_fields(
@@ -131,6 +138,55 @@ async def test_testing_application_resolves_dynamic_module_identity() -> None:
     value = await application.resolve("value", module=(Dynamic, "configured"))
     assert value == "configured"
     await application.close()
+
+
+@pytest.mark.asyncio
+async def test_http_client_requires_a_starlette_adapter() -> None:
+    @module()
+    class Root:
+        pass
+
+    application = await TestingModule.create(Root).compile()
+    try:
+        with pytest.raises(ApplicationStateError, match="does not use"):
+            async with application.http_client():
+                raise AssertionError("unreachable")
+    finally:
+        await application.close()
+
+
+@pytest.mark.asyncio
+async def test_http_client_reports_missing_optional_dependency(monkeypatch) -> None:
+    @module()
+    class Root:
+        pass
+
+    application = await TestingModule.create(Root).compile(adapter=StarletteAdapter())
+    monkeypatch.setitem(sys.modules, "httpx", None)
+    try:
+        with pytest.raises(BootstrapError, match=r"nestpy\[testing\]"):
+            async with application.http_client():
+                raise AssertionError("unreachable")
+    finally:
+        await application.close()
+
+
+@pytest.mark.asyncio
+async def test_http_client_rejects_unstarted_and_stopped_applications() -> None:
+    @module()
+    class Root:
+        pass
+
+    application = await NestApplication.create(Root, adapter=StarletteAdapter())
+    with pytest.raises(ApplicationStateError, match="started application"):
+        async with http_client(application):
+            raise AssertionError("unreachable")
+
+    await application.start()
+    await application.shutdown()
+    with pytest.raises(ApplicationStateError, match="started application"):
+        async with http_client(application):
+            raise AssertionError("unreachable")
 
 
 @pytest.mark.asyncio

@@ -13,9 +13,10 @@ from cqrs_core import (
     QueryHandler,
     RegisteredHandler,
     TargetMode,
+    get_handler_metadata,
     handles,
 )
-from cqrs_core.registrations import HandlerStyle, get_handler_metadata
+from cqrs_core.registrations import HandlerStyle
 from cqrs_core.registry import HandlerRegistry
 
 

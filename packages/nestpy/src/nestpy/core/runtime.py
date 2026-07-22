@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import functools
 import inspect
 import logging
@@ -18,6 +19,7 @@ from nestpy.core.compiler import (
     ModuleId,
     ProviderRef,
 )
+from nestpy.core.discovery import RuntimeDiscoveryService, RuntimeModulesContainer
 from nestpy.core.errors import (
     ApplicationStateError,
     LifecycleError,
@@ -26,7 +28,13 @@ from nestpy.core.errors import (
     ScopeError,
 )
 from nestpy.core.options import ApplicationOptions
-from nestpy.core.protocols import ScopedResolver
+from nestpy.core.protocols import (
+    DiscoveryService,
+    ModulesContainer,
+    ScopedResolver,
+    ShutdownContext,
+    WorkScopeFactory,
+)
 from nestpy.core.providers import (
     AliasProvider,
     ClassProvider,
@@ -34,8 +42,13 @@ from nestpy.core.providers import (
     Scope,
     ValueProvider,
 )
+from nestpy.core.reflection import Reflector
 
 logger = logging.getLogger(__name__)
+
+
+class _LingeringQuiesceError(TimeoutError):
+    """A quiesce hook ignored cancellation through its reserved grace."""
 
 
 class ApplicationState(StrEnum):
@@ -306,8 +319,16 @@ class _Resolver:
 class Container:
     """Native async-first provider container for one compiled graph."""
 
-    def __init__(self, graph: CompiledGraph) -> None:
+    def __init__(
+        self,
+        graph: CompiledGraph,
+        *,
+        work_scope_factory: Callable[[ModuleId], WorkScopeFactory] | None = None,
+        intrinsic_provider: Callable[[object], object] | None = None,
+    ) -> None:
         self.graph = graph
+        self._work_scope_factory = work_scope_factory
+        self._intrinsic_provider = intrinsic_provider
         self._executor = ThreadPoolExecutor(
             max_workers=4,
             thread_name_prefix="nestpy-resource",
@@ -322,9 +343,9 @@ class Container:
     def resolver(self, module_id: ModuleId) -> ScopedResolver:
         return _Resolver(self, module_id, self._application)
 
-    def new_request_scope(self) -> _ScopeState:
+    def new_request_scope(self, kind: str = "request") -> _ScopeState:
         return _ScopeState(
-            "request",
+            kind,
             ScopeLease(),
             resources=_ResourceStack(self._executor),
         )
@@ -355,7 +376,7 @@ class Container:
         if effective_scope is Scope.SINGLETON:
             owner = self._application
         elif effective_scope is Scope.REQUEST:
-            if scope.kind != "request" or scope.lease is None:
+            if scope.kind not in {"request", "work"} or scope.lease is None:
                 raise ScopeError("request-scoped provider requires a request scope")
             owner = scope
         else:
@@ -373,18 +394,20 @@ class Container:
         if ref in scope.cache:
             return scope.cache[ref]
         pending = scope.inflight.get(ref)
-        if pending is not None:
-            return await asyncio.shield(pending)
-        pending = asyncio.create_task(self._construct(ref, scope=scope, owner=scope))
-        scope.inflight[ref] = pending
+        if pending is None:
+            pending = asyncio.create_task(
+                self._construct(ref, scope=scope, owner=scope)
+            )
+            scope.inflight[ref] = pending
         try:
             value = await asyncio.shield(pending)
         except BaseException:
-            if scope.inflight.get(ref) is pending:
+            if pending.done() and scope.inflight.get(ref) is pending:
                 scope.inflight.pop(ref, None)
             raise
-        scope.inflight.pop(ref, None)
-        scope.cache[ref] = value
+        if scope.inflight.get(ref) is pending:
+            scope.inflight.pop(ref, None)
+            scope.cache[ref] = value
         return value
 
     async def _construct(
@@ -406,7 +429,30 @@ class Container:
         try:
             arguments: dict[str, object] = {}
             for dependency in plan.dependencies:
-                if dependency.provider_ref is not None:
+                if dependency.token is WorkScopeFactory:
+                    if self._work_scope_factory is None:
+                        raise ScopeError(
+                            "WorkScopeFactory requires an application runtime"
+                        )
+                    arguments[dependency.parameter_name] = self._work_scope_factory(
+                        ref.module_id
+                    )
+                elif dependency.token in {
+                    ModulesContainer,
+                    DiscoveryService,
+                    Reflector,
+                }:
+                    if self._intrinsic_provider is None:
+                        name = getattr(
+                            dependency.token,
+                            "__name__",
+                            "framework dependency",
+                        )
+                        raise ScopeError(f"{name} requires an application runtime")
+                    arguments[dependency.parameter_name] = self._intrinsic_provider(
+                        dependency.token
+                    )
+                elif dependency.provider_ref is not None:
                     arguments[dependency.parameter_name] = await self.resolve_ref(
                         dependency.provider_ref,
                         scope=scope,
@@ -446,6 +492,27 @@ class Container:
         if self._closed:
             return None
         self._closed = True
+        self._application.cancel_inflight()
+        inflight = tuple(self._application.inflight.values())
+        if inflight:
+            if deadline is None:
+                await asyncio.gather(*inflight, return_exceptions=True)
+                pending: set[asyncio.Future[object]] = set()
+            else:
+                _, pending = await asyncio.wait(
+                    inflight,
+                    timeout=_remaining(deadline),
+                )
+            if pending:
+                for task in pending:
+                    task.add_done_callback(_observe_bounded_task)
+                logger.error(
+                    "Application provider construction exceeded shutdown deadline",
+                    extra={"code": "resource.lingering_resource"},
+                )
+                return TimeoutError("application provider construction did not stop")
+            await asyncio.gather(*inflight, return_exceptions=True)
+            self._application.inflight.clear()
         resources = self._application.resources
         if resources is None:
             return None
@@ -462,18 +529,20 @@ class RequestScope(AbstractAsyncContextManager[ScopedResolver]):
         container: Container,
         module_id: ModuleId,
         *,
+        kind: str = "request",
         on_open: Callable[[RequestScope], None] | None = None,
         on_close: Callable[[RequestScope], None] | None = None,
     ) -> None:
         self._container = container
         self.module_id = module_id
-        self.state = container.new_request_scope()
+        self.state = container.new_request_scope(kind)
         self.resolver: ScopedResolver = _Resolver(container, module_id, self.state)
         self._on_open = on_open
         self._on_close = on_close
         self._entered = False
         self._closed = False
         self._task: asyncio.Task[object] | None = None
+        self._cleanup_task: asyncio.Task[BaseException | None] | None = None
 
     async def __aenter__(self) -> ScopedResolver:
         if self._entered:
@@ -500,24 +569,82 @@ class RequestScope(AbstractAsyncContextManager[ScopedResolver]):
 
     async def __aexit__(self, exc_type: object, exc: object, tb: object) -> None:
         del exc_type, exc, tb
-        if self._closed:
-            return
-        self._closed = True
-        if self.state.lease is not None:
-            self.state.lease.begin_close()
-        await self.state.wait_users(exclude=self._task)
-        self.state.cancel_inflight()
-        pending = tuple(self.state.inflight.values())
-        if pending:
-            await asyncio.gather(*pending, return_exceptions=True)
-        resources = self.state.resources
-        error = None if resources is None else await resources.close()
-        if self.state.lease is not None:
-            self.state.lease.close()
-        if self._on_close is not None:
-            self._on_close(self)
+        if self._cleanup_task is None:
+            if self.state.lease is not None:
+                self.state.lease.begin_close()
+            self._cleanup_task = asyncio.create_task(self._close())
+        task = self._cleanup_task
+        try:
+            error = await asyncio.shield(task)
+        except BaseException:
+            task.add_done_callback(_observe_scope_cleanup)
+            raise
         if error is not None:
             raise error
+
+    async def _close(self) -> BaseException | None:
+        try:
+            await self.state.wait_users(exclude=self._task)
+            self.state.cancel_inflight()
+            pending = tuple(self.state.inflight.values())
+            if pending:
+                await asyncio.gather(*pending, return_exceptions=True)
+            resources = self.state.resources
+            return None if resources is None else await resources.close()
+        finally:
+            if self.state.lease is not None:
+                self.state.lease.close()
+            self._closed = True
+            if self._on_close is not None:
+                self._on_close(self)
+
+
+class _ModuleWorkScopeFactory:
+    """Application-owned work-scope capability bound to one module."""
+
+    def __init__(self, kernel: ApplicationKernel, module_id: ModuleId) -> None:
+        self._kernel = kernel
+        self._module_id = module_id
+
+    @property
+    def module_id(self) -> ModuleId:
+        return self._module_id
+
+    def open(self) -> RequestScope:
+        return self._kernel._work_scope(self._module_id)
+
+    async def run[T](
+        self,
+        operation: Callable[[ScopedResolver], Awaitable[T]],
+    ) -> T:
+        return await self._run(self._module_id, operation)
+
+    async def run_in[T](
+        self,
+        module_id: ModuleId,
+        operation: Callable[[ScopedResolver], Awaitable[T]],
+    ) -> T:
+        return await self._run(module_id, operation)
+
+    async def _run[T](
+        self,
+        module_id: ModuleId,
+        operation: Callable[[ScopedResolver], Awaitable[T]],
+    ) -> T:
+        async def execute() -> T:
+            async with self._kernel._work_scope(module_id) as resolver:
+                return await operation(resolver)
+
+        task = asyncio.create_task(execute(), context=contextvars.Context())
+        return await task
+
+
+@dataclass(frozen=True, slots=True)
+class _ShutdownContext:
+    deadline: float | None
+
+    def remaining(self) -> float | None:
+        return _remaining(self.deadline)
 
 
 @runtime_checkable
@@ -553,18 +680,38 @@ class ApplicationKernel:
     ) -> None:
         self.graph = graph
         self.options = options or ApplicationOptions()
-        self.container = Container(graph)
+        self._work_scope_factories: dict[ModuleId, WorkScopeFactory] = {}
+        self._module_ids = frozenset(plan.module_id for plan in graph.modules)
+        self.container = Container(
+            graph,
+            work_scope_factory=self._work_scope_factory,
+            intrinsic_provider=self._intrinsic_provider,
+        )
+        self._reflector = Reflector()
+        self._modules_container = RuntimeModulesContainer(
+            graph,
+            lambda ref: (
+                ref in self.container._application.cache,
+                self.container._application.cache.get(ref),
+            ),
+        )
+        self._discovery_service = RuntimeDiscoveryService(
+            self._modules_container,
+            self._reflector,
+        )
         self.binder = NoopDriverBinder() if binder is None else binder
         self.state = ApplicationState.COMPILED
         self._modules: list[object] = []
         self._module_initialized: list[object] = []
         self._bootstrapped: list[object] = []
         self._binding_attempted = False
-        self._admission_open = False
+        self._request_admission_open = False
+        self._work_admission_open = False
         self._active_scopes: set[RequestScope] = set()
         self._active_event = asyncio.Event()
         self._active_event.set()
         self._lock = asyncio.Lock()
+        self._shutdown_task: asyncio.Task[BaseException | None] | None = None
 
     def resolver(self, module_id: ModuleId) -> ScopedResolver:
         return self.container.resolver(module_id)
@@ -573,10 +720,37 @@ class ApplicationKernel:
         scope = RequestScope(
             self.container,
             module_id,
-            on_open=self._register_scope,
+            on_open=self._register_request_scope,
             on_close=self._unregister_scope,
         )
         return scope
+
+    def _work_scope(self, module_id: ModuleId) -> RequestScope:
+        if module_id not in self._module_ids:
+            raise ScopeError("work scope requires a compiled module identity")
+        return RequestScope(
+            self.container,
+            module_id,
+            kind="work",
+            on_open=self._register_work_scope,
+            on_close=self._unregister_scope,
+        )
+
+    def _work_scope_factory(self, module_id: ModuleId) -> WorkScopeFactory:
+        factory = self._work_scope_factories.get(module_id)
+        if factory is None:
+            factory = _ModuleWorkScopeFactory(self, module_id)
+            self._work_scope_factories[module_id] = factory
+        return factory
+
+    def _intrinsic_provider(self, token: object) -> object:
+        if token is ModulesContainer:
+            return self._modules_container
+        if token is DiscoveryService:
+            return self._discovery_service
+        if token is Reflector:
+            return self._reflector
+        raise ScopeError("unknown framework dependency")
 
     async def start(self) -> None:
         async with self._lock:
@@ -604,10 +778,11 @@ class ApplicationKernel:
                         self._module_initialized.append(participant)
             self._binding_attempted = True
             await self.binder.bind(self)
+            self._work_admission_open = True
             for participant in self._module_initialized:
                 await _call_hook(participant, "on_application_bootstrap")
                 self._bootstrapped.append(participant)
-            self._admission_open = True
+            self._request_admission_open = True
             self.state = ApplicationState.STARTED
         except BaseException as error:
             await self._rollback(error)
@@ -617,41 +792,60 @@ class ApplicationKernel:
         async with self._lock:
             if self.state is ApplicationState.STOPPED:
                 return
-            if self.state is not ApplicationState.STARTED:
+            if self.state is ApplicationState.STOPPING:
+                cleanup_task = self._shutdown_task
+                if cleanup_task is None:
+                    raise ApplicationStateError(
+                        "application shutdown task is unavailable"
+                    )
+            elif self.state is ApplicationState.STARTED:
+                self.state = ApplicationState.STOPPING
+                self._request_admission_open = False
+                deadline = _deadline(self.options.shutdown_timeout)
+                cleanup_task = asyncio.create_task(self._run_shutdown(deadline))
+                self._shutdown_task = cleanup_task
+            else:
                 raise ApplicationStateError(
                     f"cannot shut down application in {self.state.value} state"
                 )
-            self.state = ApplicationState.STOPPING
-            self._admission_open = False
-        deadline = _deadline(self.options.shutdown_timeout)
-        cleanup_task = asyncio.create_task(self._shutdown_steps(deadline))
-        try:
-            first_error = await asyncio.shield(cleanup_task)
-        except BaseException as error:
-            first_error = error
-            try:
-                await asyncio.shield(cleanup_task)
-            except BaseException as cleanup_error:
-                logger.error(
-                    "Shutdown cleanup task failed after cancellation",
-                    extra={"code": "lifecycle.lingering_task"},
-                    exc_info=(
-                        type(cleanup_error),
-                        cleanup_error,
-                        cleanup_error.__traceback__,
-                    ),
-                )
-        finally:
-            self.state = ApplicationState.STOPPED
+        first_error = await asyncio.shield(cleanup_task)
         if first_error is not None:
             raise first_error
 
+    async def _run_shutdown(self, deadline: float | None) -> BaseException | None:
+        try:
+            return await self._shutdown_steps(deadline)
+        finally:
+            self.state = ApplicationState.STOPPED
+
     async def _shutdown_steps(self, deadline: float | None) -> BaseException | None:
         first_error: BaseException | None = None
+        cutoff = self._scope_drain_cutoff(deadline)
+        cancellation_deadline = self._quiesce_cancellation_deadline(deadline)
+        quiesce_lingering = False
         try:
-            await self._drain_requests(deadline)
+            quiesce_error, quiesce_lingering = await self._run_reverse_quiesce(
+                self._bootstrapped,
+                cutoff,
+                cancellation_deadline=cancellation_deadline,
+            )
+            if quiesce_error is not None:
+                first_error = quiesce_error
         except BaseException as error:
             first_error = error
+        finally:
+            self._work_admission_open = False
+        try:
+            await self._drain_scopes(deadline, cutoff=cutoff)
+        except BaseException as error:
+            if first_error is None:
+                first_error = error
+        if quiesce_lingering:
+            logger.error(
+                "Shutdown teardown skipped after cancellation-resistant quiescence",
+                extra={"code": "lifecycle.lingering_task"},
+            )
+            return first_error
         hook_error = await self._run_reverse_hooks(
             self._bootstrapped,
             "on_application_shutdown",
@@ -680,9 +874,17 @@ class ApplicationKernel:
             first_error = resource_error
         return first_error
 
-    def _register_scope(self, scope: RequestScope) -> None:
-        if not self._admission_open:
+    def _register_request_scope(self, scope: RequestScope) -> None:
+        if not self._request_admission_open:
             raise ApplicationStateError("application is not accepting request scopes")
+        self._track_scope(scope)
+
+    def _register_work_scope(self, scope: RequestScope) -> None:
+        if not self._work_admission_open:
+            raise ApplicationStateError("application is not accepting work scopes")
+        self._track_scope(scope)
+
+    def _track_scope(self, scope: RequestScope) -> None:
         self._active_scopes.add(scope)
         self._active_event.clear()
 
@@ -691,13 +893,30 @@ class ApplicationKernel:
         if not self._active_scopes:
             self._active_event.set()
 
-    async def _drain_requests(self, deadline: float | None) -> None:
+    def _scope_drain_cutoff(self, deadline: float | None) -> float | None:
+        if deadline is None:
+            return None
         reserve = self.options.cancellation_grace + self.options.cleanup_reserve
-        cutoff = (
-            None
-            if deadline is None
-            else max(asyncio.get_running_loop().time(), deadline - reserve)
+        return max(asyncio.get_running_loop().time(), deadline - reserve)
+
+    def _quiesce_cancellation_deadline(
+        self,
+        deadline: float | None,
+    ) -> float | None:
+        if deadline is None:
+            return None
+        return max(
+            asyncio.get_running_loop().time(),
+            deadline - self.options.cleanup_reserve,
         )
+
+    async def _drain_scopes(
+        self,
+        deadline: float | None,
+        *,
+        cutoff: float | None = None,
+    ) -> None:
+        cutoff = self._scope_drain_cutoff(deadline) if cutoff is None else cutoff
         remaining = _remaining(cutoff)
         if self._active_scopes:
             try:
@@ -745,10 +964,38 @@ class ApplicationKernel:
                     )
 
     async def _rollback(self, primary: BaseException) -> None:
+        deadline = _deadline(self.options.shutdown_timeout)
+        self._request_admission_open = False
+        quiesce_error, quiesce_lingering = await self._run_reverse_quiesce(
+            self._bootstrapped,
+            self._scope_drain_cutoff(deadline),
+            cancellation_deadline=self._quiesce_cancellation_deadline(deadline),
+        )
+        self._work_admission_open = False
+        if quiesce_error is not None:
+            logger.error(
+                "Application quiescence rollback failed",
+                exc_info=(
+                    type(quiesce_error),
+                    quiesce_error,
+                    quiesce_error.__traceback__,
+                ),
+            )
+        try:
+            await self._drain_scopes(deadline)
+        except BaseException:
+            logger.exception("Application scope drain failed during rollback")
+        if quiesce_lingering:
+            logger.error(
+                "Rollback teardown skipped after cancellation-resistant quiescence",
+                extra={"code": "lifecycle.lingering_task"},
+            )
+            self.state = ApplicationState.FAILED
+            return
         hook_error = await self._run_reverse_hooks(
             self._bootstrapped,
             "on_application_shutdown",
-            deadline=_deadline(self.options.shutdown_timeout),
+            deadline=deadline,
         )
         if hook_error is not None:
             logger.error(
@@ -759,7 +1006,7 @@ class ApplicationKernel:
             try:
                 await _await_bounded(
                     self.binder.close(),
-                    _deadline(self.options.shutdown_timeout),
+                    deadline,
                     "binder.close",
                 )
             except BaseException:
@@ -767,23 +1014,51 @@ class ApplicationKernel:
         hook_error = await self._run_reverse_hooks(
             self._module_initialized,
             "on_module_destroy",
-            deadline=_deadline(self.options.shutdown_timeout),
+            deadline=deadline,
         )
         if hook_error is not None:
             logger.error(
                 "Module destroy rollback hook failed",
                 exc_info=(type(hook_error), hook_error, hook_error.__traceback__),
             )
-        resource_error = await self.container.close(
-            deadline=_deadline(self.options.shutdown_timeout)
-        )
+        resource_error = await self.container.close(deadline=deadline)
         if resource_error is not None:
             logger.exception(
                 "Application resource rollback failed", exc_info=resource_error
             )
-        self._admission_open = False
+        self._request_admission_open = False
+        self._work_admission_open = False
         self.state = ApplicationState.FAILED
         del primary
+
+    async def _run_reverse_quiesce(
+        self,
+        participants: list[object],
+        deadline: float | None,
+        *,
+        cancellation_deadline: float | None,
+    ) -> tuple[BaseException | None, bool]:
+        first_error: BaseException | None = None
+        lingering = False
+        context = _ShutdownContext(deadline)
+        for participant in reversed(participants):
+            try:
+                await _call_quiesce(
+                    participant,
+                    context,
+                    deadline=deadline,
+                    cancellation_deadline=cancellation_deadline,
+                )
+            except BaseException as error:
+                if first_error is None:
+                    first_error = error
+                if isinstance(error, _LingeringQuiesceError):
+                    lingering = True
+                logger.exception(
+                    "Lifecycle hook failed",
+                    extra={"hook": "on_application_quiesce"},
+                )
+        return first_error, lingering
 
     async def _run_reverse_hooks(
         self,
@@ -832,17 +1107,69 @@ async def _call_hook(
     await _await_bounded(hook(), deadline, f"lifecycle.{name}")
 
 
+async def _call_quiesce(
+    participant: object,
+    context: ShutdownContext,
+    *,
+    deadline: float | None,
+    cancellation_deadline: float | None,
+) -> None:
+    hook = getattr(participant, "on_application_quiesce", None)
+    if hook is None:
+        return
+    if not callable(hook) or not inspect.iscoroutinefunction(hook):
+        raise LifecycleError(
+            "lifecycle hook on_application_quiesce must be async",
+            code="lifecycle.startup_error",
+        )
+    try:
+        parameters = inspect.signature(hook).parameters
+    except (TypeError, ValueError) as error:
+        raise LifecycleError(
+            "cannot inspect lifecycle hook on_application_quiesce",
+            code="lifecycle.startup_error",
+        ) from error
+    if len(parameters) != 1:
+        raise LifecycleError(
+            "lifecycle hook on_application_quiesce must accept one context",
+            code="lifecycle.startup_error",
+        )
+    remaining = _remaining(deadline)
+    if remaining is not None and remaining <= 0:
+        raise TimeoutError(
+            "lifecycle.on_application_quiesce exceeded shutdown deadline"
+        )
+    await _await_bounded(
+        hook(context),
+        deadline,
+        "lifecycle.on_application_quiesce",
+        cancel_on_timeout=True,
+        cancellation_deadline=cancellation_deadline,
+    )
+
+
 async def _await_bounded(
     awaitable: Awaitable[object],
     deadline: float | None,
     label: str,
+    *,
+    cancel_on_timeout: bool = False,
+    cancellation_deadline: float | None = None,
 ) -> object:
     future = asyncio.ensure_future(awaitable)
     if deadline is None:
         return await future
     remaining = _remaining(deadline)
     if remaining is not None and remaining <= 0:
-        future.add_done_callback(_observe_bounded_task)
+        if cancel_on_timeout:
+            future.cancel()
+            await _wait_for_cancellation(
+                future,
+                cancellation_deadline,
+                label,
+            )
+        else:
+            future.add_done_callback(_observe_bounded_task)
         raise TimeoutError(f"{label} exceeded shutdown deadline")
     try:
         done, _ = await asyncio.wait({future}, timeout=remaining)
@@ -850,13 +1177,37 @@ async def _await_bounded(
         future.add_done_callback(_observe_bounded_task)
         raise
     if not done:
-        future.add_done_callback(_observe_bounded_task)
+        if cancel_on_timeout:
+            future.cancel()
+            await _wait_for_cancellation(
+                future,
+                cancellation_deadline,
+                label,
+            )
+        else:
+            future.add_done_callback(_observe_bounded_task)
         logger.error(
             "Shutdown operation exceeded deadline",
             extra={"code": "lifecycle.lingering_task", "operation": label},
         )
         raise TimeoutError(f"{label} exceeded shutdown deadline")
     return future.result()
+
+
+async def _wait_for_cancellation(
+    future: asyncio.Future[object],
+    deadline: float | None,
+    label: str,
+) -> None:
+    if deadline is None:
+        await asyncio.gather(future, return_exceptions=True)
+        return
+    done, _ = await asyncio.wait({future}, timeout=_remaining(deadline))
+    if done:
+        await asyncio.gather(future, return_exceptions=True)
+        return
+    future.add_done_callback(_observe_bounded_task)
+    raise _LingeringQuiesceError(f"{label} ignored cancellation")
 
 
 def _observe_bounded_task(future: asyncio.Future[object]) -> None:
@@ -879,6 +1230,28 @@ def _observe_cleanup_task(task: asyncio.Future[None]) -> None:
         logger.error(
             "Lingering resource cleanup failed",
             extra={"code": "resource.lingering_resource"},
+            exc_info=(type(error), error, error.__traceback__),
+        )
+
+
+def _observe_scope_cleanup(
+    task: asyncio.Future[BaseException | None],
+) -> None:
+    if task.cancelled():
+        return
+    try:
+        error = task.result()
+    except BaseException as task_error:
+        logger.error(
+            "Request scope cleanup task failed",
+            extra={"code": "resource.lingering_resource"},
+            exc_info=(type(task_error), task_error, task_error.__traceback__),
+        )
+        return
+    if error is not None:
+        logger.error(
+            "Request scope resource cleanup failed",
+            extra={"code": "resource.cleanup_error"},
             exc_info=(type(error), error, error.__traceback__),
         )
 

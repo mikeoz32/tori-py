@@ -239,5 +239,5 @@ the executable benchmark gate records the release baseline without unbounded
 runtime graph/signature inspection, and independent review reports no required
 findings.
 
-The next possible project is a separately designed `nestpy-cqrs` bridge. It is
-not part of this phase or release gate.
+The subsequently implemented `nestpy-cqrs` bridge is specified under
+`spec/nestpy-cqrs/` and remains outside this N6 phase and release gate.

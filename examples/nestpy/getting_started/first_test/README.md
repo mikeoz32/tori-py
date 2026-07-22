@@ -15,4 +15,6 @@ uv run pytest examples/nestpy/getting_started/first_test/test_example.py
 ```
 
 The test issues `GET /greeting` and verifies the response contains
-`Hello from test`.
+`Hello from test`. `TestingApplication.http_client()` supplies an
+`httpx.AsyncClient` backed by `ASGITransport`; the testing application already
+owns startup and shutdown, so HTTPX does not run a second lifespan manager.

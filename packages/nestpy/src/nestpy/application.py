@@ -39,7 +39,7 @@ class ApplicationRuntime(Protocol):
         """Return the immutable graph owned by this application."""
 
     def request_scope(self, module_id: ModuleId) -> RequestScope:
-        """Create one application-owned request/work scope."""
+        """Create one normal driver-request scope."""
 
     def resolver(self, module_id: ModuleId) -> ScopedResolver:
         """Return an application-scope resolver for one module."""

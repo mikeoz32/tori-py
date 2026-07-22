@@ -1,9 +1,8 @@
 import asyncio
-import json
-from collections.abc import MutableMapping
 from dataclasses import dataclass
 from typing import Any
 
+import httpx
 import pytest
 from cqrs_core import Command, InMemoryTransport
 from cqrs_fastapi import (
@@ -23,43 +22,17 @@ async def asgi_json(
     path: str,
     payload: dict[str, Any] | None = None,
 ) -> tuple[int, Any]:
-    body = b"" if payload is None else json.dumps(payload).encode()
-    received = False
-    messages: list[MutableMapping[str, Any]] = []
-
-    async def receive() -> dict[str, Any]:
-        nonlocal received
-        if received:
-            return {"type": "http.disconnect"}
-        received = True
-        return {"type": "http.request", "body": body, "more_body": False}
-
-    async def send(message: MutableMapping[str, Any]) -> None:
-        messages.append(message)
-
-    scope = {
-        "type": "http",
-        "asgi": {"version": "3.0", "spec_version": "2.0"},
-        "http_version": "1.1",
-        "method": method,
-        "scheme": "http",
-        "path": path,
-        "raw_path": path.encode(),
-        "query_string": b"",
-        "headers": [(b"content-type", b"application/json")],
-        "client": ("test", 50000),
-        "server": ("test", 80),
-    }
-    await app(scope, receive, send)
-    response = next(
-        message for message in messages if message["type"] == "http.response.start"
-    )
-    response_body = b"".join(
-        message.get("body", b"")
-        for message in messages
-        if message["type"] == "http.response.body"
-    )
-    return response["status"], json.loads(response_body)
+    transport = httpx.ASGITransport(app=app, raise_app_exceptions=False)
+    async with httpx.AsyncClient(
+        transport=transport,
+        base_url="http://testserver",
+    ) as client:
+        response = (
+            await client.request(method, path)
+            if payload is None
+            else await client.request(method, path, json=payload)
+        )
+    return response.status_code, response.json()
 
 
 def test_uninitialized_dependency_helper_fails_clearly() -> None:

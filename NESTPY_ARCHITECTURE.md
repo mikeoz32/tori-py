@@ -1,7 +1,7 @@
 # Nestpy Architecture Specification
 
 Status: approved architecture baseline. Executable implementation contracts are
-split into `spec/nestpy/phase-n0-*.md` through `phase-n6-*.md`. No Nestpy code
+split into `spec/nestpy/phase-n0-*.md` through `phase-n7-*.md`. No Nestpy code
 is implemented by this document.
 
 ## 1. Purpose
@@ -22,8 +22,9 @@ Python-native DI container. It provides:
 - middleware, guards, pipes, interceptors, and filters;
 - settings, logging, request IDs, and testing overrides.
 
-`cqrs-core` remains framework-agnostic. Nestpy does not depend on it. A future
-optional `nestpy-cqrs` package may bridge Nestpy DI/lifecycle to CQRS buses.
+`cqrs-core` remains framework-agnostic and Nestpy does not depend on it. The
+implemented optional `nestpy-cqrs` package bridges Nestpy DI/lifecycle to CQRS
+buses without creating a reverse dependency.
 
 ## 2. Scope and Non-Goals
 
@@ -54,7 +55,7 @@ Nestpy v1 MUST provide:
 Nestpy v1 MUST NOT provide:
 
 - FastAPI support or FastAPI runtime dependencies;
-- package scanning, implicit provider discovery, or global registries;
+- package scanning, provider auto-registration, or process-global registries;
 - automatic module re-exporting;
 - WebSocket, template, static-file, or framework-managed streaming APIs;
 - authentication, CORS, CSRF, rate-limiting, or security-header policies;
@@ -344,8 +345,18 @@ Rules:
 Scopes:
 
 - `singleton`: one eagerly-created instance per application;
-- `request`: one instance per accepted HTTP request;
+- `request`: one instance per accepted HTTP request or explicit work scope;
 - `transient`: a new instance per resolution.
+
+Singleton providers may inject the reserved `WorkScopeFactory` intrinsic. The
+factory is bound to the provider's exact compiled `ModuleId` and opens a fresh,
+application-tracked work scope on each call. Work scopes use normal module
+visibility, cache request-scoped providers once per invocation, own transient
+resources, and cannot be declared or overridden as a user provider.
+`WorkScopeFactory.run()` executes an operation in a fresh
+`contextvars.Context`, so background work does not inherit HTTP request,
+logging, or other ambient execution context. Direct `open()` controls DI
+lifetime only and does not clear context variables.
 
 All singleton providers, including controllers, are created during application
 startup. This makes hooks, resource acquisition, and startup failures
@@ -388,6 +399,39 @@ thread-affine resources require an application-provided async wrapper.
 On partial acquisition failure, already-entered resources of the current scope
 close immediately in reverse order. The original acquisition error is
 preserved; cleanup errors are attached/logged as secondary failures.
+
+### 6.6 Reflection and compiled-provider discovery
+
+Nestpy exposes typed, Python-native metadata without depending on JavaScript's
+`reflect-metadata` model. Metadata decorators attach immutable values directly
+to classes or functions. `Reflector` reads metadata from a class, function, or
+instance and exposes separate direct-only and inherited lookup operations.
+Existing framework metadata whose contract is direct-only remains direct-only.
+
+`ModulesContainer` is one application-owned, read-only view of the complete
+compiled module graph. `DiscoveryService` can enumerate provider and controller
+descriptors from that view in deterministic compiled order. These services are
+reserved framework dependencies available through constructor injection; they
+never register providers or scan importable Python packages.
+
+Discovery is privileged introspection and may include private providers from
+every compiled module, matching NestJS discovery semantics. Every descriptor
+retains its exact `ModuleId`, provider token, canonical `ProviderRef`, scope,
+declaration, implementation class when statically knowable, and resolved
+singleton instance plus an explicit created-state when available. A created
+provider may validly hold `None`. The public view is immutable and does not
+expose mutable caches, resource stacks, or container mutation APIs.
+
+Global discovery MUST NOT imply unqualified global resolution. Integrations
+execute discovered providers through the descriptor's module-qualified
+identity. Two providers with the same token in different static or dynamic
+modules remain distinct and deterministic. Aliases canonicalize to one provider
+for discovery unless an integration explicitly requests alias declarations.
+
+`WorkScopeFactory.run_in(module_id, operation)` is the privileged scoped
+execution primitive for a discovered provider. It opens one application-tracked
+work scope owned by the exact target module and preserves the same context
+isolation, admission, cancellation, and cleanup guarantees as `run()`.
 
 ## 7. Lifecycle and Shutdown
 
@@ -474,8 +518,14 @@ providers/controllers. The supported async hook names are:
 
 - `on_module_init()`;
 - `on_application_bootstrap()`;
+- `on_application_quiesce(context)`;
 - `on_application_shutdown()`;
 - `on_module_destroy()`.
+
+`on_application_quiesce()` receives a `ShutdownContext` exposing the remaining
+graceful drain budget. It MUST be async, accept exactly one context argument,
+stop new subsystem intake, drain queued work, and cooperate with cancellation
+at the cutoff. Other hooks remain async no-argument bound methods.
 
 Startup receives an already compiled graph. Startup order is deterministic:
 
@@ -486,8 +536,9 @@ Startup receives an already compiled graph. Startup order is deterministic:
    in the same dependency order;
 4. bind the already-compiled route definitions once to the started singleton
    controller instances and construct the Starlette route table;
-5. call `on_application_bootstrap()` in the same order;
-6. admit HTTP requests.
+5. open work-scope admission;
+6. call `on_application_bootstrap()` in the same order;
+7. admit normal driver/HTTP requests.
 
 Independent modules are ordered by their root/import declaration order. Within
 one module, providers precede controllers and preserve declaration order.
@@ -499,14 +550,17 @@ participant that reached module initialization.
 
 Shutdown uses a single deadline from application configuration:
 
-1. close the request-admission gate;
-2. wait for active request tasks only until the reserved drain cutoff;
-3. cancel remaining request tasks;
-4. wait one configured cancellation grace interval capped by the remaining
+1. close the normal request-admission gate;
+2. call `on_application_quiesce()` in reverse bootstrap order while work scopes
+   remain admissible;
+3. close work-scope admission;
+4. wait for active request/work tasks only until the reserved drain cutoff;
+5. cancel remaining scope-owner tasks;
+6. wait one configured cancellation grace interval capped by the remaining
    shared shutdown deadline;
-5. run shutdown hooks and close resources within remaining time;
-6. observe and log every task/resource still open when the deadline expires;
-7. return from public shutdown without starting unbounded background cleanup.
+7. run shutdown hooks and close resources within remaining time;
+8. observe and log every task/resource still open when the deadline expires;
+9. return from public shutdown without starting unbounded background cleanup.
 
 The first shutdown failure is preserved while remaining cleanup proceeds. A
 resource that ignores cancellation may remain open; Nestpy logs its token,
@@ -515,13 +569,21 @@ deadline.
 
 Normal shutdown order is the reverse of startup ownership:
 
-1. call `on_application_shutdown()` on started singleton controllers/providers,
+1. quiesce started singleton controllers/providers and modules in reverse
+   dependency order while work scopes remain available;
+2. drain and close request/work scopes;
+3. call `on_application_shutdown()` on started singleton controllers/providers,
    then modules, in reverse dependency order;
-2. close the bound driver exactly once;
-3. call `on_module_destroy()` on module-initialized participants in the same
+4. close the bound driver exactly once;
+5. call `on_module_destroy()` on module-initialized participants in the same
    reverse order;
-4. close request resources first, then singleton resources in strict LIFO
+6. close scoped resources first, then singleton resources in strict LIFO
    acquisition order.
+
+Concurrent callers join one shielded shutdown operation. Cancelling a caller
+does not cancel cleanup. Provider construction remains authoritative in the
+scope's in-flight registry when one resolver waiter is cancelled, and scope
+cleanup itself runs exactly once in a shielded task.
 
 ## 8. Driver-Neutral Execution Context
 
@@ -886,18 +948,23 @@ ASGI app, not mutable container caches/resource stacks. It has an async
 `close()` method that executes the same bounded shutdown behavior as a
 production application.
 
-## 15. Future CQRS Bridge
+## 15. Optional CQRS Bridge
 
-Future integration is a separate package:
+The implemented integration is a separate package:
 
 ```text
 nestpy-cqrs -> nestpy, cqrs-core
 ```
 
-It may provide CQRS buses as Nestpy providers and map CQRS handler execution to
-application/request/event scopes. It MUST ensure background event handling
-never retains HTTP request-scoped dependencies. Neither `nestpy.core` nor
+It provides CQRS buses as Nestpy providers, discovers decorated provider
+classes from the compiled application graph, and maps each handler invocation
+to an isolated module-qualified work scope. Background event handling never
+retains HTTP request-scoped dependencies. Neither `nestpy.core` nor
 `nestpy.starlette` imports `cqrs-core`.
+
+The bridge architecture and executable phases are maintained separately in
+[`NESTPY_CQRS_ARCHITECTURE.md`](NESTPY_CQRS_ARCHITECTURE.md) and
+[`spec/nestpy-cqrs/README.md`](spec/nestpy-cqrs/README.md).
 
 ## 16. Implementation Plan
 
@@ -929,8 +996,11 @@ Detailed specification: [`spec/nestpy/phase-n5-pipeline-and-errors.md`](spec/nes
 
 Detailed specification: [`spec/nestpy/phase-n6-cli-and-hardening.md`](spec/nestpy/phase-n6-cli-and-hardening.md)
 
-The optional `nestpy-cqrs` bridge starts only after N6 and requires a separate
-architecture and phase plan.
+### N7: Reflection and discovery
+
+Detailed specification: [`spec/nestpy/phase-n7-reflection-and-discovery.md`](spec/nestpy/phase-n7-reflection-and-discovery.md)
+
+The optional `nestpy-cqrs` bridge consumes N7 through its separate C2 phase.
 
 ## 17. Exit Criteria
 

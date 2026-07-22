@@ -15,6 +15,7 @@ from nestpy.core.modules import (
     ModuleSpec,
     get_module_metadata,
 )
+from nestpy.core.protocols import DiscoveryService, ModulesContainer, WorkScopeFactory
 from nestpy.core.providers import (
     AliasProvider,
     ClassProvider,
@@ -23,6 +24,14 @@ from nestpy.core.providers import (
     Scope,
     Token,
     ValueProvider,
+)
+from nestpy.core.reflection import Reflector
+
+_INTRINSIC_DEPENDENCIES = (
+    WorkScopeFactory,
+    ModulesContainer,
+    DiscoveryService,
+    Reflector,
 )
 
 
@@ -291,6 +300,7 @@ class _Compiler:
             plans: list[ProviderPlan] = []
             for declaration in declaration_list:
                 token = declaration.token
+                _validate_provider_token(token)
                 if token in refs:
                     raise self._error(
                         "provider.duplicate",
@@ -331,6 +341,7 @@ class _Compiler:
                     module_id == root_id,
                 ):
                     token = declaration.token
+                    _validate_provider_token(token)
                     if _has_visible_provider(
                         module_id,
                         token,
@@ -379,6 +390,7 @@ class _Compiler:
                     provider_ref=(
                         None
                         if dependency.token is None
+                        or dependency.token in _INTRINSIC_DEPENDENCIES
                         else canonical_cache[
                             _visible_ref(
                                 ref.module_id,
@@ -564,6 +576,15 @@ def _compile_dependencies(
             )
         )
     return tuple(plans)
+
+
+def _validate_provider_token(token: Token) -> None:
+    if token in _INTRINSIC_DEPENDENCIES:
+        name = getattr(token, "__name__", "framework dependency")
+        raise BootstrapError(
+            f"{name} is a reserved framework dependency",
+            code="provider.reserved_token",
+        )
 
 
 def _annotation_token(annotation: object) -> tuple[Token | None, bool]:

@@ -40,6 +40,8 @@ Resolution uses precompiled provider keys:
 
 Request cache creation is concurrency-safe. Concurrent resolution of one
 request provider shares an in-flight future and creates one instance.
+Cancelling one waiter does not remove or cancel authoritative in-flight
+construction; the owning scope observes and closes it exactly once.
 
 Transient resources inherit the current owner:
 
@@ -59,6 +61,15 @@ closing, and closed.
 Request completion invalidates the lease exactly once and resets framework
 context variables. Detached tasks retaining a resolver cannot acquire new
 request providers after closure.
+
+`WorkScopeFactory` is a reserved intrinsic dependency available to providers
+without a declaration or export. It is bound to the receiving provider's exact
+compiled module identity. `open()` creates an application-tracked work scope
+that applies request/transient scope semantics. `run(operation)` additionally
+executes the scoped operation in a fresh `contextvars.Context`; integrations use
+it when work must not inherit HTTP or other ambient context. Direct `open()`
+does not clear context variables. Explicit providers using the reserved token
+are compilation errors.
 
 ## Resource Acquisition
 
@@ -93,8 +104,9 @@ Startup order:
 4. enter resources before exposing them to dependents;
 5. invoke `on_module_init` on modules, then singleton values;
 6. invoke the configured `DriverBinder.bind()` exactly once;
-7. invoke `on_application_bootstrap` after the driver-binding hook;
-8. mark started.
+7. open work-scope admission;
+8. invoke `on_application_bootstrap` after the driver-binding hook;
+9. open normal request admission and mark started.
 
 Hooks MUST be async, accept only `self`, and complete successfully before the
 participant enters rollback tracking.
@@ -108,26 +120,33 @@ bind attempt, successful or failed, makes binder close eligible.
 If construction, resource enter, driver binding, or a hook fails:
 
 1. preserve the first failure;
-2. invoke application-shutdown hooks only for participants whose bootstrap hook
+2. invoke `on_application_quiesce` only for participants whose bootstrap hook
+   completed, while work admission remains open;
+3. close work admission and drain active scopes;
+4. invoke application-shutdown hooks only for participants whose bootstrap hook
    completed;
-3. close the binder after reverse application-shutdown hooks when binding was
+5. close the binder after reverse application-shutdown hooks when binding was
    attempted;
-4. invoke module-destroy hooks only for participants whose module-init hook
+6. invoke module-destroy hooks only for participants whose module-init hook
    completed;
-5. close resources in reverse acquisition order;
-6. continue after secondary failures;
-7. expose/log diagnostics for secondary cleanup failures;
-8. finish in failed state.
+7. close resources in reverse acquisition order;
+8. continue after secondary failures;
+9. expose/log diagnostics for secondary cleanup failures;
+10. finish in failed state.
 
 ## Request Scope Registry
 
 N2 provides driver-neutral request/work scope primitives:
 
-- admission gate;
+- separate normal-request and internal-work admission gates;
 - active task registry;
-- request-scope registry;
+- shared active-scope registry;
 - scope context manager;
 - active/closing/closed state transitions.
+
+Normal drivers use `ApplicationRuntime.request_scope()`. Application subsystems
+inject a module-bound `WorkScopeFactory`; they cannot access the kernel or open
+normal driver scopes directly.
 
 The future HTTP driver will own accepted task registration. N2 MUST NOT import
 ASGI or Starlette.
@@ -136,19 +155,31 @@ ASGI or Starlette.
 
 One monotonic deadline controls shutdown:
 
-1. close admission;
-2. compute a drain cutoff that reserves `cancellation_grace` and
+1. close normal request admission;
+2. invoke reverse `on_application_quiesce(ShutdownContext)` hooks while work
+   admission remains open;
+3. close work admission;
+4. compute a drain cutoff that reserves `cancellation_grace` and
    `cleanup_reserve` within the shared shutdown timeout;
-3. wait for active tasks only until that drain cutoff;
-4. cancel unfinished tasks;
-5. wait `min(cancellation_grace, remaining_deadline)`;
-6. mark remaining leases closing to reject new resolutions;
-7. run reverse application-shutdown hooks;
-8. invoke `DriverBinder.close()` exactly once when binding was attempted;
-9. run reverse module-destroy hooks;
-10. close application resources LIFO;
-11. observe/log unfinished tasks/resources/workers;
-12. return without unbounded detached cleanup.
+5. wait for active scope tasks only until that drain cutoff;
+6. cancel unfinished tasks;
+7. wait `min(cancellation_grace, remaining_deadline)`;
+8. mark remaining leases closing to reject new resolutions;
+9. run reverse application-shutdown hooks;
+10. invoke `DriverBinder.close()` exactly once when binding was attempted;
+11. run reverse module-destroy hooks;
+12. close application resources LIFO;
+13. observe/log unfinished tasks/resources/workers;
+14. return without unbounded detached cleanup.
+
+Quiesce hooks receive the drain cutoff, are not started after their budget is
+exhausted, and are cancelled and observed on timeout before teardown advances.
+They MUST cooperate with cancellation. Cancellation observation is capped by
+the reserved grace. If a hook still remains active, Nestpy closes admission,
+drains tracked scopes, and deliberately skips binder/provider teardown rather
+than race resource destruction against the lingering hook. Concurrent shutdown
+callers join one shielded operation; cancelling one waiter never cancels
+cleanup.
 
 `ApplicationOptions` requires non-negative values and
 `cancellation_grace + cleanup_reserve <= shutdown_timeout`.

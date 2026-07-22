@@ -8,11 +8,15 @@ from nestpy import (
     BootstrapError,
     ClassProvider,
     DeferredModule,
+    DiscoveryService,
     FactoryProvider,
     Inject,
+    ModulesContainer,
     ModuleSpec,
+    Reflector,
     Scope,
     ValueProvider,
+    WorkScopeFactory,
     compile_graph,
     module,
 )
@@ -44,6 +48,70 @@ async def test_static_imports_reuse_nodes_and_providers_are_not_constructed() ->
     assert tuple(plan.module for plan in graph.modules) == (ChildModule, RootModule)
     assert constructed == 0
     assert len(graph.providers) == 1
+
+
+@pytest.mark.asyncio
+async def test_work_scope_factory_is_an_intrinsic_dependency() -> None:
+    class Consumer:
+        def __init__(self, scopes: WorkScopeFactory) -> None:
+            self.scopes = scopes
+
+    @module(providers=[ClassProvider(Consumer)])
+    class Root:
+        pass
+
+    graph = await compile_root(Root)
+    plan = graph.providers[graph.visibility[(graph.root, Consumer)]]
+    assert plan.dependencies[0].token is WorkScopeFactory
+    assert plan.dependencies[0].provider_ref is None
+    assert (graph.root, WorkScopeFactory) not in graph.visibility
+
+
+@pytest.mark.asyncio
+async def test_discovery_services_are_intrinsic_dependencies() -> None:
+    class Consumer:
+        def __init__(
+            self,
+            modules: ModulesContainer,
+            discovery: DiscoveryService,
+            reflector: Reflector,
+        ) -> None:
+            self.modules = modules
+            self.discovery = discovery
+            self.reflector = reflector
+
+    @module(providers=[ClassProvider(Consumer)])
+    class Root:
+        pass
+
+    graph = await compile_root(Root)
+    plan = graph.providers[graph.visibility[(graph.root, Consumer)]]
+    assert [dependency.provider_ref for dependency in plan.dependencies] == [
+        None,
+        None,
+        None,
+    ]
+    assert [dependency.token for dependency in plan.dependencies] == [
+        ModulesContainer,
+        DiscoveryService,
+        Reflector,
+    ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "token",
+    [WorkScopeFactory, ModulesContainer, DiscoveryService, Reflector],
+)
+@pytest.mark.asyncio
+async def test_framework_dependency_tokens_are_reserved(token) -> None:
+    @module(providers=[ValueProvider(token, object())])
+    class Root:
+        pass
+
+    with pytest.raises(BootstrapError) as captured:
+        await compile_root(Root)
+    assert captured.value.diagnostic_code == "provider.reserved_token"
 
 
 @pytest.mark.asyncio

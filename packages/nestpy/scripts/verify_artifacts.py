@@ -8,11 +8,14 @@ from pathlib import Path
 
 SMOKE = r"""
 import asyncio
+import importlib.util
 import json
 from typing import Annotated
 
 from nestpy import NestApplication, Query, controller, get, module
 from nestpy.starlette import StarletteAdapter
+
+assert importlib.util.find_spec("httpx") is None
 
 @controller()
 class Controller:
@@ -71,6 +74,36 @@ async def smoke() -> None:
 asyncio.run(smoke())
 """
 
+HTTPX_SMOKE = r"""
+import asyncio
+
+from nestpy import controller, get, module
+from nestpy.starlette import StarletteAdapter
+from nestpy.testing import TestingModule
+
+@controller()
+class Controller:
+    @get("/health")
+    async def health(self) -> dict[str, str]:
+        return {"status": "ok"}
+
+@module(controllers=[Controller])
+class Root:
+    pass
+
+async def smoke() -> None:
+    application = await TestingModule.create(Root).compile(adapter=StarletteAdapter())
+    try:
+        async with application.http_client() as client:
+            response = await client.get("/health")
+    finally:
+        await application.close()
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
+
+asyncio.run(smoke())
+"""
+
 
 def main() -> None:
     if len(sys.argv) != 2:
@@ -81,19 +114,25 @@ def main() -> None:
         raise SystemExit(f"no Nestpy artifacts found in {dist}")
     uv = "uv"
     for artifact in artifacts:
-        command = [
-            uv,
-            "run",
-            "--isolated",
-            "--with",
-            str(artifact),
-            "python",
-            "-c",
-            SMOKE,
-        ]
-        completed = subprocess.run(command, check=False, text=True)
-        if completed.returncode:
-            raise SystemExit(f"artifact smoke failed: {artifact.name}")
+        smoke_tests = (
+            (str(artifact), "base", SMOKE),
+            (f"{artifact}[testing]", "testing extra", HTTPX_SMOKE),
+        )
+        for requirement, name, smoke in smoke_tests:
+            command = [
+                uv,
+                "run",
+                "--isolated",
+                "--no-project",
+                "--with",
+                requirement,
+                "python",
+                "-c",
+                smoke,
+            ]
+            completed = subprocess.run(command, check=False, text=True)
+            if completed.returncode:
+                raise SystemExit(f"artifact {name} smoke failed: {artifact.name}")
 
 
 if __name__ == "__main__":

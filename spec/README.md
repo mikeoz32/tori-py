@@ -1,9 +1,9 @@
 # CQRS Specifications
 
 Nestpy has a separate architecture and phase map under
-[`spec/nestpy/README.md`](nestpy/README.md). Its N0-N6 phases do not alter the
-CQRS core contracts below; future integration requires a separately designed
-`nestpy-cqrs` bridge.
+[`spec/nestpy/README.md`](nestpy/README.md). Its N0-N7 phases do not alter the
+CQRS core contracts below. The optional implemented bridge has its own C0-C2
+plan under [`spec/nestpy-cqrs/README.md`](nestpy-cqrs/README.md).
 
 These documents turn `CQRS_IMPLEMENTATION_PLAN.md` into executable implementation specifications. They are the source of truth for the first CQRS slice until code and tests establish a more precise behavior.
 
@@ -58,9 +58,6 @@ Do not resolve an open design question by silently choosing behavior in code.
 
 ## Current Open Decisions
 
-These points must be settled before the phase that uses them is implemented:
-
-- exact public module/export names;
-- whether event handlers run concurrently or sequentially after an event is dequeued;
-- exact FastAPI provider API for request/app dependency scopes;
-- final development lint/format tooling.
+The first CQRS slice has no unresolved implementation decisions. Future durable
+transport, retry, transaction, outbox, and message-versioning work requires new
+specifications before implementation.

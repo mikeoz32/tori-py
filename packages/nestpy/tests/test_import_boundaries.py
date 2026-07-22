@@ -42,6 +42,7 @@ assert 'msgspec' in sys.modules
 assert 'starlette' not in sys.modules
 assert 'uvicorn' not in sys.modules
 assert 'yaml' not in sys.modules
+assert 'httpx' not in sys.modules
 assert 'NestApplication' in nestpy.__all__
 assert 'StarletteOptions' not in nestpy.__all__
 assert 'NestApplication' not in nestpy.starlette.__all__

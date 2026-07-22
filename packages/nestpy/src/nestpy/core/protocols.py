@@ -2,11 +2,17 @@
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable, Iterable, Iterator, Mapping
+from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
-from typing import Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from nestpy.core.providers import Token
+
+if TYPE_CHECKING:
+    from nestpy.core.compiler import ModuleId
+    from nestpy.core.discovery import ModuleView, ProviderView
+    from nestpy.core.reflection import MetadataDecorator, MetadataKey
 
 
 @runtime_checkable
@@ -15,6 +21,80 @@ class ScopedResolver(Protocol):
 
     async def resolve(self, token: Token) -> object:
         """Resolve one provider token."""
+
+
+@runtime_checkable
+class WorkScopeFactory(Protocol):
+    """Open application-tracked DI work scopes from one module identity."""
+
+    @property
+    def module_id(self) -> ModuleId:
+        """Return the module identity used for provider visibility."""
+
+    def open(self) -> AbstractAsyncContextManager[ScopedResolver]:
+        """Return a fresh work scope for one asynchronous invocation."""
+
+    async def run[T](
+        self,
+        operation: Callable[[ScopedResolver], Awaitable[T]],
+    ) -> T:
+        """Execute one scoped operation without inherited execution context."""
+
+    async def run_in[T](
+        self,
+        module_id: ModuleId,
+        operation: Callable[[ScopedResolver], Awaitable[T]],
+    ) -> T:
+        """Execute one scoped operation from an exact compiled module identity."""
+
+
+@runtime_checkable
+class ModulesContainer(Protocol):
+    """Read-only application view over every compiled module."""
+
+    def __len__(self) -> int: ...
+
+    def __iter__(self) -> Iterator[ModuleId]: ...
+
+    def __getitem__(self, module_id: ModuleId) -> ModuleView: ...
+
+    def values(self) -> tuple[ModuleView, ...]: ...
+
+    def provider(self, module_id: ModuleId, token: Token) -> ProviderView | None:
+        """Return the exact visible declaration and its canonical provider."""
+
+
+@runtime_checkable
+class DiscoveryService(Protocol):
+    """Enumerate compiled providers and controllers without constructing them."""
+
+    def get_providers[T](
+        self,
+        *,
+        include: Iterable[type[object]] | None = None,
+        metadata: MetadataKey[T] | MetadataDecorator[T] | None = None,
+    ) -> tuple[ProviderView, ...]: ...
+
+    def get_controllers[T](
+        self,
+        *,
+        include: Iterable[type[object]] | None = None,
+        metadata: MetadataKey[T] | MetadataDecorator[T] | None = None,
+    ) -> tuple[ProviderView, ...]: ...
+
+    def get_metadata_by_decorator[T](
+        self,
+        decorator: MetadataDecorator[T],
+        provider: ProviderView,
+    ) -> T | None: ...
+
+
+@runtime_checkable
+class ShutdownContext(Protocol):
+    """Expose the remaining graceful quiescence budget."""
+
+    def remaining(self) -> float | None:
+        """Return remaining seconds, or None when shutdown is unbounded."""
 
 
 @runtime_checkable
@@ -172,14 +252,18 @@ class PipelineResult:
 __all__ = [
     "ArgumentMetadata",
     "Codec",
+    "DiscoveryService",
     "ExceptionFilter",
     "ExecutionContext",
     "Guard",
     "Interceptor",
     "Logger",
     "Middleware",
+    "ModulesContainer",
     "Pipe",
     "PipelineResult",
     "ScopedResolver",
     "SettingsDecoder",
+    "ShutdownContext",
+    "WorkScopeFactory",
 ]

@@ -3,7 +3,7 @@ import json
 from typing import Any, cast
 
 import pytest
-from nestpy.starlette import StarletteAdapter
+from nestpy.testing import http_client
 
 from examples.nestpy.getting_started.asgi_wrapper.app import application as asgi_app
 from examples.nestpy.getting_started.async_factory.app import (
@@ -65,20 +65,16 @@ async def test_getting_started_http_examples(
     factory,
     path,
     expected,
-    call_http,
-    message_body,
 ) -> None:
     application = await factory()
     await application.start()
     try:
-        response = await call_http(
-            application.get_adapter(StarletteAdapter).app,
-            path=path,
-        )
+        async with http_client(application) as client:
+            response = await client.get(path)
     finally:
         await application.shutdown()
-    assert response[0]["status"] == 200
-    assert json.loads(message_body(response[1])) == expected
+    assert response.status_code == 200
+    assert response.json() == expected
 
 
 @pytest.mark.asyncio
