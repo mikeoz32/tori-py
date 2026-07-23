@@ -7,6 +7,7 @@ dependencies = [
     "cqrs-fastapi",
     "nestpy",
     "nestpy-cqrs",
+    "nestpy-sqlalchemy",
     "uvicorn>=0.51.0",
 ]
 
@@ -16,6 +17,7 @@ members = [
     "packages/cqrs-fastapi",
     "packages/nestpy",
     "packages/nestpy-cqrs",
+    "packages/nestpy-sqlalchemy",
 ]
 
 [tool.uv.sources]
@@ -23,6 +25,7 @@ cqrs-core = { workspace = true }
 cqrs-fastapi = { workspace = true }
 nestpy = { workspace = true }
 nestpy-cqrs = { workspace = true }
+nestpy-sqlalchemy = { workspace = true }
 
 [dependency-groups]
 dev = [
