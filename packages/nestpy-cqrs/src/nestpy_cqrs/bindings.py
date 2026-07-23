@@ -1,11 +1,13 @@
 """Explicit CQRS message-to-Nestpy-provider bindings."""
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 
 from cqrs_core import Command, Event, HandlerKind, Message, Query
 from nestpy import BootstrapError, Token, validate_token
 
 from nestpy_cqrs.errors import CqrsConfigurationError
+from nestpy_cqrs.invocation import CqrsInterceptorBinding
 
 
 @dataclass(frozen=True, slots=True)
@@ -15,6 +17,7 @@ class CqrsHandlerBinding:
     kind: HandlerKind
     message_type: type[Message]
     token: Token
+    interceptors: tuple[CqrsInterceptorBinding, ...] = ()
 
     def __post_init__(self) -> None:
         if not isinstance(self.kind, HandlerKind):
@@ -26,6 +29,15 @@ class CqrsHandlerBinding:
                 "handler token must be a class or string"
             ) from error
         object.__setattr__(self, "token", token)
+        try:
+            interceptors = tuple(self.interceptors)
+        except TypeError as error:
+            raise CqrsConfigurationError("interceptors must be iterable") from error
+        if any(not isinstance(item, CqrsInterceptorBinding) for item in interceptors):
+            raise CqrsConfigurationError(
+                "interceptors must contain CqrsInterceptorBinding values"
+            )
+        object.__setattr__(self, "interceptors", interceptors)
         expected: type[Message]
         if self.kind is HandlerKind.COMMAND:
             expected = Command
@@ -43,36 +55,66 @@ class CqrsHandlerBinding:
             )
 
 
-def command_handler(
+def bind_command_handler(
     message_type: type[Message],
     token: Token,
+    *,
+    interceptors: Iterable[CqrsInterceptorBinding] = (),
 ) -> CqrsHandlerBinding:
     """Bind one command type to a Nestpy provider token."""
 
-    return CqrsHandlerBinding(HandlerKind.COMMAND, message_type, token)
+    return CqrsHandlerBinding(
+        HandlerKind.COMMAND,
+        message_type,
+        token,
+        _binding_interceptors(interceptors),
+    )
 
 
-def query_handler(
+def bind_query_handler(
     message_type: type[Message],
     token: Token,
+    *,
+    interceptors: Iterable[CqrsInterceptorBinding] = (),
 ) -> CqrsHandlerBinding:
     """Bind one query type to a Nestpy provider token."""
 
-    return CqrsHandlerBinding(HandlerKind.QUERY, message_type, token)
+    return CqrsHandlerBinding(
+        HandlerKind.QUERY,
+        message_type,
+        token,
+        _binding_interceptors(interceptors),
+    )
 
 
-def event_handler(
+def bind_event_handler(
     message_type: type[Message],
     token: Token,
+    *,
+    interceptors: Iterable[CqrsInterceptorBinding] = (),
 ) -> CqrsHandlerBinding:
     """Append one event-handler binding in declaration order."""
 
-    return CqrsHandlerBinding(HandlerKind.EVENT, message_type, token)
+    return CqrsHandlerBinding(
+        HandlerKind.EVENT,
+        message_type,
+        token,
+        _binding_interceptors(interceptors),
+    )
+
+
+def _binding_interceptors(
+    interceptors: Iterable[CqrsInterceptorBinding],
+) -> tuple[CqrsInterceptorBinding, ...]:
+    try:
+        return tuple(interceptors)
+    except TypeError as error:
+        raise CqrsConfigurationError("interceptors must be iterable") from error
 
 
 __all__ = [
     "CqrsHandlerBinding",
-    "command_handler",
-    "event_handler",
-    "query_handler",
+    "bind_command_handler",
+    "bind_event_handler",
+    "bind_query_handler",
 ]

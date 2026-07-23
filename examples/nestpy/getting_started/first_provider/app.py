@@ -1,9 +1,10 @@
 """Inject a class provider into a controller constructor."""
 
-from nestpy import ClassProvider, NestApplication, controller, get, module
+from nestpy import NestApplication, controller, get, injectable, module
 from nestpy.starlette import StarletteAdapter
 
 
+@injectable()
 class GreetingService:
     def message(self) -> str:
         return "Providers are explicit constructor dependencies."
@@ -20,7 +21,7 @@ class GreetingController:
 
 
 @module(
-    providers=[ClassProvider(GreetingService)],
+    providers=[GreetingService],
     controllers=[GreetingController],
 )
 class AppModule:

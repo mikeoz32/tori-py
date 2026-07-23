@@ -48,6 +48,7 @@ class DeferredModule:
 
 
 type ModuleImport = type[object] | DeferredModule
+type ModuleProvider = ProviderDeclaration | type[object]
 
 
 @dataclass(frozen=True, slots=True)
@@ -55,7 +56,7 @@ class ModuleSpec:
     """Immutable materialized module shape used by later compilation phases."""
 
     imports: Iterable[ModuleImport] = ()
-    providers: Iterable[ProviderDeclaration] = ()
+    providers: Iterable[ModuleProvider] = ()
     controllers: Iterable[type[object]] = ()
     exports: Iterable[Token] = ()
     global_: bool = False
@@ -76,10 +77,10 @@ class ModuleSpec:
         for provider in providers:
             if not isinstance(
                 provider,
-                (ValueProvider, ClassProvider, FactoryProvider, AliasProvider),
+                (ValueProvider, ClassProvider, FactoryProvider, AliasProvider, type),
             ):
                 raise BootstrapError(
-                    "module providers must be explicit provider declarations",
+                    "module providers must be provider declarations or classes",
                     code="provider.invalid_declaration",
                 )
         for controller in controllers:
@@ -111,7 +112,7 @@ class ModuleMetadata(ModuleSpec):
 def module(
     *,
     imports: Iterable[ModuleImport] = (),
-    providers: Iterable[ProviderDeclaration] = (),
+    providers: Iterable[ModuleProvider] = (),
     controllers: Iterable[type[object]] = (),
     exports: Iterable[Token] = (),
     global_: bool = False,
@@ -150,6 +151,7 @@ __all__ = [
     "ModuleFactory",
     "ModuleImport",
     "ModuleMetadata",
+    "ModuleProvider",
     "ModuleSpec",
     "get_module_metadata",
     "module",

@@ -12,6 +12,7 @@ from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass, field
 from enum import StrEnum
+from types import TracebackType
 from typing import Protocol, cast, runtime_checkable
 
 from nestpy.core.compiler import (
@@ -24,8 +25,10 @@ from nestpy.core.errors import (
     ApplicationStateError,
     LifecycleError,
     ResourceError,
+    ScopeCancellationError,
     ScopeClosedError,
     ScopeError,
+    ScopeFinalizationError,
 )
 from nestpy.core.options import ApplicationOptions
 from nestpy.core.protocols import (
@@ -45,6 +48,12 @@ from nestpy.core.providers import (
 from nestpy.core.reflection import Reflector
 
 logger = logging.getLogger(__name__)
+
+type _ExceptionInfo = tuple[
+    type[BaseException] | None,
+    BaseException | None,
+    TracebackType | None,
+]
 
 
 class _LingeringQuiesceError(TimeoutError):
@@ -101,7 +110,7 @@ class ScopeLease:
 class _CleanupRecord:
     """One entered context manager and its async cleanup operation."""
 
-    exit: Callable[[], Awaitable[None]]
+    exit: Callable[[_ExceptionInfo], Awaitable[object]]
     label: str
 
 
@@ -132,8 +141,8 @@ class _ResourceStack:
         if callable(async_enter) and callable(async_exit):
             entered = await async_enter()
 
-            async def exit_async() -> None:
-                await async_exit(None, None, None)
+            async def exit_async(exc_info: _ExceptionInfo) -> object:
+                return await async_exit(*exc_info)
 
             self._records.append(_CleanupRecord(exit_async, label))
             return entered
@@ -143,44 +152,55 @@ class _ResourceStack:
         if callable(sync_enter) and callable(sync_exit):
             entered = await self._run_sync(sync_enter)
 
-            async def exit_sync() -> None:
-                await self._run_sync(sync_exit, None, None, None)
+            async def exit_sync(exc_info: _ExceptionInfo) -> object:
+                return await self._run_sync(sync_exit, *exc_info)
 
             self._records.append(_CleanupRecord(exit_sync, label))
             return entered
         return value
 
-    async def rollback_to(self, mark: int) -> BaseException | None:
-        return await self._close_records(mark)
+    async def rollback_to(
+        self,
+        mark: int,
+        exc_info: _ExceptionInfo,
+    ) -> tuple[BaseException, ...]:
+        return await self._close_records(mark, exc_info)
 
-    async def close(self, deadline: float | None = None) -> BaseException | None:
+    async def close(
+        self,
+        exc_info: _ExceptionInfo = (None, None, None),
+        deadline: float | None = None,
+    ) -> tuple[BaseException, ...]:
         self._closed = True
-        return await self._close_records(0, deadline=deadline)
+        return await self._close_records(0, exc_info, deadline=deadline)
 
     async def _close_records(
         self,
         mark: int,
+        exc_info: _ExceptionInfo,
         *,
         deadline: float | None = None,
-    ) -> BaseException | None:
-        first_error: BaseException | None = None
+    ) -> tuple[BaseException, ...]:
+        errors: list[BaseException] = []
         while len(self._records) > mark:
             record = self._records.pop()
-            task = asyncio.ensure_future(record.exit())
+            task = asyncio.ensure_future(record.exit(exc_info))
             if deadline is None:
                 try:
-                    await task
+                    result = await task
+                    if result:
+                        error = _invalid_exit_result(record.label)
+                        errors.append(error)
+                        _log_cleanup_failure(error, record.label)
                 except BaseException as error:
-                    if first_error is None:
-                        first_error = error
-                    logger.exception(
-                        "Resource cleanup failed",
-                        extra={"resource": record.label},
-                    )
+                    errors.append(error)
+                    _log_cleanup_failure(error, record.label)
                 continue
             remaining = _remaining(deadline)
             if remaining is not None and remaining <= 0:
-                task.add_done_callback(_observe_cleanup_task)
+                task.add_done_callback(
+                    functools.partial(_observe_cleanup_task, label=record.label)
+                )
                 logger.error(
                     "Resource cleanup exceeded shutdown deadline",
                     extra={
@@ -193,13 +213,14 @@ class _ResourceStack:
                         "Sync resource worker continued past shutdown deadline",
                         extra={"code": "resource.lingering_worker"},
                     )
-                if first_error is None:
-                    first_error = TimeoutError("resource cleanup deadline exceeded")
+                errors.append(TimeoutError("resource cleanup deadline exceeded"))
                 continue
             try:
                 done, _ = await asyncio.wait({task}, timeout=remaining)
                 if not done:
-                    task.add_done_callback(_observe_cleanup_task)
+                    task.add_done_callback(
+                        functools.partial(_observe_cleanup_task, label=record.label)
+                    )
                     logger.error(
                         "Resource cleanup exceeded shutdown deadline",
                         extra={
@@ -212,18 +233,17 @@ class _ResourceStack:
                             "Sync resource worker continued past shutdown deadline",
                             extra={"code": "resource.lingering_worker"},
                         )
-                    if first_error is None:
-                        first_error = TimeoutError("resource cleanup deadline exceeded")
+                    errors.append(TimeoutError("resource cleanup deadline exceeded"))
                     continue
-                await task
+                result = await task
+                if result:
+                    error = _invalid_exit_result(record.label)
+                    errors.append(error)
+                    _log_cleanup_failure(error, record.label)
             except BaseException as error:
-                if first_error is None:
-                    first_error = error
-                logger.exception(
-                    "Resource cleanup failed",
-                    extra={"resource": record.label},
-                )
-        return first_error
+                errors.append(error)
+                _log_cleanup_failure(error, record.label)
+        return tuple(errors)
 
     async def _run_sync(self, function: Callable[..., object], *args: object) -> object:
         future = self._executor.submit(functools.partial(function, *args))
@@ -481,12 +501,18 @@ class Container:
                 )
             return value
         except BaseException as error:
-            secondary = await resources.rollback_to(mark)
+            cleanup_errors = await resources.rollback_to(
+                mark,
+                (type(error), error, error.__traceback__),
+            )
             for cached_ref in set(owner.cache) - initial_cache:
                 owner.cache.pop(cached_ref, None)
-            if secondary is not None:
-                logger.exception("Provider rollback failed", exc_info=secondary)
-            raise error
+            if cleanup_errors:
+                scope_error = _scope_cleanup_error(error, cleanup_errors)
+                if scope_error is error:
+                    raise
+                raise scope_error from error
+            raise
 
     async def close(self, *, deadline: float | None = None) -> BaseException | None:
         if self._closed:
@@ -516,9 +542,9 @@ class Container:
         resources = self._application.resources
         if resources is None:
             return None
-        error = await resources.close(deadline=deadline)
+        errors = await resources.close(deadline=deadline)
         self._executor.shutdown(wait=False, cancel_futures=False)
-        return error
+        return errors[0] if errors else None
 
 
 class RequestScope(AbstractAsyncContextManager[ScopedResolver]):
@@ -543,6 +569,7 @@ class RequestScope(AbstractAsyncContextManager[ScopedResolver]):
         self._closed = False
         self._task: asyncio.Task[object] | None = None
         self._cleanup_task: asyncio.Task[BaseException | None] | None = None
+        self._exc_info: _ExceptionInfo = (None, None, None)
 
     async def __aenter__(self) -> ScopedResolver:
         if self._entered:
@@ -567,9 +594,14 @@ class RequestScope(AbstractAsyncContextManager[ScopedResolver]):
             raise ScopeError("request scope is not open")
         return await self._container.resolve_ref(ref, scope=self.state)
 
-    async def __aexit__(self, exc_type: object, exc: object, tb: object) -> None:
-        del exc_type, exc, tb
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> None:
         if self._cleanup_task is None:
+            self._exc_info = (exc_type, exc, tb)
             if self.state.lease is not None:
                 self.state.lease.begin_close()
             self._cleanup_task = asyncio.create_task(self._close())
@@ -590,7 +622,19 @@ class RequestScope(AbstractAsyncContextManager[ScopedResolver]):
             if pending:
                 await asyncio.gather(*pending, return_exceptions=True)
             resources = self.state.resources
-            return None if resources is None else await resources.close()
+            cleanup_errors = (
+                () if resources is None else await resources.close(self._exc_info)
+            )
+            body_error = self._exc_info[1]
+            if cleanup_errors and isinstance(
+                body_error,
+                (KeyboardInterrupt, SystemExit),
+            ):
+                _attach_cleanup_notes(body_error, cleanup_errors)
+                return None
+            if cleanup_errors:
+                return _scope_cleanup_error(body_error, cleanup_errors)
+            return None
         finally:
             if self.state.lease is not None:
                 self.state.lease.close()
@@ -605,6 +649,10 @@ class _ModuleWorkScopeFactory:
     def __init__(self, kernel: ApplicationKernel, module_id: ModuleId) -> None:
         self._kernel = kernel
         self._module_id = module_id
+
+    @property
+    def application_id(self) -> str:
+        return self._kernel.application_id
 
     @property
     def module_id(self) -> ModuleId:
@@ -679,6 +727,7 @@ class ApplicationKernel:
         binder: DriverBinder | None = None,
     ) -> None:
         self.graph = graph
+        self.application_id = graph.root.module.__qualname__
         self.options = options or ApplicationOptions()
         self._work_scope_factories: dict[ModuleId, WorkScopeFactory] = {}
         self._module_ids = frozenset(plan.module_id for plan in graph.modules)
@@ -1222,7 +1271,78 @@ def _observe_bounded_task(future: asyncio.Future[object]) -> None:
         )
 
 
-def _observe_cleanup_task(task: asyncio.Future[None]) -> None:
+def _invalid_exit_result(label: str) -> ResourceError:
+    return ResourceError(
+        "managed resource exit returned a truthy result",
+        code="resource.cleanup_error",
+        details={"resource": label},
+    )
+
+
+def _log_cleanup_failure(error: BaseException, label: str) -> None:
+    logger.error(
+        "Resource cleanup failed",
+        extra={"code": "resource.cleanup_error", "resource": label},
+        exc_info=(type(error), error, error.__traceback__),
+    )
+
+
+def _scope_cleanup_error(
+    body_error: BaseException | None,
+    cleanup_errors: tuple[BaseException, ...],
+) -> BaseException:
+    if isinstance(body_error, asyncio.CancelledError):
+        return ScopeCancellationError(body_error, cleanup_errors)
+    if isinstance(body_error, (KeyboardInterrupt, SystemExit)):
+        _attach_cleanup_notes(body_error, cleanup_errors)
+        return body_error
+    cleanup_control = next(
+        (
+            error
+            for error in cleanup_errors
+            if isinstance(error, (KeyboardInterrupt, SystemExit))
+        ),
+        None,
+    )
+    if isinstance(cleanup_control, (KeyboardInterrupt, SystemExit)):
+        secondary = (
+            *((body_error,) if body_error is not None else ()),
+            *(error for error in cleanup_errors if error is not cleanup_control),
+        )
+        _attach_cleanup_notes(cleanup_control, secondary)
+        return cleanup_control
+    cleanup_cancellation = next(
+        (
+            error
+            for error in cleanup_errors
+            if isinstance(error, asyncio.CancelledError)
+        ),
+        None,
+    )
+    if isinstance(cleanup_cancellation, asyncio.CancelledError):
+        secondary = (
+            *((body_error,) if body_error is not None else ()),
+            *(error for error in cleanup_errors if error is not cleanup_cancellation),
+        )
+        return ScopeCancellationError(cleanup_cancellation, secondary)
+    return ScopeFinalizationError(body_error, cleanup_errors)
+
+
+def _attach_cleanup_notes(
+    body_error: KeyboardInterrupt | SystemExit,
+    cleanup_errors: tuple[BaseException, ...],
+) -> None:
+    for error in cleanup_errors:
+        body_error.add_note(
+            f"Nestpy scope cleanup failed: {type(error).__name__}: {error}"
+        )
+
+
+def _observe_cleanup_task(
+    task: asyncio.Future[object],
+    *,
+    label: str,
+) -> None:
     if task.cancelled():
         return
     error = task.exception()
@@ -1232,6 +1352,9 @@ def _observe_cleanup_task(task: asyncio.Future[None]) -> None:
             extra={"code": "resource.lingering_resource"},
             exc_info=(type(error), error, error.__traceback__),
         )
+        return
+    if task.result():
+        _log_cleanup_failure(_invalid_exit_result(label), label)
 
 
 def _observe_scope_cleanup(

@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass, replace
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from nestpy.application import (
     ApplicationAdapter,
@@ -173,7 +173,7 @@ class TestingModule:
                 overrides.append(override)
         if not overrides:
             return spec
-        providers = list(spec.providers)
+        providers = list(cast(tuple[ProviderDeclaration, ...], spec.providers))
         exports = set(spec.exports)
         for override in overrides:
             if override.token not in exports:

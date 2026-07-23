@@ -252,8 +252,10 @@ async def test_partial_provider_acquisition_rolls_back_nested_resources() -> Non
     @asynccontextmanager
     async def dependency() -> AsyncIterator[object]:
         nonlocal closed
-        yield object()
-        closed += 1
+        try:
+            yield object()
+        finally:
+            closed += 1
 
     class Failing:
         def __init__(self, value: Annotated[object, Inject("dependency")]) -> None:

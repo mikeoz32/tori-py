@@ -1,9 +1,14 @@
 # CQRS Specifications
 
 Nestpy has a separate architecture and phase map under
-[`spec/nestpy/README.md`](nestpy/README.md). Its N0-N7 phases do not alter the
-CQRS core contracts below. The optional implemented bridge has its own C0-C2
-plan under [`spec/nestpy-cqrs/README.md`](nestpy-cqrs/README.md).
+[`spec/nestpy/README.md`](nestpy/README.md). Its implemented N0-N8 phases do not
+create a CQRS dependency. The optional bridge has implemented C0-C3 under
+[`spec/nestpy-cqrs/README.md`](nestpy-cqrs/README.md).
+The implemented optional event-sourcing package has a separate phase map under
+[`spec/cqrs-event-sourcing/README.md`](cqrs-event-sourcing/README.md); it extends
+the library without changing the first-slice contracts below.
+The planned Nestpy-native bridge between those two optional packages is governed
+by [`spec/nestpy-cqrs-event-sourcing/README.md`](nestpy-cqrs-event-sourcing/README.md).
 
 These documents turn `CQRS_IMPLEMENTATION_PLAN.md` into executable implementation specifications. They are the source of truth for the first CQRS slice until code and tests establish a more precise behavior.
 
@@ -29,6 +34,7 @@ Read the phases in order. Each phase has explicit entry criteria, deliverables, 
 | 4 | [Event task management](phase-04-event-task-management.md) | 2, 3 | Tracked fire-and-forget event handling |
 | 5 | [FastAPI adapter](phase-05-fastapi-adapter.md) | 0-4 | Lifecycle, bus dependencies, provider adapter, profile demo |
 | 6 | [Review and hardening](phase-06-review-and-hardening.md) | 0-5 | Verified first slice and documented residual risks |
+| 7 | [Command reentrancy guard](phase-07-command-reentrancy.md) | 0-6 | Same-bus nested commands rejected before enqueue |
 
 ## Cross-Phase Invariants
 
@@ -58,6 +64,11 @@ Do not resolve an open design question by silently choosing behavior in code.
 
 ## Current Open Decisions
 
-The first CQRS slice has no unresolved implementation decisions. Future durable
-transport, retry, transaction, outbox, and message-versioning work requires new
-specifications before implementation.
+The CQRS phases have no unresolved implementation decisions. The implemented
+framework-neutral event-sourcing slice is recorded in
+[`CQRS_EVENT_SOURCING_IMPLEMENTATION_PLAN.md`](../CQRS_EVENT_SOURCING_IMPLEMENTATION_PLAN.md).
+Its detailed phase specifications govern the completed implementation. Durable
+database adapters, transport retry, outbox delivery, and projection runners still
+require separate specifications. The planned Nestpy event-sourcing integration is
+recorded in
+[`NESTPY_CQRS_EVENT_SOURCING_ARCHITECTURE.md`](../NESTPY_CQRS_EVENT_SOURCING_ARCHITECTURE.md).

@@ -66,9 +66,10 @@ N0 defines but does not execute:
 - `Token = type[object] | str`;
 - `Scope` enum or literal with singleton/request/transient;
 - `Inject` marker;
-- `ValueProvider`, `ClassProvider`, `FactoryProvider`, `AliasProvider`;
+- `ValueProvider`, `ClassProvider`, `FactoryProvider`, `AliasProvider`, and
+  `@injectable()` self-token shorthand metadata;
 - `ProviderDeclaration` union;
-- `ModuleSpec`, `DeferredModule`;
+- `ModuleProvider`, `ModuleSpec`, `DeferredModule`;
 - `ApplicationOptions`, `PipelineOptions`, and driver-neutral
   `ApplicationAdapter`, `ApplicationBinder`, and `ApplicationRuntime` protocols;
 - `ExecutionContext`, `ScopedResolver` protocols;
@@ -81,6 +82,7 @@ Provider declaration validation in N0 is structural:
 
 - token must be a class or non-empty string;
 - provider scope must be supported;
+- injectable metadata is direct, immutable, and class-only;
 - alias has no independent scope or cleanup;
 - a managed value provider must be explicit;
 - application timeouts cannot be negative.

@@ -8,6 +8,10 @@ application does not repeat the same handler in `CqrsModule.for_root()`.
 ## Contract
 
 - `CqrsModule.for_root()` discovers decorated provider classes by default.
+- Nestpy-native handler decorators compose `cqrs-core` metadata with direct
+  injectable metadata and accept `scope` plus `manage` settings.
+- Decorated handlers are still registered explicitly by listing their classes in
+  module `providers`; decorators never auto-register classes.
 - `handlers` is optional and remains the explicit escape hatch.
 - Discovery uses public Nestpy `DiscoveryService` and public
   `cqrs_core.get_handler_metadata()`; neither dependency imports the bridge.
@@ -39,8 +43,8 @@ application does not repeat the same handler in `CqrsModule.for_root()`.
 
 ## Verification
 
-- command, query, and event handlers need only decorator plus provider
-  declaration;
+- command, query, and event handlers need only one Nestpy-CQRS decorator plus a
+  direct class entry in module providers;
 - private handlers work without exports or CQRS-module imports;
 - request/transient handlers receive isolated work scopes;
 - duplicate aliases do not duplicate event delivery;

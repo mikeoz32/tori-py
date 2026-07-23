@@ -11,13 +11,10 @@ import msgspec
 from cqrs_core import (
     Command,
     CommandBus,
-    CommandHandler,
     Event,
     EventBus,
-    EventsHandler,
     Query,
     QueryBus,
-    QueryHandler,
 )
 from nestpy import (
     Body,
@@ -39,7 +36,7 @@ from nestpy import (
 from nestpy.http import MsgspecValidationPipe
 from nestpy.starlette import RequestContext, StarletteAdapter, asgi
 from nestpy.starlette.errors import problem_response
-from nestpy_cqrs import CqrsModule
+from nestpy_cqrs import CqrsModule, command_handler, event_handler, query_handler
 
 
 class Task(msgspec.Struct, frozen=True):
@@ -189,7 +186,7 @@ class CommandScope:
         self._metrics.command_scope_exits += 1
 
 
-@CommandHandler(CreateTask)
+@command_handler(CreateTask, scope=Scope.REQUEST)
 class CreateTaskHandler:
     """Request-scoped write handler discovered from its provider metadata."""
 
@@ -218,7 +215,7 @@ class CreateTaskHandler:
         return task
 
 
-@EventsHandler(TaskCreated)
+@event_handler(TaskCreated, scope=Scope.REQUEST)
 class ProjectTaskCreated:
     """Request-scoped event handler maintaining the query projection."""
 
@@ -230,7 +227,7 @@ class ProjectTaskCreated:
         await self._projection.apply(event)
 
 
-@EventsHandler(TaskCreated)
+@event_handler(TaskCreated, scope=Scope.TRANSIENT)
 class AuditTaskCreated:
     """Transient event handler demonstrating independent fan-out."""
 
@@ -241,7 +238,7 @@ class AuditTaskCreated:
         await self._audit.record(AuditEntry(event.task.id, event.task.created_by))
 
 
-@QueryHandler(GetTask)
+@query_handler(GetTask, scope=Scope.TRANSIENT)
 class GetTaskHandler:
     """Transient query handler reading only the projection."""
 
@@ -253,7 +250,7 @@ class GetTaskHandler:
         return self._projection.get(query.task_id)
 
 
-@QueryHandler(ListTasks)
+@query_handler(ListTasks, scope=Scope.TRANSIENT)
 class ListTasksHandler:
     """Separate transient query handler for collection reads."""
 
@@ -333,11 +330,11 @@ cqrs_module = CqrsModule.for_root(global_=True)
         ClassProvider(AuditLog),
         ClassProvider(ScopeMetrics),
         ClassProvider(CommandScope, scope=Scope.REQUEST),
-        ClassProvider(CreateTaskHandler, scope=Scope.REQUEST),
-        ClassProvider(ProjectTaskCreated, scope=Scope.REQUEST),
-        ClassProvider(AuditTaskCreated, scope=Scope.TRANSIENT),
-        ClassProvider(GetTaskHandler, scope=Scope.TRANSIENT),
-        ClassProvider(ListTasksHandler, scope=Scope.TRANSIENT),
+        CreateTaskHandler,
+        ProjectTaskCreated,
+        AuditTaskCreated,
+        GetTaskHandler,
+        ListTasksHandler,
     ],
     controllers=[TaskController],
 )

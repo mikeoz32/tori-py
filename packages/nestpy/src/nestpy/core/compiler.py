@@ -24,6 +24,7 @@ from nestpy.core.providers import (
     Scope,
     Token,
     ValueProvider,
+    _injectable_provider,
 )
 from nestpy.core.reflection import Reflector
 
@@ -181,9 +182,15 @@ class _Compiler:
         module_id = ModuleId(module)
         self.static_ids[module] = module_id
         metadata = get_module_metadata(module)
-        spec = metadata if metadata is not None else ModuleSpec()
+        spec = _normalize_module_providers(
+            metadata if metadata is not None else ModuleSpec(),
+            module_id,
+        )
         if self.spec_transformer is not None:
-            spec = self.spec_transformer(module_id, spec)
+            spec = _normalize_module_providers(
+                self.spec_transformer(module_id, spec),
+                module_id,
+            )
         self.nodes[module_id] = _ModuleNode(module_id, module, spec, [])
         return module_id
 
@@ -229,8 +236,12 @@ class _Compiler:
                 "dynamic module materializer must return ModuleSpec",
                 {"module": descriptor.module.__qualname__, "key": descriptor.key},
             )
+        result = _normalize_module_providers(result, module_id)
         if self.spec_transformer is not None:
-            result = self.spec_transformer(module_id, result)
+            result = _normalize_module_providers(
+                self.spec_transformer(module_id, result),
+                module_id,
+            )
         self.nodes[module_id] = _ModuleNode(
             module_id,
             descriptor.module,
@@ -270,7 +281,9 @@ class _Compiler:
 
         for module_id in self.order:
             node = self.nodes[module_id]
-            declaration_list = list(node.spec.providers)
+            declaration_list = list(
+                cast(tuple[ProviderDeclaration, ...], node.spec.providers)
+            )
             for controller in node.spec.controllers:
                 existing = next(
                     (
@@ -486,6 +499,24 @@ class _Compiler:
         details: Mapping[str, object] | None = None,
     ) -> BootstrapError:
         return BootstrapError(message, code=code, details=details)
+
+
+def _normalize_module_providers(spec: ModuleSpec, module_id: ModuleId) -> ModuleSpec:
+    declarations: list[ProviderDeclaration] = []
+    for provider in spec.providers:
+        if isinstance(provider, type):
+            declaration = _injectable_provider(provider)
+            if declaration is None:
+                raise BootstrapError(
+                    f"module provider {provider.__qualname__} must be decorated "
+                    "with @injectable()",
+                    code="provider.invalid_declaration",
+                    details={"module": _module_label(module_id)},
+                )
+            declarations.append(declaration)
+        else:
+            declarations.append(provider)
+    return replace(spec, providers=tuple(declarations))
 
 
 async def compile_graph(

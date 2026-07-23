@@ -25,6 +25,7 @@ invariants, tests, and exit criteria.
 | N5 | [Pipeline and errors](phase-n5-pipeline-and-errors.md) | N0-N4 | Middleware through filters and validation errors |
 | N6 | [CLI and hardening](phase-n6-cli-and-hardening.md) | N0-N5 | CLI, adversarial lifecycle and release gate |
 | N7 | [Reflection and discovery](phase-n7-reflection-and-discovery.md) | N0-N6 | Typed metadata and compiled-provider introspection |
+| N8 | [Exception-aware resource unwinding](phase-n8-resource-unwinding.md) | N0-N7 | Outcome-preserving request/work-scope cleanup |
 
 ## Cross-Phase Invariants
 

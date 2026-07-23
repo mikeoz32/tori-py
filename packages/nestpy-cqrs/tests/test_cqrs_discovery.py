@@ -13,7 +13,6 @@ from cqrs_core import (
     MissingHandlerError,
     Query,
     QueryBus,
-    QueryHandler,
 )
 from nestpy import (
     AliasProvider,
@@ -28,8 +27,11 @@ from nestpy.testing import TestingModule
 from nestpy_cqrs import (
     CqrsModule,
     CqrsModuleOptions,
+    bind_command_handler,
+    bind_event_handler,
     command_handler,
     event_handler,
+    query_handler,
 )
 
 
@@ -57,7 +59,7 @@ class State:
         self.event_deliveries = 0
 
 
-@CommandHandler(Increment)
+@command_handler(Increment, scope=Scope.REQUEST)
 class IncrementHandler:
     def __init__(self, state: State) -> None:
         self.state = state
@@ -68,7 +70,7 @@ class IncrementHandler:
         return self.state.value
 
 
-@QueryHandler(Current)
+@query_handler(Current, scope=Scope.TRANSIENT)
 class CurrentHandler:
     def __init__(self, state: State) -> None:
         self.state = state
@@ -78,7 +80,7 @@ class CurrentHandler:
         return self.state.value
 
 
-@EventsHandler(Incremented)
+@event_handler(Incremented, scope=Scope.REQUEST)
 class IncrementedHandler:
     def __init__(self, state: State) -> None:
         self.state = state
@@ -93,9 +95,9 @@ async def test_decorated_private_providers_are_discovered_automatically() -> Non
     @module(
         providers=[
             ClassProvider(State),
-            ClassProvider(IncrementHandler, scope=Scope.REQUEST),
-            ClassProvider(CurrentHandler, scope=Scope.TRANSIENT),
-            ClassProvider(IncrementedHandler, scope=Scope.REQUEST),
+            IncrementHandler,
+            CurrentHandler,
+            IncrementedHandler,
             AliasProvider("incremented-alias", IncrementedHandler),
         ],
     )
@@ -217,7 +219,7 @@ async def test_explicit_factory_binding_suppresses_automatic_class_registration(
 
     cqrs = CqrsModule.for_root(
         imports=[Feature],
-        handlers=[command_handler(Increment, "factory-handler")],
+        handlers=[bind_command_handler(Increment, "factory-handler")],
         key="factory",
     )
 
@@ -248,7 +250,7 @@ async def test_explicit_class_binding_suppresses_duplicate_auto_discovery() -> N
 
     cqrs = CqrsModule.for_root(
         imports=[Feature],
-        handlers=[event_handler(Incremented, Handler)],
+        handlers=[bind_event_handler(Incremented, Handler)],
         key="explicit-class",
     )
 

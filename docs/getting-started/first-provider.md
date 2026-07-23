@@ -1,7 +1,9 @@
 # First Provider
 
-A `ClassProvider` creates a provider declaration for a class. A controller
-constructor requests that class as its provider token.
+`@injectable()` marks a class for self-token provider shorthand. Listing that
+class in `providers` compiles it into a `ClassProvider`; a controller constructor
+requests the class as its provider token. Use an explicit `ClassProvider` when
+the token, implementation, scope, or resource ownership belongs in composition.
 
 ```python
 --8<-- "examples/nestpy/getting_started/first_provider/app.py"

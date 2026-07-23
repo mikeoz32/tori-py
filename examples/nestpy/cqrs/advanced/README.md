@@ -4,7 +4,8 @@ This reference application demonstrates the `nestpy-cqrs` discovery model and
 scope behavior in one runnable HTTP service:
 
 - command, query, and event handler classes are registered once as providers;
-- `CqrsModule.for_root()` discovers their `cqrs-core` decorators automatically;
+- `CqrsModule.for_root()` discovers their combined Nestpy-CQRS decorators
+  automatically;
 - handlers remain private to `TasksModule` and are not exported;
 - each command gets a request-scoped handler and managed `CommandScope`;
 - `TaskCreated` fans out to a request-scoped projection handler and a transient
@@ -16,12 +17,12 @@ scope behavior in one runnable HTTP service:
 There is intentionally no `handlers=[...]` list:
 
 ```python
-@CommandHandler(CreateTask)
+@command_handler(CreateTask, scope=Scope.REQUEST)
 class CreateTaskHandler:
     ...
 
 
-@module(providers=[ClassProvider(CreateTaskHandler, scope=Scope.REQUEST)])
+@module(providers=[CreateTaskHandler])
 class TasksModule:
     pass
 

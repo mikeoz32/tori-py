@@ -2,6 +2,8 @@
 
 import inspect
 from collections.abc import Coroutine
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import Any, cast
 from uuid import uuid4
@@ -23,6 +25,40 @@ class EventInvocation:
     operation: Coroutine[Any, Any, object]
 
 
+@dataclass(slots=True)
+class _CommandInvocation:
+    bus: object
+    active: bool = True
+
+
+_command_invocations: ContextVar[tuple[_CommandInvocation, ...]] = ContextVar(
+    "cqrs_command_invocations",
+    default=(),
+)
+
+
+def is_command_bus_active(bus: object) -> bool:
+    """Return whether this invocation is handling a command from ``bus``."""
+
+    return any(
+        invocation.active and invocation.bus is bus
+        for invocation in _command_invocations.get()
+    )
+
+
+@contextmanager
+def _command_invocation(bus: object):
+    invocation = _CommandInvocation(bus)
+    token = _command_invocations.set((*_command_invocations.get(), invocation))
+    try:
+        yield
+    finally:
+        # Child tasks copy context values, so invalidate the shared frame as well
+        # as resetting this task's context.
+        invocation.active = False
+        _command_invocations.reset(token)
+
+
 class Dispatcher:
     """Route envelopes to registered handlers and create request replies."""
 
@@ -40,13 +76,19 @@ class Dispatcher:
         self,
         envelope: Envelope[Message],
         kind: HandlerKind,
+        *,
+        command_bus: object | None = None,
     ) -> ReplyEnvelope[object]:
         if envelope.correlation_id is None:
             raise EnvelopeValidationError("request envelope requires correlation_id")
         self._validate_request_category(envelope, kind)
         try:
             registration = self._registry.request_handler(kind, type(envelope.message))
-            result = await self._invoke(registration, envelope)
+            if kind is HandlerKind.COMMAND and command_bus is not None:
+                with _command_invocation(command_bus):
+                    result = await self._invoke(registration, envelope)
+            else:
+                result = await self._invoke(registration, envelope)
         except Exception as error:
             return ReplyEnvelope(
                 reply_id=uuid4(),

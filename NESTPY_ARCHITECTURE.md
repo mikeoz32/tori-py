@@ -1,7 +1,7 @@
 # Nestpy Architecture Specification
 
 Status: approved architecture baseline. Executable implementation contracts are
-split into `spec/nestpy/phase-n0-*.md` through `phase-n7-*.md`. No Nestpy code
+split into `spec/nestpy/phase-n0-*.md` through `phase-n8-*.md`. No Nestpy code
 is implemented by this document.
 
 ## 1. Purpose
@@ -189,7 +189,7 @@ from nestpy import module
 
 @module(
     imports=[SettingsModule.for_root(...)],
-    providers=[UserRepositoryProvider, UserServiceProvider],
+    providers=[UserRepositoryProvider, UserService],
     controllers=[UsersController],
     exports=[UserService],
 )
@@ -200,7 +200,8 @@ class UsersModule:
 Module metadata has these fields:
 
 - `imports`: module classes or deferred dynamic descriptors;
-- `providers`: module-owned provider declarations;
+- `providers`: module-owned provider declarations or directly `@injectable()`
+  classes;
 - `controllers`: module-owned controller classes;
 - `exports`: public provider tokens;
 - `global_`: explicit `False` by default.
@@ -296,19 +297,37 @@ A token is either a class or a string constant:
 USER_REPOSITORY = "users.repository"
 ```
 
-Provider declarations are always explicit:
+Provider registration is always explicit. A directly decorated class has a
+self-token shorthand:
 
 ```python
+@injectable(scope="singleton")
+class UserService:
+    pass
+
+
+@module(providers=[UserService])
+class UsersModule:
+    pass
+
 ValueProvider("settings", settings)
 ClassProvider(UserService, UserService, scope="singleton")
 FactoryProvider(USER_REPOSITORY, create_repository, scope="singleton")
 AliasProvider(UserReader, USER_REPOSITORY)
 ```
 
+During graph compilation, `UserService` normalizes to its immutable
+`ClassProvider`. A bare class without directly declared `@injectable()` metadata
+is an invalid provider declaration. Metadata is not inherited. Explicit
+`ClassProvider` declarations remain available for custom tokens, alternate
+implementations, and composition-owned scope or resource settings; their values
+take precedence over decorator metadata.
+
 Provider forms:
 
 - `ValueProvider`: returns an explicit value;
-- `ClassProvider`: constructs an explicit class;
+- `ClassProvider`: constructs an explicit class, including normalized
+  `@injectable()` shorthand;
 - `FactoryProvider`: invokes an explicit sync or async factory;
 - `AliasProvider`: resolves an existing token without creating another object.
 

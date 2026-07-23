@@ -10,12 +10,13 @@ from enum import StrEnum
 from typing import cast
 from uuid import UUID, uuid4
 
-from cqrs_core.dispatch import Dispatcher, EventInvocation
+from cqrs_core.dispatch import Dispatcher, EventInvocation, is_command_bus_active
 from cqrs_core.envelope import DeliveryMetadata, DeliveryReceipt, Envelope
 from cqrs_core.errors import (
     EnvelopeValidationError,
     InvalidLifecycleTransitionError,
     InvalidReplyCorrelationError,
+    NestedCommandDispatchError,
     TransportNotStartedError,
     TransportStoppedError,
 )
@@ -200,7 +201,11 @@ class CommandBus:
         await self._lifecycle.start(self._consume)
 
     async def _consume(self, envelope: Envelope[Message]):
-        return await self._dispatcher.dispatch_request(envelope, HandlerKind.COMMAND)
+        return await self._dispatcher.dispatch_request(
+            envelope,
+            HandlerKind.COMMAND,
+            command_bus=self,
+        )
 
     async def execute[ResultT](
         self,
@@ -210,6 +215,10 @@ class CommandBus:
     ) -> ResultT:
         if not isinstance(command, Command):
             raise EnvelopeValidationError("CommandBus.execute requires a Command")
+        if is_command_bus_active(self):
+            raise NestedCommandDispatchError(
+                "cannot execute a command through the active CommandBus"
+            )
         self._lifecycle.require_running()
         envelope = _envelope_for(command, request=True)
         reply = await self._lifecycle.transport.request(envelope, timeout=timeout)

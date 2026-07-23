@@ -1,6 +1,6 @@
 # CQRS Library Implementation Plan
 
-Status: Phases 0-5 complete; Phase 6 review and hardening is next.
+Status: Phases 0-7 complete.
 
 The executable phase specifications are in [`spec/README.md`](spec/README.md). Each phase document defines entry criteria, required artifacts, contracts, failure behavior, tests, and exit criteria. Update the relevant specification before changing an agreed behavior in code.
 
@@ -237,6 +237,16 @@ Detailed specification: [`spec/phase-06-review-and-hardening.md`](spec/phase-06-
 3. Check that core has no FastAPI/Pydantic/SQLAlchemy runtime dependency.
 4. Check cancellation, shutdown, duplicate registration, and event error behavior.
 5. Update this plan and `AGENTS.md` when implementation decisions diverge from the agreed design.
+
+### Phase 7: Command reentrancy guard
+
+Detailed specification:
+[`spec/phase-07-command-reentrancy.md`](spec/phase-07-command-reentrancy.md)
+
+1. Mark the active command-bus identity while a handler runs.
+2. Reject same-bus nested `execute()` before transport enqueue.
+3. Preserve independent buses, nested queries, and event publication behavior.
+4. Verify no rejected nested command can execute later after timeout/cancellation.
 
 ## 12. Verification Targets
 

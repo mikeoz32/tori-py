@@ -18,6 +18,7 @@ from nestpy import (
     ValueProvider,
     WorkScopeFactory,
     compile_graph,
+    injectable,
     module,
 )
 
@@ -48,6 +49,76 @@ async def test_static_imports_reuse_nodes_and_providers_are_not_constructed() ->
     assert tuple(plan.module for plan in graph.modules) == (ChildModule, RootModule)
     assert constructed == 0
     assert len(graph.providers) == 1
+
+
+@pytest.mark.asyncio
+async def test_injectable_class_shorthand_normalizes_to_class_provider() -> None:
+    @injectable(scope=Scope.REQUEST, manage=False)
+    class Dependency:
+        pass
+
+    @injectable(scope=Scope.REQUEST)
+    class Consumer:
+        def __init__(self, dependency: Dependency) -> None:
+            self.dependency = dependency
+
+    @module(providers=[Dependency, Consumer], exports=[Consumer])
+    class Root:
+        pass
+
+    graph = await compile_root(Root)
+    dependency = graph.providers[graph.visibility[(graph.root, Dependency)]]
+    consumer = graph.providers[graph.visibility[(graph.root, Consumer)]]
+
+    assert isinstance(dependency.declaration, ClassProvider)
+    assert dependency.scope is Scope.REQUEST
+    assert dependency.declaration.manage is False
+    assert consumer.dependencies[0].provider_ref == dependency.key
+
+
+@pytest.mark.asyncio
+async def test_explicit_class_provider_ignores_injectable_defaults() -> None:
+    @injectable(scope=Scope.REQUEST)
+    class Service:
+        pass
+
+    @module(providers=[ClassProvider(Service, scope=Scope.TRANSIENT)])
+    class Root:
+        pass
+
+    graph = await compile_root(Root)
+    provider = graph.providers[graph.visibility[(graph.root, Service)]]
+    assert provider.scope is Scope.TRANSIENT
+
+
+@pytest.mark.asyncio
+async def test_class_shorthand_requires_direct_injectable_metadata() -> None:
+    @injectable()
+    class Base:
+        pass
+
+    class Child(Base):
+        pass
+
+    @module(providers=[Child])
+    class StaticRoot:
+        pass
+
+    with pytest.raises(BootstrapError, match="must be decorated") as static_error:
+        await compile_root(StaticRoot)
+    assert static_error.value.diagnostic_code == "provider.invalid_declaration"
+
+    class DynamicModule:
+        pass
+
+    descriptor = DeferredModule(
+        DynamicModule,
+        "invalid-provider",
+        lambda: ModuleSpec(providers=[Child]),
+    )
+    with pytest.raises(BootstrapError, match="must be decorated") as dynamic_error:
+        await compile_root(descriptor)
+    assert dynamic_error.value.diagnostic_code == "provider.invalid_declaration"
 
 
 @pytest.mark.asyncio

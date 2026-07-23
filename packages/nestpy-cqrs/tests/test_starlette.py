@@ -6,7 +6,7 @@ from cqrs_core import Command, CommandBus
 from nestpy import ClassProvider, NestApplication, Query, controller, get, module
 from nestpy.starlette import StarletteAdapter
 from nestpy.testing import http_client
-from nestpy_cqrs import CqrsModule, command_handler
+from nestpy_cqrs import CqrsModule, bind_command_handler
 
 
 @dataclass(frozen=True, slots=True)
@@ -26,7 +26,7 @@ class HandlersModule:
 
 cqrs = CqrsModule.for_root(
     imports=[HandlersModule],
-    handlers=[command_handler(Echo, EchoHandler)],
+    handlers=[bind_command_handler(Echo, EchoHandler)],
     global_=True,
 )
 

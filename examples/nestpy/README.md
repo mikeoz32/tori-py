@@ -14,3 +14,8 @@ production Starlette lifespan wrapper.
 For a larger event-driven example using automatic `nestpy-cqrs` handler
 discovery, scoped command handling, event fan-out, and a read projection, see
 [`cqrs/advanced`](cqrs/advanced/README.md).
+
+For a full event-sourced community project with three aggregates, schema
+upcasting, optimistic concurrency, request-scoped Unit of Work, checkpointed
+projections, privacy rules, moderation, and HTTP endpoints, see
+[`cqrs/event_sourcing`](cqrs/event_sourcing/README.md).

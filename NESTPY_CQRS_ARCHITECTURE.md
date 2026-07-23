@@ -11,16 +11,25 @@ nestpy-cqrs -> nestpy, cqrs-core
 Neither `nestpy` nor `cqrs-core` imports the bridge. The bridge does not depend
 on Starlette, FastAPI, Pydantic, or a process-global registry.
 
+The implemented `nestpy-cqrs-event-sourcing` package composes this bridge with the
+framework-neutral event-sourcing package. Its architecture and prerequisite
+invocation extension are specified separately in
+`NESTPY_CQRS_EVENT_SOURCING_ARCHITECTURE.md`.
+
 ## Composition
 
 `CqrsModule.for_root()` returns one keyed Nestpy `DeferredModule`. Handler
-classes are registered once as ordinary Nestpy providers and decorated with
-`cqrs-core` command, query, or event metadata. During bootstrap the integration
-uses Nestpy `DiscoveryService` to inspect every provider in the compiled
-application graph. It never scans Python packages or registers providers.
+classes are registered once as ordinary Nestpy providers. The
+`nestpy_cqrs.command_handler`, `query_handler`, and `event_handler` decorators
+compose framework-neutral `cqrs-core` handler metadata with Nestpy injectable
+metadata, so decorated classes may be listed directly in a module's `providers`.
+During bootstrap the integration uses Nestpy `DiscoveryService` to inspect every
+provider in the compiled application graph. It never scans Python packages or
+registers providers.
 
-Explicit handler bindings remain an optional escape hatch for factory-produced,
-undecorated, or intentionally overridden providers. Their normal Nestpy
+Explicit `bind_command_handler`, `bind_query_handler`, and `bind_event_handler`
+bindings remain an optional escape hatch for factory-produced, undecorated, or
+intentionally overridden providers. Their normal Nestpy
 visibility and export rules still apply. Discovered private providers do not
 need to be exported or imported into the CQRS module.
 
@@ -55,6 +64,22 @@ scope or ambient request context is propagated into CQRS work.
 
 Handlers must expose an async `handle()` method. Function handlers are outside
 the first integration slice.
+
+## Invocation Pipeline
+
+The event-sourcing integration requires a public, driver-neutral CQRS invocation
+interceptor contract. The interceptor pipeline remains owned by `nestpy-cqrs`:
+
+- each invocation context implements Nestpy `ExecutionContext` with CQRS message,
+  envelope, handler kind, canonical provider, owner module, and scoped resolver;
+- graph and handler interceptor tokens resolve through normal Nestpy visibility;
+- interceptors and handlers share the same fresh work scope;
+- the one-shot `next()` callback resolves the handler lazily;
+- invocation completion remains classifiable through work-scope cleanup.
+
+This extension does not add persistence behavior to `nestpy-cqrs`. Optional
+packages may contribute interceptors while `nestpy-cqrs` continues to own only
+dispatch composition and scope execution.
 
 ## Lifecycle
 

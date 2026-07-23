@@ -10,6 +10,7 @@ from nestpy import (
     ModuleSpec,
     NestApplication,
     ValueProvider,
+    injectable,
     module,
 )
 from nestpy.core.errors import BootstrapError
@@ -187,6 +188,26 @@ async def test_http_client_rejects_unstarted_and_stopped_applications() -> None:
     with pytest.raises(ApplicationStateError, match="started application"):
         async with http_client(application):
             raise AssertionError("unreachable")
+
+
+@pytest.mark.asyncio
+async def test_exported_injectable_shorthand_can_be_overridden() -> None:
+    @injectable()
+    class Service:
+        pass
+
+    replacement = object()
+
+    @module(providers=[Service], exports=[Service])
+    class Root:
+        pass
+
+    builder = TestingModule.create(Root)
+    builder.override_provider(Service, module=Root).use_value(replacement)
+    application = await builder.compile()
+
+    assert await application.resolve(Service, module=Root) is replacement
+    await application.close()
 
 
 @pytest.mark.asyncio

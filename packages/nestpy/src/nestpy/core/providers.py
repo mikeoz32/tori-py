@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 
 from nestpy.core.errors import BootstrapError
+from nestpy.core.reflection import MetadataDecorator, Reflector, metadata
 
 type Token = type[object] | str
 type ProviderFactory = Callable[..., object | Awaitable[object]]
@@ -103,6 +104,49 @@ class ClassProvider:
             )
 
 
+_INJECTABLE: MetadataDecorator[ClassProvider] = Reflector.create_decorator(
+    "nestpy:injectable"
+)
+_REFLECTOR = Reflector()
+
+
+def injectable[InstanceT](
+    *,
+    scope: Scope | str = Scope.SINGLETON,
+    manage: bool = True,
+) -> Callable[[type[InstanceT]], type[InstanceT]]:
+    """Mark a class for self-token provider shorthand in a module."""
+
+    normalized_scope = normalize_scope(scope)
+    if not isinstance(manage, bool):
+        raise BootstrapError(
+            "injectable manage must be boolean",
+            code="provider.invalid_declaration",
+        )
+
+    def decorate(target: type[InstanceT]) -> type[InstanceT]:
+        declaration = ClassProvider(
+            target,
+            target,
+            scope=normalized_scope,
+            manage=manage,
+        )
+        return metadata(_INJECTABLE, declaration)(target)
+
+    return decorate
+
+
+def get_injectable_metadata(target: type[object]) -> ClassProvider | None:
+    """Return directly declared injectable provider metadata for a class."""
+
+    declaration = _REFLECTOR.get_own(_INJECTABLE, target)
+    return declaration if isinstance(declaration, ClassProvider) else None
+
+
+def _injectable_provider(target: type[object]) -> ClassProvider | None:
+    return get_injectable_metadata(target)
+
+
 @dataclass(frozen=True, slots=True)
 class FactoryProvider:
     """Invoke an explicit sync or async factory through annotation-based DI."""
@@ -160,6 +204,8 @@ __all__ = [
     "Scope",
     "Token",
     "ValueProvider",
+    "get_injectable_metadata",
+    "injectable",
     "normalize_scope",
     "provider_token",
     "validate_token",

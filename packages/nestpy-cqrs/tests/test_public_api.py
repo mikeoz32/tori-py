@@ -4,12 +4,34 @@ from pathlib import Path
 from typing import Any, cast
 
 import pytest
-from cqrs_core import Command, Event, HandlerKind, Query
+from cqrs_core import (
+    Command,
+    Event,
+    HandlerKind,
+    InvalidHandlerRegistrationError,
+    Query,
+    get_handler_metadata,
+)
+from cqrs_core import (
+    CommandHandler as CoreCommandHandler,
+)
+from nestpy import (
+    BootstrapError,
+    ClassProvider,
+    Scope,
+    compile_graph,
+    get_injectable_metadata,
+    injectable,
+    module,
+)
 from nestpy_cqrs import (
     CqrsConfigurationError,
     CqrsHandlerBinding,
     CqrsModule,
     CqrsModuleOptions,
+    bind_command_handler,
+    bind_event_handler,
+    bind_query_handler,
     command_handler,
     event_handler,
     query_handler,
@@ -29,29 +51,89 @@ class Created(Event):
 
 
 def test_public_facade_and_binding_helpers() -> None:
-    assert command_handler(Create, "create") == CqrsHandlerBinding(
+    assert bind_command_handler(Create, "create") == CqrsHandlerBinding(
         kind=HandlerKind.COMMAND,
         message_type=Create,
         token="create",
     )
-    assert query_handler(Read, "read").token == "read"
-    assert event_handler(Created, "created").token == "created"
+    assert bind_query_handler(Read, "read").token == "read"
+    assert bind_event_handler(Created, "created").token == "created"
     assert CqrsModuleOptions()
     assert CqrsModule
     assert CqrsModule.for_root()
 
 
+@pytest.mark.asyncio
+async def test_handler_decorators_add_cqrs_and_injectable_metadata() -> None:
+    @command_handler(Create, scope=Scope.REQUEST, manage=False)
+    class CreateHandler:
+        async def handle(self, command: Create) -> int:
+            return 1
+
+    @query_handler(Read, scope=Scope.TRANSIENT)
+    class ReadHandler:
+        async def handle(self, query: Read) -> int:
+            return 1
+
+    @event_handler(Created)
+    class CreatedHandler:
+        async def handle(self, event: Created) -> None:
+            return None
+
+    @module(providers=[CreateHandler, ReadHandler, CreatedHandler])
+    class Feature:
+        pass
+
+    graph = await compile_graph(Feature)
+    create_plan = graph.providers[graph.visibility[(graph.root, CreateHandler)]]
+    read_plan = graph.providers[graph.visibility[(graph.root, ReadHandler)]]
+    event_plan = graph.providers[graph.visibility[(graph.root, CreatedHandler)]]
+
+    create_metadata = get_handler_metadata(CreateHandler)
+    read_metadata = get_handler_metadata(ReadHandler)
+    event_metadata = get_handler_metadata(CreatedHandler)
+    assert create_metadata is not None
+    assert read_metadata is not None
+    assert event_metadata is not None
+    assert create_metadata.kind is HandlerKind.COMMAND
+    assert read_metadata.kind is HandlerKind.QUERY
+    assert event_metadata.kind is HandlerKind.EVENT
+    assert isinstance(create_plan.declaration, ClassProvider)
+    assert create_plan.declaration.manage is False
+    assert create_plan.scope is Scope.REQUEST
+    assert read_plan.scope is Scope.TRANSIENT
+    assert event_plan.scope is Scope.SINGLETON
+
+
+def test_handler_decorator_conflicts_do_not_leave_partial_metadata() -> None:
+    @injectable()
+    class ExistingProvider:
+        pass
+
+    with pytest.raises(BootstrapError, match="already declared"):
+        command_handler(Create)(ExistingProvider)
+    assert get_handler_metadata(ExistingProvider) is None
+
+    @CoreCommandHandler(Create)
+    class ExistingHandler:
+        pass
+
+    with pytest.raises(InvalidHandlerRegistrationError, match="already has"):
+        command_handler(Create)(ExistingHandler)
+    assert get_injectable_metadata(ExistingHandler) is None
+
+
 def test_invalid_binding_category_and_token_are_rejected() -> None:
     with pytest.raises(CqrsConfigurationError, match="concrete Command"):
-        command_handler(cast(Any, Created), "handler")
+        bind_command_handler(cast(Any, Created), "handler")
     with pytest.raises(CqrsConfigurationError, match="token"):
-        event_handler(Created, cast(Any, object()))
+        bind_event_handler(Created, cast(Any, object()))
     with pytest.raises(CqrsConfigurationError, match="event_error_handler"):
         CqrsModuleOptions(event_error_handler=cast(Any, object()))
 
 
 def test_duplicate_event_provider_binding_is_rejected() -> None:
-    duplicate = event_handler(Created, "created")
+    duplicate = bind_event_handler(Created, "created")
     with pytest.raises(CqrsConfigurationError, match="duplicate event"):
         CqrsModule.for_root(
             handlers=[duplicate, duplicate],

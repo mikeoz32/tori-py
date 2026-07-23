@@ -1,5 +1,6 @@
 """Framework-neutral Nestpy errors and diagnostic values."""
 
+import asyncio
 from collections.abc import Mapping
 from types import MappingProxyType
 from typing import Final
@@ -79,6 +80,40 @@ class ResourceError(NestpyError):
     code = "resource.error"
 
 
+class ScopeFinalizationError(ResourceError):
+    """Retain an ordinary scope failure and every cleanup failure."""
+
+    code = "resource.cleanup_error"
+
+    def __init__(
+        self,
+        body_error: BaseException | None,
+        cleanup_errors: tuple[BaseException, ...],
+    ) -> None:
+        if not cleanup_errors:
+            raise ValueError("scope finalization requires cleanup errors")
+        super().__init__(
+            "scope resource cleanup failed",
+            details={"cleanup_error_count": len(cleanup_errors)},
+        )
+        self.body_error = body_error
+        self.cleanup_errors = cleanup_errors
+
+
+class ScopeCancellationError(asyncio.CancelledError):
+    """Preserve cancellation while retaining scope cleanup failures."""
+
+    def __init__(
+        self,
+        cancellation: asyncio.CancelledError,
+        cleanup_errors: tuple[BaseException, ...],
+    ) -> None:
+        super().__init__("scope resource cleanup failed during cancellation")
+        self.cancellation = cancellation
+        self.body_error = cancellation
+        self.cleanup_errors = cleanup_errors
+
+
 class LifecycleError(NestpyError):
     """Raised when an application lifecycle hook fails."""
 
@@ -112,6 +147,7 @@ DIAGNOSTIC_CODES: Final[frozenset[DiagnosticCode]] = frozenset(
         "module.invalid_constructor",
         "module.invalid_export",
         "provider.duplicate",
+        "provider.invalid_declaration",
         "provider.invalid_signature",
         "provider.unresolved",
         "provider.ambiguous",

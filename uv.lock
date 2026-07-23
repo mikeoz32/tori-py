@@ -5,10 +5,12 @@ requires-python = "==3.14.*"
 [manifest]
 members = [
     "cqrs-core",
+    "cqrs-event-sourcing",
     "cqrs-fastapi",
     "kinker",
     "nestpy",
     "nestpy-cqrs",
+    "nestpy-cqrs-event-sourcing",
     "nestpy-sqlalchemy",
 ]
 
@@ -133,6 +135,17 @@ wheels = [
 name = "cqrs-core"
 version = "0.1.0"
 source = { editable = "packages/cqrs-core" }
+
+[[package]]
+name = "cqrs-event-sourcing"
+version = "0.1.0"
+source = { editable = "packages/cqrs-event-sourcing" }
+dependencies = [
+    { name = "cqrs-core" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "cqrs-core", editable = "packages/cqrs-core" }]
 
 [[package]]
 name = "cqrs-fastapi"
@@ -286,9 +299,11 @@ version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
     { name = "cqrs-core" },
+    { name = "cqrs-event-sourcing" },
     { name = "cqrs-fastapi" },
     { name = "nestpy" },
     { name = "nestpy-cqrs" },
+    { name = "nestpy-cqrs-event-sourcing" },
     { name = "nestpy-sqlalchemy" },
     { name = "uvicorn" },
 ]
@@ -310,9 +325,11 @@ docs = [
 [package.metadata]
 requires-dist = [
     { name = "cqrs-core", editable = "packages/cqrs-core" },
+    { name = "cqrs-event-sourcing", editable = "packages/cqrs-event-sourcing" },
     { name = "cqrs-fastapi", editable = "packages/cqrs-fastapi" },
     { name = "nestpy", editable = "packages/nestpy" },
     { name = "nestpy-cqrs", editable = "packages/nestpy-cqrs" },
+    { name = "nestpy-cqrs-event-sourcing", editable = "packages/nestpy-cqrs-event-sourcing" },
     { name = "nestpy-sqlalchemy", editable = "packages/nestpy-sqlalchemy" },
     { name = "uvicorn", specifier = ">=0.51.0" },
 ]
@@ -565,6 +582,25 @@ dependencies = [
 requires-dist = [
     { name = "cqrs-core", editable = "packages/cqrs-core" },
     { name = "nestpy", editable = "packages/nestpy" },
+]
+
+[[package]]
+name = "nestpy-cqrs-event-sourcing"
+version = "0.1.0"
+source = { editable = "packages/nestpy-cqrs-event-sourcing" }
+dependencies = [
+    { name = "cqrs-core" },
+    { name = "cqrs-event-sourcing" },
+    { name = "nestpy" },
+    { name = "nestpy-cqrs" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "cqrs-core", editable = "packages/cqrs-core" },
+    { name = "cqrs-event-sourcing", editable = "packages/cqrs-event-sourcing" },
+    { name = "nestpy", editable = "packages/nestpy" },
+    { name = "nestpy-cqrs", editable = "packages/nestpy-cqrs" },
 ]
 
 [[package]]

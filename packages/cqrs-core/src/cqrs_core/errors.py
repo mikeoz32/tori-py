@@ -11,6 +11,10 @@ class CqrsValidationError(CqrsError):
     """Raised when a core contract receives invalid data."""
 
 
+class NestedCommandDispatchError(CqrsError):
+    """Raised when a command handler executes through its active command bus."""
+
+
 class EnvelopeValidationError(CqrsValidationError):
     """Raised when an envelope or delivery metadata is invalid."""
 

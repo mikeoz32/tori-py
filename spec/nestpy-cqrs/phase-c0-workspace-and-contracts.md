@@ -13,6 +13,10 @@ Create the separate `nestpy-cqrs` distribution and freeze its public boundary.
 - No Starlette, FastAPI, Pydantic, package scanning, or process-global registry.
 - C0 public registration is explicit through `CqrsHandlerBinding`; C2 adds
   compiled-provider discovery without provider auto-registration.
+- `command_handler`, `query_handler`, and `event_handler` compose core handler
+  metadata with Nestpy injectable metadata for class-provider shorthand.
+- `bind_command_handler`, `bind_query_handler`, and `bind_event_handler` create
+  explicit `CqrsHandlerBinding` values for custom-token/factory providers.
 - CQRS core messages and buses remain imported from `cqrs_core`.
 
 ## Verification

@@ -12,21 +12,21 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import nestpy_cqrs
-from cqrs_core import Command, CommandBus, CommandHandler
-from nestpy import ClassProvider, module
+from cqrs_core import Command, CommandBus
+from nestpy import module
 from nestpy.testing import TestingModule
-from nestpy_cqrs import CqrsModule
+from nestpy_cqrs import CqrsModule, command_handler
 
 @dataclass(frozen=True, slots=True)
 class Echo(Command[str]):
     value: str
 
-@CommandHandler(Echo)
+@command_handler(Echo)
 class EchoHandler:
     async def handle(self, command: Echo) -> str:
         return command.value
 
-@module(providers=[ClassProvider(EchoHandler)], exports=[EchoHandler])
+@module(providers=[EchoHandler], exports=[EchoHandler])
 class Handlers:
     pass
 

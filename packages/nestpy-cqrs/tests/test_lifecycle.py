@@ -24,8 +24,8 @@ from nestpy_cqrs import (
     CqrsLifecycleError,
     CqrsModule,
     CqrsModuleOptions,
-    command_handler,
-    event_handler,
+    bind_command_handler,
+    bind_event_handler,
 )
 from nestpy_cqrs.runtime import _CqrsRuntime
 
@@ -371,8 +371,8 @@ async def test_builder_failure_closes_all_created_transports() -> None:
     cqrs = CqrsModule.for_root(
         imports=[Handlers],
         handlers=[
-            command_handler(Blocking, FirstHandler),
-            command_handler(Blocking, SecondHandler),
+            bind_command_handler(Blocking, FirstHandler),
+            bind_command_handler(Blocking, SecondHandler),
         ],
         options=options_for(events),
         key="builder-failure",
@@ -455,8 +455,8 @@ async def test_quiescing_command_can_publish_event_before_event_shutdown() -> No
     cqrs = CqrsModule.for_root(
         imports=[Handlers],
         handlers=[
-            command_handler(Blocking, BlockingHandler),
-            event_handler(Finished, FinishedHandler),
+            bind_command_handler(Blocking, BlockingHandler),
+            bind_event_handler(Finished, FinishedHandler),
         ],
         global_=True,
     )

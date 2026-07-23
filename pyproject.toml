@@ -4,9 +4,11 @@ version = "0.1.0"
 requires-python = ">=3.14,<3.15"
 dependencies = [
     "cqrs-core",
+    "cqrs-event-sourcing",
     "cqrs-fastapi",
     "nestpy",
     "nestpy-cqrs",
+    "nestpy-cqrs-event-sourcing",
     "nestpy-sqlalchemy",
     "uvicorn>=0.51.0",
 ]
@@ -14,9 +16,11 @@ dependencies = [
 [tool.uv.workspace]
 members = [
     "packages/cqrs-core",
+    "packages/cqrs-event-sourcing",
     "packages/cqrs-fastapi",
     "packages/nestpy",
     "packages/nestpy-cqrs",
+    "packages/nestpy-cqrs-event-sourcing",
     "packages/nestpy-sqlalchemy",
 ]
 
@@ -25,6 +29,8 @@ cqrs-core = { workspace = true }
 cqrs-fastapi = { workspace = true }
 nestpy = { workspace = true }
 nestpy-cqrs = { workspace = true }
+nestpy-cqrs-event-sourcing = { workspace = true }
+cqrs-event-sourcing = { workspace = true }
 nestpy-sqlalchemy = { workspace = true }
 
 [dependency-groups]
@@ -56,4 +62,5 @@ indent-style = "space"
 python-version = "3.14"
 
 [tool.pytest.ini_options]
+addopts = "--import-mode=importlib"
 pythonpath = ["."]

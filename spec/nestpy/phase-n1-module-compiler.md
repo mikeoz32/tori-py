@@ -58,7 +58,8 @@ Rules:
 The compiler executes deterministic stages:
 
 1. materialize module descriptors;
-2. normalize immutable module specs;
+2. normalize directly `@injectable()` module classes into immutable
+   `ClassProvider` declarations;
 3. build the import graph and detect cycles;
 4. assign dependency-first module order with declaration-order tie-breaking;
 5. validate local provider/controller declarations;
@@ -103,6 +104,10 @@ Rules:
   `Inject` is present;
 - factories may be sync or async;
 - unregistered classes are not auto-registered.
+- a class listed directly in `providers` must have its own `@injectable()`
+  metadata; inherited metadata is rejected;
+- an explicit `ClassProvider` remains valid without metadata and overrides any
+  decorator scope/resource defaults.
 
 Store qualified provider keys in plans. Runtime code MUST NOT repeat annotation
 inspection or unqualified visibility lookup.

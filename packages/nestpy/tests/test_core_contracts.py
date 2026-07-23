@@ -13,6 +13,7 @@ from nestpy import (
     Inject,
     ModuleSpec,
     PipelineOptions,
+    ProviderDeclaration,
     Scope,
     ScopedResolver,
     ValueProvider,
@@ -21,6 +22,7 @@ from nestpy import (
     get_controller_metadata,
     get_module_metadata,
     get_route_metadata,
+    injectable,
     module,
 )
 from nestpy.starlette import StarletteOptions
@@ -52,6 +54,21 @@ def test_provider_declarations_are_immutable_and_structural() -> None:
     assert FactoryProvider("factory", lambda: object()).manage is True
     assert AliasProvider("reader", "repository").target == "repository"
     assert Inject("repository").token == "repository"
+
+
+def test_injectable_decorator_preserves_identity_and_rejects_duplicates() -> None:
+    class Service:
+        pass
+
+    original = Service
+    decorated = injectable(scope=Scope.REQUEST, manage=False)(Service)
+
+    assert decorated is original
+    with pytest.raises(BootstrapError, match="already declared"):
+        injectable()(decorated)
+
+    with pytest.raises(BootstrapError, match="manage must be boolean"):
+        injectable(manage=cast(bool, "yes"))
 
 
 def test_execution_context_protocol_is_driver_neutral() -> None:
@@ -108,7 +125,8 @@ def test_module_metadata_is_direct_immutable_and_has_no_registry() -> None:
 
     metadata = get_module_metadata(decorated_module)
     assert metadata is not None
-    assert tuple(metadata.providers)[0].token == "value"
+    provider = cast(ProviderDeclaration, tuple(metadata.providers)[0])
+    assert provider.token == "value"
     assert metadata.exports == ("value",)
     assert get_module_metadata(type("Child", (decorated_module,), {})) is None
 
@@ -169,4 +187,5 @@ def test_module_spec_freezes_iterables_and_deferred_descriptor() -> None:
     spec = ModuleSpec(imports=[descriptor], providers=[ValueProvider("x", 1)])
 
     assert spec.imports == (descriptor,)
-    assert tuple(spec.providers)[0].token == "x"
+    provider = cast(ProviderDeclaration, tuple(spec.providers)[0])
+    assert provider.token == "x"

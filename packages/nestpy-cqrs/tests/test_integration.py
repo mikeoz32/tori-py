@@ -26,9 +26,9 @@ from nestpy_cqrs import (
     CqrsConfigurationError,
     CqrsModule,
     CqrsModuleOptions,
-    command_handler,
-    event_handler,
-    query_handler,
+    bind_command_handler,
+    bind_event_handler,
+    bind_query_handler,
 )
 
 ambient: contextvars.ContextVar[str | None] = contextvars.ContextVar(
@@ -185,12 +185,12 @@ class HandlersModule:
 cqrs = CqrsModule.for_root(
     imports=[HandlersModule],
     handlers=[
-        command_handler(Add, AddHandler),
-        command_handler(Fail, FailHandler),
-        command_handler(Identify, IdentifyHandler),
-        query_handler(Total, TotalHandler),
-        event_handler(Added, RecordAdded),
-        event_handler(Added, AuditAdded),
+        bind_command_handler(Add, AddHandler),
+        bind_command_handler(Fail, FailHandler),
+        bind_command_handler(Identify, IdentifyHandler),
+        bind_query_handler(Total, TotalHandler),
+        bind_event_handler(Added, RecordAdded),
+        bind_event_handler(Added, AuditAdded),
     ],
     global_=True,
 )
@@ -289,7 +289,7 @@ async def test_cancelled_event_handler_closes_its_work_scope() -> None:
 
     blocking_cqrs = CqrsModule.for_root(
         imports=[BlockingHandlers],
-        handlers=[event_handler(Added, BlockingAdded)],
+        handlers=[bind_event_handler(Added, BlockingAdded)],
         key="blocking",
     )
 
@@ -328,7 +328,7 @@ async def test_event_failure_reports_configured_provider_identity() -> None:
 
     failing_cqrs = CqrsModule.for_root(
         imports=[FailingHandlers],
-        handlers=[event_handler(Added, FailingAdded)],
+        handlers=[bind_event_handler(Added, FailingAdded)],
         options=CqrsModuleOptions(event_error_handler=failures.append),
         key="failing",
     )
@@ -361,7 +361,7 @@ async def test_handler_token_must_be_exported_to_cqrs_module() -> None:
 
     hidden_cqrs = CqrsModule.for_root(
         imports=[HiddenModule],
-        handlers=[command_handler(Add, HiddenHandler)],
+        handlers=[bind_command_handler(Add, HiddenHandler)],
         key="hidden",
     )
 
@@ -392,7 +392,7 @@ async def test_sync_handler_is_rejected_before_invocation() -> None:
 
     sync_cqrs = CqrsModule.for_root(
         imports=[SyncHandlers],
-        handlers=[command_handler(Add, SyncHandler)],
+        handlers=[bind_command_handler(Add, SyncHandler)],
         key="sync",
     )
 

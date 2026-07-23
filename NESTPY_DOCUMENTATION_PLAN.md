@@ -467,7 +467,7 @@ and related guide.
 | ID | Directory | Behavior |
 | --- | --- | --- |
 | E019 | `providers/value` | ValueProvider |
-| E020 | `providers/class` | ClassProvider |
+| E020 | `providers/class` | `@injectable()` shorthand and ClassProvider |
 | E021 | `providers/factory` | Sync and async FactoryProvider |
 | E022 | `providers/alias` | Alias identity and ownership |
 | E023 | `providers/string_token` | Explicit string token |

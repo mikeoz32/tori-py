@@ -28,6 +28,10 @@ class WorkScopeFactory(Protocol):
     """Open application-tracked DI work scopes from one module identity."""
 
     @property
+    def application_id(self) -> str:
+        """Return the driver-neutral application identifier."""
+
+    @property
     def module_id(self) -> ModuleId:
         """Return the module identity used for provider visibility."""
 

@@ -12,12 +12,14 @@
 ## Development
 - ALWAYS use `uv` exclusively for Python environments, dependencies, commands, tests, and services.
 - Add dependencies with `uv`; run tests and services with `uv`.
-- Run quality checks through `uv`: `uv run ruff check .`, `uv run ruff format --check .`, and `uv run ty check packages/cqrs-core/src packages/cqrs-core/tests packages/cqrs-fastapi/src packages/cqrs-fastapi/tests packages/nestpy-sqlalchemy/src packages/nestpy-sqlalchemy/tests`.
+- Run quality checks through `uv`: `uv run ruff check .`, `uv run ruff format --check .`, and `uv run ty check packages/cqrs-core/src packages/cqrs-core/tests packages/cqrs-event-sourcing/src packages/cqrs-event-sourcing/tests packages/cqrs-fastapi/src packages/cqrs-fastapi/tests packages/nestpy/src packages/nestpy/tests packages/nestpy-cqrs/src packages/nestpy-cqrs/tests packages/nestpy-cqrs-event-sourcing/src packages/nestpy-cqrs-event-sourcing/tests packages/nestpy-sqlalchemy/src packages/nestpy-sqlalchemy/tests examples/nestpy`.
 
 ## CQRS Library
 - Initial workspace boundary: framework-agnostic core package plus a separate FastAPI adapter; core must not depend on FastAPI, Pydantic, SQLAlchemy, or a DI framework.
 - Preserve clear boundaries between commands, queries, domain/application logic, and infrastructure; do not copy NestJS internals mechanically into Python.
 - The agreed first-slice architecture, implementation order, and non-goals are recorded in `CQRS_IMPLEMENTATION_PLAN.md`.
+- The framework-neutral event-sourcing package, its implementation order, and adapter boundaries are recorded in `CQRS_EVENT_SOURCING_IMPLEMENTATION_PLAN.md` and `spec/cqrs-event-sourcing/README.md`.
+- The planned Nestpy-native event-sourcing integration, automatic command transaction semantics, and decorated repository API are recorded in `NESTPY_CQRS_EVENT_SOURCING_ARCHITECTURE.md` and `spec/nestpy-cqrs-event-sourcing/README.md`.
 - Treat privacy, access control, moderation, and safety as core domain concerns for the future profiles, groups, posts, and chats rather than later add-ons.
 
 ## Nestpy SQLAlchemy

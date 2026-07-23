@@ -10,9 +10,9 @@ targets. Symbol groups map to the planned API-reference pages in
 | Symbols | Owner | Planned location | Source contract |
 | --- | --- | --- | --- |
 | `NestApplication`, `ApplicationAdapter`, `ApplicationBinder`, `ApplicationRuntime`, `NoopApplicationAdapter` | `nestpy.application` | Application Lifecycle and Adapters | N2-N4 |
-| `module`, `ModuleMetadata`, `ModuleSpec`, `ModuleImport`, `ModuleFactory`, `DeferredModule`, `get_module_metadata` | `nestpy.core.modules` | Modules and Dynamic Modules | N1 |
+| `module`, `ModuleMetadata`, `ModuleSpec`, `ModuleImport`, `ModuleProvider`, `ModuleFactory`, `DeferredModule`, `get_module_metadata` | `nestpy.core.modules` | Modules and Dynamic Modules | N1 |
 | `compile_graph`, `CompiledGraph`, `GraphShape`, `ModuleId`, `ModulePlan`, `ProviderRef`, `ProviderPlan`, `DependencyPlan` | `nestpy.core.compiler` | Compiled Application Graph | N1 |
-| `ValueProvider`, `ClassProvider`, `FactoryProvider`, `AliasProvider`, `ProviderDeclaration`, `ProviderFactory`, `Token`, `Scope`, `Inject`, `provider_token`, `normalize_scope`, `validate_token` | `nestpy.core.providers` | Providers, Tokens, Dependency Injection, Scopes | N1-N2 |
+| `ValueProvider`, `ClassProvider`, `FactoryProvider`, `AliasProvider`, `ProviderDeclaration`, `ProviderFactory`, `Token`, `Scope`, `Inject`, `injectable`, `get_injectable_metadata`, `provider_token`, `normalize_scope`, `validate_token` | `nestpy.core.providers` | Providers, Tokens, Dependency Injection, Scopes | N1-N2 |
 | `controller`, `get`, `post`, `put`, `patch`, `delete`, `head`, `options`, `route`, `status`, `get_controller_metadata`, `get_route_metadata`, `get_status_metadata` | `nestpy.core.metadata` | Controllers and Routes | N4 |
 | `Body`, `Path`, `Query`, `Header`, `Cookie`, `Context`, `RouteMetadata`, `ControllerMetadata`, `StatusMetadata` | `nestpy.core.metadata` | HTTP Binding | N4 |
 | `middleware`, `guards`, `pipes`, `interceptors`, `filters`, `use_middleware`, `use_guard`, `use_guards`, `use_pipe`, `use_pipes`, `use_interceptor`, `use_interceptors`, `use_filter`, `use_filters`, `get_pipeline_metadata` | `nestpy.core.metadata` | Pipeline | N5 |

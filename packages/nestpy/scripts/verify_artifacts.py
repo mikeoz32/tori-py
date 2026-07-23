@@ -12,18 +12,25 @@ import importlib.util
 import json
 from typing import Annotated
 
-from nestpy import NestApplication, Query, controller, get, module
+from nestpy import NestApplication, Query, controller, get, injectable, module
 from nestpy.starlette import StarletteAdapter
 
 assert importlib.util.find_spec("httpx") is None
 
+@injectable()
+class Service:
+    status = "ok"
+
 @controller()
 class Controller:
+    def __init__(self, service: Service) -> None:
+        self.service = service
+
     @get("/health")
     async def health(self, value: Annotated[str, Query("value")]) -> dict[str, str]:
-        return {"status": "ok", "value": value}
+        return {"status": self.service.status, "value": value}
 
-@module(controllers=[Controller])
+@module(providers=[Service], controllers=[Controller])
 class Root:
     pass
 
