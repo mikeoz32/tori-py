@@ -1,9 +1,9 @@
 # nestpy-sqlalchemy
 
 `nestpy-sqlalchemy` connects Nestpy singleton lifecycle and DI to SQLAlchemy's
-async engine, session factory, and entity operations. It does not add model
-scanning, generated repositories, a custom query language, migrations, CQRS, or
-event sourcing.
+async engine, session factory, entity operations, and explicit repositories. It
+does not add model scanning, generated repository classes, a custom query
+language, migrations, CQRS, or event sourcing.
 
 ```python
 from nestpy_sqlalchemy import SqlAlchemyModule, SqlAlchemyOptions
@@ -22,8 +22,69 @@ database = SqlAlchemyModule.for_root_async(
 )
 ```
 
-The default root exports singleton `AsyncEngine`, `SessionManager`, and
-`EntityManager` providers. No `AsyncSession` is stored in DI.
+Roots are global by default and export keyed singleton engine, session-factory,
+`SessionManager`, and `EntityManager` providers. The default root also exports
+their class aliases. No `AsyncSession` is stored in DI.
+
+## Default Repositories
+
+Register mapped classes explicitly:
+
+```python
+task_persistence = SqlAlchemyModule.for_feature([TaskRow])
+```
+
+Then inject a model-bound default repository:
+
+```python
+class TaskService:
+    def __init__(
+        self,
+        tasks: Annotated[
+            Repository[TaskRow],
+            inject_repository(TaskRow),
+        ],
+    ) -> None:
+        self._tasks = tasks
+```
+
+The repository provides `add()`, `add_all()`, `get()`, `get_one()`, `merge()`,
+`delete()`, `find()`, `find_one()`, `find_one_or_raise()`, `count()`, and
+`exists()`. Query criteria, ordering, and loader options are native SQLAlchemy
+expressions:
+
+```python
+rows = await tasks.find(
+    TaskRow.completed.is_(False),
+    order_by=(TaskRow.created_at.desc(),),
+    limit=50,
+)
+```
+
+No feature registration is needed when DI is unnecessary:
+
+```python
+tasks = entities.repository(TaskRow)
+```
+
+## Custom Repositories
+
+```python
+@repository(TaskRow)
+class TaskRepository(Repository[TaskRow]):
+    async def find_overdue(self) -> tuple[TaskRow, ...]:
+        rows = await self._scalars(
+            select(TaskRow).where(TaskRow.due_at < utcnow())
+        )
+        return tuple(rows)
+
+
+task_persistence = SqlAlchemyModule.for_feature([TaskRow, TaskRepository])
+```
+
+The concrete class is its DI token. Custom repositories are stateless, directly
+specialize `Repository[Entity]`, inherit the base constructor, and have no
+additional constructor dependencies.
 
 ## One-Shot Operations
 
@@ -54,16 +115,18 @@ values may instead contain expired attributes.
 
 ```python
 async with entities.transaction() as transaction:
-    member = await transaction.get_one(MemberRow, member_id)
+    members = member_repository.bind(transaction)
+    audits = transaction.repository(AuditRow)
+    member = await members.get_one(member_id, with_for_update=True)
     member.rename(name)
-    transaction.add(AuditRow(member_id=member.id, action="renamed"))
-    await transaction.flush()
+    await audits.add(AuditRow(member_id=member.id, action="renamed"))
 ```
 
 The bound `EntityTransaction` exposes entity operations but not `commit()`,
 `rollback()`, or `close()`. The context owns transaction finalization.
 Keep locked reads and dependent writes in this same context because a one-shot
-call releases locks before returning.
+call releases locks before returning. Repository binding rejects inactive or
+wrong-root transactions and does not mutate singleton repositories.
 
 ## Low-Level Sessions
 
@@ -97,6 +160,19 @@ class AnalyticsService:
     ) -> None:
         self._entities = entities
 ```
+
+Named default repositories use the same key:
+
+```python
+tasks: Annotated[
+    Repository[TaskRow],
+    inject_repository(TaskRow, key="analytics"),
+]
+```
+
+`global_=False` opts a root out of global lookup. Such a root cannot back
+implicit `for_feature()` providers; import and use its keyed `EntityManager`
+directly instead.
 
 Applications install their selected async driver and own SQLAlchemy models,
 metadata, query policy, and Alembic migrations.

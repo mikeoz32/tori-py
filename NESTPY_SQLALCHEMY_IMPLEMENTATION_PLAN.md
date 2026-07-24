@@ -2,7 +2,7 @@
 
 ## Status
 
-Implementation status: completed.
+Implementation status: completed through repository integration.
 
 Architecture: [`NESTPY_SQLALCHEMY_ARCHITECTURE.md`](NESTPY_SQLALCHEMY_ARCHITECTURE.md).
 
@@ -53,6 +53,19 @@ Architecture: [`NESTPY_SQLALCHEMY_ARCHITECTURE.md`](NESTPY_SQLALCHEMY_ARCHITECTU
 - Run ty against the new package and existing configured package paths.
 - Build the distribution and inspect the wheel/sdist contents.
 - Complete an independent code-quality review and resolve findings.
+
+### NS5: Repositories
+
+- Make keyed SQLAlchemy roots global by default while preserving explicit
+  `global_=False` opt-out.
+- Add model-bound default `Repository` CRUD and native-expression query helpers.
+- Add explicit custom `@repository(Entity)` declarations with no scanning or
+  generated classes.
+- Add deterministic repository tokens, `inject_repository()`, and
+  `SqlAlchemyModule.for_feature()` over global keyed managers.
+- Add same-root, active-transaction repository binding without ambient state.
+- Verify default/custom DI, named roots, detached values, rich queries,
+  transaction rollback, lifecycle errors, and exact public artifacts.
 
 ## Deferred Work
 

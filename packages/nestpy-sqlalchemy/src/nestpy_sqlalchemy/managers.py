@@ -8,6 +8,8 @@ from sqlalchemy import Executable
 from sqlalchemy.engine import Result, ScalarResult
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from nestpy_sqlalchemy.errors import RepositoryBindingError
+
 type ExecuteParams = Mapping[str, object] | Sequence[Mapping[str, object]] | None
 
 
@@ -41,10 +43,19 @@ class SessionManager:
 class EntityTransaction:
     """Entity operations bound to one manager-owned transaction."""
 
-    __slots__ = ("_session",)
+    __slots__ = ("_active", "_manager", "_session")
 
-    def __init__(self, session: AsyncSession) -> None:
+    def __init__(self, session: AsyncSession, manager: EntityManager) -> None:
         self._session = session
+        self._manager = manager
+        self._active = True
+
+    def repository[EntityT](self, entity_type: type[EntityT]):
+        """Create a default repository bound to this active transaction."""
+
+        from nestpy_sqlalchemy.repository import Repository
+
+        return Repository(entity_type, self)
 
     def add[EntityT](self, entity: EntityT) -> EntityT:
         """Add one entity to the current Unit of Work without flushing."""
@@ -160,6 +171,21 @@ class EntityTransaction:
 
         return await self._session.scalars(statement, params=cast(Any, params))
 
+    def _repository_owner(self) -> EntityManager:
+        self._require_repository_binding(self._manager)
+        return self._manager
+
+    def _require_repository_binding(self, manager: EntityManager) -> None:
+        if not self._active:
+            raise RepositoryBindingError("repository transaction is no longer active")
+        if self._manager is not manager:
+            raise RepositoryBindingError(
+                "repository and transaction belong to different EntityManager roots"
+            )
+
+    def _deactivate(self) -> None:
+        self._active = False
+
 
 class EntityManager:
     """Singleton gateway for auto-scoped SQLAlchemy entity operations."""
@@ -174,10 +200,21 @@ class EntityManager:
 
         return self._transaction()
 
+    def repository[EntityT](self, entity_type: type[EntityT]):
+        """Create an unregistered default repository for one mapped class."""
+
+        from nestpy_sqlalchemy.repository import Repository
+
+        return Repository(entity_type, self)
+
     @asynccontextmanager
     async def _transaction(self):
         async with self._sessions.transaction() as session:
-            yield EntityTransaction(session)
+            transaction = EntityTransaction(session, self)
+            try:
+                yield transaction
+            finally:
+                transaction._deactivate()
 
     async def add[EntityT](self, entity: EntityT) -> EntityT:
         """Add, flush, and commit one entity in a new transaction."""

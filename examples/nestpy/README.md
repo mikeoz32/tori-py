@@ -11,8 +11,8 @@ The application uses public Nestpy imports, typed settings, a request-scoped
 provider, a guard, the opt-in msgspec validation pipe, a filter, and the
 production Starlette lifespan wrapper.
 
-For a persistence example using async SQLAlchemy sessions, explicit native
-transactions, typed settings, and no CQRS dependency, see
+For a persistence example using async SQLAlchemy sessions, default and custom
+repositories, explicit transactions, typed settings, and no CQRS dependency, see
 [`reference_apps/sqlalchemy_task_api`](reference_apps/sqlalchemy_task_api/README.md).
 
 For a larger event-driven example using automatic `nestpy-cqrs` handler

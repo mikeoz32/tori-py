@@ -21,7 +21,13 @@ from nestpy.http import MsgspecValidationPipe
 from nestpy.settings import SettingsModule, SettingsOptions
 from nestpy.starlette import RequestContext, StarletteAdapter, asgi
 from nestpy.starlette.errors import problem_response
-from nestpy_sqlalchemy import EntityManager, SqlAlchemyModule, SqlAlchemyOptions
+from nestpy_sqlalchemy import (
+    EntityManager,
+    Repository,
+    SqlAlchemyModule,
+    SqlAlchemyOptions,
+    repository,
+)
 from sqlalchemy import String, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncEngine
@@ -79,6 +85,15 @@ class TaskRow(Base):
     )
 
 
+@repository(TaskRow)
+class TaskRepository(Repository[TaskRow]):
+    """Application query policy beyond the default repository surface."""
+
+    async def find_all_ordered(self) -> tuple[TaskRow, ...]:
+        rows = await self._scalars(select(TaskRow).order_by(TaskRow.id))
+        return tuple(rows)
+
+
 class TaskNotFound(Exception):
     """Raised when a requested task is absent."""
 
@@ -117,14 +132,14 @@ class SchemaInitializer:
 
 @injectable()
 class TaskService:
-    """Singleton application service over the singleton EntityManager."""
+    """Singleton service over one application-specific repository."""
 
     def __init__(
         self,
-        entities: EntityManager,
+        tasks: TaskRepository,
         settings: TaskApiSettings,
     ) -> None:
-        self._entities = entities
+        self._tasks = tasks
         self._settings = settings
 
     async def create(self, body: CreateTaskBody) -> TaskResponse:
@@ -132,19 +147,19 @@ class TaskService:
         if not title or len(title) > self._settings.max_title_length:
             raise TaskTitleInvalid
         try:
-            row = await self._entities.add(TaskRow(title=title))
+            row = await self._tasks.add(TaskRow(title=title))
         except IntegrityError as error:
             raise TaskAlreadyExists from error
         return _task_response(row)
 
     async def get(self, task_id: int) -> TaskResponse:
-        row = await self._entities.get(TaskRow, task_id)
+        row = await self._tasks.get(task_id)
         if row is None:
             raise TaskNotFound
         return _task_response(row)
 
     async def all(self) -> list[TaskResponse]:
-        rows = await self._entities.scalars(select(TaskRow).order_by(TaskRow.id))
+        rows = await self._tasks.find_all_ordered()
         return [_task_response(row) for row in rows]
 
 
@@ -231,6 +246,8 @@ sqlalchemy_module = SqlAlchemyModule.for_root_async(
     use_factory=create_database_options,
 )
 
+task_persistence = SqlAlchemyModule.for_feature([TaskRepository])
+
 
 @module(
     imports=[sqlalchemy_module],
@@ -242,7 +259,7 @@ class DatabaseModule:
 
 
 @module(
-    imports=[DatabaseModule],
+    imports=[DatabaseModule, task_persistence],
     providers=[TaskService],
     controllers=[TaskController],
 )

@@ -15,4 +15,14 @@ class SqlAlchemyConfigurationError(SqlAlchemyIntegrationError):
     code = "sqlalchemy.configuration_error"
 
 
-__all__ = ["SqlAlchemyConfigurationError", "SqlAlchemyIntegrationError"]
+class RepositoryBindingError(SqlAlchemyIntegrationError):
+    """Raised when a repository cannot use the selected transaction."""
+
+    code = "sqlalchemy.repository_binding_error"
+
+
+__all__ = [
+    "RepositoryBindingError",
+    "SqlAlchemyConfigurationError",
+    "SqlAlchemyIntegrationError",
+]

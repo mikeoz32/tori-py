@@ -11,6 +11,8 @@ def test_public_api_allowlist_and_artifacts() -> None:
         "EntityManager",
         "EntityTransaction",
         "ExecuteParams",
+        "Repository",
+        "RepositoryBindingError",
         "SessionManager",
         "SqlAlchemyConfigurationError",
         "SqlAlchemyIntegrationError",
@@ -20,8 +22,11 @@ def test_public_api_allowlist_and_artifacts() -> None:
         "SqlAlchemySessionOptions",
         "get_entity_manager_token",
         "get_engine_token",
+        "get_repository_token",
         "get_session_factory_token",
         "get_session_manager_token",
+        "inject_repository",
+        "repository",
     }
     package_root = Path(__file__).parents[1]
     assert (package_root / "README.md").is_file()

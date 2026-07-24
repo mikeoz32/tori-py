@@ -24,4 +24,4 @@
 
 ## Nestpy SQLAlchemy
 - The async SQLAlchemy lifecycle/DI integration and its implementation order are recorded in `NESTPY_SQLALCHEMY_ARCHITECTURE.md`, `NESTPY_SQLALCHEMY_IMPLEMENTATION_PLAN.md`, and `spec/nestpy-sqlalchemy/README.md`.
-- Keep engine, session-factory, SessionManager, and EntityManager providers singleton; managers must create short-lived sessions per operation without ambient state. The integration must not add CQRS, event-sourcing, model scanning, generated repositories, a custom query language, or startup migrations.
+- Keep engine, session-factory, SessionManager, EntityManager, and explicitly registered repository providers singleton; managers must create short-lived sessions per operation without ambient state. Default and decorated custom repositories are allowed, but the integration must not add CQRS, event-sourcing, model scanning, generated repository classes, a custom query language, or startup migrations.

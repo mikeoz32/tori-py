@@ -1,6 +1,8 @@
-"""Deterministic public tokens for keyed SQLAlchemy roots."""
+"""Stable public tokens for keyed SQLAlchemy roots and mapped classes."""
 
-from nestpy import Token
+from nestpy import Inject, Token
+from sqlalchemy import inspect as sa_inspect
+from sqlalchemy.orm import Mapper
 
 from nestpy_sqlalchemy.errors import SqlAlchemyConfigurationError
 
@@ -41,9 +43,39 @@ def get_entity_manager_token(*, key: str = "default") -> Token:
     return _keyed("entity_manager", key)
 
 
+def get_repository_token(entity_type: type[object], *, key: str = "default") -> Token:
+    """Return the process-local identity token for one mapped class repository."""
+
+    _validate_entity_type(entity_type)
+    entity_name = f"{entity_type.__module__}.{entity_type.__qualname__}"
+    return _keyed(f"repository:{entity_name}:{id(entity_type):x}", key)
+
+
+def inject_repository(
+    entity_type: type[object],
+    *,
+    key: str = "default",
+) -> Inject:
+    """Create a standard Nestpy marker for one default repository."""
+
+    return Inject(get_repository_token(entity_type, key=key))
+
+
+def _validate_entity_type(entity_type: type[object]) -> None:
+    if not isinstance(entity_type, type):
+        raise SqlAlchemyConfigurationError("repository entity must be a class")
+    inspected = sa_inspect(entity_type, raiseerr=False)
+    if not isinstance(inspected, Mapper):
+        raise SqlAlchemyConfigurationError(
+            "repository entity must be a mapped SQLAlchemy class"
+        )
+
+
 __all__ = [
     "get_entity_manager_token",
     "get_engine_token",
+    "get_repository_token",
     "get_session_factory_token",
     "get_session_manager_token",
+    "inject_repository",
 ]

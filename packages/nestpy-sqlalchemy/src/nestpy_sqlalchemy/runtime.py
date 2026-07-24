@@ -2,7 +2,7 @@
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Annotated
+from typing import Annotated, Any
 
 from nestpy import Inject, Token
 from sqlalchemy.ext.asyncio import (
@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import (
 from nestpy_sqlalchemy.errors import SqlAlchemyConfigurationError
 from nestpy_sqlalchemy.managers import EntityManager, SessionManager
 from nestpy_sqlalchemy.options import SqlAlchemyOptions, SqlAlchemySessionOptions
+from nestpy_sqlalchemy.repository import Repository
 
 
 def _owned_engine_factory(options_token: Token):
@@ -91,6 +92,24 @@ def _entity_manager_factory(session_manager_token: Token):
 
     create.__annotations__ = {
         "sessions": Annotated[SessionManager, Inject(session_manager_token)]
+    }
+    return create
+
+
+def _repository_factory(
+    repository_type: type[Repository[Any]],
+    entity_type: type[object],
+    entity_manager_token: Token,
+):
+    def create(entities):
+        if not isinstance(entities, EntityManager):
+            raise SqlAlchemyConfigurationError(
+                "entity manager provider must resolve to EntityManager"
+            )
+        return repository_type(entity_type, entities)
+
+    create.__annotations__ = {
+        "entities": Annotated[EntityManager, Inject(entity_manager_token)]
     }
     return create
 

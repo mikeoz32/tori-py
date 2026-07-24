@@ -21,17 +21,24 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 from nestpy_sqlalchemy.errors import SqlAlchemyConfigurationError
 from nestpy_sqlalchemy.managers import EntityManager, SessionManager
 from nestpy_sqlalchemy.options import SqlAlchemyOptions, SqlAlchemySessionOptions
+from nestpy_sqlalchemy.repository import (
+    Repository,
+    _repository_metadata,
+)
 from nestpy_sqlalchemy.runtime import (
     _entity_manager_factory,
     _new_session_factory,
     _owned_engine_factory,
+    _repository_factory,
     _session_factory_factory,
     _session_manager_factory,
 )
 from nestpy_sqlalchemy.tokens import (
     _options_token,
+    _validate_entity_type,
     get_engine_token,
     get_entity_manager_token,
+    get_repository_token,
     get_session_factory_token,
     get_session_manager_token,
 )
@@ -52,7 +59,7 @@ class SqlAlchemyModule:
         options: SqlAlchemyOptions,
         *,
         key: str = "default",
-        global_: bool = False,
+        global_: bool = True,
     ) -> DeferredModule:
         if not isinstance(options, SqlAlchemyOptions):
             raise SqlAlchemyConfigurationError("options must be SqlAlchemyOptions")
@@ -77,7 +84,7 @@ class SqlAlchemyModule:
         use_factory: SqlAlchemyOptionsFactory,
         imports: Iterable[ModuleImport] = (),
         key: str = "default",
-        global_: bool = False,
+        global_: bool = True,
     ) -> DeferredModule:
         if not callable(use_factory):
             raise SqlAlchemyConfigurationError("use_factory must be callable")
@@ -104,7 +111,7 @@ class SqlAlchemyModule:
         session: SqlAlchemySessionOptions = _DEFAULT_SESSION_OPTIONS,
         imports: Iterable[ModuleImport] = (),
         key: str = "default",
-        global_: bool = False,
+        global_: bool = True,
     ) -> DeferredModule:
         if not isinstance(session, SqlAlchemySessionOptions):
             raise SqlAlchemyConfigurationError(
@@ -163,6 +170,71 @@ class SqlAlchemyModule:
             )
 
         return DeferredModule(cls, key, materialize)
+
+    @classmethod
+    def for_feature(
+        cls,
+        features: Iterable[type[object]],
+        *,
+        key: str = "default",
+    ) -> DeferredModule:
+        """Register explicit default and custom repositories for one global root."""
+
+        get_entity_manager_token(key=key)
+        try:
+            declared = tuple(features)
+        except TypeError as error:
+            raise SqlAlchemyConfigurationError("features must be iterable") from error
+        if not declared:
+            raise SqlAlchemyConfigurationError("features must not be empty")
+        if len(set(declared)) != len(declared):
+            raise SqlAlchemyConfigurationError("features must not contain duplicates")
+
+        manager_token = get_entity_manager_token(key=key)
+        providers: list[ProviderDeclaration] = []
+        exports: list[Token] = []
+        for feature in declared:
+            if isinstance(feature, type) and issubclass(feature, Repository):
+                declaration = _repository_metadata(feature)
+                entity_type = declaration.entity_type
+                provider_token: Token = feature
+                repository_type = feature
+            else:
+                _validate_entity_type(feature)
+                entity_type = feature
+                provider_token = get_repository_token(entity_type, key=key)
+                repository_type = Repository
+            providers.append(
+                FactoryProvider(
+                    provider_token,
+                    _repository_factory(
+                        repository_type,
+                        entity_type,
+                        manager_token,
+                    ),
+                    manage=False,
+                )
+            )
+            exports.append(provider_token)
+
+        if len(set(exports)) != len(exports):
+            raise SqlAlchemyConfigurationError(
+                "features resolve to duplicate repository tokens"
+            )
+        feature_module = type(
+            "_SqlAlchemyFeatureModule",
+            (),
+            {"__module__": __name__},
+        )
+
+        def materialize() -> ModuleSpec:
+            return ModuleSpec(providers=providers, exports=exports)
+
+        return DeferredModule(
+            feature_module,
+            f"{key}:repositories",
+            materialize,
+        )
 
 
 def _owned_root_spec(

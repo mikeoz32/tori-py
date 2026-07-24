@@ -132,6 +132,7 @@ def test_owned_root_declares_expected_scopes_exports_and_default_aliases() -> No
         SessionManager,
         EntityManager,
     }
+    assert spec.global_ is True
 
 
 def test_non_default_root_has_only_qualified_exports() -> None:
@@ -146,6 +147,7 @@ def test_non_default_root_has_only_qualified_exports() -> None:
         get_session_manager_token(key="analytics"),
         get_entity_manager_token(key="analytics"),
     }
+    assert spec.global_ is True
     assert all(
         provider.token not in (AsyncEngine, SessionManager, EntityManager)
         for provider in spec.providers

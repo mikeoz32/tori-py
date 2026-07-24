@@ -1,8 +1,8 @@
 # Nestpy SQLAlchemy Task API
 
 This reference application uses Nestpy, `nestpy-sqlalchemy`, SQLAlchemy ORM,
-and `aiosqlite`. It deliberately has no CQRS, event-sourcing, outbox, generic
-repository, or automatic transaction layer.
+and `aiosqlite`. It deliberately has no CQRS, event-sourcing, outbox, generated
+repository classes, or ambient transaction layer.
 
 ## Run
 
@@ -39,11 +39,14 @@ GET  /tasks/{task_id}
   annotation-based factory parameter injection.
 - The integration owns singleton engine, session factory, `SessionManager`, and
   `EntityManager` providers.
+- `SqlAlchemyModule.for_feature()` registers the decorated `TaskRepository`
+  through the global default root.
+- `TaskService` uses inherited default CRUD for create/get and the repository's
+  custom SQLAlchemy query policy for ordered listing.
 - `TaskService` and its controller are stateless singleton providers declared
   with `@injectable()`/`@controller()` and constructor injection.
-- One-shot EntityManager methods create, commit or roll back, and close a fresh
+- One-shot repository methods create, commit or roll back, and close a fresh
   session automatically.
-- Multi-operation transactions use a short-lived bound `EntityTransaction`.
 - Controllers return DTOs rather than SQLAlchemy ORM rows.
 - Schema creation is an application-owned lifecycle provider. It is included
   only to keep the SQLite example runnable; production applications should use
@@ -53,8 +56,8 @@ GET  /tasks/{task_id}
 
 The example also makes current limitations visible:
 
-- One-shot methods return detached entities. Relationships required after the
-  call must be loaded explicitly through SQLAlchemy loader options.
+- One-shot repository methods return detached entities. Relationships required
+  after the call must be loaded explicitly through SQLAlchemy loader options.
 - Atomic composition must use `EntityManager.transaction()`; separate one-shot
   calls intentionally use separate sessions and transactions.
 - Application-owned startup work that needs the engine requires a lifecycle
