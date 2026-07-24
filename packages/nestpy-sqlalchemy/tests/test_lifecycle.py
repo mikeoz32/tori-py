@@ -1,3 +1,4 @@
+import asyncio
 from collections.abc import Mapping
 from dataclasses import dataclass
 from types import TracebackType
@@ -6,25 +7,21 @@ from unittest.mock import create_autospec
 
 import nestpy_sqlalchemy.runtime as sqlalchemy_runtime
 import pytest
-from nestpy import (
-    ClassProvider,
-    Inject,
-    ScopedResolver,
-    ScopeError,
-    ValueProvider,
-    WorkScopeFactory,
-    module,
-)
+from nestpy import ClassProvider, Inject, ValueProvider, module
 from nestpy.testing import TestingModule
 from nestpy_sqlalchemy import (
+    EntityManager,
+    EntityTransaction,
+    SessionManager,
     SqlAlchemyConfigurationError,
     SqlAlchemyModule,
     SqlAlchemyOptions,
     get_engine_token,
+    get_entity_manager_token,
     get_session_factory_token,
-    get_session_token,
+    get_session_manager_token,
 )
-from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
+from sqlalchemy.ext.asyncio import AsyncEngine
 
 
 class _FakeEngine(AsyncEngine):
@@ -40,6 +37,9 @@ class _FakeSession:
     def __init__(self) -> None:
         self.enter_calls = 0
         self.exit_calls = 0
+        self.commit_calls = 0
+        self.rollback_calls = 0
+        self.transaction_exit_error: BaseException | None = None
 
     async def __aenter__(self) -> _FakeSession:
         self.enter_calls += 1
@@ -54,6 +54,31 @@ class _FakeSession:
         del exc_type, exc, traceback
         self.exit_calls += 1
 
+    def begin(self) -> _FakeTransactionContext:
+        return _FakeTransactionContext(self)
+
+
+class _FakeTransactionContext:
+    def __init__(self, session: _FakeSession) -> None:
+        self._session = session
+
+    async def __aenter__(self) -> _FakeSession:
+        return self._session
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        del exc, traceback
+        if exc_type is None:
+            self._session.commit_calls += 1
+        else:
+            self._session.rollback_calls += 1
+        if self._session.transaction_exit_error is not None:
+            raise self._session.transaction_exit_error
+
 
 class _FakeSessionFactory:
     def __init__(self) -> None:
@@ -64,10 +89,8 @@ class _FakeSessionFactory:
         self.sessions.append(session)
         return session
 
-
-class _ScopeRunner:
-    def __init__(self, scopes: WorkScopeFactory) -> None:
-        self.scopes = scopes
+    def begin(self) -> _FakeTransactionContext:
+        raise AssertionError("SessionManager must own the outer session context")
 
 
 @dataclass(slots=True)
@@ -106,7 +129,7 @@ def _install_fakes(monkeypatch: pytest.MonkeyPatch) -> _Fakes:
 
 
 @pytest.mark.asyncio
-async def test_owned_engine_and_scoped_sessions_follow_application_lifecycle(
+async def test_owned_engine_and_singleton_managers_follow_application_lifecycle(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     fakes = _install_fakes(monkeypatch)
@@ -117,17 +140,20 @@ async def test_owned_engine_and_scoped_sessions_follow_application_lifecycle(
         )
     )
 
-    @module(imports=[database], providers=[ClassProvider(_ScopeRunner)])
+    @module(imports=[database])
     class Root:
         pass
 
     application = await TestingModule.create(Root).compile()
     try:
         engine = await application.resolve(get_engine_token())
+        sessions = cast(SessionManager, await application.resolve(SessionManager))
+        entities = cast(EntityManager, await application.resolve(EntityManager))
         assert engine is fakes.engines[0]
         assert await application.resolve(AsyncEngine) is engine
-        assert len(fakes.engine_calls) == 1
-        assert fakes.engine_calls[0][1] == {"echo": True}
+        assert await application.resolve(get_session_manager_token()) is sessions
+        assert await application.resolve(get_entity_manager_token()) is entities
+        assert fakes.session_factories[0].sessions == []
         assert fakes.session_factory_calls == [
             (
                 engine,
@@ -138,30 +164,63 @@ async def test_owned_engine_and_scoped_sessions_follow_application_lifecycle(
                 },
             )
         ]
-        with pytest.raises(ScopeError):
-            await application.resolve(AsyncSession)
 
-        runner = cast(_ScopeRunner, await application.resolve(_ScopeRunner))
+        async with sessions.session() as session:
+            assert session is fakes.session_factories[0].sessions[0]
+        async with sessions.transaction() as session:
+            assert session is fakes.session_factories[0].sessions[1]
+        failure = RuntimeError("transaction failed")
+        with pytest.raises(RuntimeError, match="transaction failed"):
+            async with sessions.transaction():
+                raise failure
+        async with entities.transaction() as transaction:
+            assert isinstance(transaction, EntityTransaction)
 
-        async def resolve_session(resolver: ScopedResolver) -> object:
-            qualified = await resolver.resolve(get_session_token())
-            assert await resolver.resolve(get_session_token()) is qualified
-            assert await resolver.resolve(AsyncSession) is qualified
-            return qualified
-
-        first = await runner.scopes.run(resolve_session)
-        second = await runner.scopes.run(resolve_session)
-        assert first is not second
-        assert [
-            session.exit_calls for session in fakes.session_factories[0].sessions
-        ] == [
-            1,
-            1,
-        ]
+        opened = fakes.session_factories[0].sessions
+        assert [session.exit_calls for session in opened] == [1, 1, 1, 1]
+        assert [session.commit_calls for session in opened] == [0, 1, 0, 1]
+        assert [session.rollback_calls for session in opened] == [0, 0, 1, 0]
     finally:
         await application.close()
 
     assert fakes.engines[0].dispose_calls == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("body_error", [None, RuntimeError("body failed")])
+async def test_transaction_closes_session_when_finalization_fails(
+    body_error: RuntimeError | None,
+) -> None:
+    factory = _FakeSessionFactory()
+    sessions = SessionManager(cast(Any, factory))
+    finalization_error = RuntimeError("transaction finalization failed")
+
+    with pytest.raises(RuntimeError, match="transaction finalization failed"):
+        async with sessions.transaction() as session:
+            fake_session = cast(_FakeSession, session)
+            fake_session.transaction_exit_error = finalization_error
+            if body_error is not None:
+                raise body_error
+
+    opened = factory.sessions[0]
+    assert opened.exit_calls == 1
+    assert opened.commit_calls == (body_error is None)
+    assert opened.rollback_calls == (body_error is not None)
+
+
+@pytest.mark.asyncio
+async def test_transaction_closes_session_when_task_is_cancelled() -> None:
+    factory = _FakeSessionFactory()
+    sessions = SessionManager(cast(Any, factory))
+
+    with pytest.raises(asyncio.CancelledError):
+        async with sessions.transaction():
+            raise asyncio.CancelledError
+
+    opened = factory.sessions[0]
+    assert opened.exit_calls == 1
+    assert opened.commit_calls == 0
+    assert opened.rollback_calls == 1
 
 
 class _Config:
@@ -201,49 +260,15 @@ async def test_for_root_async_resolves_config_service_once(
     application = await TestingModule.create(Root).compile()
     try:
         assert calls == 1
-        assert fakes.engine_calls == [
-            (
-                config.url,
-                {"pool_pre_ping": True},
-            )
-        ]
+        assert fakes.engine_calls == [(config.url, {"pool_pre_ping": True})]
         assert await application.resolve(get_session_factory_token())
+        assert await application.resolve(EntityManager)
     finally:
         await application.close()
 
 
 @pytest.mark.asyncio
-async def test_for_root_async_accepts_synchronous_options_factory(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    fakes = _install_fakes(monkeypatch)
-    config = _Config("postgresql+psycopg://localhost/synchronous")
-
-    def configure(settings: _Config) -> SqlAlchemyOptions:
-        return SqlAlchemyOptions(url=settings.url)
-
-    @module(providers=[ValueProvider(_Config, config)], exports=[_Config])
-    class ConfigModule:
-        pass
-
-    database = SqlAlchemyModule.for_root_async(
-        imports=[ConfigModule],
-        use_factory=configure,
-    )
-
-    @module(imports=[database])
-    class Root:
-        pass
-
-    application = await TestingModule.create(Root).compile()
-    try:
-        assert fakes.engine_calls[0][0] == config.url
-    finally:
-        await application.close()
-
-
-@pytest.mark.asyncio
-async def test_for_root_async_supports_explicit_config_token(
+async def test_for_root_async_accepts_sync_factory_and_explicit_token(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     fakes = _install_fakes(monkeypatch)
@@ -344,7 +369,7 @@ async def test_external_engine_is_not_disposed(
 
 
 @pytest.mark.asyncio
-async def test_default_and_named_roots_are_isolated(
+async def test_default_and_named_roots_have_isolated_singleton_managers(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     fakes = _install_fakes(monkeypatch)
@@ -362,8 +387,8 @@ async def test_default_and_named_roots_are_isolated(
 
     application = await TestingModule.create(Root).compile()
     try:
-        primary = await application.resolve(AsyncEngine)
-        analytics = await application.resolve(get_engine_token(key="analytics"))
+        primary = await application.resolve(EntityManager)
+        analytics = await application.resolve(get_entity_manager_token(key="analytics"))
         assert primary is not analytics
         assert {call[0] for call in fakes.engine_calls} == {
             "postgresql+psycopg://localhost/primary",
@@ -401,6 +426,7 @@ async def test_external_engine_token_is_resolved_without_transferring_ownership(
     try:
         assert await application.resolve(get_engine_token()) is external
         assert await application.resolve(AsyncEngine) is external
+        assert await application.resolve(SessionManager)
         assert fakes.engines == []
     finally:
         await application.close()
@@ -431,34 +457,3 @@ async def test_external_engine_token_is_validated_during_startup(
 
     with pytest.raises(SqlAlchemyConfigurationError, match="AsyncEngine"):
         await TestingModule.create(Root).compile()
-
-
-@pytest.mark.asyncio
-async def test_session_cleanup_runs_when_work_scope_body_errors(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    fakes = _install_fakes(monkeypatch)
-    database = SqlAlchemyModule.for_root(
-        SqlAlchemyOptions(url="postgresql+psycopg://localhost/application")
-    )
-
-    @module(imports=[database], providers=[ClassProvider(_ScopeRunner)])
-    class Root:
-        pass
-
-    application = await TestingModule.create(Root).compile()
-    try:
-        runner = cast(_ScopeRunner, await application.resolve(_ScopeRunner))
-        failure = RuntimeError("operation failed")
-
-        async def operation(resolver: ScopedResolver) -> None:
-            await resolver.resolve(get_session_token())
-            raise failure
-
-        with pytest.raises(RuntimeError, match="operation failed") as captured:
-            await runner.scopes.run(operation)
-        assert captured.value is failure
-        session = fakes.session_factories[0].sessions[0]
-        assert session.exit_calls == 1
-    finally:
-        await application.close()

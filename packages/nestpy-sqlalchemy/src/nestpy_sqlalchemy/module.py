@@ -13,25 +13,27 @@ from nestpy import (
     ModuleImport,
     ModuleSpec,
     ProviderDeclaration,
-    Scope,
     Token,
     ValueProvider,
 )
-from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
+from sqlalchemy.ext.asyncio import AsyncEngine
 
 from nestpy_sqlalchemy.errors import SqlAlchemyConfigurationError
+from nestpy_sqlalchemy.managers import EntityManager, SessionManager
 from nestpy_sqlalchemy.options import SqlAlchemyOptions, SqlAlchemySessionOptions
 from nestpy_sqlalchemy.runtime import (
+    _entity_manager_factory,
     _new_session_factory,
     _owned_engine_factory,
-    _scoped_session_factory,
     _session_factory_factory,
+    _session_manager_factory,
 )
 from nestpy_sqlalchemy.tokens import (
     _options_token,
     get_engine_token,
+    get_entity_manager_token,
     get_session_factory_token,
-    get_session_token,
+    get_session_manager_token,
 )
 
 type SqlAlchemyOptionsFactory = Callable[
@@ -42,7 +44,7 @@ _DEFAULT_SESSION_OPTIONS = SqlAlchemySessionOptions()
 
 
 class SqlAlchemyModule:
-    """Compose one keyed async engine, session factory, and scoped session."""
+    """Compose one keyed engine, session factory, and singleton managers."""
 
     @classmethod
     def for_root(
@@ -131,7 +133,7 @@ class SqlAlchemyModule:
                 [] if engine_provider is None else [engine_provider]
             )
             providers.extend(
-                _session_providers(
+                _manager_providers(
                     engine_token=engine_token,
                     key=key,
                     session=session,
@@ -141,8 +143,17 @@ class SqlAlchemyModule:
             if key == "default":
                 if source_token is not AsyncEngine:
                     providers.append(AliasProvider(AsyncEngine, engine_token))
-                providers.append(
-                    AliasProvider(AsyncSession, get_session_token(key=key))
+                providers.extend(
+                    (
+                        AliasProvider(
+                            SessionManager,
+                            get_session_manager_token(key=key),
+                        ),
+                        AliasProvider(
+                            EntityManager,
+                            get_entity_manager_token(key=key),
+                        ),
+                    )
                 )
             return ModuleSpec(
                 imports=imported,
@@ -169,7 +180,7 @@ def _owned_root_spec(
         FactoryProvider(engine_token, _owned_engine_factory(options_token)),
     ]
     providers.extend(
-        _session_providers(
+        _manager_providers(
             engine_token=engine_token,
             key=key,
             session=session,
@@ -180,7 +191,14 @@ def _owned_root_spec(
         providers.extend(
             (
                 AliasProvider(AsyncEngine, engine_token),
-                AliasProvider(AsyncSession, get_session_token(key=key)),
+                AliasProvider(
+                    SessionManager,
+                    get_session_manager_token(key=key),
+                ),
+                AliasProvider(
+                    EntityManager,
+                    get_entity_manager_token(key=key),
+                ),
             )
         )
     return ModuleSpec(
@@ -191,7 +209,7 @@ def _owned_root_spec(
     )
 
 
-def _session_providers(
+def _manager_providers(
     *,
     engine_token: Token,
     key: str,
@@ -199,7 +217,8 @@ def _session_providers(
     options_token: Token | None = None,
 ) -> list[ProviderDeclaration]:
     session_factory_token = get_session_factory_token(key=key)
-    session_token = get_session_token(key=key)
+    session_manager_token = get_session_manager_token(key=key)
+    entity_manager_token = get_entity_manager_token(key=key)
     if session is None:
         if options_token is None:
             raise AssertionError("runtime options token is required")
@@ -216,9 +235,14 @@ def _session_providers(
             manage=False,
         ),
         FactoryProvider(
-            session_token,
-            _scoped_session_factory(session_factory_token),
-            scope=Scope.REQUEST,
+            session_manager_token,
+            _session_manager_factory(session_factory_token),
+            manage=False,
+        ),
+        FactoryProvider(
+            entity_manager_token,
+            _entity_manager_factory(session_manager_token),
+            manage=False,
         ),
     ]
 
@@ -242,10 +266,11 @@ def _exports(key: str) -> tuple[Token, ...]:
     exports: list[Token] = [
         get_engine_token(key=key),
         get_session_factory_token(key=key),
-        get_session_token(key=key),
+        get_session_manager_token(key=key),
+        get_entity_manager_token(key=key),
     ]
     if key == "default":
-        exports.extend((AsyncEngine, AsyncSession))
+        exports.extend((AsyncEngine, SessionManager, EntityManager))
     return tuple(exports)
 
 

@@ -24,4 +24,4 @@
 
 ## Nestpy SQLAlchemy
 - The async SQLAlchemy lifecycle/DI integration and its implementation order are recorded in `NESTPY_SQLALCHEMY_ARCHITECTURE.md`, `NESTPY_SQLALCHEMY_IMPLEMENTATION_PLAN.md`, and `spec/nestpy-sqlalchemy/README.md`.
-- Keep transactions native and explicit through `AsyncSession.begin()`; the integration must not add CQRS, event-sourcing, repository generation, model scanning, or startup migrations.
+- Keep engine, session-factory, SessionManager, and EntityManager providers singleton; managers must create short-lived sessions per operation without ambient state. The integration must not add CQRS, event-sourcing, model scanning, generated repositories, a custom query language, or startup migrations.

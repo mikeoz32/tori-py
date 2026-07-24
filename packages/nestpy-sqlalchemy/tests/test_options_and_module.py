@@ -4,15 +4,18 @@ from typing import Any, cast
 import pytest
 from nestpy import AliasProvider, FactoryProvider, Scope, ValueProvider
 from nestpy_sqlalchemy import (
+    EntityManager,
+    SessionManager,
     SqlAlchemyConfigurationError,
     SqlAlchemyModule,
     SqlAlchemyOptions,
     SqlAlchemySessionOptions,
     get_engine_token,
+    get_entity_manager_token,
     get_session_factory_token,
-    get_session_token,
+    get_session_manager_token,
 )
-from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
+from sqlalchemy.ext.asyncio import AsyncEngine
 
 
 def test_options_are_immutable_and_defensively_copy_engine_options() -> None:
@@ -90,9 +93,10 @@ def test_keyed_tokens_are_stable_distinct_and_validated() -> None:
     tokens = {
         get_engine_token(key="analytics"),
         get_session_factory_token(key="analytics"),
-        get_session_token(key="analytics"),
+        get_session_manager_token(key="analytics"),
+        get_entity_manager_token(key="analytics"),
     }
-    assert len(tokens) == 3
+    assert len(tokens) == 4
     assert get_engine_token(key="analytics") == get_engine_token(key="analytics")
     for key in ("", "static"):
         with pytest.raises(SqlAlchemyConfigurationError, match="key"):
@@ -112,15 +116,21 @@ def test_owned_root_declares_expected_scopes_exports_and_default_aliases() -> No
     assert providers[get_engine_token()].scope is Scope.SINGLETON
     assert isinstance(providers[get_session_factory_token()], FactoryProvider)
     assert providers[get_session_factory_token()].manage is False
-    assert providers[get_session_token()].scope is Scope.REQUEST
+    assert providers[get_session_manager_token()].scope is Scope.SINGLETON
+    assert providers[get_session_manager_token()].manage is False
+    assert providers[get_entity_manager_token()].scope is Scope.SINGLETON
+    assert providers[get_entity_manager_token()].manage is False
     assert isinstance(providers[AsyncEngine], AliasProvider)
-    assert isinstance(providers[AsyncSession], AliasProvider)
+    assert isinstance(providers[SessionManager], AliasProvider)
+    assert isinstance(providers[EntityManager], AliasProvider)
     assert set(spec.exports) == {
         get_engine_token(),
         get_session_factory_token(),
-        get_session_token(),
+        get_session_manager_token(),
+        get_entity_manager_token(),
         AsyncEngine,
-        AsyncSession,
+        SessionManager,
+        EntityManager,
     }
 
 
@@ -133,10 +143,12 @@ def test_non_default_root_has_only_qualified_exports() -> None:
     assert set(spec.exports) == {
         get_engine_token(key="analytics"),
         get_session_factory_token(key="analytics"),
-        get_session_token(key="analytics"),
+        get_session_manager_token(key="analytics"),
+        get_entity_manager_token(key="analytics"),
     }
     assert all(
-        provider.token not in (AsyncEngine, AsyncSession) for provider in spec.providers
+        provider.token not in (AsyncEngine, SessionManager, EntityManager)
+        for provider in spec.providers
     )
 
 

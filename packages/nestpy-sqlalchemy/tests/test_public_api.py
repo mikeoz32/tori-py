@@ -8,15 +8,20 @@ import nestpy_sqlalchemy
 
 def test_public_api_allowlist_and_artifacts() -> None:
     assert set(nestpy_sqlalchemy.__all__) == {
+        "EntityManager",
+        "EntityTransaction",
+        "ExecuteParams",
+        "SessionManager",
         "SqlAlchemyConfigurationError",
         "SqlAlchemyIntegrationError",
         "SqlAlchemyModule",
         "SqlAlchemyOptions",
         "SqlAlchemyOptionsFactory",
         "SqlAlchemySessionOptions",
+        "get_entity_manager_token",
         "get_engine_token",
         "get_session_factory_token",
-        "get_session_token",
+        "get_session_manager_token",
     }
     package_root = Path(__file__).parents[1]
     assert (package_root / "README.md").is_file()

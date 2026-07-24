@@ -21,17 +21,18 @@ Architecture: [`NESTPY_SQLALCHEMY_ARCHITECTURE.md`](NESTPY_SQLALCHEMY_ARCHITECTU
 - Implement `SqlAlchemyModule.for_root_async()` with an annotation-driven Nestpy
   `FactoryProvider`; do not invoke or wrap the user factory at materialization.
 - Implement `SqlAlchemyModule.for_engine()` for externally owned engines.
-- Export unqualified `AsyncEngine` and `AsyncSession` aliases only for the
-  `default` root.
+- Export unqualified `AsyncEngine`, `SessionManager`, and `EntityManager` aliases
+  only for the `default` root.
 
-### NS2: Lifecycle and Scopes
+### NS2: Lifecycle and Managers
 
 - Create owned engines lazily during singleton startup.
 - Dispose owned engines exactly once during shutdown or startup rollback.
 - Register one singleton `async_sessionmaker` per root.
-- Register one managed request-scoped `AsyncSession` per HTTP/work scope.
-- Preserve native SQLAlchemy transaction semantics without implicit begin,
-  commit, or rollback policy beyond session close.
+- Register singleton `SessionManager` and `EntityManager` providers per root.
+- Open sessions only inside explicit manager session/transaction contexts.
+- Add transaction-bound SQLAlchemy-native entity operations.
+- Add one-shot entity operations with automatic commit/rollback/close.
 
 ### NS3: Verification
 
@@ -40,8 +41,8 @@ Architecture: [`NESTPY_SQLALCHEMY_ARCHITECTURE.md`](NESTPY_SQLALCHEMY_ARCHITECTU
 - Verify direct and token-backed external engine ownership.
 - Verify default aliases, non-default keyed isolation, and dynamic descriptor
   reuse requirements.
-- Verify same-scope session identity, cross-scope isolation, exact cleanup, and
-  engine disposal.
+- Verify singleton manager identity, concurrent session isolation, exact cleanup,
+  detached values, rollback, and engine disposal.
 - Verify startup failure unwinds an already acquired owned engine.
 - Verify public import boundaries and package artifacts.
 
@@ -59,5 +60,5 @@ Architecture: [`NESTPY_SQLALCHEMY_ARCHITECTURE.md`](NESTPY_SQLALCHEMY_ARCHITECTU
 - Database health checks.
 - OpenTelemetry SQL instrumentation helpers.
 - Tenant and replica routing.
-- Testing API changes for scope-preserving provider overrides.
-- Any transaction, CQRS, event-sourcing, outbox, or broker integration.
+- Read-only transaction policy and streaming manager contexts.
+- CQRS, event-sourcing, outbox, or broker integration.

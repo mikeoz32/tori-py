@@ -2,31 +2,30 @@
 
 ## 1. Status and Scope
 
-This document defines the first `nestpy-sqlalchemy` integration slice. The
-distribution connects Nestpy dependency-injection scopes and application
-lifecycle to SQLAlchemy's asynchronous engine and session APIs.
+This document defines the `nestpy-sqlalchemy` integration. The distribution
+connects Nestpy singleton lifecycle and dependency injection to SQLAlchemy's
+asynchronous engine, session factory, and ORM entity APIs.
 
-The integration owns only:
+The integration owns:
 
 - creation and deterministic disposal of module-owned `AsyncEngine` values;
-- registration of application-owned external engines without taking ownership;
-- one singleton `async_sessionmaker` per configured database root;
-- one managed `AsyncSession` per Nestpy request or work scope;
+- registration of externally owned engines without taking ownership;
+- one singleton `async_sessionmaker` per configured root;
+- one singleton `SessionManager` per root;
+- one singleton `EntityManager` per root;
+- short-lived sessions and transactions opened by those managers;
+- SQLAlchemy-native, generic entity operations without model registration;
 - synchronous and DI-resolved asynchronous root configuration;
 - deterministic keyed tokens for multiple database roots.
 
 The integration does not own:
 
-- transaction boundaries, automatic commit, or transaction-per-request policy;
+- request-scoped sessions or ambient/current-session propagation;
 - CQRS, event sourcing, outbox, inbox, retries, or message handling;
-- ORM model or repository registration, scanning, or generation;
+- ORM model scanning, generated repositories, or a custom query language;
 - migrations, `MetaData.create_all()`, or startup schema mutation;
 - tenant routing, replica routing, sharding, or distributed transactions;
 - database-driver installation or database-specific behavior.
-
-Applications use native SQLAlchemy transaction APIs, normally
-`async with session.begin()`, in an application service that defines one
-business operation.
 
 ## 2. Package Boundary
 
@@ -41,10 +40,9 @@ application
   -> Alembic when migrations are required
 ```
 
-`nestpy` MUST NOT import `nestpy_sqlalchemy` or SQLAlchemy. The integration MUST
-NOT import CQRS, event-sourcing, HTTP-driver, broker, serializer, or migration
-packages. A database driver remains an application dependency selected by the
-SQLAlchemy URL.
+`nestpy` MUST NOT import SQLAlchemy or this integration. The integration MUST
+NOT import CQRS, event-sourcing, HTTP-driver, broker, serializer, migration, or
+database-driver packages.
 
 ## 3. Public Configuration
 
@@ -63,15 +61,9 @@ class SqlAlchemyOptions:
     session: SqlAlchemySessionOptions = SqlAlchemySessionOptions()
 ```
 
-`engine_options` is defensively copied and exposed as an immutable mapping. It
-is passed to `create_async_engine()` without reproducing SQLAlchemy's option
-surface in Nestpy. The integration rejects an option named `url`, because the
-URL is supplied separately.
-
-The session defaults deliberately set `autobegin=False`. Database access must
-therefore occur inside an explicit SQLAlchemy transaction. The integration does
-not catch or replace SQLAlchemy's native error when application code violates
-that rule.
+Sensitive URL and engine options are excluded from representations.
+`engine_options` is defensively copied and passed to `create_async_engine()`.
+The session defaults keep all transaction starts explicit.
 
 ## 4. Dynamic Module API
 
@@ -108,105 +100,157 @@ class SqlAlchemyModule:
     ) -> DeferredModule: ...
 ```
 
-`for_root()` receives final immutable options. `for_root_async()` means that the
-options are resolved through Nestpy DI; the method itself is synchronous and
-returns a `DeferredModule`. Its `use_factory` may be synchronous or asynchronous
-and runs exactly once as a singleton provider during application startup.
+`for_root()` owns its engine. `for_engine()` never disposes its external engine.
+`for_root_async()` registers its sync-or-async `use_factory` directly as a
+singleton Nestpy provider. Factory dependencies use annotations and
+`Annotated[..., Inject(token)]`; no separate `inject=[]` API exists.
 
-Dependencies of `use_factory` are declared through Python annotations and
-`Annotated[..., Inject(token)]`. There is no separate NestJS-style `inject=[]`
-argument. The factory MUST return `SqlAlchemyOptions`; otherwise startup fails
-with `SqlAlchemyConfigurationError`.
+## 5. Providers and Tokens
 
-`for_engine()` registers either a direct `AsyncEngine` value or an imported
-engine token. Such an engine is externally owned and is never disposed by this
-module.
-
-## 5. Providers and Ownership
-
-Each root has these canonical keyed providers:
+Every root has canonical qualified singleton providers:
 
 ```text
-nestpy_sqlalchemy:<key>:engine          singleton managed when module-owned
-nestpy_sqlalchemy:<key>:session_factory singleton unmanaged
-nestpy_sqlalchemy:<key>:session         request scoped and managed
+nestpy_sqlalchemy:<key>:engine
+nestpy_sqlalchemy:<key>:session_factory
+nestpy_sqlalchemy:<key>:session_manager
+nestpy_sqlalchemy:<key>:entity_manager
 ```
 
-For `key="default"`, `AsyncEngine` and `AsyncSession` are additional aliases to
-the keyed canonical providers. Non-default roots expose only keyed tokens, so
-multiple roots cannot create unqualified ambiguity accidentally.
-
-An engine created by `for_root()` is wrapped in a managed async context manager.
-The resource is yielded after `create_async_engine()` succeeds and
-`await engine.dispose()` runs exactly once when the application resource stack
-closes, including startup rollback.
-
-The session factory is a singleton value. A request-scoped provider calls it and
-enters the resulting `AsyncSession` as an async context manager. The same scope
-returns the same session; different HTTP request or explicit work scopes receive
-different sessions. Scope cleanup closes the session and rolls back any active,
-uncommitted transaction according to SQLAlchemy semantics.
-
-## 6. Application Transaction Boundary
-
-The integration exposes raw `AsyncSession`, not a wrapper or custom Unit of Work:
+For `key="default"`, `AsyncEngine`, `SessionManager`, and `EntityManager` are
+additional aliases. Named roots expose only qualified tokens:
 
 ```python
-class CreateMemberService:
-    def __init__(self, session: AsyncSession, members: MemberRepository) -> None:
-        self._session = session
-        self._members = members
-
-    async def execute(self, data: CreateMemberData) -> Member:
-        async with self._session.begin():
-            member = Member.create(data)
-            await self._members.add(member)
-            await self._session.flush()
-            return member
+get_engine_token(key="analytics")
+get_session_factory_token(key="analytics")
+get_session_manager_token(key="analytics")
+get_entity_manager_token(key="analytics")
 ```
 
-Repositories MAY add, execute, query, and flush. Repositories MUST NOT own
-`commit()`, `rollback()`, or `close()`. Nested savepoints use native
-`session.begin_nested()` explicitly. One `AsyncSession` MUST NOT be used
-concurrently by multiple tasks.
+There is no `AsyncSession` provider or `get_session_token()`. Application
+singletons therefore cannot accidentally retain operation state.
 
-## 7. Models and Migrations
+## 6. SessionManager
 
-The application owns `DeclarativeBase`, mappings, metadata, and repositories.
-There is no `for_feature()`, entity decorator, generic CRUD repository, model
-scan, or process-global registry.
+`SessionManager` stores only the singleton session factory:
 
-Alembic remains a deployment tool. The integration performs no DDL at startup.
-Migration code imports application-owned metadata and is run separately through
-`uv run alembic ...`.
-
-## 8. Testing
-
-`for_engine()` permits tests to provide an externally owned engine. Keyed engine
-and session-factory tokens are exported for normal Nestpy testing overrides.
-Request-scoped session replacement should use module replacement or an alias to
-another request-scoped provider, because the current generic
-`TestingModule.use_factory()` override creates a singleton declaration.
-
-Unit tests use deterministic fake engine/session resources to prove DI and
-ownership. Database-specific application tests use a real database container;
-SQLite does not prove PostgreSQL isolation, locking, or constraint behavior.
-
-## 9. Public Errors
-
-The integration owns only configuration errors:
-
-```text
-SqlAlchemyIntegrationError
-SqlAlchemyConfigurationError
+```python
+class SessionManager:
+    def session(self) -> AbstractAsyncContextManager[AsyncSession]: ...
+    def transaction(self) -> AbstractAsyncContextManager[AsyncSession]: ...
 ```
 
-SQL execution and transaction failures remain native SQLAlchemy exceptions.
-Nestpy scope and lifecycle failures remain native Nestpy exceptions.
+`session()` opens and always closes one session but starts no transaction.
+Because `autobegin=False`, SQL work in that context still requires an explicit
+`session.begin()`.
 
-## 10. Non-Goals
+`transaction()` nests a transaction context inside a session context. It opens a
+new session, begins a transaction, commits on success, rolls back on failure,
+and always closes the session, including when commit or rollback itself fails.
 
-The first distribution MUST NOT add automatic transactions, HTTP middleware,
-method interception, health-check abstractions, telemetry, caching, brokers,
-CQRS, event sourcing, outbox behavior, migration execution, tenant engine
-caches, read/write splitting, two-phase commit, or driver-specific APIs.
+The singleton stores no current session and uses no `ContextVar`. Concurrent
+calls always receive separate sessions.
+
+## 7. EntityTransaction
+
+`EntityManager.transaction()` yields an `EntityTransaction` bound to exactly one
+manager-owned session and transaction:
+
+```python
+async with entities.transaction() as transaction:
+    member = await transaction.get_one(MemberRow, member_id)
+    transaction.add(AuditRow(member_id=member.id, action="updated"))
+    await transaction.flush()
+```
+
+The transaction exposes SQLAlchemy-native operations:
+
+- `add()` and `add_all()`;
+- `get()` and `get_one()`;
+- `merge()` and `delete()`;
+- `flush()` and `refresh()`;
+- buffered `execute()`, `scalar()`, and `scalars()`.
+
+It does not expose `commit()`, `rollback()`, or `close()`. The surrounding
+context owns finalization. It also does not expose streaming results because
+they could escape the session lifetime.
+
+One bound `EntityTransaction` or low-level `AsyncSession` belongs to one task.
+It MUST NOT be shared across concurrent tasks or used concurrently through
+`asyncio.gather()`; concurrency safety applies to independent manager calls,
+which create separate sessions.
+
+## 8. EntityManager
+
+`EntityManager` is a singleton generic gateway. Every one-shot call creates a
+fresh transaction through `SessionManager`, delegates to `EntityTransaction`,
+then commits or rolls back and closes automatically:
+
+```python
+member = await entities.get(MemberRow, member_id)
+created = await entities.add(MemberRow(name="Ada"))
+rows = await entities.scalars(select(MemberRow).order_by(MemberRow.id))
+```
+
+One-shot write methods `add()`, `add_all()`, `merge()`, `delete()`, and
+`execute()` commit automatically. Read methods also execute inside an explicit
+transaction because `autobegin=False`.
+
+One-shot ORM entities are detached after the method returns. With the default
+`expire_on_commit=False`, loaded scalar attributes remain available; required
+relationships MUST be loaded explicitly through SQLAlchemy loader options.
+Applications that opt into `expire_on_commit=True` also opt out of usable
+detached return values because loaded attributes may be expired at commit.
+Applications use `merge()` for detached changes.
+
+Multiple one-shot calls are independent transactions. Atomic composition MUST
+use one explicit `EntityManager.transaction()` and its bound manager. There is
+no implicit transaction propagation to nested services or child tasks.
+Locked reads and all work that depends on them MUST remain inside that same
+bound transaction; a one-shot `execute()` releases database locks before it
+returns.
+
+## 9. Application Providers
+
+Stateless repositories, services, and controllers SHOULD be singleton providers:
+
+```python
+@injectable()
+class MemberService:
+    def __init__(self, entities: EntityManager) -> None:
+        self._entities = entities
+```
+
+Application-specific repositories remain valid when they express reusable query
+or persistence policy, but they are not generated by this integration. Trivial
+pass-through repositories SHOULD be omitted in favor of `EntityManager`.
+
+## 10. Models and Migrations
+
+The application owns `DeclarativeBase`, mappings, metadata, repository policy,
+and migrations. There is no `for_feature()`, entity decorator, model scan,
+process-global registry, or TypeORM-like criteria language.
+
+Complex queries remain normal SQLAlchemy statements. Alembic remains a separate
+deployment tool, and the integration performs no DDL during startup.
+
+## 11. Testing
+
+Contract tests MUST verify:
+
+- managers are singleton and create no session during startup;
+- each concurrent manager call receives a distinct session;
+- success commits and closes exactly once;
+- failure rolls back and closes exactly once;
+- bound operations share one identity map and transaction;
+- one-shot operations return usable detached values;
+- keyed roots resolve distinct managers;
+- owned and external engine disposal semantics;
+- real async-driver add/get/query/update/delete and rollback behavior;
+- public API, import boundaries, type marker, wheel, and sdist artifacts.
+
+## 12. Non-Goals
+
+The distribution does not add HTTP middleware, CQRS, event sourcing, outbox,
+retries, model discovery, generated repositories, custom query builders,
+automatic migrations, health checks, tenant engine caches, read/write splitting,
+two-phase commit, or database-driver-specific APIs.

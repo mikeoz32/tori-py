@@ -18,15 +18,17 @@ architecture and implementation order are recorded in:
 6. `for_engine()` never disposes the external engine it receives.
 7. `for_root_async()` resolves one sync-or-async options factory through normal
    annotation-based Nestpy DI.
-8. One session factory exists per configured root.
-9. One managed session exists per Nestpy request/work scope.
-10. The integration never begins, commits, or rolls back a business transaction
-    automatically.
-11. Application services use native `AsyncSession.begin()` boundaries.
-12. Models, metadata, repositories, migrations, and DDL belong to the
-    application.
-13. There is no CQRS, event-sourcing, outbox, broker, or HTTP middleware API.
-14. Every dependency, test, build, and quality command uses uv.
+8. One session factory, SessionManager, and EntityManager exist per root.
+9. Every session is created locally by a manager call and always closed.
+10. Managers are singleton and never retain current session or transaction state.
+11. One-shot EntityManager writes commit automatically and roll back on failure.
+12. Atomic multi-operation work uses one explicit bound EntityTransaction.
+13. Bound transactions expose no commit, rollback, or close control.
+14. Models, metadata, migrations, and application query policy remain
+    application-owned.
+15. There is no model scan, generated repository, custom query language, CQRS,
+    event-sourcing, outbox, broker, or HTTP middleware API.
+16. Every dependency, test, build, and quality command uses uv.
 
 ## Change Control
 

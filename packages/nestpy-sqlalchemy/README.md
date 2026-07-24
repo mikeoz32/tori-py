@@ -1,8 +1,9 @@
 # nestpy-sqlalchemy
 
-`nestpy-sqlalchemy` connects Nestpy application/request scopes to SQLAlchemy's
-async engine and session lifecycle. It does not add implicit transactions,
-repositories, model registration, migrations, CQRS, or event sourcing.
+`nestpy-sqlalchemy` connects Nestpy singleton lifecycle and DI to SQLAlchemy's
+async engine, session factory, and entity operations. It does not add model
+scanning, generated repositories, a custom query language, migrations, CQRS, or
+event sourcing.
 
 ```python
 from nestpy_sqlalchemy import SqlAlchemyModule, SqlAlchemyOptions
@@ -21,43 +22,81 @@ database = SqlAlchemyModule.for_root_async(
 )
 ```
 
-Application services own native SQLAlchemy transaction boundaries:
+The default root exports singleton `AsyncEngine`, `SessionManager`, and
+`EntityManager` providers. No `AsyncSession` is stored in DI.
+
+## One-Shot Operations
 
 ```python
-from sqlalchemy.ext.asyncio import AsyncSession
+from nestpy import injectable
+from nestpy_sqlalchemy import EntityManager
 
 
-class CreateMemberService:
-    def __init__(self, session: AsyncSession) -> None:
-        self._session = session
+@injectable()
+class MemberService:
+    def __init__(self, entities: EntityManager) -> None:
+        self._entities = entities
 
-    async def execute(self, row: MemberRow) -> None:
-        async with self._session.begin():
-            self._session.add(row)
+    async def create(self, name: str) -> MemberRow:
+        return await self._entities.add(MemberRow(name=name))
+
+    async def get(self, member_id: int) -> MemberRow | None:
+        return await self._entities.get(MemberRow, member_id)
 ```
 
-`for_root()` creates and owns an engine. `for_engine()` registers an externally
-owned engine and never disposes it. The default root exports `AsyncEngine` and
-`AsyncSession` for type-based injection. Named roots use explicit tokens:
+One-shot write methods open a session and transaction, flush, commit or roll
+back, and close automatically. Returned ORM entities are detached; load required
+relationships explicitly. The default `expire_on_commit=False` keeps loaded
+attributes available. Opting into `expire_on_commit=True` means detached return
+values may instead contain expired attributes.
+
+## Atomic Composition
 
 ```python
-from typing import Annotated
+async with entities.transaction() as transaction:
+    member = await transaction.get_one(MemberRow, member_id)
+    member.rename(name)
+    transaction.add(AuditRow(member_id=member.id, action="renamed"))
+    await transaction.flush()
+```
 
-from nestpy import Inject
-from nestpy_sqlalchemy import get_session_token
+The bound `EntityTransaction` exposes entity operations but not `commit()`,
+`rollback()`, or `close()`. The context owns transaction finalization.
+Keep locked reads and dependent writes in this same context because a one-shot
+call releases locks before returning.
+
+## Low-Level Sessions
+
+```python
+from nestpy_sqlalchemy import SessionManager
 
 
-class AnalyticsRepository:
+async with sessions.session() as session:
+    async with session.begin():
+        await session.execute(statement)
+
+async with sessions.transaction() as session:
+    await session.execute(statement)
+```
+
+`SessionManager` and `EntityManager` are concurrency-safe singletons because
+they retain only the singleton `async_sessionmaker`; each call creates a fresh
+session. A session or bound `EntityTransaction` is single-task state and must
+not be shared between concurrent tasks.
+
+Named roots use explicit tokens:
+
+```python
+class AnalyticsService:
     def __init__(
         self,
-        session: Annotated[
-            AsyncSession,
-            Inject(get_session_token(key="analytics")),
+        entities: Annotated[
+            EntityManager,
+            Inject(get_entity_manager_token(key="analytics")),
         ],
     ) -> None:
-        self._session = session
+        self._entities = entities
 ```
 
-The integration does not install a database driver. Applications select and
-install one, such as psycopg, and own their SQLAlchemy models, repositories, and
-Alembic migrations.
+Applications install their selected async driver and own SQLAlchemy models,
+metadata, query policy, and Alembic migrations.
