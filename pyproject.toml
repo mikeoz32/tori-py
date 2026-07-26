@@ -3,16 +3,23 @@ name = "kinker"
 version = "0.1.0"
 requires-python = ">=3.14,<3.15"
 dependencies = [
-    "aiosqlite>=0.22.1",
-    "cqrs-core",
-    "cqrs-event-sourcing",
-    "cqrs-fastapi",
-    "nestpy",
-    "nestpy-cqrs",
-    "nestpy-cqrs-event-sourcing",
-    "nestpy-sqlalchemy",
-    "uvicorn>=0.51.0",
+    "cqrs-core==0.1.0",
+    "nestpy==0.1.0",
+    "nestpy-cqrs==0.1.0",
+    "nestpy-sqlalchemy==0.1.0",
+    "sqlalchemy[asyncio]>=2.0",
+    "psycopg[binary]>=3.2",
+    "msgspec>=0.19.0",
+    "alembic>=1.18.5",
+    "uvicorn>=0.36.0",
 ]
+
+[project.scripts]
+kinker = "kinker.cli:main"
+
+[build-system]
+requires = ["uv_build>=0.11.28,<0.12.0"]
+build-backend = "uv_build"
 
 [tool.uv.workspace]
 members = [
@@ -27,16 +34,21 @@ members = [
 
 [tool.uv.sources]
 cqrs-core = { workspace = true }
-cqrs-fastapi = { workspace = true }
-nestpy = { workspace = true }
 nestpy-cqrs = { workspace = true }
-nestpy-cqrs-event-sourcing = { workspace = true }
-cqrs-event-sourcing = { workspace = true }
 nestpy-sqlalchemy = { workspace = true }
+nestpy = { workspace = true }
+cqrs-event-sourcing = { workspace = true }
+cqrs-fastapi = { workspace = true }
+nestpy-cqrs-event-sourcing = { workspace = true }
 
 [dependency-groups]
 dev = [
+    "aiosqlite>=0.22.1",
+    "cqrs-event-sourcing",
+    "cqrs-fastapi",
     "httpx>=0.28.0",
+    "nestpy-cqrs-event-sourcing",
+    "nestpy[testing]",
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",
     "ruff>=0.15.21",

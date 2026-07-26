@@ -1,5 +1,10 @@
 # CQRS Specifications
 
+The Kinker product has a separate domain vision, ubiquitous language, context
+map, cross-context policies, and bounded-context specifications under
+[`spec/kinker/README.md`](kinker/README.md). Those documents govern product
+business behavior and do not change the reusable CQRS package contracts below.
+
 Nestpy has a separate architecture and phase map under
 [`spec/nestpy/README.md`](nestpy/README.md). Its implemented N0-N8 phases do not
 create a CQRS dependency. The optional bridge has implemented C0-C3 under
