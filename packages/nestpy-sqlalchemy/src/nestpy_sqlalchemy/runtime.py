@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import (
 )
 
 from nestpy_sqlalchemy.errors import SqlAlchemyConfigurationError
-from nestpy_sqlalchemy.managers import EntityManager, SessionManager
+from nestpy_sqlalchemy.managers import EntityManager
 from nestpy_sqlalchemy.options import SqlAlchemyOptions, SqlAlchemySessionOptions
 from nestpy_sqlalchemy.repository import Repository
 
@@ -68,30 +68,16 @@ def _new_session_factory(
     )
 
 
-def _session_manager_factory(session_factory_token: Token):
+def _entity_manager_factory(session_factory_token: Token):
     def create(factory):
         if not callable(factory) or not callable(getattr(factory, "begin", None)):
             raise SqlAlchemyConfigurationError(
                 "session factory provider must resolve to async_sessionmaker-like value"
             )
-        return SessionManager(factory)
+        return EntityManager(factory)
 
     create.__annotations__ = {
         "factory": Annotated[object, Inject(session_factory_token)]
-    }
-    return create
-
-
-def _entity_manager_factory(session_manager_token: Token):
-    def create(sessions):
-        if not isinstance(sessions, SessionManager):
-            raise SqlAlchemyConfigurationError(
-                "session manager provider must resolve to SessionManager"
-            )
-        return EntityManager(sessions)
-
-    create.__annotations__ = {
-        "sessions": Annotated[SessionManager, Inject(session_manager_token)]
     }
     return create
 

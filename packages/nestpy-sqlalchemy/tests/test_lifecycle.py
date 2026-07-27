@@ -11,15 +11,13 @@ from nestpy import ClassProvider, Inject, ValueProvider, module
 from nestpy.testing import TestingModule
 from nestpy_sqlalchemy import (
     EntityManager,
-    EntityTransaction,
-    SessionManager,
     SqlAlchemyConfigurationError,
     SqlAlchemyModule,
     SqlAlchemyOptions,
+    TransactionContextError,
     get_engine_token,
     get_entity_manager_token,
     get_session_factory_token,
-    get_session_manager_token,
 )
 from sqlalchemy.ext.asyncio import AsyncEngine
 
@@ -90,7 +88,7 @@ class _FakeSessionFactory:
         return session
 
     def begin(self) -> _FakeTransactionContext:
-        raise AssertionError("SessionManager must own the outer session context")
+        raise AssertionError("EntityManager must own the outer session context")
 
 
 @dataclass(slots=True)
@@ -147,11 +145,9 @@ async def test_owned_engine_and_singleton_managers_follow_application_lifecycle(
     application = await TestingModule.create(Root).compile()
     try:
         engine = await application.resolve(get_engine_token())
-        sessions = cast(SessionManager, await application.resolve(SessionManager))
         entities = cast(EntityManager, await application.resolve(EntityManager))
         assert engine is fakes.engines[0]
         assert await application.resolve(AsyncEngine) is engine
-        assert await application.resolve(get_session_manager_token()) is sessions
         assert await application.resolve(get_entity_manager_token()) is entities
         assert fakes.session_factories[0].sessions == []
         assert fakes.session_factory_calls == [
@@ -165,21 +161,17 @@ async def test_owned_engine_and_singleton_managers_follow_application_lifecycle(
             )
         ]
 
-        async with sessions.session() as session:
-            assert session is fakes.session_factories[0].sessions[0]
-        async with sessions.transaction() as session:
-            assert session is fakes.session_factories[0].sessions[1]
+        async with entities.transaction() as transaction:
+            assert transaction is entities
         failure = RuntimeError("transaction failed")
         with pytest.raises(RuntimeError, match="transaction failed"):
-            async with sessions.transaction():
+            async with entities.transaction():
                 raise failure
-        async with entities.transaction() as transaction:
-            assert isinstance(transaction, EntityTransaction)
 
         opened = fakes.session_factories[0].sessions
-        assert [session.exit_calls for session in opened] == [1, 1, 1, 1]
-        assert [session.commit_calls for session in opened] == [0, 1, 0, 1]
-        assert [session.rollback_calls for session in opened] == [0, 0, 1, 0]
+        assert [session.exit_calls for session in opened] == [1, 1]
+        assert [session.commit_calls for session in opened] == [1, 0]
+        assert [session.rollback_calls for session in opened] == [0, 1]
     finally:
         await application.close()
 
@@ -192,12 +184,12 @@ async def test_transaction_closes_session_when_finalization_fails(
     body_error: RuntimeError | None,
 ) -> None:
     factory = _FakeSessionFactory()
-    sessions = SessionManager(cast(Any, factory))
+    entities = EntityManager(cast(Any, factory))
     finalization_error = RuntimeError("transaction finalization failed")
 
     with pytest.raises(RuntimeError, match="transaction finalization failed"):
-        async with sessions.transaction() as session:
-            fake_session = cast(_FakeSession, session)
+        async with entities.transaction():
+            fake_session = cast(_FakeSession, entities._require_session())
             fake_session.transaction_exit_error = finalization_error
             if body_error is not None:
                 raise body_error
@@ -206,21 +198,33 @@ async def test_transaction_closes_session_when_finalization_fails(
     assert opened.exit_calls == 1
     assert opened.commit_calls == (body_error is None)
     assert opened.rollback_calls == (body_error is not None)
+    with pytest.raises(TransactionContextError, match="active transaction"):
+        await entities.scalar(cast(Any, object()))
 
 
 @pytest.mark.asyncio
 async def test_transaction_closes_session_when_task_is_cancelled() -> None:
     factory = _FakeSessionFactory()
-    sessions = SessionManager(cast(Any, factory))
+    entities = EntityManager(cast(Any, factory))
+    entered = asyncio.Event()
 
+    async def operation() -> None:
+        async with entities.transaction():
+            entered.set()
+            await asyncio.Event().wait()
+
+    task = asyncio.create_task(operation())
+    await entered.wait()
+    task.cancel()
     with pytest.raises(asyncio.CancelledError):
-        async with sessions.transaction():
-            raise asyncio.CancelledError
+        await task
 
     opened = factory.sessions[0]
     assert opened.exit_calls == 1
     assert opened.commit_calls == 0
     assert opened.rollback_calls == 1
+    with pytest.raises(TransactionContextError, match="active transaction"):
+        await entities.scalar(cast(Any, object()))
 
 
 class _Config:
@@ -426,7 +430,7 @@ async def test_external_engine_token_is_resolved_without_transferring_ownership(
     try:
         assert await application.resolve(get_engine_token()) is external
         assert await application.resolve(AsyncEngine) is external
-        assert await application.resolve(SessionManager)
+        assert await application.resolve(EntityManager)
         assert fakes.engines == []
     finally:
         await application.close()

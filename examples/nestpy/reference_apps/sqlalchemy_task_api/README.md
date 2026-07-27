@@ -2,7 +2,7 @@
 
 This reference application uses Nestpy, `nestpy-sqlalchemy`, SQLAlchemy ORM,
 and `aiosqlite`. It deliberately has no CQRS, event-sourcing, outbox, generated
-repository classes, or ambient transaction layer.
+repository classes, or automatic request/command transaction layer.
 
 ## Run
 
@@ -37,16 +37,16 @@ GET  /tasks/{task_id}
 
 - `SqlAlchemyModule.for_root_async()` receives `TaskApiSettings` through Nestpy
   annotation-based factory parameter injection.
-- The integration owns singleton engine, session factory, `SessionManager`, and
-  `EntityManager` providers.
+- The integration owns singleton engine, session factory, and `EntityManager`
+  providers.
 - `SqlAlchemyModule.for_feature()` registers the decorated `TaskRepository`
   through the global default root.
 - `TaskService` uses inherited default CRUD for create/get and the repository's
   custom SQLAlchemy query policy for ordered listing.
 - `TaskService` and its controller are stateless singleton providers declared
   with `@injectable()`/`@controller()` and constructor injection.
-- One-shot repository methods create, commit or roll back, and close a fresh
-  session automatically.
+- Each service method opens a narrow lexical `EntityManager.transaction()`;
+  repository operations automatically use that task-local session.
 - Controllers return DTOs rather than SQLAlchemy ORM rows.
 - Schema creation is an application-owned lifecycle provider. It is included
   only to keep the SQLite example runnable; production applications should use
@@ -56,10 +56,10 @@ GET  /tasks/{task_id}
 
 The example also makes current limitations visible:
 
-- One-shot repository methods return detached entities. Relationships required
-  after the call must be loaded explicitly through SQLAlchemy loader options.
-- Atomic composition must use `EntityManager.transaction()`; separate one-shot
-  calls intentionally use separate sessions and transactions.
+- ORM entities detach when their lexical transaction closes. Relationships
+  required afterward must be loaded explicitly through SQLAlchemy loader options.
+- Nested same-task transaction scopes create savepoints; child-task use is
+  rejected rather than sharing an unsafe `AsyncSession`.
 - Application-owned startup work that needs the engine requires a lifecycle
   provider because production `NestApplication` has no public resolver.
 - Nestpy has no migration, database health-check, response-schema, or OpenAPI

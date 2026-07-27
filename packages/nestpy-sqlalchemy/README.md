@@ -23,8 +23,8 @@ database = SqlAlchemyModule.for_root_async(
 ```
 
 Roots are global by default and export keyed singleton engine, session-factory,
-`SessionManager`, and `EntityManager` providers. The default root also exports
-their class aliases. No `AsyncSession` is stored in DI.
+and `EntityManager` providers. The default root also exports `AsyncEngine` and
+`EntityManager` class aliases. No `AsyncSession` is stored in DI.
 
 ## Default Repositories
 
@@ -61,12 +61,6 @@ rows = await tasks.find(
 )
 ```
 
-No feature registration is needed when DI is unnecessary:
-
-```python
-tasks = entities.repository(TaskRow)
-```
-
 ## Custom Repositories
 
 ```python
@@ -86,7 +80,7 @@ The concrete class is its DI token. Custom repositories are stateless, directly
 specialize `Repository[Entity]`, inherit the base constructor, and have no
 additional constructor dependencies.
 
-## One-Shot Operations
+## Lexical Transactions
 
 ```python
 from nestpy import injectable
@@ -95,57 +89,68 @@ from nestpy_sqlalchemy import EntityManager
 
 @injectable()
 class MemberService:
-    def __init__(self, entities: EntityManager) -> None:
+    def __init__(self, entities: EntityManager, members: MemberRepository) -> None:
         self._entities = entities
+        self._members = members
 
     async def create(self, name: str) -> MemberRow:
-        return await self._entities.add(MemberRow(name=name))
+        async with self._entities.transaction():
+            return await self._members.add(MemberRow(name=name))
 
     async def get(self, member_id: int) -> MemberRow | None:
-        return await self._entities.get(MemberRow, member_id)
+        async with self._entities.transaction():
+            return await self._members.get(member_id)
 ```
 
-One-shot write methods open a session and transaction, flush, commit or roll
-back, and close automatically. Returned ORM entities are detached; load required
-relationships explicitly. The default `expire_on_commit=False` keeps loaded
-attributes available. Opting into `expire_on_commit=True` means detached return
-values may instead contain expired attributes.
+Every manager and repository operation requires an active transaction. The
+outermost context opens a fresh session, commits or rolls back, and always
+closes. `transaction()` yields the same singleton manager, so direct operations
+remain available without another transaction type:
+
+```python
+async with entities.transaction() as transaction:
+    assert transaction is entities
+    count = await transaction.scalar(select(func.count()).select_from(MemberRow))
+```
+
+ORM entities become detached after the lexical context closes. Load required
+relationships before exit. The default `expire_on_commit=False` keeps loaded
+attributes available; opting into `True` may leave detached attributes expired.
 
 ## Atomic Composition
 
 ```python
 async with entities.transaction() as transaction:
-    members = member_repository.bind(transaction)
-    audits = transaction.repository(AuditRow)
-    member = await members.get_one(member_id, with_for_update=True)
+    member = await member_repository.get_one(member_id, with_for_update=True)
     member.rename(name)
-    await audits.add(AuditRow(member_id=member.id, action="renamed"))
+    await audit_repository.add(AuditRow(member_id=member.id, action="renamed"))
 ```
 
-The bound `EntityTransaction` exposes entity operations but not `commit()`,
-`rollback()`, or `close()`. The context owns transaction finalization.
-Keep locked reads and dependent writes in this same context because a one-shot
-call releases locks before returning. Repository binding rejects inactive or
-wrong-root transactions and does not mutate singleton repositories.
+Repositories tied to the same keyed manager automatically share the active
+session in the owning task. They are never cloned or bound, and transaction
+arguments are not passed through application layers.
 
-## Low-Level Sessions
+## Savepoints
 
 ```python
-from nestpy_sqlalchemy import SessionManager
-
-
-async with sessions.session() as session:
-    async with session.begin():
-        await session.execute(statement)
-
-async with sessions.transaction() as session:
-    await session.execute(statement)
+async with entities.transaction():
+    await members.add(first)
+    try:
+        async with entities.transaction():
+            await members.add(second)
+            raise DuplicateMember
+    except DuplicateMember:
+        pass
 ```
 
-`SessionManager` and `EntityManager` are concurrency-safe singletons because
-they retain only the singleton `async_sessionmaker`; each call creates a fresh
-session. A session or bound `EntityTransaction` is single-task state and must
-not be shared between concurrent tasks.
+Same-task nested contexts use `AsyncSession.begin_nested()` and yield the same
+manager. SQLAlchemy may flush pending state before opening the savepoint.
+
+`EntityManager` stores current state only in an instance-owned `ContextVar`.
+Parallel top-level tasks receive distinct sessions. Child tasks inherit Python
+context values, so an owner-task guard rejects manager or repository use from a
+child task. Calls outside a transaction and use through an escaped context raise
+`TransactionContextError`.
 
 Named roots use explicit tokens:
 

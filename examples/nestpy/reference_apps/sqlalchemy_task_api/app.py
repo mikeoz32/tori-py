@@ -136,9 +136,11 @@ class TaskService:
 
     def __init__(
         self,
+        entities: EntityManager,
         tasks: TaskRepository,
         settings: TaskApiSettings,
     ) -> None:
+        self._entities = entities
         self._tasks = tasks
         self._settings = settings
 
@@ -147,20 +149,25 @@ class TaskService:
         if not title or len(title) > self._settings.max_title_length:
             raise TaskTitleInvalid
         try:
-            row = await self._tasks.add(TaskRow(title=title))
+            async with self._entities.transaction():
+                row = await self._tasks.add(TaskRow(title=title))
         except IntegrityError as error:
             raise TaskAlreadyExists from error
         return _task_response(row)
 
     async def get(self, task_id: int) -> TaskResponse:
-        row = await self._tasks.get(task_id)
-        if row is None:
-            raise TaskNotFound
-        return _task_response(row)
+        async with self._entities.transaction():
+            row = await self._tasks.get(task_id)
+            if row is None:
+                raise TaskNotFound
+            response = _task_response(row)
+        return response
 
     async def all(self) -> list[TaskResponse]:
-        rows = await self._tasks.find_all_ordered()
-        return [_task_response(row) for row in rows]
+        async with self._entities.transaction():
+            rows = await self._tasks.find_all_ordered()
+            response = [_task_response(row) for row in rows]
+        return response
 
 
 class TaskErrorFilter:

@@ -9,22 +9,19 @@ import nestpy_sqlalchemy
 def test_public_api_allowlist_and_artifacts() -> None:
     assert set(nestpy_sqlalchemy.__all__) == {
         "EntityManager",
-        "EntityTransaction",
         "ExecuteParams",
         "Repository",
-        "RepositoryBindingError",
-        "SessionManager",
         "SqlAlchemyConfigurationError",
         "SqlAlchemyIntegrationError",
         "SqlAlchemyModule",
         "SqlAlchemyOptions",
         "SqlAlchemyOptionsFactory",
         "SqlAlchemySessionOptions",
+        "TransactionContextError",
         "get_entity_manager_token",
         "get_engine_token",
         "get_repository_token",
         "get_session_factory_token",
-        "get_session_manager_token",
         "inject_repository",
         "repository",
     }

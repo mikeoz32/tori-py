@@ -2,7 +2,7 @@
 
 ## Status
 
-Implementation status: completed through repository integration.
+Implementation status: completed through guarded ambient transactions.
 
 Architecture: [`NESTPY_SQLALCHEMY_ARCHITECTURE.md`](NESTPY_SQLALCHEMY_ARCHITECTURE.md).
 
@@ -21,7 +21,7 @@ Architecture: [`NESTPY_SQLALCHEMY_ARCHITECTURE.md`](NESTPY_SQLALCHEMY_ARCHITECTU
 - Implement `SqlAlchemyModule.for_root_async()` with an annotation-driven Nestpy
   `FactoryProvider`; do not invoke or wrap the user factory at materialization.
 - Implement `SqlAlchemyModule.for_engine()` for externally owned engines.
-- Export unqualified `AsyncEngine`, `SessionManager`, and `EntityManager` aliases
+- Export unqualified `AsyncEngine` and `EntityManager` aliases
   only for the `default` root.
 
 ### NS2: Lifecycle and Managers
@@ -29,10 +29,10 @@ Architecture: [`NESTPY_SQLALCHEMY_ARCHITECTURE.md`](NESTPY_SQLALCHEMY_ARCHITECTU
 - Create owned engines lazily during singleton startup.
 - Dispose owned engines exactly once during shutdown or startup rollback.
 - Register one singleton `async_sessionmaker` per root.
-- Register singleton `SessionManager` and `EntityManager` providers per root.
-- Open sessions only inside explicit manager session/transaction contexts.
-- Add transaction-bound SQLAlchemy-native entity operations.
-- Add one-shot entity operations with automatic commit/rollback/close.
+- Register one singleton `EntityManager` per root directly over the session factory.
+- Require lexical manager transactions for every entity/repository operation.
+- Propagate current state only through an instance ContextVar with owner-task guards.
+- Use native savepoints for same-task nested scopes.
 
 ### NS3: Verification
 
@@ -41,8 +41,8 @@ Architecture: [`NESTPY_SQLALCHEMY_ARCHITECTURE.md`](NESTPY_SQLALCHEMY_ARCHITECTU
 - Verify direct and token-backed external engine ownership.
 - Verify default aliases, non-default keyed isolation, and dynamic descriptor
   reuse requirements.
-- Verify singleton manager identity, concurrent session isolation, exact cleanup,
-  detached values, rollback, and engine disposal.
+- Verify same singleton yield, concurrent session isolation, savepoints,
+  child-task rejection, exact cleanup, detached values, and engine disposal.
 - Verify startup failure unwinds an already acquired owned engine.
 - Verify public import boundaries and package artifacts.
 
@@ -63,9 +63,10 @@ Architecture: [`NESTPY_SQLALCHEMY_ARCHITECTURE.md`](NESTPY_SQLALCHEMY_ARCHITECTU
   generated classes.
 - Add deterministic repository tokens, `inject_repository()`, and
   `SqlAlchemyModule.for_feature()` over global keyed managers.
-- Add same-root, active-transaction repository binding without ambient state.
+- Make repositories use their keyed manager's active contextual transaction;
+  remove binding, cloning, one-shot execution, and transaction arguments.
 - Verify default/custom DI, named roots, detached values, rich queries,
-  transaction rollback, lifecycle errors, and exact public artifacts.
+  transaction rollback, context errors, and exact public artifacts.
 
 ## Deferred Work
 

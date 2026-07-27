@@ -3,7 +3,7 @@
 import inspect
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from typing import Any, Self, cast, get_args, get_origin
+from typing import Any, cast, get_args, get_origin
 
 from nestpy import BootstrapError, Reflector, metadata
 from sqlalchemy import (
@@ -16,15 +16,8 @@ from sqlalchemy import (
 )
 from sqlalchemy.engine import Result, ScalarResult
 
-from nestpy_sqlalchemy.errors import (
-    RepositoryBindingError,
-    SqlAlchemyConfigurationError,
-)
-from nestpy_sqlalchemy.managers import (
-    EntityManager,
-    EntityTransaction,
-    ExecuteParams,
-)
+from nestpy_sqlalchemy.errors import SqlAlchemyConfigurationError
+from nestpy_sqlalchemy.managers import EntityManager, ExecuteParams
 from nestpy_sqlalchemy.tokens import _validate_entity_type
 
 
@@ -38,27 +31,20 @@ _REFLECTOR = Reflector()
 
 
 class Repository[EntityT]:
-    """Model-bound persistence operations over one manager or transaction."""
+    """Model-bound persistence operations over one contextual entity manager."""
 
-    __slots__ = ("_entity_type", "_manager", "_operations")
+    __slots__ = ("_entities", "_entity_type")
 
     def __init__(
         self,
         entity_type: type[EntityT],
-        operations: EntityManager | EntityTransaction,
+        entities: EntityManager,
     ) -> None:
         _validate_entity_type(entity_type)
-        if isinstance(operations, EntityManager):
-            manager = operations
-        elif isinstance(operations, EntityTransaction):
-            manager = operations._repository_owner()
-        else:
-            raise TypeError(
-                "repository operations must be an EntityManager or transaction"
-            )
+        if not isinstance(entities, EntityManager):
+            raise TypeError("repository requires an EntityManager")
         self._entity_type = entity_type
-        self._manager = manager
-        self._operations = operations
+        self._entities = entities
 
     @property
     def entity_type(self) -> type[EntityT]:
@@ -66,24 +52,11 @@ class Repository[EntityT]:
 
         return self._entity_type
 
-    def bind(self, transaction: EntityTransaction) -> Self:
-        """Create the same concrete repository bound to one active transaction."""
-
-        if not isinstance(transaction, EntityTransaction):
-            raise TypeError("repository binding requires an EntityTransaction")
-        transaction._require_repository_binding(self._manager)
-        return type(self)(self._entity_type, transaction)
-
     async def add(self, entity: EntityT) -> EntityT:
-        """Add and flush one entity, committing only for one-shot repositories."""
+        """Add and flush one entity in the active transaction."""
 
         self._require_entity(entity)
-        transaction = self._bound_transaction()
-        if transaction is None:
-            return await self._manager.add(entity)
-        transaction.add(entity)
-        await transaction.flush()
-        return entity
+        return await self._entities.add(entity)
 
     async def add_all(self, entities: Sequence[EntityT]) -> tuple[EntityT, ...]:
         """Add and flush entities in the repository's operation boundary."""
@@ -91,12 +64,7 @@ class Repository[EntityT]:
         values = tuple(entities)
         for entity in values:
             self._require_entity(entity)
-        transaction = self._bound_transaction()
-        if transaction is None:
-            return await self._manager.add_all(values)
-        transaction.add_all(values)
-        await transaction.flush()
-        return values
+        return await self._entities.add_all(values)
 
     async def get(
         self,
@@ -108,16 +76,7 @@ class Repository[EntityT]:
     ) -> EntityT | None:
         """Load one entity by primary key."""
 
-        transaction = self._bound_transaction()
-        if transaction is None:
-            self._reject_one_shot_lock(with_for_update)
-            return await self._manager.get(
-                self._entity_type,
-                identity,
-                options=options,
-                populate_existing=populate_existing,
-            )
-        return await transaction.get(
+        return await self._entities.get(
             self._entity_type,
             identity,
             options=options,
@@ -135,16 +94,7 @@ class Repository[EntityT]:
     ) -> EntityT:
         """Load one entity by primary key or raise SQLAlchemy's no-result error."""
 
-        transaction = self._bound_transaction()
-        if transaction is None:
-            self._reject_one_shot_lock(with_for_update)
-            return await self._manager.get_one(
-                self._entity_type,
-                identity,
-                options=options,
-                populate_existing=populate_existing,
-            )
-        return await transaction.get_one(
+        return await self._entities.get_one(
             self._entity_type,
             identity,
             options=options,
@@ -162,23 +112,13 @@ class Repository[EntityT]:
         """Merge and flush detached entity state."""
 
         self._require_entity(entity)
-        transaction = self._bound_transaction()
-        if transaction is None:
-            return await self._manager.merge(entity, load=load, options=options)
-        merged = await transaction.merge(entity, load=load, options=options)
-        await transaction.flush()
-        return merged
+        return await self._entities.merge(entity, load=load, options=options)
 
     async def delete(self, entity: EntityT) -> None:
         """Delete and flush one entity."""
 
         self._require_entity(entity)
-        transaction = self._bound_transaction()
-        if transaction is None:
-            await self._manager.delete(entity)
-            return
-        await transaction.delete(entity)
-        await transaction.flush()
+        await self._entities.delete(entity)
 
     async def find(
         self,
@@ -209,7 +149,6 @@ class Repository[EntityT]:
     ) -> EntityT | None:
         """Return exactly one matching entity or None, rejecting duplicates."""
 
-        self._reject_one_shot_lock(with_for_update)
         statement = (
             select(self._entity_type).where(*criteria).options(*options).limit(2)
         )
@@ -226,7 +165,6 @@ class Repository[EntityT]:
     ) -> EntityT:
         """Return exactly one matching entity or propagate native result errors."""
 
-        self._reject_one_shot_lock(with_for_update)
         statement = (
             select(self._entity_type).where(*criteria).options(*options).limit(2)
         )
@@ -252,40 +190,21 @@ class Repository[EntityT]:
         statement: Executable,
         params: ExecuteParams = None,
     ) -> Result[Any]:
-        operations = self._active_operations()
-        return await operations.execute(statement, params)
+        return await self._entities.execute(statement, params)
 
     async def _scalar(
         self,
         statement: Executable,
         params: ExecuteParams = None,
     ) -> Any:
-        operations = self._active_operations()
-        return await operations.scalar(statement, params)
+        return await self._entities.scalar(statement, params)
 
     async def _scalars(
         self,
         statement: Executable,
         params: ExecuteParams = None,
     ) -> ScalarResult[Any]:
-        operations = self._active_operations()
-        return await operations.scalars(statement, params)
-
-    def _active_operations(self) -> EntityManager | EntityTransaction:
-        transaction = self._bound_transaction()
-        return self._manager if transaction is None else transaction
-
-    def _bound_transaction(self) -> EntityTransaction | None:
-        if isinstance(self._operations, EntityTransaction):
-            self._operations._require_repository_binding(self._manager)
-            return self._operations
-        return None
-
-    def _reject_one_shot_lock(self, with_for_update: bool) -> None:
-        if with_for_update and self._bound_transaction() is None:
-            raise RepositoryBindingError(
-                "with_for_update requires a transaction-bound repository"
-            )
+        return await self._entities.scalars(statement, params)
 
     def _require_entity(self, entity: object) -> None:
         if not isinstance(entity, self._entity_type):

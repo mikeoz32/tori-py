@@ -11,16 +11,17 @@ The integration owns:
 - creation and deterministic disposal of module-owned `AsyncEngine` values;
 - registration of externally owned engines without taking ownership;
 - one singleton `async_sessionmaker` per configured root;
-- one singleton `SessionManager` per root;
 - one singleton `EntityManager` per root;
-- short-lived sessions and transactions opened by those managers;
+- short-lived lexical transactions and nested savepoints opened by that manager;
+- guarded same-task ambient transaction propagation through an instance-owned
+  `ContextVar`;
 - SQLAlchemy-native, generic entity operations without model registration;
 - synchronous and DI-resolved asynchronous root configuration;
 - deterministic keyed tokens for multiple database roots.
 
 The integration does not own:
 
-- request-scoped sessions or ambient/current-session propagation;
+- request-scoped session providers or cross-task session propagation;
 - CQRS, event sourcing, outbox, inbox, retries, or message handling;
 - ORM model scanning, generated repositories, or a custom query language;
 - migrations, `MetaData.create_all()`, or startup schema mutation;
@@ -125,113 +126,68 @@ Every root has canonical qualified singleton providers:
 ```text
 nestpy_sqlalchemy:<key>:engine
 nestpy_sqlalchemy:<key>:session_factory
-nestpy_sqlalchemy:<key>:session_manager
 nestpy_sqlalchemy:<key>:entity_manager
 ```
 
-For `key="default"`, `AsyncEngine`, `SessionManager`, and `EntityManager` are
-additional aliases. Named roots expose only qualified tokens:
+For `key="default"`, `AsyncEngine` and `EntityManager` are additional aliases.
+Named roots expose only qualified tokens:
 
 ```python
 get_engine_token(key="analytics")
 get_session_factory_token(key="analytics")
-get_session_manager_token(key="analytics")
 get_entity_manager_token(key="analytics")
 ```
 
 There is no `AsyncSession` provider or `get_session_token()`. Application
 singletons therefore cannot accidentally retain operation state.
 
-## 6. SessionManager
+## 6. EntityManager
 
-`SessionManager` stores only the singleton session factory:
-
-```python
-class SessionManager:
-    def session(self) -> AbstractAsyncContextManager[AsyncSession]: ...
-    def transaction(self) -> AbstractAsyncContextManager[AsyncSession]: ...
-```
-
-`session()` opens and always closes one session but starts no transaction.
-Because `autobegin=False`, SQL work in that context still requires an explicit
-`session.begin()`.
-
-`transaction()` nests a transaction context inside a session context. It opens a
-new session, begins a transaction, commits on success, rolls back on failure,
-and always closes the session, including when commit or rollback itself fails.
-
-The singleton stores no current session and uses no `ContextVar`. Concurrent
-calls always receive separate sessions.
-
-## 7. EntityTransaction
-
-`EntityManager.transaction()` yields an `EntityTransaction` bound to exactly one
-manager-owned session and transaction:
+`EntityManager` is one concurrency-safe singleton per root. It stores the
+singleton session factory and one instance-owned `ContextVar`; it never stores a
+session in an ordinary shared attribute. `transaction()` yields that same
+singleton manager:
 
 ```python
 async with entities.transaction() as transaction:
-    member = await transaction.get_one(MemberRow, member_id)
-    transaction.add(AuditRow(member_id=member.id, action="updated"))
-    await transaction.flush()
+    assert transaction is entities
+    member = await members.get_one(member_id, with_for_update=True)
+    await audits.add(AuditRow(member_id=member.id, action="updated"))
+    total = await transaction.scalar(select(func.count()).select_from(AuditRow))
 ```
 
-The transaction exposes SQLAlchemy-native operations:
+The outermost context creates a fresh session, begins a transaction, commits on
+success, rolls back on failure, and always closes the session even when
+finalization fails. Every entity or repository operation requires this active
+lexical context; there are no one-shot operations.
 
-- `add()` and `add_all()`;
-- `get()` and `get_one()`;
-- `merge()` and `delete()`;
-- `flush()` and `refresh()`;
-- buffered `execute()`, `scalar()`, and `scalars()`.
+Calling `transaction()` again on the same manager in the same task opens
+`AsyncSession.begin_nested()` and yields the same manager. A caught nested
+failure rolls back its savepoint while leaving the outer transaction active.
+SQLAlchemy may flush pending state before creating a savepoint even when
+`autoflush=False`.
 
-It does not expose `commit()`, `rollback()`, or `close()`. The surrounding
-context owns finalization. It also does not expose streaming results because
-they could escape the session lifetime.
+Each top-level task has a distinct contextual state and session. Child tasks
+inherit Python context values, so every operation validates that
+`asyncio.current_task()` is the owning task. Child-task use, calls outside a
+transaction, and escaped contextual state raise `TransactionContextError`.
+Independent transactions from different roots remain independent and are not a
+distributed transaction.
 
-One bound `EntityTransaction` or low-level `AsyncSession` belongs to one task.
-It MUST NOT be shared across concurrent tasks or used concurrently through
-`asyncio.gather()`; concurrency safety applies to independent manager calls,
-which create separate sessions.
+The manager exposes `add()`, `add_all()`, `get()`, `get_one()`, `merge()`,
+`delete()`, `flush()`, `refresh()`, and buffered `execute()`, `scalar()`, and
+`scalars()`. It does not expose commit, rollback, close, or streaming results;
+the lexical context owns finalization.
 
-## 8. EntityManager
+## 7. Repositories
 
-`EntityManager` is a singleton generic gateway. Every one-shot call creates a
-fresh transaction through `SessionManager`, delegates to `EntityTransaction`,
-then commits or rolls back and closes automatically:
-
-```python
-member = await entities.get(MemberRow, member_id)
-created = await entities.add(MemberRow(name="Ada"))
-rows = await entities.scalars(select(MemberRow).order_by(MemberRow.id))
-```
-
-One-shot write methods `add()`, `add_all()`, `merge()`, `delete()`, and
-`execute()` commit automatically. Read methods also execute inside an explicit
-transaction because `autobegin=False`.
-
-One-shot ORM entities are detached after the method returns. With the default
-`expire_on_commit=False`, loaded scalar attributes remain available; required
-relationships MUST be loaded explicitly through SQLAlchemy loader options.
-Applications that opt into `expire_on_commit=True` also opt out of usable
-detached return values because loaded attributes may be expired at commit.
-Applications use `merge()` for detached changes.
-
-Multiple one-shot calls are independent transactions. Atomic composition MUST
-use one explicit `EntityManager.transaction()` and its bound manager. There is
-no implicit transaction propagation to nested services or child tasks.
-Locked reads and all work that depends on them MUST remain inside that same
-bound transaction; a one-shot `execute()` releases database locks before it
-returns.
-
-## 9. Repositories
-
-`Repository[EntityT]` is a model-bound façade over either `EntityManager` or one
-explicit `EntityTransaction`. `EntityManager.repository(Entity)` and
-`EntityTransaction.repository(Entity)` create an unregistered default repository
-directly. The default repository exposes model-bound CRUD plus `find()`,
+`Repository[EntityT]` is a model-bound façade over its keyed singleton
+`EntityManager`. It exposes model-bound CRUD plus `find()`,
 `find_one()`, `find_one_or_raise()`, `count()`, and `exists()` using native
 SQLAlchemy expressions, loader options, ordering, and bounded offset/limit
 values. It does not accept criteria dictionaries or define a separate query
-language.
+language. Repository methods use the manager's active contextual session and
+raise `TransactionContextError` outside a transaction.
 
 Default repository DI is explicit:
 
@@ -276,12 +232,11 @@ custom repositories together. Python's type system preserves the concrete
 decorated class but cannot express its dependent entity-type equality; the
 decorator validates that equality eagerly at import time.
 
-`repository.bind(transaction)` creates a transaction-bound instance of the same
-concrete repository without mutating the singleton. Several repositories may be
-bound to one transaction. Binding rejects inactive transactions and transactions
-owned by a different keyed `EntityManager`; there is no ambient propagation.
+Several repositories automatically share one transaction when called from the
+same owning task. They are never cloned or bound, and no transaction argument is
+passed through application layers.
 
-## 10. Application Providers
+## 8. Application Providers
 
 Stateless services and controllers SHOULD be singleton providers:
 
@@ -290,9 +245,18 @@ Stateless services and controllers SHOULD be singleton providers:
 class MemberService:
     def __init__(self, entities: EntityManager) -> None:
         self._entities = entities
+
+    async def update(self, member_id: int) -> None:
+        async with self._entities.transaction():
+            member = await self._members.get_one(member_id)
+            member.activate()
 ```
 
-## 11. Models and Migrations
+Transaction contexts SHOULD be kept around the narrowest contiguous persistence
+work. Awaiting unrelated network or policy work while holding a database
+transaction SHOULD be avoided.
+
+## 9. Models and Migrations
 
 The application owns `DeclarativeBase`, mappings, metadata, repository policy,
 and migrations. Repository registration is explicit and does not generate
@@ -302,23 +266,25 @@ TypeORM-like criteria language.
 Complex queries remain normal SQLAlchemy statements. Alembic remains a separate
 deployment tool, and the integration performs no DDL during startup.
 
-## 12. Testing
+## 10. Testing
 
 Contract tests MUST verify:
 
-- managers are singleton and create no session during startup;
-- each concurrent manager call receives a distinct session;
+- the manager is singleton and creates no session during startup;
+- each concurrent top-level transaction receives a distinct session;
 - success commits and closes exactly once;
 - failure rolls back and closes exactly once;
-- bound operations share one identity map and transaction;
-- one-shot operations return usable detached values;
+- the manager yielded by every scope is the singleton itself;
+- same-task nesting uses savepoints with bounded rollback;
+- child-task, escaped, and no-transaction operations fail explicitly;
+- repositories automatically share one identity map and transaction;
 - keyed roots resolve distinct managers;
 - owned and external engine disposal semantics;
 - real async-driver add/get/query/update/delete and rollback behavior;
-- default/custom repository DI, rich query, binding, and keyed-root behavior;
+- default/custom repository DI, rich query, ambient transaction, and keyed-root behavior;
 - public API, import boundaries, type marker, wheel, and sdist artifacts.
 
-## 13. Non-Goals
+## 11. Non-Goals
 
 The distribution does not add HTTP middleware, CQRS, event sourcing, outbox,
 retries, model discovery, generated repositories, custom query builders,

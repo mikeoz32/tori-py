@@ -31,12 +31,6 @@ def get_session_factory_token(*, key: str = "default") -> Token:
     return _keyed("session_factory", key)
 
 
-def get_session_manager_token(*, key: str = "default") -> Token:
-    """Return the qualified singleton SessionManager token for one root."""
-
-    return _keyed("session_manager", key)
-
-
 def get_entity_manager_token(*, key: str = "default") -> Token:
     """Return the qualified singleton EntityManager token for one root."""
 
@@ -76,6 +70,5 @@ __all__ = [
     "get_engine_token",
     "get_repository_token",
     "get_session_factory_token",
-    "get_session_manager_token",
     "inject_repository",
 ]
