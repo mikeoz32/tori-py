@@ -243,7 +243,9 @@ external asset/CSP requirements.
 Kinker adds `nestpy-openapi==0.1.0`, creates one `openapi_module` descriptor, and
 imports it from `AppModule`. It serves `/openapi.json` and `/docs`, declares an
 `oidcBearer` JWT scheme in components, and adds explicit health tags/summaries.
-No root security requirement is applied, so health remains public.
+Authenticated Members and Profiles routes declare the bearer requirement,
+stable operation IDs, summaries, and a shared tag. No root security requirement
+is applied, so health remains public.
 
 ## 13. Errors and Lifecycle
 

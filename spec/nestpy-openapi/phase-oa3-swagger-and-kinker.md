@@ -4,7 +4,8 @@
 
 - `OpenApiModule.for_root(options, key="default")`.
 - Generated Nestpy controller at configured JSON/UI paths.
-- Kinker module import, bearer component, and health metadata.
+- Kinker module import, bearer component, public health metadata, and
+  authenticated Members and Profiles operation metadata.
 
 ## Invariants
 
@@ -20,4 +21,6 @@
 - Descriptor shape, identity, options validation, and duplicate route behavior.
 - Startup generation failure is fail-closed.
 - JSON/UI content, HEAD, request ID, pipeline participation, and caching.
-- Kinker health paths, bearer components, no global security, no self-doc routes.
+- Kinker health and Members and Profiles paths, bearer components, no global
+  security, authenticated operation requirements, stable IDs/tags/summaries,
+  and no self-doc routes.
