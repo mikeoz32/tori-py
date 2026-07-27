@@ -1,9 +1,11 @@
 import asyncio
+import inspect
 import json
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Annotated, Any, cast
 
+import nestpy.http.routes as routes_module
 import pytest
 from nestpy import (
     Body,
@@ -13,17 +15,19 @@ from nestpy import (
     FactoryProvider,
     Header,
     Inject,
+    ModuleId,
     NestApplication,
     Path,
     Query,
     Scope,
     controller,
     get,
+    header,
     module,
     post,
 )
 from nestpy.core.runtime import ApplicationState, RequestScope
-from nestpy.http import HttpContext
+from nestpy.http import HttpContext, HttpResponse, compile_controller_routes
 from nestpy.logging import current_log_context
 from nestpy.starlette import (
     StarletteAdapter,
@@ -39,6 +43,10 @@ from starlette.types import ASGIApp, Message
 
 def _asgi(application) -> ASGIApp:
     return application.get_adapter(StarletteAdapter).app
+
+
+class _RouteReturnModel:
+    pass
 
 
 @pytest.mark.asyncio
@@ -96,6 +104,8 @@ async def test_body_binding_repeated_query_and_explicit_response_request_id(
     @controller()
     class Controller:
         @post("/body")
+        @header("Cache-Control", "no-store")
+        @header("X-Request-ID", "handler-value")
         async def body(
             self,
             value: Annotated[object, Body()],
@@ -105,6 +115,19 @@ async def test_body_binding_repeated_query_and_explicit_response_request_id(
         @get("/explicit")
         async def explicit(self) -> Response:
             return Response("ok", headers={"X-Request-ID": "handler-value"})
+
+        @get("/portable")
+        @header("X-Decorator", "ignored")
+        async def portable(self) -> HttpResponse:
+            return HttpResponse(
+                b"cached",
+                status_code=202,
+                headers={
+                    "content-type": "text/plain; charset=utf-8",
+                    "x-document": "cached",
+                    "x-request-id": "handler-value",
+                },
+            )
 
         @get("/query")
         async def query(self, values: Annotated[object, Query("value")]) -> object:
@@ -120,9 +143,15 @@ async def test_body_binding_repeated_query_and_explicit_response_request_id(
         method="POST",
         path="/body",
         body=b'{"name":"test"}',
-        headers=[(b"content-type", b"application/json")],
+        headers=[
+            (b"content-type", b"application/json"),
+            (b"x-request-id", b"body-request"),
+        ],
     )
     assert json.loads(message_body(body_messages[1])) == {"name": "test"}
+    body_headers = message_headers(body_messages[0])
+    assert (b"cache-control", b"no-store") in body_headers
+    assert (b"x-request-id", b"body-request") in body_headers
 
     query_messages = await call_http(
         _asgi(application),
@@ -138,7 +167,63 @@ async def test_body_binding_repeated_query_and_explicit_response_request_id(
     assert (b"x-request-id", b"framework-value") in message_headers(
         explicit_messages[0]
     )
+    portable_messages = await call_http(
+        _asgi(application),
+        path="/portable",
+        headers=[(b"x-request-id", b"portable-request")],
+    )
+    portable_headers = message_headers(portable_messages[0])
+    assert portable_messages[0]["status"] == 202
+    assert message_body(portable_messages[1]) == b"cached"
+    assert (b"content-type", b"text/plain; charset=utf-8") in portable_headers
+    assert (b"x-document", b"cached") in portable_headers
+    assert (b"x-decorator", b"ignored") not in portable_headers
+    assert portable_headers.count((b"x-request-id", b"portable-request")) == 1
     await application.close()
+
+
+def test_http_response_validates_and_copies_portable_values() -> None:
+    headers = {"content-type": "text/plain"}
+    response = HttpResponse(b"body", status_code=201, headers=headers)
+    headers["content-type"] = "changed"
+    assert response.content == b"body"
+    assert response.status_code == 201
+    assert response.headers == {"content-type": "text/plain"}
+    with pytest.raises(TypeError, match="content must be bytes"):
+        HttpResponse(cast(Any, "body"))
+    with pytest.raises(ValueError, match="between 200 and 599"):
+        HttpResponse(b"", status_code=99)
+    with pytest.raises(ValueError, match="between 200 and 599"):
+        HttpResponse(b"", status_code=199)
+    with pytest.raises(ValueError, match="must not contain content"):
+        HttpResponse(b"body", status_code=204)
+    with pytest.raises(ValueError, match="HTTP tokens"):
+        HttpResponse(b"", headers={"invalid header": "value"})
+    with pytest.raises(ValueError, match="CR or LF"):
+        HttpResponse(b"", headers={"x-value": "one\r\ntwo"})
+    with pytest.raises(ValueError, match="control characters"):
+        HttpResponse(b"", headers={"x-value": "one\x00two"})
+    with pytest.raises(ValueError, match="control characters"):
+        HttpResponse(b"", headers={"x-value": "one\x0btwo"})
+    with pytest.raises(ValueError, match="surrounding whitespace"):
+        HttpResponse(b"", headers={"x-value": " value"})
+    with pytest.raises(ValueError, match="must be unique"):
+        HttpResponse(b"", headers={"X-Value": "one", "x-value": "two"})
+    with pytest.raises(ValueError, match="transport-owned"):
+        HttpResponse(b"", headers={"content-length": "0"})
+    with pytest.raises(ValueError, match="valid media type"):
+        HttpResponse(b"", headers={"content-type": "text /plain"})
+    with pytest.raises(BootstrapError, match="valid media type"):
+        header("Content-Type", "text/plain, application/json")
+    with pytest.raises(BootstrapError, match="header values must be strings"):
+        header("x-value", cast(Any, lambda: "dynamic"))
+
+    with pytest.raises(BootstrapError, match="already declared"):
+
+        @header("X-Value", "outer")
+        @header("x-value", "inner")
+        def duplicate_headers() -> None:
+            pass
 
 
 @pytest.mark.asyncio
@@ -394,6 +479,79 @@ async def test_route_binding_validation_happens_at_compile() -> None:
 
     with pytest.raises(BootstrapError, match="exactly one binding marker"):
         await TestingModule.create(InvalidRoot).compile(adapter=StarletteAdapter())
+
+
+@pytest.mark.asyncio
+async def test_controller_route_compiler_retains_return_annotations_and_is_canonical(
+    monkeypatch: pytest.MonkeyPatch,
+    call_http,
+) -> None:
+    @controller()
+    class Controller:
+        @get("/sync")
+        def sync(self) -> "_RouteReturnModel":  # noqa: UP037 - exercise resolution
+            return _RouteReturnModel()
+
+        @get("/async")
+        async def async_result(self) -> list[str]:
+            return []
+
+        @get("/none")
+        async def explicit_none(self) -> None:
+            return None
+
+        @get("/absent")
+        async def absent(self):
+            return None
+
+    @module(controllers=[Controller])
+    class Root:
+        pass
+
+    hint_calls = 0
+    signature_calls = 0
+    original_hints = routes_module.get_type_hints
+    original_signature = routes_module.inspect.signature
+    handlers = {
+        Controller.sync,
+        Controller.async_result,
+        Controller.explicit_none,
+        Controller.absent,
+    }
+
+    def counting_get_type_hints(*args: Any, **kwargs: Any) -> dict[str, object]:
+        nonlocal hint_calls
+        if args and args[0] in handlers:
+            hint_calls += 1
+        return cast(dict[str, object], original_hints(*args, **kwargs))
+
+    def counting_signature(*args: Any, **kwargs: Any) -> inspect.Signature:
+        nonlocal signature_calls
+        if args and args[0] in handlers:
+            signature_calls += 1
+        return original_signature(*args, **kwargs)
+
+    monkeypatch.setattr(routes_module, "get_type_hints", counting_get_type_hints)
+    monkeypatch.setattr(routes_module.inspect, "signature", counting_signature)
+    plans = compile_controller_routes(ModuleId(Root), Controller)
+    by_path = {plan.path: plan for plan in plans}
+
+    assert hint_calls == signature_calls == 4
+    assert by_path["/sync"].return_annotation is _RouteReturnModel
+    assert by_path["/async"].return_annotation == list[str]
+    assert by_path["/none"].return_annotation is type(None)
+    assert by_path["/absent"].return_annotation is inspect.Signature.empty
+    assert by_path["/sync"].handler is Controller.sync
+    with pytest.raises(AttributeError):
+        cast(Any, plans).append(by_path["/sync"])
+
+    application = await NestApplication.create(Root, adapter=StarletteAdapter())
+    assert hint_calls == signature_calls == 8
+    await application.start()
+    response = await call_http(_asgi(application), path="/async")
+    assert response[0]["status"] == 200
+    assert hint_calls == signature_calls == 8
+    await application.shutdown()
 
 
 @pytest.mark.asyncio

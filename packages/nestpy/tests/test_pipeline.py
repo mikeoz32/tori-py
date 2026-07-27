@@ -32,6 +32,7 @@ from nestpy import (
     use_pipe,
     use_pipes,
 )
+from nestpy.http import HttpResponse
 from nestpy.starlette import (
     RequestContext,
     StarletteAdapter,
@@ -552,6 +553,17 @@ async def test_middleware_next_is_one_shot_and_short_circuit_is_allowed(
             del next
             return PipelineResult.from_response(Response("short", status_code=202))
 
+    class PortableShortCircuit:
+        async def handle(self, context, next):
+            del context, next
+            return PipelineResult.from_response(
+                HttpResponse(
+                    b"portable-short",
+                    status_code=203,
+                    headers={"content-type": "text/plain"},
+                )
+            )
+
     @controller()
     class Controller:
         @get("/double")
@@ -564,11 +576,17 @@ async def test_middleware_next_is_one_shot_and_short_circuit_is_allowed(
         async def short(self) -> str:
             return "not reached"
 
+        @get("/portable-short")
+        @use_middleware("portable-short")
+        async def portable_short(self) -> str:
+            return "not reached"
+
     @module(
         controllers=[Controller],
         providers=[
             ValueProvider("double", DoubleNext()),
             ValueProvider("short", ShortCircuit()),
+            ValueProvider("portable-short", PortableShortCircuit()),
         ],
     )
     class Root:
@@ -579,6 +597,9 @@ async def test_middleware_next_is_one_shot_and_short_circuit_is_allowed(
     assert double[0]["status"] == 500
     short = await call_http(_asgi(application), path="/short")
     assert short[0]["status"] == 202
+    portable_short = await call_http(_asgi(application), path="/portable-short")
+    assert portable_short[0]["status"] == 203
+    assert portable_short[1]["body"] == b"portable-short"
     await application.close()
 
 

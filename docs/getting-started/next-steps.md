@@ -10,6 +10,8 @@ Choose a path based on the problem you are solving:
   Observability guides.
 - Use TestingModule overrides and ASGI lifecycle tests in the Testing guide.
 - Serve an application factory with `nestpy run` in the CLI guide.
+- Generate OpenAPI 3.1 and Swagger UI with the optional
+  [OpenAPI integration](../openapi/index.md).
 
 The current reference application is the in-memory [Task API](../reference/task-api.md).
 It shows

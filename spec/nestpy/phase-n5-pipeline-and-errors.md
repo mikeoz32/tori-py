@@ -157,9 +157,11 @@ with source details.
 
 ## Explicit Responses
 
-Filters/middleware/interceptors may return opaque explicit Starlette responses.
-Framework route status/static headers do not alter them. Request ID overwrite
-and request-scope lifetime remain N4 invariants.
+Handlers, middleware, and interceptors may return portable `HttpResponse`
+values. Filters may wrap one in `PipelineResult.from_value()`. Opaque explicit
+Starlette responses remain a driver escape hatch. Framework route status does
+not alter either response kind; request ID overwrite and request-scope lifetime
+remain N4 invariants.
 
 ## Explicit Non-Goals
 

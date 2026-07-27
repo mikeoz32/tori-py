@@ -16,6 +16,7 @@ from nestpy.core.providers import Token
 from nestpy.http.context import current_request_scope
 from nestpy.http.errors import HttpException
 from nestpy.http.pipeline import PipelineExecutor
+from nestpy.http.response import HttpResponse, ResponseHeaderMetadata
 from nestpy.http.routes import ParameterPlan, RoutePlan
 from nestpy.starlette.context import RequestContext, _set_context
 
@@ -95,6 +96,7 @@ def _endpoint(
                 result,
                 plan.status_code,
                 request,
+                plan.response_headers,
             )
 
         result = await pipeline.run(
@@ -185,7 +187,22 @@ async def _encode_result(
     result: object,
     status_code: int,
     request: Request,
+    response_headers: tuple[ResponseHeaderMetadata, ...] = (),
 ) -> Response:
+    if isinstance(result, HttpResponse):
+        request_id = request.scope.get("nestpy_request_id")
+        headers = {
+            name: value
+            for name, value in result.headers.items()
+            if name.casefold() != "x-request-id"
+        }
+        if isinstance(request_id, str):
+            headers["X-Request-ID"] = request_id
+        return Response(
+            result.content,
+            status_code=result.status_code,
+            headers=headers,
+        )
     if isinstance(result, Response):
         request_id = request.scope.get("nestpy_request_id")
         if isinstance(request_id, str):
@@ -197,8 +214,14 @@ async def _encode_result(
         raise HttpException(
             500, "Handler result could not be encoded as JSON."
         ) from error
+    headers = {
+        header.name: header.value
+        for header in response_headers
+        if header.name.casefold() != "x-request-id"
+    }
     request_id = request.scope.get("nestpy_request_id")
-    headers = {"X-Request-ID": request_id} if isinstance(request_id, str) else None
+    if isinstance(request_id, str):
+        headers["X-Request-ID"] = request_id
     return Response(
         content,
         status_code=status_code,
@@ -211,12 +234,15 @@ async def _encode_pipeline_result(
     result: object,
     status_code: int,
     request: Request,
+    response_headers: tuple[ResponseHeaderMetadata, ...] = (),
 ) -> Response:
     if isinstance(result, PipelineResult):
-        if result.is_response and not isinstance(result.value, Response):
-            raise HttpException(500, "Pipeline response is not a Starlette response.")
+        if result.is_response and not isinstance(
+            result.value, (HttpResponse, Response)
+        ):
+            raise HttpException(500, "Pipeline response is not an HTTP response.")
         result = result.value
-    return await _encode_result(result, status_code, request)
+    return await _encode_result(result, status_code, request, response_headers)
 
 
 def _collapse_values(values: list[str]) -> object:

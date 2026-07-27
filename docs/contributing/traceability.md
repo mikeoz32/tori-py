@@ -1,7 +1,8 @@
 # Documentation Traceability
 
-Pages use tested source files under `examples/nestpy/` rather than copied
-snippets. The D2 pages and their checks are listed below.
+Pages anchor complete applications in tested source files under
+`examples/nestpy/`. Smaller inline snippets isolate one API rule; package tests
+cover their underlying behavior. The D2 pages and their checks are listed below.
 
 | Page | Executable source | Verification |
 | --- | --- | --- |
@@ -15,6 +16,7 @@ snippets. The D2 pages and their checks are listed below.
 | Testing | `getting_started/first_test` | `examples/nestpy/getting_started/first_test/test_example.py` |
 | Async factory and ASGI wrapper | `getting_started/async_factory`, `getting_started/asgi_wrapper` | `packages/nestpy/tests/docs/test_getting_started_examples.py` |
 | CLI run | `getting_started/cli_run` | `packages/nestpy/tests/test_cli.py` |
+| OpenAPI guides | `openapi` | `examples/nestpy/openapi/test_openapi_example.py`, `packages/nestpy-openapi/tests/` |
 
 `packages/nestpy/scripts/verify_docs.py` verifies the required D1/D2 files and
 public imports used by Python snippets. `mkdocs build --strict` validates the

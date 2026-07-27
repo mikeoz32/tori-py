@@ -38,8 +38,9 @@ targets. Symbol groups map to the planned API-reference pages in
 | --- | --- | --- | --- |
 | `HttpContext`, `current_http_context` | `nestpy.http.context` | HTTP Execution Context | N4-N5 |
 | `HttpException` | `nestpy.http.errors` | Problem Details | N4-N5 |
+| `HttpResponse`, `ResponseHeaderMetadata`, `get_response_header_metadata`, `header` | `nestpy.http.response` | Portable Explicit HTTP Responses | N4 |
 | `MsgspecValidationPipe` | `nestpy.http.validation` | Msgspec Validation | N5 |
-| `HttpPipelineAdapter`, `PipelineExecutor`, `ParameterPlan`, `RoutePlan`, `compile_routes`, `bind_routes` | `nestpy.http.pipeline` and `nestpy.http.routes` | HTTP Adapter Extension Contracts | N4-N5 |
+| `HttpPipelineAdapter`, `PipelineExecutor`, `ParameterPlan`, `RoutePlan`, `compile_controller_routes`, `compile_routes`, `bind_routes` | `nestpy.http.pipeline` and `nestpy.http.routes` | HTTP Adapter Extension Contracts | N4-N5 |
 
 ## `nestpy.starlette`
 
@@ -57,9 +58,10 @@ targets. Symbol groups map to the planned API-reference pages in
 | `TestingModule`, `TestingApplication`, `ProviderOverride`, `http_client` | `nestpy.testing` | Testing and HTTPX Client | N3-N4 |
 | `nestpy run` | `nestpy.cli:main` console command | CLI Run | N6 |
 
-`nestpy` re-exports framework-agnostic core declarations and the driver-neutral
-application facade. Starlette, settings, and testing APIs require their named
-public subpackage.
+`nestpy` re-exports framework-agnostic core declarations, the driver-neutral
+application facade, and the portable `HttpResponse`, `ResponseHeaderMetadata`,
+and `header` response API. Starlette, settings, and testing APIs require their
+named public subpackage.
 `nestpy.cli` exposes the console entry point only; parser and loader helpers are
 internal despite being module-level implementation names.
 

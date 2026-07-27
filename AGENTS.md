@@ -16,7 +16,7 @@
 ## Development
 - ALWAYS use `uv` exclusively for Python environments, dependencies, commands, tests, and services.
 - Add dependencies with `uv`; run tests and services with `uv`.
-- Run quality checks through `uv`: `uv run ruff check .`, `uv run ruff format --check .`, and `uv run ty check src/kinker tests packages/cqrs-core/src packages/cqrs-core/tests packages/cqrs-event-sourcing/src packages/cqrs-event-sourcing/tests packages/cqrs-fastapi/src packages/cqrs-fastapi/tests packages/nestpy/src packages/nestpy/tests packages/nestpy-cqrs/src packages/nestpy-cqrs/tests packages/nestpy-cqrs-event-sourcing/src packages/nestpy-cqrs-event-sourcing/tests packages/nestpy-sqlalchemy/src packages/nestpy-sqlalchemy/tests examples/nestpy`.
+- Run quality checks through `uv`: `uv run ruff check .`, `uv run ruff format --check .`, and `uv run ty check src/kinker tests packages/cqrs-core/src packages/cqrs-core/tests packages/cqrs-event-sourcing/src packages/cqrs-event-sourcing/tests packages/cqrs-fastapi/src packages/cqrs-fastapi/tests packages/nestpy/src packages/nestpy/tests packages/nestpy-cqrs/src packages/nestpy-cqrs/tests packages/nestpy-cqrs-event-sourcing/src packages/nestpy-cqrs-event-sourcing/tests packages/nestpy-openapi/src packages/nestpy-openapi/tests packages/nestpy-sqlalchemy/src packages/nestpy-sqlalchemy/tests examples/nestpy`.
 
 ## CQRS Library
 - Initial workspace boundary: framework-agnostic core package plus a separate FastAPI adapter; core must not depend on FastAPI, Pydantic, SQLAlchemy, or a DI framework.
@@ -29,3 +29,7 @@
 ## Nestpy SQLAlchemy
 - The async SQLAlchemy lifecycle/DI integration and its implementation order are recorded in `NESTPY_SQLALCHEMY_ARCHITECTURE.md`, `NESTPY_SQLALCHEMY_IMPLEMENTATION_PLAN.md`, and `spec/nestpy-sqlalchemy/README.md`.
 - Keep engine, session-factory, EntityManager, and explicitly registered repository providers singleton. EntityManager owns short-lived lexical transactions through an instance ContextVar with strict owner-task guards; operations require an active transaction, nested same-task scopes use savepoints, and repositories are never bound or cloned. Default and decorated custom repositories are allowed, but the integration must not add CQRS, event-sourcing, model scanning, generated repository classes, a custom query language, or startup migrations.
+
+## Nestpy OpenAPI
+- The accepted optional OpenAPI 3.1/Swagger UI package, Nestpy extension points, implementation order, and executable phases are recorded in `NESTPY_OPENAPI_ARCHITECTURE.md`, `NESTPY_OPENAPI_IMPLEMENTATION_PLAN.md`, and `spec/nestpy-openapi/README.md`.
+- Discover controllers through Nestpy `DiscoveryService` and compile their mappings through the public transport-neutral controller route compiler; do not inspect or extend `StarletteAdapter`, infer runtime security/errors, or add FastAPI/Pydantic. `python-openapi` 0.3.0 was evaluated and rejected because its endpoint inference conflicts with Nestpy mappings and adds a second schema stack.

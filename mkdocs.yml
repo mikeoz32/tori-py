@@ -39,6 +39,13 @@ nav:
       - Next Steps: getting-started/next-steps.md
   - Reference:
       - Task API: reference/task-api.md
+  - OpenAPI:
+      - Overview: openapi/index.md
+      - Configuration: openapi/configuration.md
+      - Schemas and Routes: openapi/schemas-and-routes.md
+      - Metadata and Responses: openapi/metadata-and-responses.md
+      - Security and Swagger UI: openapi/security-and-swagger.md
+      - Advanced Usage: openapi/advanced.md
   - Contributing:
       - Public API Inventory: contributing/public-api-inventory.md
       - Documentation Traceability: contributing/traceability.md

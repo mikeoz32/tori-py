@@ -25,6 +25,7 @@ from nestpy.core.pipeline import PipelineBindings
 from nestpy.core.protocols import ScopedResolver
 from nestpy.core.providers import Inject, Token
 from nestpy.http.context import HttpContext
+from nestpy.http.response import ResponseHeaderMetadata, get_response_header_metadata
 
 
 @dataclass(frozen=True, slots=True)
@@ -51,6 +52,8 @@ class RoutePlan:
     parameters: tuple[ParameterPlan, ...]
     controller_pipeline: PipelineBindings
     route_pipeline: PipelineBindings
+    return_annotation: object = inspect.Signature.empty
+    response_headers: tuple[ResponseHeaderMetadata, ...] = ()
 
 
 def compile_routes(graph: CompiledGraph) -> tuple[RoutePlan, ...]:
@@ -58,49 +61,73 @@ def compile_routes(graph: CompiledGraph) -> tuple[RoutePlan, ...]:
     reserved: set[tuple[str, str]] = set()
     for module in graph.modules:
         for controller in module.spec.controllers:
-            controller_metadata = get_controller_metadata(controller)
-            if controller_metadata is None:
-                raise BootstrapError(
-                    "controller must have controller metadata",
-                    code="controller.invalid_declaration",
-                    details={"controller": controller.__qualname__},
-                )
-            for method_name, handler in controller.__dict__.items():
-                route_metadata = get_route_metadata(handler)
-                if route_metadata is None:
-                    continue
-                path = _join_paths(controller_metadata.prefix, route_metadata.path)
-                identities = {(route_metadata.method, path)}
-                if route_metadata.method == "GET":
-                    identities.add(("HEAD", path))
-                if reserved.intersection(identities):
-                    raise BootstrapError(
-                        "duplicate controller route",
-                        code="route.duplicate",
-                        details={"method": route_metadata.method, "path": path},
-                    )
-                reserved.update(identities)
-                status_metadata = get_status_metadata(handler)
-                plans.append(
-                    RoutePlan(
-                        module_id=module.module_id,
-                        controller=controller,
-                        method_name=method_name,
-                        handler=handler,
-                        method=route_metadata.method,
-                        path=path,
-                        route_id=f"{route_metadata.method} {path}",
-                        status_code=(
-                            200
-                            if status_metadata is None
-                            else status_metadata.status_code
-                        ),
-                        parameters=_compile_parameters(handler),
-                        controller_pipeline=_pipeline_bindings(controller),
-                        route_pipeline=_pipeline_bindings(handler),
-                    )
-                )
+            controller_plans = compile_controller_routes(module.module_id, controller)
+            for plan in controller_plans:
+                _reserve_route(plan.method, plan.path, reserved)
+            plans.extend(controller_plans)
     return tuple(plans)
+
+
+def compile_controller_routes(
+    module_id: ModuleId,
+    controller: type[object],
+) -> tuple[RoutePlan, ...]:
+    """Compile the canonical unbound route mappings for one controller."""
+
+    controller_metadata = get_controller_metadata(controller)
+    if controller_metadata is None:
+        raise BootstrapError(
+            "controller must have controller metadata",
+            code="controller.invalid_declaration",
+            details={"controller": controller.__qualname__},
+        )
+    plans: list[RoutePlan] = []
+    reserved: set[tuple[str, str]] = set()
+    for method_name, handler in controller.__dict__.items():
+        route_metadata = get_route_metadata(handler)
+        if route_metadata is None:
+            continue
+        path = _join_paths(controller_metadata.prefix, route_metadata.path)
+        _reserve_route(route_metadata.method, path, reserved)
+        parameters, return_annotation = _compile_signature(handler)
+        status_metadata = get_status_metadata(handler)
+        plans.append(
+            RoutePlan(
+                module_id=module_id,
+                controller=controller,
+                method_name=method_name,
+                handler=handler,
+                method=route_metadata.method,
+                path=path,
+                route_id=f"{route_metadata.method} {path}",
+                status_code=(
+                    200 if status_metadata is None else status_metadata.status_code
+                ),
+                parameters=parameters,
+                controller_pipeline=_pipeline_bindings(controller),
+                route_pipeline=_pipeline_bindings(handler),
+                return_annotation=return_annotation,
+                response_headers=get_response_header_metadata(handler),
+            )
+        )
+    return tuple(plans)
+
+
+def _reserve_route(
+    method: str,
+    path: str,
+    reserved: set[tuple[str, str]],
+) -> None:
+    identities = {(method, path)}
+    if method == "GET":
+        identities.add(("HEAD", path))
+    if reserved.intersection(identities):
+        raise BootstrapError(
+            "duplicate controller route",
+            code="route.duplicate",
+            details={"method": method, "path": path},
+        )
+    reserved.update(identities)
 
 
 async def bind_routes(
@@ -123,7 +150,9 @@ async def bind_routes(
     return tuple(bound)
 
 
-def _compile_parameters(handler: object) -> tuple[ParameterPlan, ...]:
+def _compile_signature(
+    handler: object,
+) -> tuple[tuple[ParameterPlan, ...], object]:
     try:
         signature = inspect.signature(cast(Callable[..., object], handler))
         hints = get_type_hints(handler, include_extras=True)
@@ -184,7 +213,10 @@ def _compile_parameters(handler: object) -> tuple[ParameterPlan, ...]:
             "a route may have at most one body binding",
             code="route.invalid_binding",
         )
-    return tuple(plans)
+    return (
+        tuple(plans),
+        hints.get("return", signature.return_annotation),
+    )
 
 
 def _pipeline_bindings(target: object) -> PipelineBindings:
@@ -245,4 +277,10 @@ def _join_paths(prefix: str, path: str) -> str:
     return joined if joined.startswith("/") else f"/{joined}"
 
 
-__all__ = ["ParameterPlan", "RoutePlan", "bind_routes", "compile_routes"]
+__all__ = [
+    "ParameterPlan",
+    "RoutePlan",
+    "bind_routes",
+    "compile_controller_routes",
+    "compile_routes",
+]

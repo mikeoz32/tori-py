@@ -44,6 +44,7 @@ assert 'uvicorn' not in sys.modules
 assert 'yaml' not in sys.modules
 assert 'httpx' not in sys.modules
 assert 'NestApplication' in nestpy.__all__
+assert {'HttpResponse', 'ResponseHeaderMetadata', 'header'}.issubset(nestpy.__all__)
 assert 'StarletteOptions' not in nestpy.__all__
 assert 'NestApplication' not in nestpy.starlette.__all__
 assert 'HttpException' not in nestpy.starlette.__all__
@@ -56,6 +57,8 @@ assert {
     'RoutePlan',
     'bind_routes',
     'compile_routes',
+    'get_response_header_metadata',
+    'header',
 }.issubset(nestpy.http.__all__)
 """
     completed = subprocess.run(

@@ -59,6 +59,13 @@ Controllers are explicit module metadata and mandatory eager singleton
 providers. `nestpy.http` compiles frozen route plans from decorators/signatures
 without creating Starlette objects during application compilation.
 
+The public `compile_controller_routes(module_id, controller)` helper performs
+this compilation for exactly one controller and freezes parameter plus return
+annotations. Absent return metadata remains distinguishable from explicit
+`None`; execution never uses return metadata for response validation or
+conversion. Whole-graph route compilation delegates to the helper and retains
+graph-wide duplicate checks.
+
 At startup, bind route plans once to started singleton controller instances and
 create Starlette `Route` objects in declaration order.
 
@@ -157,10 +164,20 @@ phase exists.
 Direct handler results in N4 support:
 
 - primitives/mappings/sequences/dataclasses/msgspec structs encoded as JSON;
+- transport-neutral `HttpResponse` with pre-encoded bytes, status, and headers;
 - explicit Starlette `Response` passthrough.
 
-Nestpy route status/static headers apply only to encoded values. Explicit
-responses own status/headers except framework `X-Request-ID`, which is
+`HttpResponse` accepts only final 200-599 statuses and case-insensitively unique
+headers. Statuses 204/304 require empty content; transports own content-length
+and transfer-encoding framing.
+
+Stackable `@header(name, value)` metadata applies static string headers only to
+ordinary Nestpy-encoded results. Explicit framework/driver responses own their
+headers, dynamic headers use `HttpResponse`, and framework `X-Request-ID`
+overrides every response kind.
+
+Nestpy route status applies only to encoded values. `HttpResponse` and explicit
+driver responses own status/headers except framework `X-Request-ID`, which is
 overwritten to maintain correlation.
 
 The request scope remains open through the explicit response ASGI call,
@@ -207,6 +224,7 @@ N4 MUST NOT:
 - infer HTTP source names;
 - auto-convert raw values to annotations;
 - implement custom auth/security policies;
+- implement OpenAPI generation or documentation metadata;
 - add first-class WebSocket/templates/static/stream APIs;
 - implement middleware/guard/pipe/interceptor/filter chains beyond the direct
   invocation boundary needed for N5 extension.
@@ -243,7 +261,10 @@ Tests MUST cover:
 24. request cancellation and no concurrent resource close;
 25. route-aware TestingModule compilation plus one HTTP request;
 26. handler annotations are inspected only during compilation, not requests;
-27. core import boundary remains intact.
+27. per-controller route compilation matches graph compilation;
+28. return annotations distinguish absent metadata from explicit `None` without
+    changing response execution;
+29. core import boundary remains intact.
 
 ## Exit Criteria
 

@@ -63,11 +63,13 @@ Nestpy v1 MUST NOT provide:
 - OpenTelemetry dependency;
 - CQRS dependency or built-in CQRS integration;
 - database, ORM, broker, job queue, or background-work framework.
+- built-in OpenAPI generation or documentation UI; optional add-ons may consume
+  public compiled HTTP metadata without creating a reverse dependency.
 
-Starlette `Response` subclasses remain a deliberate escape hatch. This permits
-an application to use advanced Starlette behavior, including streaming or
-background tasks, but Nestpy does not add first-class APIs, validation, or
-portability guarantees for those capabilities in v1.
+Nestpy owns a transport-neutral `HttpResponse` for pre-encoded bytes, status,
+and headers. Starlette `Response` subclasses remain a deliberate escape hatch
+for advanced driver-specific behavior, including streaming or background tasks,
+without portability guarantees in v1.
 
 ## 3. Workspace and Dependencies
 
@@ -667,6 +669,16 @@ method/path identities, and creates Starlette `Route` objects in declaration
 order. Overlap precedence, converters, trailing-slash redirects, implicit HEAD,
 OPTIONS, and Allow behavior follow the pinned Starlette driver version.
 
+The public transport-neutral `compile_controller_routes(module_id, controller)`
+helper compiles exactly one controller through the same path, status, pipeline,
+binding, and signature rules used by graph route compilation. Its frozen route
+plans retain resolved parameter and return annotations; absent return metadata
+remains distinct from explicit `None`. `compile_routes(graph)` delegates to this
+helper and separately enforces graph-wide duplicates. Add-ons may combine this
+helper with `DiscoveryService` without depending on a transport adapter or
+copying private mapping logic. Return metadata is descriptive and MUST NOT change
+runtime response conversion, validation, status, or encoding.
+
 Exact duplicate normalization adds one leading slash and collapses only the
 single join boundary between controller prefix and route path. It preserves the
 trailing slash, parameter names, converter text, and segment spelling. Method
@@ -708,12 +720,26 @@ Repeated query/header values remain a raw sequence for a later pipe.
 ### 9.4 Response contract
 
 Nestpy JSON-encodes primitives, mappings, sequences, and msgspec/dataclass
-structs. An explicit Starlette `Response` is passed through unchanged.
+structs. A framework-owned `HttpResponse` carries portable pre-encoded bytes,
+status, and headers. An explicit Starlette `Response` is passed through as a
+driver-specific escape hatch.
+
+`HttpResponse` accepts final status codes from 200 through 599, immutable bytes,
+and case-insensitively unique HTTP headers. Content length and transfer encoding
+remain transport-owned framing concerns. Statuses 204 and 304 require empty
+content, and header values reject prohibited control characters.
+
+The stackable method decorator `@header(name, value)` declares static headers
+for ordinary Nestpy-encoded route results. Names are case-insensitively unique,
+and values are static strings; dynamic values use `HttpResponse` explicitly.
+`HttpResponse` and native driver responses ignore route header metadata and own
+their headers. Framework `X-Request-ID` always takes precedence.
 
 For any explicit response, Nestpy retains the request scope until awaiting the
 response ASGI call has completed, including Starlette background tasks. Route
-status/header decorators apply only to Nestpy-encoded values; an explicit
-response owns its own status and headers.
+status metadata applies only to Nestpy-encoded values; an `HttpResponse` or
+driver response owns its own status and headers. Nestpy overwrites
+`X-Request-ID` to preserve framework correlation.
 
 Streaming, file, and background responses are therefore supported only through
 the Starlette escape hatch. Their portability to future drivers is not a v1
