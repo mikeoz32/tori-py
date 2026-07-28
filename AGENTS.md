@@ -11,6 +11,7 @@
 - Product persistence starts with CQRS and `nestpy-sqlalchemy`; add event sourcing later only to bounded contexts where it has a concrete benefit. The reusable `cqrs-fastapi` adapter is not the Kinker application stack.
 - Authentication is delegated to an external OIDC provider. The first product slice is identity-linked member profile onboarding with a unique handle, display name, visibility, and an 18+ attestation that does not store a date of birth.
 - The accepted implementation order and executable phase map for that slice are recorded in `KINKER_MEMBERS_PROFILES_IMPLEMENTATION_PLAN.md` and `spec/kinker/members-and-profiles/implementation/README.md`.
+- The accepted Relationships & Privacy architecture, implementation order, and executable phase map are recorded in `KINKER_RELATIONSHIPS_PRIVACY_ARCHITECTURE.md`, `KINKER_RELATIONSHIPS_PRIVACY_IMPLEMENTATION_PLAN.md`, and `spec/kinker/relationships-and-privacy/implementation/README.md`.
 - Frontend is undecided between Nuxt and Elixir Phoenix LiveView; do not scaffold either until that decision is explicit.
 
 ## Development
