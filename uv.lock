@@ -409,6 +409,7 @@ source = { editable = "." }
 dependencies = [
     { name = "alembic" },
     { name = "cqrs-core" },
+    { name = "cryptography" },
     { name = "httpx" },
     { name = "msgspec" },
     { name = "nestpy" },
@@ -444,6 +445,7 @@ docs = [
 requires-dist = [
     { name = "alembic", specifier = ">=1.18.5" },
     { name = "cqrs-core", editable = "packages/cqrs-core" },
+    { name = "cryptography", specifier = ">=49.0.0,<50" },
     { name = "httpx", specifier = ">=0.28.0" },
     { name = "msgspec", specifier = ">=0.19.0" },
     { name = "nestpy", editable = "packages/nestpy" },

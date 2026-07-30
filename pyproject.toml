@@ -15,6 +15,7 @@ dependencies = [
     "pyjwt[crypto]>=2.13.0,<3",
     "httpx>=0.28.0",
     "nestpy-openapi==0.1.0",
+    "cryptography>=49.0.0,<50",
 ]
 
 [project.scripts]
