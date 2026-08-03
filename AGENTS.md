@@ -17,7 +17,7 @@
 ## Development
 - ALWAYS use `uv` exclusively for Python environments, dependencies, commands, tests, and services.
 - Add dependencies with `uv`; run tests and services with `uv`.
-- Run quality checks through `uv`: `uv run ruff check .`, `uv run ruff format --check .`, and `uv run ty check src/kinker tests packages/cqrs-core/src packages/cqrs-core/tests packages/cqrs-event-sourcing/src packages/cqrs-event-sourcing/tests packages/cqrs-fastapi/src packages/cqrs-fastapi/tests packages/nestpy/src packages/nestpy/tests packages/nestpy-cqrs/src packages/nestpy-cqrs/tests packages/nestpy-cqrs-event-sourcing/src packages/nestpy-cqrs-event-sourcing/tests packages/nestpy-openapi/src packages/nestpy-openapi/tests packages/nestpy-sqlalchemy/src packages/nestpy-sqlalchemy/tests examples/nestpy`.
+- Run quality checks through `uv`: `uv run ruff check .`, `uv run ruff format --check .`, and `uv run ty check src/kinker tests packages/cqrs-core/src packages/cqrs-core/tests packages/cqrs-event-sourcing/src packages/cqrs-event-sourcing/tests packages/cqrs-fastapi/src packages/cqrs-fastapi/tests packages/nestpy/src packages/nestpy/tests packages/nestpy-cqrs/src packages/nestpy-cqrs/tests packages/nestpy-cqrs-event-sourcing/src packages/nestpy-cqrs-event-sourcing/tests packages/nestpy-openapi/src packages/nestpy-openapi/tests packages/nestpy-sqlalchemy/src packages/nestpy-sqlalchemy/tests packages/nestpy-microservices/src packages/nestpy-microservices/tests examples/nestpy`.
 
 ## CQRS Library
 - Initial workspace boundary: framework-agnostic core package plus a separate FastAPI adapter; core must not depend on FastAPI, Pydantic, SQLAlchemy, or a DI framework.

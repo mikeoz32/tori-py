@@ -35,6 +35,7 @@ members = [
     "packages/nestpy-cqrs-event-sourcing",
     "packages/nestpy-openapi",
     "packages/nestpy-sqlalchemy",
+    "packages/nestpy-microservices",
 ]
 
 [tool.uv.sources]
@@ -46,6 +47,7 @@ cqrs-event-sourcing = { workspace = true }
 cqrs-fastapi = { workspace = true }
 nestpy-cqrs-event-sourcing = { workspace = true }
 nestpy-openapi = { workspace = true }
+nestpy-microservices = { workspace = true }
 
 [dependency-groups]
 dev = [
@@ -53,6 +55,7 @@ dev = [
     "cqrs-event-sourcing",
     "cqrs-fastapi",
     "nestpy-cqrs-event-sourcing",
+    "nestpy-microservices",
     "nestpy-openapi",
     "nestpy[testing]",
     "pytest>=9.1.1",

@@ -1,0 +1,22 @@
+[project]
+name = "nestpy-microservices"
+version = "0.1.0"
+description = "Optional microservices integration for Nestpy"
+readme = "README.md"
+requires-python = ">=3.14,<3.15"
+dependencies = [
+    "msgspec>=0.19.0",
+    "nestpy",
+]
+
+[project.optional-dependencies]
+rabbitmq = [
+    "aio-pika>=10,<11",
+]
+
+[build-system]
+requires = ["uv_build>=0.11.28,<0.12.0"]
+build-backend = "uv_build"
+
+[tool.uv.sources]
+nestpy = { workspace = true }
