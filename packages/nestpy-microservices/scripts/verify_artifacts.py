@@ -13,8 +13,31 @@ import nestpy_microservices
 import nestpy_microservices.rabbitmq
 
 assert set(nestpy_microservices.__all__) == {
+    "EventEnvelope",
+    "EventIdentity",
+    "IdentityValidationError",
+    "MessageCodec",
+    "MessageLimits",
+    "MessageMetadata",
     "MicroservicesError",
+    "MsgspecJsonMessageCodec",
     "OptionalDependencyError",
+    "RESULT_MISSING",
+    "RemoteRpcErrorData",
+    "ReplyRoute",
+    "RpcRequestEnvelope",
+    "RpcResponseEnvelope",
+    "RpcTarget",
+    "ServiceIdentity",
+    "WireDeadlineError",
+    "WireDecodingError",
+    "WireEncodingError",
+    "WireSizeLimitError",
+    "WireValidationError",
+    "require_future_deadline",
+    "require_uuid",
+    "require_utc",
+    "utc_now",
 }
 assert "aio_pika" not in sys.modules
 assert "starlette" not in sys.modules

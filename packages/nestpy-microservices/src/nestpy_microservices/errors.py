@@ -35,9 +35,37 @@ class WireValidationError(MicroservicesError, ValueError):
     diagnostic_code = "microservices.wire_validation"
 
 
+class WireEncodingError(WireValidationError):
+    """Raised when a value cannot be encoded under the wire contract."""
+
+    diagnostic_code = "microservices.wire_encoding"
+
+
+class WireDecodingError(WireValidationError):
+    """Raised when bytes do not contain a valid wire envelope."""
+
+    diagnostic_code = "microservices.wire_decoding"
+
+
+class WireSizeLimitError(WireValidationError):
+    """Raised before decoding when a wire value exceeds configured limits."""
+
+    diagnostic_code = "microservices.wire_size_limit"
+
+
+class WireDeadlineError(WireValidationError):
+    """Raised when an envelope deadline violates the RPC contract."""
+
+    diagnostic_code = "microservices.wire_deadline"
+
+
 __all__ = [
     "IdentityValidationError",
     "MicroservicesError",
     "OptionalDependencyError",
+    "WireDeadlineError",
+    "WireDecodingError",
+    "WireEncodingError",
+    "WireSizeLimitError",
     "WireValidationError",
 ]
