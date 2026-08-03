@@ -1,7 +1,26 @@
 """Optional microservices integration for Nestpy."""
 
 from nestpy_microservices.codec import MessageCodec, MsgspecJsonMessageCodec
+from nestpy_microservices.compiler import (
+    compile_controller_message_handlers,
+    compile_discovered_service_handlers,
+    compile_service_handler_registry,
+)
+from nestpy_microservices.contexts import EventContext, MessageContext, RpcContext
+from nestpy_microservices.decorators import (
+    Context,
+    EventDispatchMode,
+    EventHandlerMetadata,
+    Header,
+    Headers,
+    Inject,
+    Payload,
+    RpcMetadata,
+    event_handler,
+    rpc,
+)
 from nestpy_microservices.errors import (
+    HandlerCompilationError,
     IdentityValidationError,
     MicroservicesError,
     OptionalDependencyError,
@@ -21,6 +40,15 @@ from nestpy_microservices.identities import (
     require_utc,
     require_uuid,
     utc_now,
+    validate_alias,
+    validate_version,
+)
+from nestpy_microservices.plans import (
+    EventHandlerPlan,
+    MessageParameterPlan,
+    PipelinePlan,
+    RpcHandlerPlan,
+    ServiceHandlerRegistry,
 )
 from nestpy_microservices.wire import (
     RESULT_MISSING,
@@ -34,20 +62,37 @@ from nestpy_microservices.wire import (
 __all__ = [
     "EventIdentity",
     "EventEnvelope",
+    "EventDispatchMode",
+    "EventContext",
+    "EventHandlerMetadata",
+    "EventHandlerPlan",
+    "Context",
+    "HandlerCompilationError",
+    "Header",
+    "Headers",
     "IdentityValidationError",
+    "Inject",
     "MessageCodec",
+    "MessageContext",
     "MessageLimits",
     "MessageMetadata",
+    "MessageParameterPlan",
     "MicroservicesError",
     "MsgspecJsonMessageCodec",
     "OptionalDependencyError",
+    "Payload",
     "ReplyRoute",
     "RpcTarget",
     "RpcRequestEnvelope",
     "RpcResponseEnvelope",
     "RemoteRpcErrorData",
     "RESULT_MISSING",
+    "RpcMetadata",
+    "RpcHandlerPlan",
+    "RpcContext",
     "ServiceIdentity",
+    "ServiceHandlerRegistry",
+    "PipelinePlan",
     "WireDeadlineError",
     "WireDecodingError",
     "WireEncodingError",
@@ -57,4 +102,11 @@ __all__ = [
     "require_uuid",
     "require_utc",
     "utc_now",
+    "validate_alias",
+    "validate_version",
+    "compile_controller_message_handlers",
+    "compile_discovered_service_handlers",
+    "compile_service_handler_registry",
+    "event_handler",
+    "rpc",
 ]

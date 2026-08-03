@@ -27,6 +27,18 @@ def _validate_version(value: int, field: str) -> int:
     return value
 
 
+def validate_alias(value: str, field: str = "alias") -> str:
+    """Validate one stable lowercase ASCII topic segment."""
+
+    return _validate_alias(value, field)
+
+
+def validate_version(value: int, field: str = "version") -> int:
+    """Validate one positive contract or schema version."""
+
+    return _validate_version(value, field)
+
+
 def _validate_composed_name(value: str, field: str) -> str:
     if len(value.encode("utf-8")) > _MAX_AMQP_SHORT_STRING_BYTES:
         raise IdentityValidationError(
@@ -186,5 +198,7 @@ __all__ = [
     "require_future_deadline",
     "require_uuid",
     "require_utc",
+    "validate_alias",
+    "validate_version",
     "utc_now",
 ]

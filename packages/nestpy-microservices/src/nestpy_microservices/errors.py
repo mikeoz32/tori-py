@@ -59,7 +59,14 @@ class WireDeadlineError(WireValidationError):
     diagnostic_code = "microservices.wire_deadline"
 
 
+class HandlerCompilationError(MicroservicesError, ValueError):
+    """Raised when message handler metadata or signatures are invalid."""
+
+    diagnostic_code = "microservices.handler_compilation"
+
+
 __all__ = [
+    "HandlerCompilationError",
     "IdentityValidationError",
     "MicroservicesError",
     "OptionalDependencyError",
