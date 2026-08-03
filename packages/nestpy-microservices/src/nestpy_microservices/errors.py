@@ -23,4 +23,21 @@ class OptionalDependencyError(MicroservicesError):
         )
 
 
-__all__ = ["MicroservicesError", "OptionalDependencyError"]
+class IdentityValidationError(MicroservicesError, ValueError):
+    """Raised when a published service or message identity is invalid."""
+
+    diagnostic_code = "microservices.identity_validation"
+
+
+class WireValidationError(MicroservicesError, ValueError):
+    """Raised when a transport-neutral wire value violates its contract."""
+
+    diagnostic_code = "microservices.wire_validation"
+
+
+__all__ = [
+    "IdentityValidationError",
+    "MicroservicesError",
+    "OptionalDependencyError",
+    "WireValidationError",
+]

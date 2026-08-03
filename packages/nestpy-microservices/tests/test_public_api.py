@@ -6,9 +6,23 @@ from nestpy_microservices import MicroservicesError, OptionalDependencyError
 
 def test_root_facade_is_exact_and_typed() -> None:
     assert set(nestpy_microservices.__all__) == {
+        "EventIdentity",
+        "IdentityValidationError",
+        "MessageLimits",
         "MicroservicesError",
         "OptionalDependencyError",
+        "ReplyRoute",
+        "RpcTarget",
+        "ServiceIdentity",
+        "WireValidationError",
+        "require_future_deadline",
+        "require_uuid",
+        "require_utc",
+        "utc_now",
     }
+    assert all(
+        hasattr(nestpy_microservices, name) for name in nestpy_microservices.__all__
+    )
     assert issubclass(OptionalDependencyError, MicroservicesError)
     assert MicroservicesError.diagnostic_code == "microservices.error"
     assert (
