@@ -34,3 +34,9 @@
 ## Nestpy OpenAPI
 - The accepted optional OpenAPI 3.1/Swagger UI package, Nestpy extension points, implementation order, and executable phases are recorded in `NESTPY_OPENAPI_ARCHITECTURE.md`, `NESTPY_OPENAPI_IMPLEMENTATION_PLAN.md`, and `spec/nestpy-openapi/README.md`.
 - Discover controllers through Nestpy `DiscoveryService` and compile their mappings through the public transport-neutral controller route compiler; do not inspect or extend `StarletteAdapter`, infer runtime security/errors, or add FastAPI/Pydantic. `python-openapi` 0.3.0 was evaluated and rejected because its endpoint inference conflicts with Nestpy mappings and adds a second schema stack.
+
+## Nestpy Microservices
+- The accepted optional NestJS-inspired and Nameko-clustered microservices architecture, implementation order, and executable phase map are recorded in `NESTPY_MICROSERVICES_ARCHITECTURE.md`, `NESTPY_MICROSERVICES_IMPLEMENTATION_PLAN.md`, and `spec/nestpy-microservices/README.md`.
+- Keep RabbitMQ and `aio-pika` outside Nestpy core. One `NestApplication` exposes at most one logical service identity; discover all explicitly registered controllers at startup and compile direct `@rpc`/`@event_handler` methods without endpoint modules, package scanning, or global registries.
+- RabbitMQ RPC uses one durable queue and one `<namespace>.<service>.v<version>.*` topic binding per logical service. Replicas are equal competing consumers of that queue; individual methods use distinct published routing keys but never receive per-method queues or bindings.
+- Treat RPC execution and durable event delivery as at least once. Require finite RPC deadlines, publish confirmed and routed replies before normal request ACK, do not intentionally requeue a proven deleted reply route, never automatically resend accepted or indeterminate RPC, and keep outbox/inbox/idempotency and Kinker service extraction as separately governed application concerns.

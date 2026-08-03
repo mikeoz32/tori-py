@@ -62,9 +62,12 @@ Nestpy v1 MUST NOT provide:
 - Pydantic dependency or integration requirement;
 - OpenTelemetry dependency;
 - CQRS dependency or built-in CQRS integration;
-- database, ORM, broker, job queue, or background-work framework.
+- database, ORM, built-in broker, job queue, or background-work framework;
 - built-in OpenAPI generation or documentation UI; optional add-ons may consume
   public compiled HTTP metadata without creating a reverse dependency.
+- built-in distributed RPC or event transport; optional add-ons may consume
+  public discovery, reflection, execution-context, work-scope, and lifecycle
+  contracts without creating a reverse dependency.
 
 Nestpy owns a transport-neutral `HttpResponse` for pre-encoded bytes, status,
 and headers. Starlette `Response` subclasses remain a deliberate escape hatch
@@ -1011,7 +1014,35 @@ The bridge architecture and executable phases are maintained separately in
 [`NESTPY_CQRS_ARCHITECTURE.md`](NESTPY_CQRS_ARCHITECTURE.md) and
 [`spec/nestpy-cqrs/README.md`](spec/nestpy-cqrs/README.md).
 
-## 16. Implementation Plan
+## 16. Optional Microservices Integration
+
+The planned integration is a separate package:
+
+```text
+nestpy-microservices -> nestpy, msgspec
+nestpy-microservices[rabbitmq] -> aio-pika
+```
+
+It discovers explicitly registered controllers through `DiscoveryService`,
+compiles direct RPC/event method metadata, and executes each inbound delivery in
+an isolated exact-owner work scope. RabbitMQ service replicas consume one shared
+wildcard-bound queue per logical service, while event handler delivery modes own
+their distinct queue topology. The integration is a lifecycle-managed provider,
+not a second application adapter, so standalone and Starlette hybrid services
+share the normal Nestpy startup, admission, quiescence, and shutdown sequence.
+
+Neither `nestpy.core` nor `nestpy.starlette` imports the integration or a broker
+client. The integration does not provide exactly-once execution, outbox/inbox,
+distributed transactions, automatic CQRS publication, or Kinker service
+extraction.
+
+The architecture, implementation order, and executable phases are maintained in
+[`NESTPY_MICROSERVICES_ARCHITECTURE.md`](NESTPY_MICROSERVICES_ARCHITECTURE.md),
+[`NESTPY_MICROSERVICES_IMPLEMENTATION_PLAN.md`](NESTPY_MICROSERVICES_IMPLEMENTATION_PLAN.md),
+and
+[`spec/nestpy-microservices/README.md`](spec/nestpy-microservices/README.md).
+
+## 17. Implementation Plan
 
 ### N0: Workspace and contracts
 
@@ -1047,7 +1078,7 @@ Detailed specification: [`spec/nestpy/phase-n7-reflection-and-discovery.md`](spe
 
 The optional `nestpy-cqrs` bridge consumes N7 through its separate C2 phase.
 
-## 17. Exit Criteria
+## 18. Exit Criteria
 
 Nestpy v1 is complete when a multi-module Starlette app can:
 
