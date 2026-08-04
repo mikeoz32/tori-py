@@ -1,5 +1,6 @@
 """Lazy RabbitMQ integration facade."""
 
+from nestpy_microservices.rabbitmq.client import RabbitMqClientTransport
 from nestpy_microservices.rabbitmq.connection import (
     RabbitMqChannels,
     RabbitMqConnectionManager,
@@ -27,6 +28,7 @@ from nestpy_microservices.rabbitmq.topology import (
 
 __all__ = [
     "BindingDeclaration",
+    "RabbitMqClientTransport",
     "RabbitMqChannels",
     "RabbitMqConnectionManager",
     "ExchangeDeclaration",

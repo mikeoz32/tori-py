@@ -52,7 +52,16 @@ class RabbitMqPublisher:
                 ),
             )
             publisher_channel: Any = self.manager.channels.publisher
-            await publisher_channel.default_exchange.publish(
+            exchange = publisher_channel.default_exchange
+            if isinstance(publication.native, tuple) and len(publication.native) == 2:
+                exchange = await publisher_channel.get_exchange(
+                    publication.native[0], ensure=False
+                )
+            else:
+                exchange = await publisher_channel.get_exchange(
+                    "nestpy.rpc", ensure=False
+                )
+            await exchange.publish(
                 message,
                 routing_key=publication.routing_key,
                 mandatory=publication.mandatory,

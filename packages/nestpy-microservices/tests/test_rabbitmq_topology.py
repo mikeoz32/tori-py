@@ -8,6 +8,7 @@ from uuid import uuid4
 import pytest
 from nestpy_microservices.rabbitmq import (
     QueueDeclaration,
+    RabbitMqClientTransport,
     RabbitMqConnectionManager,
     RabbitMqModule,
     RabbitMqOptions,
@@ -29,6 +30,7 @@ from nestpy_microservices import (
     EventIdentity,
     EventSubscription,
     Publication,
+    RpcTarget,
     ServiceIdentity,
     SettlementRecommendation,
     TransportIndeterminateError,
@@ -164,6 +166,13 @@ async def test_publisher_uses_confirm_channel_and_maps_mandatory_returns(
         async def publish(self, message, *, routing_key, mandatory):
             published.append((message, routing_key, mandatory))
 
+    class Publisher:
+        def __init__(self):
+            self.default_exchange = Exchange()
+
+        async def get_exchange(self, name: str, *, ensure: bool):
+            return self.default_exchange
+
     fake_aio = SimpleNamespace(
         DeliveryMode=SimpleNamespace(PERSISTENT="persistent"),
         Message=Message,
@@ -172,7 +181,7 @@ async def test_publisher_uses_confirm_channel_and_maps_mandatory_returns(
     manager = SimpleNamespace(
         channels=RabbitMqChannels(
             consumer=object(),
-            publisher=SimpleNamespace(default_exchange=Exchange()),
+            publisher=Publisher(),
             reply=object(),
         )
     )
@@ -210,6 +219,13 @@ async def test_publisher_maps_unroutable_and_indeterminate_failures(
         async def publish(self, *args, **kwargs):
             raise self.error
 
+    class Publisher:
+        def __init__(self, error):
+            self.default_exchange = Exchange(error)
+
+        async def get_exchange(self, name: str, *, ensure: bool):
+            return self.default_exchange
+
     fake_aio = SimpleNamespace(
         DeliveryMode=SimpleNamespace(PERSISTENT="persistent"),
         Message=lambda **kwargs: kwargs,
@@ -228,7 +244,7 @@ async def test_publisher_maps_unroutable_and_indeterminate_failures(
     unroutable_manager = SimpleNamespace(
         channels=RabbitMqChannels(
             object(),
-            SimpleNamespace(default_exchange=Exchange(DeliveryError())),
+            Publisher(DeliveryError()),
             object(),
         )
     )
@@ -240,7 +256,7 @@ async def test_publisher_maps_unroutable_and_indeterminate_failures(
     uncertain_manager = SimpleNamespace(
         channels=RabbitMqChannels(
             object(),
-            SimpleNamespace(default_exchange=Exchange(ConnectionClosed())),
+            Publisher(ConnectionClosed()),
             object(),
         )
     )
@@ -323,7 +339,106 @@ async def test_server_consumes_and_manually_settles_incoming_messages() -> None:
     assert queue.cancelled is True
 
 
-async def _return_queue(queue):
+@pytest.mark.asyncio
+async def test_client_publishes_rpc_and_events_and_correlates_replies(
+    monkeypatch,
+) -> None:
+    published: list[tuple[str, str, bool]] = []
+
+    class Message:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+    class Exchange:
+        def __init__(self, name: str):
+            self.name = name
+
+        async def publish(self, message, *, routing_key, mandatory):
+            published.append((self.name, routing_key, mandatory))
+
+    class Queue:
+        def __init__(self):
+            self.callback = None
+            self.cancelled = False
+
+        async def consume(self, callback, **kwargs):
+            self.callback = callback
+
+        async def cancel(self, tag: str):
+            self.cancelled = True
+
+    queue = Queue()
+    exchanges: dict[str, Exchange] = {}
+
+    class PublisherChannel:
+        default_exchange = Exchange("")
+
+        async def get_exchange(self, name: str, *, ensure: bool):
+            exchanges.setdefault(name, Exchange(name))
+            return exchanges[name]
+
+    fake_aio = SimpleNamespace(
+        DeliveryMode=SimpleNamespace(PERSISTENT="persistent"),
+        Message=Message,
+    )
+    monkeypatch.setattr(rabbitmq_publisher, "_load_aio_pika", lambda: fake_aio)
+    manager = SimpleNamespace(
+        declare=lambda topology: _return_queue(queue, topology),
+        channels=SimpleNamespace(publisher=PublisherChannel()),
+    )
+    client = RabbitMqClientTransport(
+        cast(RabbitMqConnectionManager, manager), max_pending_replies=2
+    )
+    await client.start()
+    assert queue.callback is not None
+    correlation_id = uuid4()
+    rpc_publication = Publication(
+        message_id=uuid4(),
+        routing_key=SERVICE.label + ".get",
+        body=b"request",
+        headers={},
+        correlation_id=correlation_id,
+        reply_to=client.reply_to,
+    )
+    await client.publish_rpc(RpcTarget(SERVICE, "get", 1), rpc_publication)
+    event = EventIdentity(SERVICE, "profile-created", 1)
+    await client.publish_event(
+        event,
+        Publication(uuid4(), event.routing_key, b"event", {}, mandatory=True),
+    )
+
+    class Reply:
+        def __init__(self) -> None:
+            self.message_id = str(uuid4())
+            self.routing_key = client.reply_to.value
+            self.body = b"reply"
+            self.headers = {}
+            self.redelivered = False
+            self.correlation_id = str(correlation_id)
+            self.reply_to = None
+            self.acked = False
+
+        async def ack(self):
+            self.acked = True
+
+    reply = Reply()
+    await queue.callback(reply)
+    replies = client.replies()
+    received = await anext(replies)
+
+    assert received.correlation_id == correlation_id
+    assert reply.acked is True
+    assert published == [
+        ("nestpy.rpc", rpc_publication.routing_key, True),
+        (event.exchange_name, event.routing_key, True),
+    ]
+    await client.close()
+    assert queue.cancelled is True
+
+
+async def _return_queue(queue, topology=None):
+    if topology is not None and topology.queues:
+        return {declaration.name: queue for declaration in topology.queues}
     return {"nestpy.rpc.kinker.members.v1": queue}
 
 
