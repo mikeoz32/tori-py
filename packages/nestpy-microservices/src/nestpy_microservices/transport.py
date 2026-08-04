@@ -50,6 +50,7 @@ class EncodedDelivery:
     correlation_id: UUID | None = None
     reply_to: ReplyRoute | None = None
     native: object | None = None
+    expires_at: datetime | None = None
 
     def __post_init__(self) -> None:
         require_uuid(self.message_id, "message_id")
@@ -66,6 +67,8 @@ class EncodedDelivery:
             raise ValueError("redelivered must be boolean")
         if self.correlation_id is not None:
             require_uuid(self.correlation_id, "correlation_id")
+        if self.expires_at is not None:
+            require_utc(self.expires_at, "expires_at")
         object.__setattr__(self, "headers", freeze_headers(self.headers))
 
 
@@ -81,6 +84,7 @@ class Publication:
     correlation_id: UUID | None = None
     reply_to: ReplyRoute | None = None
     native: object | None = None
+    expires_at: datetime | None = None
 
     def __post_init__(self) -> None:
         require_uuid(self.message_id, "message_id")
@@ -92,6 +96,8 @@ class Publication:
             raise ValueError("mandatory must be boolean")
         if self.correlation_id is not None:
             require_uuid(self.correlation_id, "correlation_id")
+        if self.expires_at is not None:
+            require_utc(self.expires_at, "expires_at")
         object.__setattr__(self, "headers", freeze_headers(self.headers))
 
 
@@ -208,6 +214,9 @@ class ClientTransport(Protocol):
     @property
     def status(self) -> TransportStatus: ...
 
+    @property
+    def reply_to(self) -> ReplyRoute: ...
+
     async def start(self) -> None: ...
 
     async def publish_rpc(
@@ -221,6 +230,8 @@ class ClientTransport(Protocol):
     def replies(self) -> AsyncIterator[EncodedDelivery]: ...
 
     async def close(self) -> None: ...
+
+    def cancel_pending(self, correlation_id: UUID) -> None: ...
 
     def statuses(self) -> AsyncIterator[TransportStatusEvent]: ...
 

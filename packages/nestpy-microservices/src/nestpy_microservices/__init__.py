@@ -1,5 +1,11 @@
 """Optional microservices integration for Nestpy."""
 
+from nestpy_microservices.clients import ClientClusterRoot, ClientsModule
+from nestpy_microservices.cluster import (
+    ServiceCluster,
+    ServiceClusterOptions,
+    ServiceProxy,
+)
 from nestpy_microservices.codec import MessageCodec, MsgspecJsonMessageCodec
 from nestpy_microservices.compiler import (
     compile_controller_message_handlers,
@@ -30,6 +36,11 @@ from nestpy_microservices.errors import (
     MessageRetryableError,
     MicroservicesError,
     OptionalDependencyError,
+    RemoteRpcError,
+    RpcClientError,
+    RpcOutcomeUnknownError,
+    RpcProtocolError,
+    RpcTimeoutError,
     TransportCapacityError,
     TransportCorrelationError,
     TransportError,
@@ -108,6 +119,11 @@ __all__ = [
     "EventHandlerPlan",
     "EncodedDelivery",
     "ClientTransport",
+    "ClientClusterRoot",
+    "ClientsModule",
+    "ServiceCluster",
+    "ServiceClusterOptions",
+    "ServiceProxy",
     "Context",
     "HandlerCompilationError",
     "Header",
@@ -168,6 +184,11 @@ __all__ = [
     "TransportTimeoutError",
     "TransportUnavailableError",
     "TransportUnroutableError",
+    "RemoteRpcError",
+    "RpcClientError",
+    "RpcOutcomeUnknownError",
+    "RpcProtocolError",
+    "RpcTimeoutError",
     "PipelinePlan",
     "WireDeadlineError",
     "WireDecodingError",

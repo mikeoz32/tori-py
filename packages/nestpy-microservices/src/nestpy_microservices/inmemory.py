@@ -335,6 +335,10 @@ class InMemoryBroker:
                 await queue.wake.wait()
                 continue
             queued = queue.messages.popleft()
+            if queued.publication.expires_at is not None and (
+                queued.publication.expires_at <= utc_now()
+            ):
+                continue
             delivery = EncodedDelivery(
                 message_id=queued.publication.message_id,
                 routing_key=queued.publication.routing_key,
@@ -346,6 +350,7 @@ class InMemoryBroker:
                 correlation_id=queued.publication.correlation_id,
                 reply_to=queued.publication.reply_to,
                 native=queued.publication.native,
+                expires_at=queued.publication.expires_at,
             )
             record = _DeliveryRecord(consumer.server, queue.name, delivery, queued)
             queue.deliveries[id(delivery)] = record
@@ -669,6 +674,9 @@ class InMemoryClientTransport:
             return
         await self.broker.unregister_reply_route(self.reply_to, self)
         self._set_status(TransportStatus.CLOSED)
+
+    def cancel_pending(self, correlation_id: UUID) -> None:
+        self._pending_replies.discard(correlation_id)
 
     def _close_from_broker(self) -> None:
         if self._status is not TransportStatus.CLOSED:

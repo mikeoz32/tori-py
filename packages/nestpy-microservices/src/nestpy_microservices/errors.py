@@ -155,6 +155,50 @@ class TransportCapacityError(TransportError):
     diagnostic_code = "microservices.transport_capacity"
 
 
+class RpcClientError(MicroservicesError):
+    """Base error for client-side RPC outcomes."""
+
+    diagnostic_code = "microservices.rpc_client"
+
+
+class RpcTimeoutError(RpcClientError):
+    """The local RPC deadline elapsed before a reply completed the call."""
+
+    diagnostic_code = "microservices.rpc_timeout"
+
+
+class RpcOutcomeUnknownError(RpcClientError):
+    """The client lost reply transport after publication became uncertain."""
+
+    diagnostic_code = "microservices.rpc_outcome_unknown"
+
+
+class RpcProtocolError(RpcClientError):
+    """The reply was malformed or failed declared result decoding."""
+
+    diagnostic_code = "microservices.rpc_protocol"
+
+
+class RemoteRpcError(RpcClientError):
+    """A remote service returned a stable typed error."""
+
+    diagnostic_code = "microservices.remote_rpc_error"
+
+    def __init__(
+        self,
+        code: str,
+        message: str,
+        *,
+        retryable: bool,
+        details: dict[str, object] | None = None,
+    ) -> None:
+        self.code = code
+        self.message = message
+        self.retryable = retryable
+        self.details = {} if details is None else dict(details)
+        super().__init__(f"{code}: {message}")
+
+
 __all__ = [
     "HandlerCompilationError",
     "IdentityValidationError",
@@ -175,6 +219,11 @@ __all__ = [
     "TransportTimeoutError",
     "TransportUnavailableError",
     "TransportUnroutableError",
+    "RemoteRpcError",
+    "RpcClientError",
+    "RpcOutcomeUnknownError",
+    "RpcProtocolError",
+    "RpcTimeoutError",
     "WireDeadlineError",
     "WireDecodingError",
     "WireEncodingError",
