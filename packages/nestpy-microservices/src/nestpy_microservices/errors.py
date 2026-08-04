@@ -95,6 +95,66 @@ class MessageRejectedError(MessageInvocationError):
     diagnostic_code = "microservices.rejected"
 
 
+class TransportError(MicroservicesError):
+    """Base error for transport-owned failures."""
+
+    diagnostic_code = "microservices.transport"
+
+
+class TransportUnavailableError(TransportError):
+    """The transport cannot currently accept or deliver a publication."""
+
+    diagnostic_code = "microservices.transport_unavailable"
+
+
+class TransportTimeoutError(TransportError):
+    """A transport operation exceeded its caller-provided deadline."""
+
+    diagnostic_code = "microservices.transport_timeout"
+
+
+class TransportIndeterminateError(TransportError):
+    """The transport cannot determine whether an operation was accepted."""
+
+    diagnostic_code = "microservices.transport_indeterminate"
+
+
+class TransportRejectedError(TransportError):
+    """The transport rejected a publication before delivery."""
+
+    diagnostic_code = "microservices.transport_rejected"
+
+
+class TransportUnroutableError(TransportError):
+    """A mandatory publication had no matching route."""
+
+    diagnostic_code = "microservices.transport_unroutable"
+
+
+class TransportCorrelationError(TransportError):
+    """A reply has no currently pending or has already completed correlation."""
+
+    diagnostic_code = "microservices.transport_correlation"
+
+
+class TransportStateError(TransportError):
+    """A transport operation is invalid for its current lifecycle state."""
+
+    diagnostic_code = "microservices.transport_state"
+
+
+class DuplicateSettlementError(TransportError):
+    """A delivery was settled more than once."""
+
+    diagnostic_code = "microservices.duplicate_settlement"
+
+
+class TransportCapacityError(TransportError):
+    """A bounded in-memory transport queue or pending map is full."""
+
+    diagnostic_code = "microservices.transport_capacity"
+
+
 __all__ = [
     "HandlerCompilationError",
     "IdentityValidationError",
@@ -105,6 +165,16 @@ __all__ = [
     "MessageRetryableError",
     "MicroservicesError",
     "OptionalDependencyError",
+    "DuplicateSettlementError",
+    "TransportCapacityError",
+    "TransportCorrelationError",
+    "TransportError",
+    "TransportIndeterminateError",
+    "TransportRejectedError",
+    "TransportStateError",
+    "TransportTimeoutError",
+    "TransportUnavailableError",
+    "TransportUnroutableError",
     "WireDeadlineError",
     "WireDecodingError",
     "WireEncodingError",

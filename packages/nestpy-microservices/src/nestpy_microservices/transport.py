@@ -1,0 +1,238 @@
+"""Transport-neutral contracts shared by broker adapters."""
+
+from __future__ import annotations
+
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Mapping
+from dataclasses import dataclass
+from datetime import datetime
+from enum import StrEnum
+from typing import Protocol
+from uuid import UUID, uuid4
+
+from nestpy_microservices.identities import (
+    EventIdentity,
+    ReplyRoute,
+    RpcTarget,
+    ServiceIdentity,
+    require_utc,
+    require_uuid,
+)
+from nestpy_microservices.invocation import (
+    InvocationCompletion,
+    SettlementRecommendation,
+)
+from nestpy_microservices.wire import freeze_headers
+
+_UNSET_RELIABILITY = object()
+
+
+class TransportStatus(StrEnum):
+    """Lifecycle states observable by transport users."""
+
+    CREATED = "created"
+    PREPARED = "prepared"
+    RUNNING = "running"
+    QUIESCING = "quiescing"
+    CLOSED = "closed"
+
+
+@dataclass(frozen=True, slots=True)
+class EncodedDelivery:
+    """One encoded broker delivery before framework decoding."""
+
+    message_id: UUID
+    routing_key: str
+    body: bytes
+    headers: Mapping[str, object]
+    received_at: datetime
+    attempt: int = 1
+    redelivered: bool = False
+    correlation_id: UUID | None = None
+    reply_to: ReplyRoute | None = None
+    native: object | None = None
+
+    def __post_init__(self) -> None:
+        require_uuid(self.message_id, "message_id")
+        if not isinstance(self.routing_key, str) or not self.routing_key:
+            raise ValueError("routing_key must be a non-empty string")
+        if not isinstance(self.body, bytes):
+            raise TypeError("body must be bytes")
+        require_utc(self.received_at, "received_at")
+        if not isinstance(self.attempt, int) or isinstance(self.attempt, bool):
+            raise ValueError("attempt must be a positive integer")
+        if self.attempt <= 0:
+            raise ValueError("attempt must be a positive integer")
+        if not isinstance(self.redelivered, bool):
+            raise ValueError("redelivered must be boolean")
+        if self.correlation_id is not None:
+            require_uuid(self.correlation_id, "correlation_id")
+        object.__setattr__(self, "headers", freeze_headers(self.headers))
+
+
+@dataclass(frozen=True, slots=True)
+class Publication:
+    """One outbound encoded publication submitted to a transport."""
+
+    message_id: UUID
+    routing_key: str
+    body: bytes
+    headers: Mapping[str, object]
+    mandatory: bool = False
+    correlation_id: UUID | None = None
+    reply_to: ReplyRoute | None = None
+    native: object | None = None
+
+    def __post_init__(self) -> None:
+        require_uuid(self.message_id, "message_id")
+        if not isinstance(self.routing_key, str) or not self.routing_key:
+            raise ValueError("routing_key must be a non-empty string")
+        if not isinstance(self.body, bytes):
+            raise TypeError("body must be bytes")
+        if not isinstance(self.mandatory, bool):
+            raise ValueError("mandatory must be boolean")
+        if self.correlation_id is not None:
+            require_uuid(self.correlation_id, "correlation_id")
+        object.__setattr__(self, "headers", freeze_headers(self.headers))
+
+
+@dataclass(frozen=True, slots=True)
+class PublicationReceipt:
+    """Broker acceptance, distinct from handler execution."""
+
+    message_id: UUID
+    accepted_at: datetime
+    routed: bool
+
+    def __post_init__(self) -> None:
+        require_uuid(self.message_id, "message_id")
+        require_utc(self.accepted_at, "accepted_at")
+        if not isinstance(self.routed, bool):
+            raise ValueError("routed must be boolean")
+
+
+@dataclass(frozen=True, slots=True)
+class EventSubscription:
+    """Explicit event route information supplied to a transport."""
+
+    identity: EventIdentity
+    mode: str
+    subscription: str
+    destination: ServiceIdentity | None = None
+    instance_id: str | None = None
+    reliable: bool | object = _UNSET_RELIABILITY
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.identity, EventIdentity):
+            raise TypeError("identity must be an EventIdentity")
+        if self.mode not in {"service_pool", "singleton", "broadcast"}:
+            raise ValueError("unsupported event dispatch mode")
+        if not isinstance(self.subscription, str) or not self.subscription:
+            raise ValueError("subscription must be a non-empty string")
+        if self.destination is not None and not isinstance(
+            self.destination, ServiceIdentity
+        ):
+            raise TypeError("destination must be a ServiceIdentity")
+        if self.instance_id is not None and not self.instance_id:
+            raise ValueError("instance_id must be non-empty when provided")
+        reliability_unset = self.reliable is _UNSET_RELIABILITY
+        if reliability_unset:
+            object.__setattr__(
+                self, "reliable", self.mode in {"service_pool", "singleton"}
+            )
+        if not isinstance(self.reliable, bool):
+            raise ValueError("reliable must be boolean")
+        if self.mode in {"service_pool", "singleton"} and not reliability_unset:
+            raise ValueError(f"{self.mode} subscriptions do not accept reliable")
+        if self.mode == "service_pool" and self.destination is None:
+            raise ValueError("service_pool subscriptions require a destination")
+        if self.mode == "broadcast" and self.reliable and self.instance_id is None:
+            raise ValueError("reliable broadcast subscriptions require an instance_id")
+        if self.mode == "broadcast" and self.destination is None:
+            raise ValueError("broadcast subscriptions require a destination")
+        if self.mode == "broadcast" and self.instance_id is None:
+            object.__setattr__(self, "instance_id", uuid4().hex)
+
+
+@dataclass(frozen=True, slots=True)
+class TransportStatusEvent:
+    """One transport lifecycle transition."""
+
+    status: TransportStatus
+    changed_at: datetime
+    detail: str = ""
+
+    def __post_init__(self) -> None:
+        require_utc(self.changed_at, "changed_at")
+
+
+DeliveryDispatcher = Callable[
+    [EncodedDelivery], Awaitable[InvocationCompletion | SettlementRecommendation]
+]
+
+
+class ServerTransport(Protocol):
+    """Inbound transport boundary owned by a service runtime."""
+
+    @property
+    def status(self) -> TransportStatus: ...
+
+    async def prepare(
+        self,
+        *,
+        rpc_methods: Iterable[str] = (),
+        subscriptions: Iterable[EventSubscription] = (),
+    ) -> None: ...
+
+    async def start(self, dispatcher: DeliveryDispatcher) -> None: ...
+
+    async def settle(
+        self, delivery: EncodedDelivery, outcome: SettlementRecommendation
+    ) -> None: ...
+
+    async def publish_reply(self, publication: Publication) -> PublicationReceipt: ...
+
+    async def stop_intake(self) -> None: ...
+
+    async def close(self) -> None: ...
+
+    def statuses(self) -> AsyncIterator[TransportStatusEvent]: ...
+
+    def unwrap(self) -> object: ...
+
+
+class ClientTransport(Protocol):
+    """Outbound transport boundary owned by a service cluster client."""
+
+    @property
+    def status(self) -> TransportStatus: ...
+
+    async def start(self) -> None: ...
+
+    async def publish_rpc(
+        self, target: RpcTarget, publication: Publication
+    ) -> PublicationReceipt: ...
+
+    async def publish_event(
+        self, identity: EventIdentity, publication: Publication
+    ) -> PublicationReceipt: ...
+
+    def replies(self) -> AsyncIterator[EncodedDelivery]: ...
+
+    async def close(self) -> None: ...
+
+    def statuses(self) -> AsyncIterator[TransportStatusEvent]: ...
+
+    def unwrap(self) -> object: ...
+
+
+__all__ = [
+    "ClientTransport",
+    "DeliveryDispatcher",
+    "EncodedDelivery",
+    "EventSubscription",
+    "Publication",
+    "PublicationReceipt",
+    "ServerTransport",
+    "TransportStatus",
+    "TransportStatusEvent",
+]
