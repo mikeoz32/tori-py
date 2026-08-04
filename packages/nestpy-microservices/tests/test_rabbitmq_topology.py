@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+from types import SimpleNamespace
 
 import pytest
 from nestpy_microservices.rabbitmq import (
@@ -16,6 +17,7 @@ from nestpy_microservices.rabbitmq import (
     compile_rpc_topology,
     merge_topologies,
 )
+from nestpy_microservices.rabbitmq import connection as rabbitmq_connection
 
 from nestpy_microservices import EventIdentity, EventSubscription, ServiceIdentity
 
@@ -81,3 +83,54 @@ def test_rabbitmq_root_is_deferred_and_base_import_is_lazy() -> None:
     assert "aio_pika" not in sys.modules
     manager = RabbitMqConnectionManager(RabbitMqOptions("amqp://localhost"))
     assert manager.status is RabbitMqStatus.CREATED
+
+
+@pytest.mark.asyncio
+async def test_connection_manager_owns_three_channels_without_eager_import(
+    monkeypatch,
+) -> None:
+    calls: list[str] = []
+
+    class Channel:
+        async def declare_exchange(self, *args, **kwargs):
+            return Exchange()
+
+        async def declare_queue(self, *args, **kwargs):
+            return Queue()
+
+        async def close(self):
+            calls.append("channel-close")
+
+    class Exchange:
+        async def bind(self, queue, **kwargs):
+            calls.append("bind")
+
+    class Queue:
+        pass
+
+    class Connection:
+        async def channel(self, **kwargs):
+            calls.append(f"channel:{kwargs['publisher_confirms']}")
+            return Channel()
+
+        async def close(self):
+            calls.append("connection-close")
+
+    async def connect_robust(*args, **kwargs):
+        calls.append("connect")
+        return Connection()
+
+    fake_aio = SimpleNamespace(
+        ExchangeType=SimpleNamespace(TOPIC="topic"),
+        connect_robust=connect_robust,
+    )
+    monkeypatch.setattr(rabbitmq_connection, "require_aio_pika", lambda: fake_aio)
+    manager = RabbitMqConnectionManager(RabbitMqOptions("amqp://localhost"))
+
+    await manager.start()
+    await manager.declare(compile_rpc_topology(SERVICE))
+    await manager.close()
+
+    assert manager.status is RabbitMqStatus.CLOSED
+    assert calls[:4] == ["connect", "channel:False", "channel:True", "channel:False"]
+    assert calls[-1] == "connection-close"

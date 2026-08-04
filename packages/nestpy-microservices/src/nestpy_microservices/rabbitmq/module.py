@@ -36,17 +36,15 @@ class RabbitMqModule:
             raise TypeError("options must be RabbitMqOptions")
         root = RabbitMqRoot(key, options)
 
+        def create_manager(configured: RabbitMqRoot) -> RabbitMqConnectionManager:
+            return RabbitMqConnectionManager(configured.options)
+
         def materialize() -> ModuleSpec:
             return ModuleSpec(
                 providers=(
                     ValueProvider(rabbitmq_root_token(key), root),
                     ValueProvider(RabbitMqRoot, root),
-                    FactoryProvider(
-                        RabbitMqConnectionManager,
-                        lambda configured: RabbitMqConnectionManager(
-                            configured.options
-                        ),
-                    ),
+                    FactoryProvider(RabbitMqConnectionManager, create_manager),
                 ),
                 exports=(rabbitmq_root_token(key),),
             )
