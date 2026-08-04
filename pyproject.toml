@@ -51,6 +51,7 @@ nestpy-microservices = { workspace = true }
 
 [dependency-groups]
 dev = [
+    "aio-pika>=10,<11",
     "aiosqlite>=0.22.1",
     "cqrs-event-sourcing",
     "cqrs-fastapi",
@@ -60,6 +61,7 @@ dev = [
     "nestpy[testing]",
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",
+    "pytest-docker>=3.2.5",
     "ruff>=0.15.21",
     "ty>=0.0.59",
 ]
@@ -86,3 +88,6 @@ python-version = "3.14"
 [tool.pytest.ini_options]
 addopts = "--import-mode=importlib"
 pythonpath = ["."]
+markers = [
+    "rabbitmq: integration tests requiring Docker and RabbitMQ",
+]

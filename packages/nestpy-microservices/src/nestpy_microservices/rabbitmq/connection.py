@@ -118,8 +118,8 @@ class RabbitMqConnectionManager:
                     raise RabbitMqTopologyError(
                         "topology binding references an undeclared resource"
                     )
-                await exchange.bind(
-                    queue,
+                await queue.bind(
+                    exchange,
                     routing_key=binding.routing_key,
                     arguments=dict(binding.arguments),
                 )

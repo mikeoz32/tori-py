@@ -118,11 +118,11 @@ async def test_connection_manager_owns_three_channels_without_eager_import(
             calls.append("channel-close")
 
     class Exchange:
-        async def bind(self, queue, **kwargs):
-            calls.append("bind")
+        pass
 
     class Queue:
-        pass
+        async def bind(self, exchange, **kwargs):
+            calls.append("bind")
 
     class Connection:
         async def channel(self, **kwargs):

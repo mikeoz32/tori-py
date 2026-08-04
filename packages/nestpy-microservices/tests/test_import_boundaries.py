@@ -32,11 +32,14 @@ for name in (
 def test_missing_rabbitmq_extra_has_actionable_error() -> None:
     script = """
 import builtins
+import importlib
 
 import nestpy_microservices.rabbitmq as rabbitmq
+import nestpy_microservices.rabbitmq.dependencies as dependencies
 from nestpy_microservices import OptionalDependencyError
 
 real_import = builtins.__import__
+real_import_module = importlib.import_module
 
 def blocked_import(name, *args, **kwargs):
     if name == "aio_pika":
@@ -44,6 +47,13 @@ def blocked_import(name, *args, **kwargs):
     return real_import(name, *args, **kwargs)
 
 builtins.__import__ = blocked_import
+def blocked_import_module(name, package=None):
+    if name == "aio_pika":
+        raise ModuleNotFoundError("blocked for boundary test", name="aio_pika")
+    return real_import_module(name, package)
+
+importlib.import_module = blocked_import_module
+dependencies.import_module = blocked_import_module
 try:
     rabbitmq.require_aio_pika()
 except OptionalDependencyError as error:
