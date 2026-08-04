@@ -89,6 +89,16 @@ from nestpy_microservices.plans import (
     RpcHandlerPlan,
     ServiceHandlerRegistry,
 )
+from nestpy_microservices.rabbitmq import (
+    BindingDeclaration,
+    ExchangeDeclaration,
+    QueueDeclaration,
+    RabbitMqModule,
+    RabbitMqOptions,
+    RabbitMqRoot,
+    RabbitMqTopology,
+    RabbitMqTransport,
+)
 from nestpy_microservices.runtime import ServerTransportFactory, ServiceRuntime
 from nestpy_microservices.transport import (
     ClientTransport,
@@ -170,6 +180,14 @@ __all__ = [
     "SettlementRecommendation",
     "ServerTransportFactory",
     "ServiceRuntime",
+    "RabbitMqModule",
+    "BindingDeclaration",
+    "ExchangeDeclaration",
+    "RabbitMqOptions",
+    "RabbitMqRoot",
+    "RabbitMqTopology",
+    "RabbitMqTransport",
+    "QueueDeclaration",
     "ServerTransport",
     "Publication",
     "PublicationReceipt",

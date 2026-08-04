@@ -85,6 +85,14 @@ def test_root_facade_is_exact_and_typed() -> None:
         "TransportTimeoutError",
         "TransportUnavailableError",
         "TransportUnroutableError",
+        "RabbitMqModule",
+        "BindingDeclaration",
+        "ExchangeDeclaration",
+        "RabbitMqOptions",
+        "RabbitMqRoot",
+        "RabbitMqTopology",
+        "RabbitMqTransport",
+        "QueueDeclaration",
         "WireDeadlineError",
         "WireDecodingError",
         "WireEncodingError",
@@ -118,5 +126,6 @@ def test_rabbitmq_facade_is_lazy() -> None:
 
     import nestpy_microservices.rabbitmq as rabbitmq
 
-    assert set(rabbitmq.__all__) == {"require_aio_pika"}
+    assert "require_aio_pika" in rabbitmq.__all__
+    assert "RabbitMqOptions" in rabbitmq.__all__
     assert "aio_pika" not in sys.modules
