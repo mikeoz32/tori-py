@@ -5,8 +5,10 @@ import sys
 import pytest
 from nestpy_microservices.rabbitmq import (
     QueueDeclaration,
+    RabbitMqConnectionManager,
     RabbitMqModule,
     RabbitMqOptions,
+    RabbitMqStatus,
     RabbitMqTopology,
     RabbitMqTransport,
     compile_event_topology,
@@ -77,3 +79,5 @@ def test_rabbitmq_root_is_deferred_and_base_import_is_lazy() -> None:
     assert isinstance(descriptor.factory(), object)
     assert RabbitMqTransport().key == "default"
     assert "aio_pika" not in sys.modules
+    manager = RabbitMqConnectionManager(RabbitMqOptions("amqp://localhost"))
+    assert manager.status is RabbitMqStatus.CREATED

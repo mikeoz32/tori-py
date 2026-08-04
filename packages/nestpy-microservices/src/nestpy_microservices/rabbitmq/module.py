@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from nestpy import DeferredModule, ModuleSpec, ValueProvider
+from nestpy import DeferredModule, FactoryProvider, ModuleSpec, ValueProvider
 
+from nestpy_microservices.rabbitmq.connection import RabbitMqConnectionManager
 from nestpy_microservices.rabbitmq.options import RabbitMqOptions
 
 
@@ -37,7 +38,16 @@ class RabbitMqModule:
 
         def materialize() -> ModuleSpec:
             return ModuleSpec(
-                providers=(ValueProvider(rabbitmq_root_token(key), root),),
+                providers=(
+                    ValueProvider(rabbitmq_root_token(key), root),
+                    ValueProvider(RabbitMqRoot, root),
+                    FactoryProvider(
+                        RabbitMqConnectionManager,
+                        lambda configured: RabbitMqConnectionManager(
+                            configured.options
+                        ),
+                    ),
+                ),
                 exports=(rabbitmq_root_token(key),),
             )
 

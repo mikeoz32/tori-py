@@ -155,6 +155,24 @@ class TransportCapacityError(TransportError):
     diagnostic_code = "microservices.transport_capacity"
 
 
+class RabbitMqError(MicroservicesError):
+    """Base error for the optional RabbitMQ adapter."""
+
+    diagnostic_code = "microservices.rabbitmq"
+
+
+class RabbitMqConnectionError(RabbitMqError):
+    """Connection or channel acquisition failed."""
+
+    diagnostic_code = "microservices.rabbitmq_connection"
+
+
+class RabbitMqTopologyError(RabbitMqError):
+    """A topology declaration failed or conflicted with broker state."""
+
+    diagnostic_code = "microservices.rabbitmq_topology"
+
+
 class RpcClientError(MicroservicesError):
     """Base error for client-side RPC outcomes."""
 
@@ -220,6 +238,9 @@ __all__ = [
     "TransportUnavailableError",
     "TransportUnroutableError",
     "RemoteRpcError",
+    "RabbitMqConnectionError",
+    "RabbitMqError",
+    "RabbitMqTopologyError",
     "RpcClientError",
     "RpcOutcomeUnknownError",
     "RpcProtocolError",

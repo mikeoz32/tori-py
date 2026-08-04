@@ -1,5 +1,10 @@
 """Lazy RabbitMQ integration facade."""
 
+from nestpy_microservices.rabbitmq.connection import (
+    RabbitMqChannels,
+    RabbitMqConnectionManager,
+    RabbitMqStatus,
+)
 from nestpy_microservices.rabbitmq.dependencies import require_aio_pika
 from nestpy_microservices.rabbitmq.module import (
     RabbitMqModule,
@@ -20,6 +25,8 @@ from nestpy_microservices.rabbitmq.topology import (
 
 __all__ = [
     "BindingDeclaration",
+    "RabbitMqChannels",
+    "RabbitMqConnectionManager",
     "ExchangeDeclaration",
     "QueueDeclaration",
     "RabbitMqModule",
@@ -27,6 +34,7 @@ __all__ = [
     "RabbitMqRoot",
     "RabbitMqTopology",
     "RabbitMqTransport",
+    "RabbitMqStatus",
     "compile_event_topology",
     "compile_reply_topology",
     "compile_rpc_topology",
