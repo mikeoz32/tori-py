@@ -7,6 +7,7 @@ from typing import Any, cast
 from uuid import uuid4
 
 import pytest
+
 from nestpy_microservices import (
     EventEnvelope,
     MessageLimits,
@@ -152,3 +153,10 @@ def test_envelope_byte_limit_is_checked_before_decode() -> None:
     codec = MsgspecJsonMessageCodec(MessageLimits(max_envelope_bytes=8))
     with pytest.raises(WireSizeLimitError):
         codec.decode_request(b'{"payload":"too large"}')
+
+
+def test_header_byte_limit_preserves_size_error_during_decode() -> None:
+    wire = MsgspecJsonMessageCodec().encode_request(_request())
+
+    with pytest.raises(WireSizeLimitError):
+        MsgspecJsonMessageCodec(MessageLimits(max_header_bytes=10)).decode_request(wire)

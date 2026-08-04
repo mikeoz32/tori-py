@@ -65,9 +65,44 @@ class HandlerCompilationError(MicroservicesError, ValueError):
     diagnostic_code = "microservices.handler_compilation"
 
 
+class MessageInvocationError(MicroservicesError):
+    """Base error for message binding and pipeline invocation failures."""
+
+    diagnostic_code = "microservices.invocation"
+
+
+class MessageAuthorizationError(MessageInvocationError):
+    """Raised when a message guard denies execution."""
+
+    diagnostic_code = "microservices.authorization"
+
+
+class MessageConfigurationError(MessageInvocationError):
+    """Raised when a handler result violates its message contract."""
+
+    diagnostic_code = "microservices.invocation_configuration"
+
+
+class MessageRetryableError(MessageInvocationError):
+    """Explicitly retryable message failure."""
+
+    diagnostic_code = "microservices.retryable"
+
+
+class MessageRejectedError(MessageInvocationError):
+    """Explicit terminal message rejection."""
+
+    diagnostic_code = "microservices.rejected"
+
+
 __all__ = [
     "HandlerCompilationError",
     "IdentityValidationError",
+    "MessageAuthorizationError",
+    "MessageConfigurationError",
+    "MessageInvocationError",
+    "MessageRejectedError",
+    "MessageRetryableError",
     "MicroservicesError",
     "OptionalDependencyError",
     "WireDeadlineError",

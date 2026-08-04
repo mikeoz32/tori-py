@@ -234,6 +234,8 @@ def _headers(value: object, limits: MessageLimits) -> Mapping[str, object]:
     headers = cast(Mapping[str, object], value)
     try:
         frozen = freeze_headers(headers, limits)
+    except WireSizeLimitError:
+        raise
     except WireValidationError as error:
         raise WireDecodingError(str(error)) from error
     if len(msgspec.json.encode(_plain_headers(frozen))) > limits.max_header_bytes:
@@ -271,6 +273,8 @@ def _remote_error(value: object) -> RemoteRpcErrorData:
             retryable,
             details,
         )
+    except WireSizeLimitError:
+        raise
     except (IdentityValidationError, WireValidationError) as error:
         raise WireDecodingError(str(error)) from error
 
@@ -329,6 +333,8 @@ class MsgspecJsonMessageCodec:
                 headers=_headers(value["headers"], self.limits),
                 payload=value["payload"],
             )
+        except WireSizeLimitError:
+            raise
         except (IdentityValidationError, WireValidationError) as error:
             raise WireDecodingError(str(error)) from error
 
@@ -374,6 +380,8 @@ class MsgspecJsonMessageCodec:
                 result=value["result"] if has_result else RESULT_MISSING,
                 error=_remote_error(value["error"]) if has_error else None,
             )
+        except WireSizeLimitError:
+            raise
         except (IdentityValidationError, WireValidationError) as error:
             raise WireDecodingError(str(error)) from error
 
@@ -423,6 +431,8 @@ class MsgspecJsonMessageCodec:
                 headers=_headers(value["headers"], self.limits),
                 payload=value["payload"],
             )
+        except WireSizeLimitError:
+            raise
         except (IdentityValidationError, WireValidationError) as error:
             raise WireDecodingError(str(error)) from error
 

@@ -335,6 +335,13 @@ class _Resolver:
         finally:
             self._scope.exit_user()
 
+    async def resolve_ref(self, ref: ProviderRef) -> object:
+        self._scope.enter_user()
+        try:
+            return await self._container.resolve_ref(ref, scope=self._scope)
+        finally:
+            self._scope.exit_user()
+
 
 class Container:
     """Native async-first provider container for one compiled graph."""

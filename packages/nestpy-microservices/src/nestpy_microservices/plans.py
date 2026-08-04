@@ -6,7 +6,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
 
-from nestpy import ModuleId, ProviderRef
+from nestpy import ModuleId, ProviderRef, Token
 
 from nestpy_microservices.decorators import (
     EventDispatchMode,
@@ -24,7 +24,7 @@ class MessageParameterPlan:
     annotation: object
     kind: str
     source: str | None
-    token: object | None
+    token: Token | None
     provider_ref: ProviderRef | None
     default: object
     has_default: bool

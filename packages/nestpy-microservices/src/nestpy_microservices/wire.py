@@ -9,8 +9,11 @@ from types import MappingProxyType
 from typing import Final, cast
 from uuid import UUID
 
+import msgspec
+
 from nestpy_microservices.errors import (
     WireDeadlineError,
+    WireSizeLimitError,
     WireValidationError,
 )
 from nestpy_microservices.identities import (
@@ -32,6 +35,7 @@ def _freeze_value(
     value: object,
     field_name: str,
     max_depth: int,
+    max_collection_items: int,
     depth: int = 0,
 ) -> object:
     if depth > max_depth:
@@ -39,17 +43,24 @@ def _freeze_value(
     if value is None or isinstance(value, (str, int, float, bool)):
         return value
     if isinstance(value, Mapping):
+        if len(value) > max_collection_items:
+            raise WireSizeLimitError(f"{field_name} exceeds the collection limit")
         frozen: dict[str, object] = {}
         for key, item in value.items():
             if not isinstance(key, str) or not key:
                 raise WireValidationError(
                     f"{field_name} keys must be non-empty strings"
                 )
-            frozen[key] = _freeze_value(item, field_name, max_depth, depth + 1)
+            frozen[key] = _freeze_value(
+                item, field_name, max_depth, max_collection_items, depth + 1
+            )
         return MappingProxyType(frozen)
     if isinstance(value, (list, tuple)):
+        if len(value) > max_collection_items:
+            raise WireSizeLimitError(f"{field_name} exceeds the collection limit")
         return tuple(
-            _freeze_value(item, field_name, max_depth, depth + 1) for item in value
+            _freeze_value(item, field_name, max_depth, max_collection_items, depth + 1)
+            for item in value
         )
     raise WireValidationError(f"{field_name} contains an unsupported value")
 
@@ -66,9 +77,27 @@ def freeze_headers(
         raise WireValidationError("headers must be a mapping")
     if len(source) > selected_limits.max_header_count:
         raise WireValidationError("headers exceed the configured count limit")
-    frozen = _freeze_value(source, "headers", selected_limits.max_nesting_depth)
+    frozen = _freeze_value(
+        source,
+        "headers",
+        selected_limits.max_nesting_depth,
+        selected_limits.max_collection_items,
+    )
     assert isinstance(frozen, Mapping)
+    if (
+        len(msgspec.json.encode(_plain_value(frozen)))
+        > selected_limits.max_header_bytes
+    ):
+        raise WireSizeLimitError("headers exceed the configured byte limit")
     return cast(Mapping[str, object], frozen)
+
+
+def _plain_value(value: object) -> object:
+    if isinstance(value, Mapping):
+        return {key: _plain_value(item) for key, item in value.items()}
+    if isinstance(value, tuple):
+        return [_plain_value(item) for item in value]
+    return value
 
 
 @dataclass(frozen=True, slots=True)

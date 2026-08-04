@@ -32,6 +32,9 @@ class _Resolver:
     async def resolve(self, token: str) -> object:
         return token
 
+    async def resolve_ref(self, ref: object) -> object:
+        return ref
+
 
 class _Context:
     application_id = "app"

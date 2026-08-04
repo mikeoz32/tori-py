@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Protocol, runtime_checkable
 from nestpy.core.providers import Token
 
 if TYPE_CHECKING:
-    from nestpy.core.compiler import ModuleId
+    from nestpy.core.compiler import ModuleId, ProviderRef
     from nestpy.core.discovery import ModuleView, ProviderView
     from nestpy.core.reflection import MetadataDecorator, MetadataKey
 
@@ -21,6 +21,9 @@ class ScopedResolver(Protocol):
 
     async def resolve(self, token: Token) -> object:
         """Resolve one provider token."""
+
+    async def resolve_ref(self, ref: ProviderRef) -> object:
+        """Resolve one compiler-qualified provider reference."""
 
 
 @runtime_checkable
