@@ -25,6 +25,9 @@ from nestpy_microservices import (
     MsgspecJsonMessageCodec,
     Payload,
     Publication,
+    RabbitMqModule,
+    RabbitMqOptions,
+    RabbitMqTransport,
     RpcRequestEnvelope,
     RpcTarget,
     ServiceIdentity,
@@ -128,6 +131,19 @@ async def test_module_installs_runtime_in_nest_application_lifecycle() -> None:
     await application.shutdown()
     assert application.state.value == "stopped"
     await broker.close()
+
+
+@pytest.mark.asyncio
+async def test_rabbitmq_module_wires_transport_factories() -> None:
+    application = await NestApplication.create(
+        MicroservicesModule.for_root(
+            SERVICE,
+            transport=RabbitMqTransport(),
+            imports=(RabbitMqModule.for_root(RabbitMqOptions("amqp://localhost")),),
+        )
+    )
+
+    assert application.state.value == "compiled"
 
 
 @pytest.mark.asyncio

@@ -4,13 +4,18 @@ import asyncio
 from uuid import uuid4
 
 import pytest
+from nestpy import NestApplication
 
 from nestpy_microservices import (
+    ClientsModule,
     InMemoryBroker,
     InMemoryClientTransport,
     InMemoryServerTransport,
     MsgspecJsonMessageCodec,
     Publication,
+    RabbitMqModule,
+    RabbitMqOptions,
+    RabbitMqTransport,
     RpcResponseEnvelope,
     RpcTarget,
     RpcTimeoutError,
@@ -109,3 +114,15 @@ async def test_cluster_rejects_pending_map_exhaustion_before_publish() -> None:
     await cluster.close()
     assert isinstance(pending.exception(), Exception)
     await broker.close()
+
+
+@pytest.mark.asyncio
+async def test_clients_module_wires_rabbitmq_factory() -> None:
+    application = await NestApplication.create(
+        ClientsModule.register_cluster(
+            RabbitMqTransport(),
+            imports=(RabbitMqModule.for_root(RabbitMqOptions("amqp://localhost")),),
+        )
+    )
+
+    assert application.state.value == "compiled"
