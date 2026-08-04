@@ -6,7 +6,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Mappin
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 from uuid import UUID, uuid4
 
 from nestpy_microservices.identities import (
@@ -170,6 +170,7 @@ DeliveryDispatcher = Callable[
 ]
 
 
+@runtime_checkable
 class ServerTransport(Protocol):
     """Inbound transport boundary owned by a service runtime."""
 
@@ -200,6 +201,7 @@ class ServerTransport(Protocol):
     def unwrap(self) -> object: ...
 
 
+@runtime_checkable
 class ClientTransport(Protocol):
     """Outbound transport boundary owned by a service cluster client."""
 

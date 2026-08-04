@@ -69,6 +69,8 @@ from nestpy_microservices.invocation import (
     MessagePipelineExecutor,
     SettlementRecommendation,
 )
+from nestpy_microservices.module import MicroservicesModule, MicroservicesRoot
+from nestpy_microservices.options import MicroservicesOptions
 from nestpy_microservices.plans import (
     EventHandlerPlan,
     MessageParameterPlan,
@@ -76,6 +78,7 @@ from nestpy_microservices.plans import (
     RpcHandlerPlan,
     ServiceHandlerRegistry,
 )
+from nestpy_microservices.runtime import ServerTransportFactory, ServiceRuntime
 from nestpy_microservices.transport import (
     ClientTransport,
     DeliveryDispatcher,
@@ -125,6 +128,9 @@ __all__ = [
     "MessageInvocationError",
     "MessageInvocation",
     "MessagePipelineExecutor",
+    "MicroservicesModule",
+    "MicroservicesOptions",
+    "MicroservicesRoot",
     "MessageRejectedError",
     "MessageRetryableError",
     "MessageLimits",
@@ -146,6 +152,8 @@ __all__ = [
     "ServiceIdentity",
     "ServiceHandlerRegistry",
     "SettlementRecommendation",
+    "ServerTransportFactory",
+    "ServiceRuntime",
     "ServerTransport",
     "Publication",
     "PublicationReceipt",

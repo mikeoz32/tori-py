@@ -185,25 +185,29 @@ class InMemoryBroker:
                 queue.task = asyncio.create_task(self._run_queue(queue))
             queue.wake.set()
 
-    async def stop_server(self, server: InMemoryServerTransport) -> None:
+    async def stop_server(
+        self, server: InMemoryServerTransport, *, requeue: bool = True
+    ) -> None:
         for queue in tuple(self._queues.values()):
             consumer = queue.consumers.pop(server.replica_id, None)
             if consumer is not None:
                 consumer.active = False
-                for key, record in tuple(queue.deliveries.items()):
-                    if record.server is server and not record.settled:
-                        queue.deliveries.pop(key)
-                        server._delivery_queues.pop(id(record.delivery), None)
-                        queue.messages.appendleft(record.queued)
+            for key, record in tuple(queue.deliveries.items()):
+                if requeue and record.server is server and not record.settled:
+                    queue.deliveries.pop(key)
+                    server._delivery_queues.pop(id(record.delivery), None)
+                    queue.messages.appendleft(record.queued)
+                    if consumer is not None:
                         consumer.in_flight -= 1
-                        server._in_flight -= 1
+                    server._in_flight -= 1
             queue.wake.set()
             other_owner = any(
                 other is not server and queue.name in other._queue_names
                 for other in self._servers
             )
             if (
-                queue.name in self._ephemeral_queues
+                requeue
+                and queue.name in self._ephemeral_queues
                 and not queue.consumers
                 and not other_owner
             ):
@@ -475,7 +479,7 @@ class InMemoryServerTransport:
         if self._status is not TransportStatus.RUNNING:
             raise TransportStateError("server intake has not started")
         self._set_status(TransportStatus.QUIESCING)
-        await self.broker.stop_server(self)
+        await self.broker.stop_server(self, requeue=False)
 
     async def close(self) -> None:
         if self._status is TransportStatus.CLOSED:
@@ -493,7 +497,14 @@ class InMemoryServerTransport:
             except TimeoutError:
                 for task in tuple(self._tasks):
                     task.cancel()
-                await asyncio.gather(*self._tasks, return_exceptions=True)
+                try:
+                    await asyncio.wait_for(
+                        asyncio.gather(*self._tasks, return_exceptions=True),
+                        timeout=0.1,
+                    )
+                except TimeoutError:
+                    pass
+        await self.broker.stop_server(self, requeue=True)
         self.broker._servers.discard(self)
         self._set_status(TransportStatus.CLOSED)
 
