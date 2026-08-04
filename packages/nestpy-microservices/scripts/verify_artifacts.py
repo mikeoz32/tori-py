@@ -94,6 +94,7 @@ assert set(nestpy_microservices.__all__) == {
     "TransportUnroutableError",
     "RabbitMqModule",
     "RabbitMqConnectionManager",
+    "RabbitMqPublisher",
     "BindingDeclaration",
     "ExchangeDeclaration",
     "RabbitMqOptions",

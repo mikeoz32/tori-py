@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import sys
 from types import SimpleNamespace
+from typing import cast
+from uuid import uuid4
 
 import pytest
 from nestpy_microservices.rabbitmq import (
@@ -9,6 +11,7 @@ from nestpy_microservices.rabbitmq import (
     RabbitMqConnectionManager,
     RabbitMqModule,
     RabbitMqOptions,
+    RabbitMqPublisher,
     RabbitMqStatus,
     RabbitMqTopology,
     RabbitMqTransport,
@@ -18,8 +21,17 @@ from nestpy_microservices.rabbitmq import (
     merge_topologies,
 )
 from nestpy_microservices.rabbitmq import connection as rabbitmq_connection
+from nestpy_microservices.rabbitmq import publisher as rabbitmq_publisher
+from nestpy_microservices.rabbitmq.connection import RabbitMqChannels
 
-from nestpy_microservices import EventIdentity, EventSubscription, ServiceIdentity
+from nestpy_microservices import (
+    EventIdentity,
+    EventSubscription,
+    Publication,
+    ServiceIdentity,
+    TransportIndeterminateError,
+    TransportUnroutableError,
+)
 
 SERVICE = ServiceIdentity("kinker", "members", 1)
 
@@ -134,3 +146,103 @@ async def test_connection_manager_owns_three_channels_without_eager_import(
     assert manager.status is RabbitMqStatus.CLOSED
     assert calls[:4] == ["connect", "channel:False", "channel:True", "channel:False"]
     assert calls[-1] == "connection-close"
+
+
+@pytest.mark.asyncio
+async def test_publisher_uses_confirm_channel_and_maps_mandatory_returns(
+    monkeypatch,
+) -> None:
+    published: list[tuple[object, str, bool]] = []
+
+    class Message:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+    class Exchange:
+        async def publish(self, message, *, routing_key, mandatory):
+            published.append((message, routing_key, mandatory))
+
+    fake_aio = SimpleNamespace(
+        DeliveryMode=SimpleNamespace(PERSISTENT="persistent"),
+        Message=Message,
+    )
+    monkeypatch.setattr(rabbitmq_publisher, "_load_aio_pika", lambda: fake_aio)
+    manager = SimpleNamespace(
+        channels=RabbitMqChannels(
+            consumer=object(),
+            publisher=SimpleNamespace(default_exchange=Exchange()),
+            reply=object(),
+        )
+    )
+    publication = Publication(
+        message_id=uuid4(),
+        routing_key="kinker.members.v1.get",
+        body=b"payload",
+        headers={"content-type": "application/json"},
+        mandatory=True,
+    )
+
+    receipt = await RabbitMqPublisher(cast(RabbitMqConnectionManager, manager)).publish(
+        publication
+    )
+
+    assert receipt.message_id == publication.message_id
+    assert receipt.routed is True
+    assert published[0][1:] == (publication.routing_key, True)
+
+
+@pytest.mark.asyncio
+async def test_publisher_maps_unroutable_and_indeterminate_failures(
+    monkeypatch,
+) -> None:
+    class DeliveryError(Exception):
+        pass
+
+    class ConnectionClosed(Exception):
+        pass
+
+    class Exchange:
+        def __init__(self, error):
+            self.error = error
+
+        async def publish(self, *args, **kwargs):
+            raise self.error
+
+    fake_aio = SimpleNamespace(
+        DeliveryMode=SimpleNamespace(PERSISTENT="persistent"),
+        Message=lambda **kwargs: kwargs,
+    )
+    monkeypatch.setattr(rabbitmq_publisher, "_load_aio_pika", lambda: fake_aio)
+
+    def publication() -> Publication:
+        return Publication(
+            message_id=uuid4(),
+            routing_key="kinker.members.v1.get",
+            body=b"payload",
+            headers={},
+            mandatory=True,
+        )
+
+    unroutable_manager = SimpleNamespace(
+        channels=RabbitMqChannels(
+            object(),
+            SimpleNamespace(default_exchange=Exchange(DeliveryError())),
+            object(),
+        )
+    )
+    with pytest.raises(TransportUnroutableError):
+        await RabbitMqPublisher(
+            cast(RabbitMqConnectionManager, unroutable_manager)
+        ).publish(publication())
+
+    uncertain_manager = SimpleNamespace(
+        channels=RabbitMqChannels(
+            object(),
+            SimpleNamespace(default_exchange=Exchange(ConnectionClosed())),
+            object(),
+        )
+    )
+    with pytest.raises(TransportIndeterminateError):
+        await RabbitMqPublisher(
+            cast(RabbitMqConnectionManager, uncertain_manager)
+        ).publish(publication())

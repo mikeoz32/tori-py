@@ -87,6 +87,7 @@ def test_root_facade_is_exact_and_typed() -> None:
         "TransportUnroutableError",
         "RabbitMqModule",
         "RabbitMqConnectionManager",
+        "RabbitMqPublisher",
         "BindingDeclaration",
         "ExchangeDeclaration",
         "RabbitMqOptions",
