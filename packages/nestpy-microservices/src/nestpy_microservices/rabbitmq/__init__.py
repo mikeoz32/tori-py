@@ -13,6 +13,7 @@ from nestpy_microservices.rabbitmq.module import (
 )
 from nestpy_microservices.rabbitmq.options import RabbitMqOptions
 from nestpy_microservices.rabbitmq.publisher import RabbitMqPublisher
+from nestpy_microservices.rabbitmq.server import RabbitMqServerTransport
 from nestpy_microservices.rabbitmq.topology import (
     BindingDeclaration,
     ExchangeDeclaration,
@@ -33,6 +34,7 @@ __all__ = [
     "RabbitMqModule",
     "RabbitMqOptions",
     "RabbitMqPublisher",
+    "RabbitMqServerTransport",
     "RabbitMqRoot",
     "RabbitMqTopology",
     "RabbitMqTransport",

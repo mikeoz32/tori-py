@@ -12,6 +12,7 @@ from nestpy_microservices.rabbitmq import (
     RabbitMqModule,
     RabbitMqOptions,
     RabbitMqPublisher,
+    RabbitMqServerTransport,
     RabbitMqStatus,
     RabbitMqTopology,
     RabbitMqTransport,
@@ -29,6 +30,7 @@ from nestpy_microservices import (
     EventSubscription,
     Publication,
     ServiceIdentity,
+    SettlementRecommendation,
     TransportIndeterminateError,
     TransportUnroutableError,
 )
@@ -246,3 +248,84 @@ async def test_publisher_maps_unroutable_and_indeterminate_failures(
         await RabbitMqPublisher(
             cast(RabbitMqConnectionManager, uncertain_manager)
         ).publish(publication())
+
+
+@pytest.mark.asyncio
+async def test_server_consumes_and_manually_settles_incoming_messages() -> None:
+    class Message:
+        message_id = str(uuid4())
+        routing_key = "kinker.members.v1.get"
+        body = b"payload"
+        headers = {"x-attempt": 2}
+        redelivered = True
+        correlation_id = str(uuid4())
+        reply_to = "reply." + "a" * 32
+
+        def __init__(self) -> None:
+            self.actions: list[tuple[str, bool | None]] = []
+
+        async def ack(self) -> None:
+            self.actions.append(("ack", None))
+
+        async def nack(self, *, requeue: bool) -> None:
+            self.actions.append(("nack", requeue))
+
+        async def reject(self, *, requeue: bool) -> None:
+            self.actions.append(("reject", requeue))
+
+    class Queue:
+        def __init__(self) -> None:
+            self.callback = None
+            self.cancelled = False
+
+        async def consume(self, callback, **kwargs):
+            self.callback = callback
+
+        async def cancel(self, tag: str) -> None:
+            self.cancelled = True
+
+    queue = Queue()
+    consumer_channel = SimpleNamespace(set_qos=_async_noop)
+    manager = SimpleNamespace(
+        declare=lambda topology: _return_queue(queue),
+        channels=SimpleNamespace(consumer=consumer_channel),
+    )
+    server = RabbitMqServerTransport(cast(RabbitMqConnectionManager, manager), SERVICE)
+    seen = []
+    outcomes = iter(
+        (
+            SettlementRecommendation.ACK,
+            SettlementRecommendation.RETRY,
+            SettlementRecommendation.REJECT,
+        )
+    )
+
+    async def dispatch(delivery):
+        seen.append(delivery)
+        return next(outcomes)
+
+    await server.prepare(rpc_methods=("get",))
+    await server.start(dispatch)
+    message = Message()
+    assert queue.callback is not None
+    await queue.callback(message)
+
+    assert seen[0].attempt == 2
+    assert seen[0].redelivered is True
+    assert message.actions == [("ack", None)]
+    retry_message = Message()
+    await queue.callback(retry_message)
+    reject_message = Message()
+    await queue.callback(reject_message)
+    assert retry_message.actions == [("nack", True)]
+    assert reject_message.actions == [("reject", False)]
+    await server.close()
+    assert queue.cancelled is True
+
+
+async def _return_queue(queue):
+    return {"nestpy.rpc.kinker.members.v1": queue}
+
+
+async def _async_noop(**kwargs) -> None:
+    return None

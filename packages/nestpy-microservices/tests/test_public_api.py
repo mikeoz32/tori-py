@@ -88,6 +88,7 @@ def test_root_facade_is_exact_and_typed() -> None:
         "RabbitMqModule",
         "RabbitMqConnectionManager",
         "RabbitMqPublisher",
+        "RabbitMqServerTransport",
         "BindingDeclaration",
         "ExchangeDeclaration",
         "RabbitMqOptions",

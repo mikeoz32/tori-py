@@ -87,7 +87,7 @@ class RabbitMqConnectionManager:
             self._channels = RabbitMqChannels(consumer, publisher, reply)
             self._set_status(RabbitMqStatus.READY)
 
-    async def declare(self, topology: RabbitMqTopology) -> None:
+    async def declare(self, topology: RabbitMqTopology) -> dict[str, Any]:
         """Declare one immutable topology on the consumer channel."""
 
         channel: Any = self.channels.consumer
@@ -123,6 +123,7 @@ class RabbitMqConnectionManager:
                     routing_key=binding.routing_key,
                     arguments=dict(binding.arguments),
                 )
+            return queues
         except RabbitMqTopologyError:
             raise
         except Exception as error:

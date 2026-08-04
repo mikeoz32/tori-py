@@ -95,6 +95,7 @@ assert set(nestpy_microservices.__all__) == {
     "RabbitMqModule",
     "RabbitMqConnectionManager",
     "RabbitMqPublisher",
+    "RabbitMqServerTransport",
     "BindingDeclaration",
     "ExchangeDeclaration",
     "RabbitMqOptions",
