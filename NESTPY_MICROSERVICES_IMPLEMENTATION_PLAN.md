@@ -9,15 +9,16 @@ Focused package tests, in-memory dispatcher and transport conformance, and
 Docker-backed RabbitMQ dispatcher, cardinality, restart retention, round-trip,
 redelivery, unroutable-publication, and shared conformance tests are present.
 
-MS10 hardening and MS11 release acceptance are not complete. In particular,
-real broker restart/recovery and network-blackhole behavior have not been proven.
+MS10 hardening and MS11 release acceptance are not complete. The MS10 broker
+application restart recovery slice is proven; network-blackhole behavior and
+the request/reply/ACK fault matrix remain open.
 
 | Phase range | Current status |
 | --- | --- |
 | MS0-MS6 | Implemented; focused contract, compiler, pipeline, in-memory, lifecycle, and client tests are present |
 | MS7-MS8 | Implemented; targeted unit and Docker-backed RabbitMQ coverage is present, with the MS10 fault matrix still outstanding |
 | MS9 | Implemented; root-owned `EventDispatcher`, exact real-broker cardinality, offline ephemeral behavior, and reliable-broadcast restart are proven |
-| MS10 | In progress; broker restart, blackhole, reconnect-boundary, stale-delivery-tag, forced-shutdown, and complete observability/security hardening remain |
+| MS10 | In progress; broker application restart and stale-settlement fencing are proven, while blackhole, reconnect-boundary, forced-shutdown, and complete observability/security hardening remain |
 | MS11 | Not complete; examples, complete user/operations docs, full quality gates, built-artifact smoke tests, and independent release review remain |
 
 Architecture:
@@ -211,6 +212,9 @@ one-global, and every-instance delivery semantics.
 - Test server and client reconnect at every request/reply/ACK boundary.
 - Test publisher-confirm NACK, unroutable publication, channel closure, stale
   delivery tags, broker restart, and forced shutdown.
+- Current MS10 slice proves RabbitMQ application restart topology replay,
+  consumer reopening, bounded recovery listeners, and stale settlement fencing;
+  the remaining request/reply/ACK and fault-injection matrix is still open.
 - Bound every payload, header set, pending request map, queue, task set, timeout,
   retry, and log path.
 - Add structured status, readiness, diagnostics, metrics hooks, and safe logging.

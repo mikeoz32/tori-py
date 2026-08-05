@@ -8,7 +8,8 @@ The MS0-MS9 capability set is implemented in the repository worktree, including
 the root-owned application-facing `EventDispatcher`, complete real-broker event
 cardinality, offline ephemeral behavior, and reliable-broadcast restart
 retention. MS10 failure hardening and MS11 release gates are not complete;
-broker restart and network-blackhole recovery are not proven.
+broker application restart is covered by the current MS10 slice, while
+network-blackhole and request/reply/ACK recovery remain unproven.
 
 The base package depends only on Nestpy and `msgspec`. RabbitMQ support is
 available through the optional `rabbitmq` extra and is deliberately lazy:

@@ -4,8 +4,8 @@
 
 Implemented. Lazy configuration, owned connection/channels, deterministic
 topology, confirms/returns, and framework recovery coordination are present.
-Normal broker paths have Docker-backed coverage; broker restart and blackhole
-recovery are not proven and remain MS10 work.
+Normal broker paths have Docker-backed coverage; broker application restart
+recovery is covered by MS10, while blackhole recovery remains MS10 work.
 
 ## Purpose
 

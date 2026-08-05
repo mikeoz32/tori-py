@@ -63,6 +63,7 @@ class RabbitMqConnectionManager:
         self._recovery_error: BaseException | None = None
         self._generation = 0
         self._recovery_finished = asyncio.Event()
+        self._listener_tasks: set[asyncio.Task[object]] = set()
 
     @property
     def status(self) -> RabbitMqStatus:
@@ -130,7 +131,11 @@ class RabbitMqConnectionManager:
                 connection.close_callbacks.add(self._on_connection_lost)
                 connection.reconnect_callbacks.add(self._on_connection_recovered)
             except BaseException as error:
-                cleanup_errors = await _close_resources(opened_channels, connection)
+                cleanup_errors = await _close_resources(
+                    opened_channels,
+                    connection,
+                    timeout=self.options.connection_timeout,
+                )
                 self._set_status(RabbitMqStatus.FAILED)
                 if not isinstance(error, Exception):
                     _add_cleanup_notes(error, cleanup_errors)
@@ -203,17 +208,28 @@ class RabbitMqConnectionManager:
         async with self._lock:
             if self._status is RabbitMqStatus.CLOSED:
                 return
-            self._closing = True
-            channels = self._channels
-            connection = self._connection
-            self._channels = None
-            self._connection = None
+            async with self._recovery_lock:
+                if self._status is RabbitMqStatus.CLOSED:
+                    return
+                self._closing = True
+                listener_errors = await self._drain_listener_tasks()
+                channels = self._channels
+                connection = self._connection
+                self._channels = None
+                self._connection = None
             opened = (
                 [channels.consumer, channels.publisher, channels.reply]
                 if channels is not None
                 else []
             )
-            cleanup_errors = await _close_resources(opened, connection)
+            cleanup_errors = [
+                *listener_errors,
+                *await _close_resources(
+                    opened,
+                    connection,
+                    timeout=self.options.connection_timeout,
+                ),
+            ]
             self._set_status(RabbitMqStatus.CLOSED)
             if cleanup_errors:
                 if isinstance(cleanup_errors[0], asyncio.CancelledError):
@@ -233,17 +249,17 @@ class RabbitMqConnectionManager:
                 RabbitMqStatus.CREATED,
                 RabbitMqStatus.CONNECTING,
                 RabbitMqStatus.RECOVERING,
-                RabbitMqStatus.FAILED,
             }:
                 return
             self._generation += 1
             self._set_status(RabbitMqStatus.RECOVERING)
-            failures = await _notify_listeners(
-                tuple(self._listeners), "connection_lost", error
+            failures = await self._notify_listeners(
+                "connection_lost",
+                error,
             )
             if failures:
                 self._recovery_error = failures[0]
-                self._set_status(RabbitMqStatus.FAILED)
+                self._set_status(RabbitMqStatus.RECOVERING)
 
     async def fence_connection(
         self,
@@ -296,6 +312,7 @@ class RabbitMqConnectionManager:
     async def notify_connection_recovered(self) -> None:
         """Rebuild framework topology before reporting the connection ready."""
 
+        recovery_failure: BaseException | None = None
         async with self._recovery_lock:
             if self._closing or self._status is RabbitMqStatus.CLOSED:
                 return
@@ -305,20 +322,19 @@ class RabbitMqConnectionManager:
             }:
                 return
             self._set_status(RabbitMqStatus.RECOVERING)
-            failures = await _notify_listeners(
-                tuple(self._listeners), "connection_recovered"
-            )
+            failures = await self._notify_listeners("connection_recovered")
             if failures:
                 self._recovery_error = failures[0]
-                await _notify_listeners(
-                    tuple(self._listeners),
-                    "connection_lost",
-                    failures[0],
+                await self._notify_listeners("connection_lost", failures[0])
+                self._set_status(RabbitMqStatus.RECOVERING)
+                recovery_failure = RabbitMqConnectionError(
+                    "RabbitMQ recovery listener failed during reconnection"
                 )
-                self._set_status(RabbitMqStatus.FAILED)
-                return
-            self._recovery_error = None
-            self._set_status(RabbitMqStatus.READY)
+            else:
+                self._recovery_error = None
+                self._set_status(RabbitMqStatus.READY)
+        if recovery_failure is not None:
+            await self._force_native_connection_close(recovery_failure)
 
     async def statuses(self) -> AsyncIterator[RabbitMqStatus]:
         while True:
@@ -337,6 +353,88 @@ class RabbitMqConnectionManager:
     async def _on_connection_recovered(self, _connection: object) -> None:
         await self.notify_connection_recovered()
 
+    async def _notify_listeners(
+        self,
+        method_name: str,
+        *args: object,
+    ) -> list[BaseException]:
+        previous = await self._drain_listener_tasks()
+        if previous:
+            return previous
+        return await _notify_listeners(
+            tuple(self._listeners),
+            method_name,
+            *args,
+            timeout=self.options.connection_timeout,
+            task_registry=self._listener_tasks,
+        )
+
+    async def _drain_listener_tasks(self) -> list[BaseException]:
+        tasks = tuple(self._listener_tasks)
+        if not tasks:
+            return []
+        done, pending = await asyncio.wait(
+            tasks,
+            timeout=self.options.connection_timeout,
+        )
+        for task in pending:
+            task.cancel()
+        if pending:
+            terminated, lingering = await asyncio.wait(
+                pending,
+                timeout=self.options.connection_timeout,
+            )
+        else:
+            terminated, lingering = set(), set()
+        results = await asyncio.gather(*(done | terminated), return_exceptions=True)
+        failures = [
+            result
+            for result in results
+            if isinstance(result, BaseException)
+            and not isinstance(result, asyncio.CancelledError)
+        ]
+        if lingering:
+            failures.append(
+                TimeoutError("RabbitMQ recovery listener did not terminate")
+            )
+        return failures
+
+    async def _force_native_connection_close(self, error: BaseException) -> None:
+        connection = self._connection
+        native = getattr(
+            getattr(getattr(connection, "transport", None), "connection", None),
+            "close",
+            None,
+        )
+        if not callable(native):
+            cleanup_errors = await _close_resources(
+                [],
+                connection,
+                timeout=self.options.connection_timeout,
+            )
+            self._recovery_error = cleanup_errors[0] if cleanup_errors else error
+            self._set_status(RabbitMqStatus.FAILED)
+            return
+        assert connection is not None
+        try:
+            await asyncio.wait_for(
+                native(error if isinstance(error, Exception) else None),
+                timeout=self.options.connection_timeout,
+            )
+            self._recovery_error = error
+            self._set_status(RabbitMqStatus.FAILED)
+        except BaseException as close_error:
+            try:
+                await asyncio.wait_for(
+                    connection.close(),
+                    timeout=self.options.connection_timeout,
+                )
+            except BaseException as fallback_error:
+                self._recovery_error = fallback_error
+            else:
+                self._recovery_error = close_error
+            self._set_status(RabbitMqStatus.FAILED)
+
     def _set_status(self, status: RabbitMqStatus) -> None:
         if self._status is status:
             return
@@ -353,34 +451,83 @@ class RabbitMqConnectionManager:
 
 
 async def _close_resources(
-    opened_channels: list[Any], connection: Any | None
+    opened_channels: list[Any],
+    connection: Any | None,
+    *,
+    timeout: float,
 ) -> list[BaseException]:
-    failures: list[BaseException] = []
+    channel_failures: list[BaseException] = []
     for channel in reversed(opened_channels):
         try:
-            await channel.close()
+            await asyncio.wait_for(channel.close(), timeout=timeout)
         except BaseException as error:
-            failures.append(error)
+            channel_failures.append(error)
     if connection is not None:
+        close_task = asyncio.create_task(connection.close())
         try:
-            await connection.close()
+            await asyncio.wait_for(asyncio.shield(close_task), timeout=timeout)
+            return channel_failures
         except BaseException as error:
-            failures.append(error)
-    return failures
+            native = getattr(
+                getattr(getattr(connection, "transport", None), "connection", None),
+                "close",
+                None,
+            )
+            if callable(native):
+                try:
+                    await asyncio.wait_for(native(), timeout=timeout)
+                    close_task.add_done_callback(_consume_resource_task)
+                    return channel_failures
+                except BaseException as native_error:
+                    close_task.cancel()
+                    close_task.add_done_callback(_consume_resource_task)
+                    return [*channel_failures, error, native_error]
+            close_task.cancel()
+            close_task.add_done_callback(_consume_resource_task)
+            return [*channel_failures, error]
+    return channel_failures
+
+
+def _consume_resource_task(task: asyncio.Task[object]) -> None:
+    if not task.cancelled():
+        task.exception()
 
 
 async def _notify_listeners(
     listeners: tuple[RabbitMqRecoveryListener, ...],
     method_name: str,
     *args: object,
+    timeout: float,
+    task_registry: set[asyncio.Task[object]],
 ) -> list[BaseException]:
     failures: list[BaseException] = []
+    deadline = asyncio.get_running_loop().time() + timeout
     for listener in listeners:
+        remaining = deadline - asyncio.get_running_loop().time()
+        if remaining <= 0:
+            failures.append(TimeoutError("RabbitMQ recovery listener deadline expired"))
+            continue
+        task = asyncio.create_task(getattr(listener, method_name)(*args))
+        task_registry.add(task)
+        task.add_done_callback(
+            lambda completed: _consume_task_exception(completed, task_registry)
+        )
         try:
-            await getattr(listener, method_name)(*args)
+            await asyncio.wait_for(asyncio.shield(task), timeout=remaining)
+        except TimeoutError as error:
+            task.cancel()
+            failures.append(error)
         except BaseException as error:
             failures.append(error)
     return failures
+
+
+def _consume_task_exception(
+    task: asyncio.Task[object], task_registry: set[asyncio.Task[object]]
+) -> None:
+    task_registry.discard(task)
+    if not task.cancelled():
+        task.exception()
 
 
 def _add_cleanup_notes(

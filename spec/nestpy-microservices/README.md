@@ -11,8 +11,8 @@ MS0-MS9 capabilities are implemented in the current worktree, including the MS9
 root-owned application-facing `EventDispatcher`, RabbitMQ event routing,
 complete real-broker cardinality matrix, offline ephemeral behavior, and
 reliable-broadcast restart retention. MS10 failure hardening and MS11 release
-acceptance are not complete; broker restart and network-blackhole recovery are
-also unproven.
+acceptance are not complete; broker application restart is covered by the MS10
+slice, while network-blackhole and request/reply/ACK recovery remain unproven.
 
 ## Phase Map
 
@@ -25,7 +25,7 @@ also unproven.
 | MS4 | [Transport contract and in-memory broker](phase-ms4-transport-contract-and-inmemory.md) | Executable transport conformance baseline | Implemented |
 | MS5 | [Service runtime and lifecycle](phase-ms5-service-runtime-and-lifecycle.md) | Ready and quiescent service runtime | Implemented; examples remain MS11 |
 | MS6 | [Cluster client and replies](phase-ms6-cluster-client-and-replies.md) | Shared bounded asynchronous RPC client | Implemented |
-| MS7 | [RabbitMQ foundation and topology](phase-ms7-rabbitmq-foundation-and-topology.md) | Owned robust connection and exact topology | Implemented; restart recovery unproven |
+| MS7 | [RabbitMQ foundation and topology](phase-ms7-rabbitmq-foundation-and-topology.md) | Owned robust connection and exact topology | Implemented; MS10 owns broker recovery hardening |
 | MS8 | [RabbitMQ RPC service cluster](phase-ms8-rabbitmq-rpc-service-cluster.md) | Wildcard-bound competing service replicas | Implemented; full fault matrix pending |
 | MS9 | [Clustered event dispatch](phase-ms9-clustered-event-dispatch.md) | SERVICE_POOL, SINGLETON, and BROADCAST | Implemented; exit criteria proven against real RabbitMQ |
 | MS10 | [Failure recovery and hardening](phase-ms10-failure-recovery-and-hardening.md) | Bounded explicit distributed failures | In progress; not complete |

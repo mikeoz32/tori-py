@@ -64,6 +64,7 @@ class Queue:
 
 class Manager:
     options = RabbitMqOptions("amqp://localhost")
+    generation = 0
 
     def __init__(self) -> None:
         self.queues: dict[str, Queue] = {}
@@ -455,6 +456,74 @@ async def test_client_close_fences_reply_callback_before_close_sentinel() -> Non
     assert client._reply_queue.get_nowait() is None
     assert client._reply_queue.empty()
     assert not client._callback_tasks
+
+
+@pytest.mark.asyncio
+async def test_server_skips_stale_generation_settlement() -> None:
+    manager = Manager()
+    server = RabbitMqServerTransport(cast(RabbitMqConnectionManager, manager), SERVICE)
+    entered = asyncio.Event()
+    release = asyncio.Event()
+
+    async def dispatch(delivery):
+        del delivery
+        entered.set()
+        await release.wait()
+        return SettlementRecommendation.ACK
+
+    await server.prepare(rpc_methods=("run",))
+    await server.start(dispatch)
+    primary = manager.queues[f"nestpy.rpc.{SERVICE.label}"]
+    assert primary.callback is not None
+
+    async def immediate(delivery):
+        del delivery
+        return SettlementRecommendation.ACK
+
+    server._dispatcher = immediate
+    stale = Message()
+    manager.generation = 1
+    await server._on_message(
+        stale,
+        subscription=None,
+        retry_exchange=None,
+        generation=0,
+    )
+    assert stale.actions == []
+    manager.generation = 0
+    server._dispatcher = dispatch
+    message = Message()
+    callback = asyncio.create_task(primary.callback(message))
+    await entered.wait()
+
+    manager.generation = 1
+    await server.connection_lost(ConnectionError("broker restarted"))
+    release.set()
+    await callback
+
+    assert message.actions == []
+    await server.close()
+
+
+@pytest.mark.asyncio
+async def test_client_does_not_ack_reply_from_lost_connection_generation() -> None:
+    manager = Manager()
+    client = RabbitMqClientTransport(cast(RabbitMqConnectionManager, manager))
+    await client.start()
+    correlation = uuid4()
+    client._pending.add(correlation)
+    message = Message()
+    message.routing_key = client.reply_to.value
+    message.correlation_id = str(correlation)
+
+    await client._on_reply(message)
+    delivery = client._reply_queue.get_nowait()
+    assert delivery is not None
+    manager.generation = 1
+    await client._ack_reply(delivery)
+
+    assert message.actions == []
+    await client.close()
 
 
 async def _async_noop(**kwargs: Any) -> None:

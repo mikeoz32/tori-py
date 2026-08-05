@@ -268,6 +268,50 @@ async def test_connection_manager_owns_three_channels_without_eager_import(
 
 
 @pytest.mark.asyncio
+async def test_connection_recovery_listener_is_bounded(monkeypatch) -> None:
+    class Channel:
+        async def close(self):
+            return None
+
+    class Connection:
+        close_callbacks = SimpleNamespace(add=lambda callback: None)
+        reconnect_callbacks = SimpleNamespace(add=lambda callback: None)
+
+        async def channel(self, **kwargs):
+            del kwargs
+            return Channel()
+
+        async def close(self):
+            return None
+
+    async def connect_robust(*args, **kwargs):
+        del args, kwargs
+        return Connection()
+
+    fake_aio = SimpleNamespace(connect_robust=connect_robust)
+    monkeypatch.setattr(rabbitmq_connection, "require_aio_pika", lambda: fake_aio)
+    manager = RabbitMqConnectionManager(
+        RabbitMqOptions("amqp://localhost", connection_timeout=0.01)
+    )
+
+    class HangingListener:
+        async def connection_lost(self, error):
+            del error
+            await asyncio.Event().wait()
+
+        async def connection_recovered(self):
+            return None
+
+    await manager.start()
+    manager.register_recovery_listener(HangingListener())
+    await manager.notify_connection_lost(ConnectionError("lost"))
+
+    assert manager.status is RabbitMqStatus.RECOVERING
+    assert isinstance(manager.recovery_error, TimeoutError)
+    await manager.close()
+
+
+@pytest.mark.asyncio
 async def test_partial_channel_startup_cleans_up_in_reverse(monkeypatch) -> None:
     calls: list[str] = []
 

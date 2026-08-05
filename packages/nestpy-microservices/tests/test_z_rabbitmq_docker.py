@@ -43,6 +43,7 @@ from nestpy_microservices import (  # noqa: E402
     ServiceCluster,
     ServiceIdentity,
     SettlementRecommendation,
+    TransportStatus,
     TransportUnroutableError,
     event_handler,
     utc_now,
@@ -171,6 +172,32 @@ async def _wait_for_delivery_count(
     async with asyncio.timeout(5):
         while len(received) < count:
             await asyncio.sleep(0.05)
+
+
+async def _wait_for_message_id(
+    received: list[tuple[str, EncodedDelivery]], message_id
+) -> None:
+    async with asyncio.timeout(10):
+        while not any(delivery.message_id == message_id for _, delivery in received):
+            await asyncio.sleep(0.05)
+
+
+async def _restart_rabbitmq(docker_services) -> None:
+    def restart() -> None:
+        compose = docker_services._docker_compose
+        compose.execute("exec -T rabbitmq rabbitmqctl stop_app")
+        compose.execute("exec -T rabbitmq rabbitmqctl start_app")
+
+    await asyncio.to_thread(restart)
+
+
+async def _wait_for_rabbitmq_ready(docker_services, url: str) -> None:
+    await asyncio.to_thread(
+        docker_services.wait_until_responsive,
+        check=lambda: _amqp_is_ready(url),
+        timeout=60,
+        pause=0.5,
+    )
 
 
 def _load_management_collection(url: str, resource: str) -> list[dict[str, object]]:
@@ -321,6 +348,84 @@ async def test_rabbitmq_rpc_roundtrip_and_event_redelivery(rabbitmq_url: str) ->
         await server.close()
     finally:
         await manager.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.rabbitmq
+async def test_rabbitmq_broker_restart_redeclares_topology_and_reopens_intake(
+    rabbitmq_url: str,
+    docker_services,
+) -> None:
+    suffix = uuid4().hex[:8]
+    source = ServiceIdentity("recovery", f"publisher-{suffix}", 1)
+    event = EventIdentity(source, "changed", 1)
+    service = ServiceIdentity("recovery", f"worker-{suffix}", 1)
+    subscription = EventSubscription(
+        event,
+        "service_pool",
+        f"events-{suffix}",
+        destination=service,
+    )
+    received: list[tuple[str, EncodedDelivery]] = []
+    server_manager: RabbitMqConnectionManager | None = None
+    server: RabbitMqServerTransport | None = None
+    publisher_manager: RabbitMqConnectionManager | None = None
+    dispatcher: EventDispatcher | None = None
+    try:
+        server_manager, server = await _start_event_server(
+            rabbitmq_url,
+            service,
+            (subscription,),
+            f"{suffix}-server",
+            received,
+        )
+        publisher_manager, dispatcher = await _start_dispatcher(
+            rabbitmq_url, source, suffix
+        )
+        assert server_manager is not None
+        assert server is not None
+        assert publisher_manager is not None
+        assert dispatcher is not None
+        before = await dispatcher.publish(
+            event.event,
+            event.schema_version,
+            {"sequence": "before"},
+            require_route=True,
+        )
+        await _wait_for_delivery_count(received, 1)
+        assert received[0][1].message_id == before.message_id
+
+        await _restart_rabbitmq(docker_services)
+        await _wait_for_rabbitmq_ready(docker_services, rabbitmq_url)
+
+        async with asyncio.timeout(45):
+            while not (
+                server_manager.status.value == "ready"
+                and server.status is TransportStatus.RUNNING
+                and publisher_manager.status.value == "ready"
+                and dispatcher.accepting
+            ):
+                await asyncio.sleep(0.1)
+
+        after = await dispatcher.publish(
+            event.event,
+            event.schema_version,
+            {"sequence": "after"},
+            require_route=True,
+        )
+        await _wait_for_message_id(received, after.message_id)
+        assert after.message_id in {delivery.message_id for _, delivery in received}
+    finally:
+        try:
+            if dispatcher is not None:
+                await dispatcher.close()
+        finally:
+            try:
+                if publisher_manager is not None:
+                    await publisher_manager.close()
+            finally:
+                if server_manager is not None and server is not None:
+                    await _close_event_server(server_manager, server)
 
 
 @pytest.mark.asyncio

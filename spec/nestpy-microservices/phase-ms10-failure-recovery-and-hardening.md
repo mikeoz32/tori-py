@@ -4,10 +4,11 @@
 
 In progress; not complete. Current remediation covers typed publication
 failures, strict protocol rejection, bounded delayed retry/DLX, deterministic
-disconnect fencing, and additional shutdown cleanup tests. Real broker restart,
-network blackhole, reconnect at request/reply/ACK boundaries, stale delivery
-tags, forced shutdown, complete observability/security guidance, and broader
-fault injection remain unverified or unfinished.
+disconnect fencing, broker application restart with topology/consumer recovery,
+generation-fenced stale settlement, bounded recovery listeners, and additional
+shutdown cleanup tests. Network blackhole, reconnect at request/reply/ACK
+boundaries, forced shutdown, complete observability/security guidance, and
+broader fault injection remain unverified or unfinished.
 
 ## Purpose
 
@@ -37,6 +38,9 @@ These states are not collapsed into a generic timeout or success.
 
 - Framework consumers and declarations opt out of automatic aio-pika robust
   replay; the recovery coordinator revalidates topology before reopening intake.
+- RabbitMQ application restart recovery must preserve the configured broker
+  endpoint, redeclare framework topology, and reopen consumers before reporting
+  the manager ready.
 - Old delivery tags are never settled on replacement channels.
 - Unsettled old-channel messages may redeliver with the same message ID.
 - Client reply reconnect fails all old pending requests as outcome unknown.
