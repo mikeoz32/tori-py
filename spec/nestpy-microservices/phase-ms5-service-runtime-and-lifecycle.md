@@ -1,5 +1,11 @@
 # MS5: Service Runtime and Lifecycle
 
+## Status
+
+Implemented. The module root, one-service-root validation, handler-driven
+runtime, bounded admission/concurrency, startup rollback, quiesce, and close
+paths are present. Standalone/hybrid examples and final acceptance remain MS11.
+
 ## Purpose
 
 Compose discovery, invocation, transport, task ownership, readiness, and

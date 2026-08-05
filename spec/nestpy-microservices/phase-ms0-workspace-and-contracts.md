@@ -1,5 +1,11 @@
 # MS0: Workspace and Package Contracts
 
+## Status
+
+Implemented. Workspace/package metadata, typed facades, lazy optional RabbitMQ
+loading, import-boundary tests, and artifact verification scaffolding are
+present; final built-artifact acceptance remains MS11.
+
 ## Purpose
 
 Create an installable optional Nestpy integration with frozen dependency,

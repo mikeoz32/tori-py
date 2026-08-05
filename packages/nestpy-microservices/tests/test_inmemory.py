@@ -195,10 +195,10 @@ async def test_event_service_pool_competes_broadcast_fans_out() -> None:
     second = InMemoryServerTransport(broker, SERVICE, replica_id="b")
     await first.prepare(subscriptions=(service_subscription, singleton, broadcast_a))
     await second.prepare(subscriptions=(service_subscription, singleton, broadcast_b))
-    received: list[tuple[str, object]] = []
+    received: list[tuple[str, object, EventSubscription | None]] = []
 
     async def dispatch(delivery):
-        received.append((delivery.routing_key, delivery.native))
+        received.append((delivery.routing_key, delivery.native, delivery.subscription))
         return SettlementRecommendation.ACK
 
     await first.start(dispatch)
@@ -209,6 +209,9 @@ async def test_event_service_pool_competes_broadcast_fans_out() -> None:
     await wait_for_count(received, 4)
 
     assert len(received) == 4
+    assert {item.subscription for item in (service_subscription, singleton)} <= {
+        delivery[2].subscription for delivery in received if delivery[2] is not None
+    }
     await client.close()
     await first.close()
     await second.close()
@@ -236,3 +239,54 @@ async def test_duplicate_settlement_is_rejected() -> None:
 
     await server.close()
     await broker.close()
+
+
+@pytest.mark.asyncio
+async def test_client_close_signals_a_full_reply_queue_without_queue_full() -> None:
+    broker = InMemoryBroker()
+    client = InMemoryClientTransport(broker, max_pending_replies=1)
+    await client.start()
+    assert client._reply_queue is not None
+    reply_queue = client._reply_queue
+    await broker.publish_reply(
+        Publication(
+            uuid4(),
+            client.reply_to.value,
+            b"reply",
+            {},
+            correlation_id=uuid4(),
+        )
+    )
+    assert reply_queue.full()
+
+    await client.close()
+
+    assert client.status is TransportStatus.CLOSED
+    assert reply_queue.get_nowait() is None
+    assert reply_queue.empty()
+    await broker.close()
+
+
+@pytest.mark.asyncio
+async def test_broker_close_signals_a_full_reply_queue_and_closes_client() -> None:
+    broker = InMemoryBroker()
+    client = InMemoryClientTransport(broker, max_pending_replies=1)
+    await client.start()
+    assert client._reply_queue is not None
+    reply_queue = client._reply_queue
+    await broker.publish_reply(
+        Publication(
+            uuid4(),
+            client.reply_to.value,
+            b"reply",
+            {},
+            correlation_id=uuid4(),
+        )
+    )
+    assert reply_queue.full()
+
+    await broker.close()
+
+    assert client.status is TransportStatus.CLOSED
+    assert reply_queue.get_nowait() is None
+    assert reply_queue.empty()

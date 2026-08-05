@@ -1,5 +1,14 @@
 # MS9: Clustered Event Dispatch
 
+## Status
+
+Partial/in progress. RabbitMQ event routing, topology, transport mechanics, and
+event-mode tests for `SERVICE_POOL`, `SINGLETON`, ephemeral `BROADCAST`, and
+reliable `BROADCAST` are implemented, including bounded delayed retry and DLX
+paths. The required application-facing `EventDispatcher` API owned by the local
+service root remains. Reliable-broadcast restart and the complete real-broker
+cardinality matrix are not proven.
+
 ## Purpose
 
 Implement consumer-owned RabbitMQ event topology for `SERVICE_POOL`,
@@ -106,14 +115,17 @@ orphan a durable queue and lose the logical instance continuation.
 - Cancellation/connection loss: unsettled and eligible for redelivery.
 - Settlement uncertainty: replace channel and retain indeterminate diagnostics.
 
-Immediate unbounded requeue loops are invalid. Production durable queues require
-delivery limits and dead-letter/quarantine operations.
+Immediate unbounded requeue loops are invalid. A retryable delivery is published
+with the same message identity and broker-visible attempt count to a dedicated,
+bounded delayed-retry queue. The original delivery is ACKed only after that
+publication is confirmed; the retry queue dead-letters back to the primary
+exchange after its finite delay. Reaching the configured maximum attempt count
+rejects the delivery to the dead-letter path.
 
-RabbitMQ 4.0 or newer is required. Quorum retries use
-`reject(requeue=True)` plus a finite `delivery-limit` and DLX. Reliable broadcast
-classic queues need an explicit finite retry/DLX topology with persisted
-broker-visible attempt state; without it, retryable failures are terminally
-dead-lettered.
+RabbitMQ 4.0 or newer is required. Durable quorum primary queues also declare a
+finite delivery limit as a broker-side bound. Reliable broadcast classic queues
+use the same framework-owned retry/DLX topology and require a stable instance
+identity.
 
 ## Tests
 

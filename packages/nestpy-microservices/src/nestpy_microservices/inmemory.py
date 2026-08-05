@@ -13,6 +13,7 @@ from nestpy_microservices.errors import (
     DuplicateSettlementError,
     TransportCapacityError,
     TransportCorrelationError,
+    TransportError,
     TransportStateError,
     TransportUnroutableError,
 )
@@ -149,6 +150,7 @@ class InMemoryBroker:
                 set(),
             ).add(event_queue)
             server._queue_names.add(event_queue)
+            server._subscriptions_by_queue[event_queue] = subscription
 
     async def register_reply_route(
         self,
@@ -173,7 +175,7 @@ class InMemoryBroker:
     ) -> None:
         queue = self._reply_queues.pop(route.value, None)
         if queue is not None:
-            queue.put_nowait(None)
+            _signal_reply_queue_closed(queue)
         if client is not None:
             self._clients.discard(client)
 
@@ -230,8 +232,12 @@ class InMemoryBroker:
         record = queue.deliveries.get(id(delivery))
         if record is None or record.settled:
             raise DuplicateSettlementError("delivery was already settled")
+        redelivery_requested = outcome in {
+            SettlementRecommendation.RETRY,
+            SettlementRecommendation.UNSETTLED,
+        }
         retry_terminal = (
-            outcome is SettlementRecommendation.RETRY
+            redelivery_requested
             and record.queued.attempt < self.max_delivery_attempts
             and len(queue.messages) >= self.max_queue_messages
         )
@@ -243,7 +249,7 @@ class InMemoryBroker:
             consumer.in_flight -= 1
         server._in_flight -= 1
         if (
-            outcome is SettlementRecommendation.RETRY
+            redelivery_requested
             and record.queued.attempt < self.max_delivery_attempts
             and not retry_terminal
         ):
@@ -251,7 +257,7 @@ class InMemoryBroker:
             retry.attempt += 1
             retry.redelivered = True
             queue.messages.append(retry)
-        elif outcome is SettlementRecommendation.RETRY:
+        elif redelivery_requested:
             self.dead_letters.append(delivery)
         self._wake_server_queues(server)
 
@@ -319,10 +325,10 @@ class InMemoryBroker:
         ]
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
-        for queue in self._reply_queues.values():
-            queue.put_nowait(None)
         for client in tuple(self._clients):
             client._close_from_broker()
+        for queue in self._reply_queues.values():
+            _signal_reply_queue_closed(queue)
         self._reply_queues.clear()
         self._servers.clear()
         self._clients.clear()
@@ -351,6 +357,7 @@ class InMemoryBroker:
                 reply_to=queued.publication.reply_to,
                 native=queued.publication.native,
                 expires_at=queued.publication.expires_at,
+                subscription=consumer.server._subscriptions_by_queue.get(queue.name),
             )
             record = _DeliveryRecord(consumer.server, queue.name, delivery, queued)
             queue.deliveries[id(delivery)] = record
@@ -405,6 +412,7 @@ class InMemoryBroker:
         self._reliable_broadcast_owners.pop(queue_name, None)
         for server in self._servers:
             server._queue_names.discard(queue_name)
+            server._subscriptions_by_queue.pop(queue_name, None)
         self._ephemeral_queues.discard(queue_name)
         for route, queues in tuple(self._event_routes.items()):
             queues.discard(queue_name)
@@ -442,6 +450,7 @@ class InMemoryServerTransport:
         self._status = TransportStatus.CREATED
         self._status_events: asyncio.Queue[TransportStatusEvent] = asyncio.Queue()
         self._queue_names: set[str] = set()
+        self._subscriptions_by_queue: dict[str, EventSubscription] = {}
         self._delivery_queues: dict[int, str] = {}
         self._tasks: set[asyncio.Task[None]] = set()
         self._in_flight = 0
@@ -511,6 +520,7 @@ class InMemoryServerTransport:
                     pass
         await self.broker.stop_server(self, requeue=True)
         self.broker._servers.discard(self)
+        self._subscriptions_by_queue.clear()
         self._set_status(TransportStatus.CLOSED)
 
     async def statuses(self) -> AsyncIterator[TransportStatusEvent]:
@@ -535,10 +545,21 @@ class InMemoryServerTransport:
             result = await self._dispatcher(delivery)
         except asyncio.CancelledError:
             raise
+        except TransportError:
+            if id(delivery) in self._delivery_queues:
+                await self.settle(delivery, SettlementRecommendation.UNSETTLED)
+            return
         except Exception:
             if id(delivery) in self._delivery_queues:
                 try:
-                    await self.settle(delivery, SettlementRecommendation.RETRY)
+                    await self.settle(
+                        delivery,
+                        (
+                            SettlementRecommendation.RETRY
+                            if delivery.subscription is not None
+                            else SettlementRecommendation.REJECT
+                        ),
+                    )
                 except DuplicateSettlementError, TransportCapacityError:
                     pass
             return
@@ -721,6 +742,14 @@ def _event_queue_name(subscription: EventSubscription) -> str:
         f"{prefix}--broadcast.{subscription.destination.label}."
         f"{subscription.subscription}.{subscription.instance_id}"
     )
+
+
+def _signal_reply_queue_closed(
+    queue: asyncio.Queue[EncodedDelivery | None],
+) -> None:
+    while not queue.empty():
+        queue.get_nowait()
+    queue.put_nowait(None)
 
 
 __all__ = [

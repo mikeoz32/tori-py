@@ -10,6 +10,7 @@ import pytest
 pytest.importorskip("pytest_docker")
 
 from nestpy_microservices.errors import RabbitMqConnectionError  # noqa: E402
+from nestpy_microservices.testing import assert_transport_conformance  # noqa: E402
 
 from nestpy_microservices import (  # noqa: E402
     EventIdentity,
@@ -21,9 +22,11 @@ from nestpy_microservices import (  # noqa: E402
     RabbitMqOptions,
     RabbitMqServerTransport,
     RpcResponseEnvelope,
+    RpcTarget,
     ServiceCluster,
     ServiceIdentity,
     SettlementRecommendation,
+    TransportUnroutableError,
     utc_now,
 )
 
@@ -146,4 +149,139 @@ async def test_rabbitmq_rpc_roundtrip_and_event_redelivery(rabbitmq_url: str) ->
         await cluster.close()
         await server.close()
     finally:
+        await manager.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.rabbitmq
+async def test_mandatory_event_without_subscriber_is_unroutable(
+    rabbitmq_url: str,
+) -> None:
+    manager = RabbitMqConnectionManager(
+        RabbitMqOptions(rabbitmq_url, connection_name="pytest-unroutable")
+    )
+    client = RabbitMqClientTransport(manager, max_pending_replies=2)
+    identity = EventIdentity(EVENT.source, "orphaned-event", 1)
+    try:
+        await manager.start()
+        await client.start()
+
+        receipt = await client.publish_event(
+            identity,
+            Publication(
+                uuid4(),
+                identity.routing_key,
+                b"event",
+                {},
+                mandatory=False,
+            ),
+        )
+        assert receipt.routed is False
+
+        with pytest.raises(TransportUnroutableError):
+            await client.publish_event(
+                identity,
+                Publication(
+                    uuid4(),
+                    identity.routing_key,
+                    b"event",
+                    {},
+                    mandatory=True,
+                ),
+            )
+    finally:
+        await client.close()
+        await manager.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.rabbitmq
+async def test_rabbitmq_transport_conformance(rabbitmq_url: str) -> None:
+    suffix = uuid4().hex[:8]
+    service = ServiceIdentity("conformance", f"worker-{suffix}", 1)
+    event = EventIdentity(
+        ServiceIdentity("conformance", f"publisher-{suffix}", 1),
+        "changed",
+        1,
+    )
+    manager = RabbitMqConnectionManager(
+        RabbitMqOptions(
+            rabbitmq_url,
+            connection_name="pytest-conformance",
+            retry_delay_ms=50,
+            max_delivery_attempts=3,
+        )
+    )
+    try:
+        await manager.start()
+        await assert_transport_conformance(
+            RabbitMqServerTransport(
+                manager,
+                service,
+                prefetch=2,
+                retry_delay_ms=50,
+                max_delivery_attempts=3,
+            ),
+            RabbitMqClientTransport(manager, max_pending_replies=8),
+            service=service,
+            event=event,
+            max_delivery_attempts=3,
+            max_inflight_deliveries=2,
+            timeout=5,
+        )
+    finally:
+        await manager.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.rabbitmq
+async def test_rabbitmq_server_close_drains_admitted_callback(
+    rabbitmq_url: str,
+) -> None:
+    service = ServiceIdentity("lifecycle", f"worker-{uuid4().hex[:8]}", 1)
+    target = RpcTarget(service, "wait", 1)
+    manager = RabbitMqConnectionManager(
+        RabbitMqOptions(rabbitmq_url, connection_name="pytest-close-drain")
+    )
+    server = RabbitMqServerTransport(manager, service)
+    client = RabbitMqClientTransport(manager, max_pending_replies=1)
+    admitted = asyncio.Event()
+    release = asyncio.Event()
+
+    async def dispatch(delivery):
+        del delivery
+        admitted.set()
+        await release.wait()
+        return SettlementRecommendation.ACK
+
+    try:
+        await manager.start()
+        await server.prepare(rpc_methods=(target.method,))
+        await server.start(dispatch)
+        await client.start()
+        await client.publish_rpc(
+            target,
+            Publication(
+                uuid4(),
+                target.routing_key,
+                b"request",
+                {},
+                correlation_id=uuid4(),
+                reply_to=client.reply_to,
+            ),
+        )
+        await asyncio.wait_for(admitted.wait(), timeout=5)
+
+        closing = asyncio.create_task(server.close())
+        await asyncio.sleep(0.05)
+        assert not closing.done()
+        release.set()
+        await asyncio.wait_for(closing, timeout=5)
+
+        assert not server._callback_tasks
+        await client.close()
+    finally:
+        release.set()
+        await server.close()
+        await client.close()
         await manager.close()

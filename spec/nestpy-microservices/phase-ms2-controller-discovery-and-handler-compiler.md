@@ -1,5 +1,11 @@
 # MS2: Controller Discovery and Handler Compiler
 
+## Status
+
+Implemented. Direct decorator metadata, graph-aware discovery, exact owner
+identity, deterministic registries, and compile-time validation have focused
+tests in the package suite.
+
 ## Purpose
 
 Compile every decorated method on every explicitly registered Nestpy controller

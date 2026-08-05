@@ -33,6 +33,7 @@ from nestpy.core.errors import (
 from nestpy.core.options import ApplicationOptions
 from nestpy.core.protocols import (
     DiscoveryService,
+    GraphValidator,
     ModulesContainer,
     ScopedResolver,
     ShutdownContext,
@@ -338,6 +339,12 @@ class _Resolver:
     async def resolve_ref(self, ref: ProviderRef) -> object:
         self._scope.enter_user()
         try:
+            visible = self._container.graph.visibility.get((self._module_id, ref.token))
+            if visible != ref:
+                raise ScopeError(
+                    "provider reference is not visible from module "
+                    f"{self._module_id.module.__qualname__}"
+                )
             return await self._container.resolve_ref(ref, scope=self._scope)
         finally:
             self._scope.exit_user()
@@ -817,6 +824,9 @@ class ApplicationKernel:
             self.state = ApplicationState.STARTING
         try:
             self._modules = [plan.module() for plan in self.graph.modules]
+            for participant in self._modules:
+                if isinstance(participant, GraphValidator):
+                    participant.validate_graph(self.graph)
             for ref in self.graph.provider_order:
                 plan = self.graph.providers[ref]
                 if plan.scope is Scope.SINGLETON:

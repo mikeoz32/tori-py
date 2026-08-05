@@ -1,5 +1,10 @@
 # MS1: Service Identity and Wire Protocol
 
+## Status
+
+Implemented. Immutable identities, bounded envelopes and metadata, typed wire
+errors, and the msgspec JSON codec have focused tests in the package suite.
+
 ## Purpose
 
 Define stable transport-neutral identities, envelopes, codecs, deadlines, and

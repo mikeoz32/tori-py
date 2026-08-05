@@ -4,7 +4,7 @@ import asyncio
 from uuid import uuid4
 
 import pytest
-from nestpy import NestApplication
+from nestpy import NestApplication, ValueProvider, module
 
 from nestpy_microservices import (
     ClientsModule,
@@ -13,8 +13,10 @@ from nestpy_microservices import (
     InMemoryServerTransport,
     MsgspecJsonMessageCodec,
     Publication,
+    RabbitMqClientTransportFactory,
     RabbitMqModule,
     RabbitMqOptions,
+    RabbitMqServerTransportFactory,
     RabbitMqTransport,
     RpcResponseEnvelope,
     RpcTarget,
@@ -24,6 +26,8 @@ from nestpy_microservices import (
     ServiceIdentity,
     SettlementRecommendation,
     TransportCapacityError,
+    rabbitmq_client_factory_token,
+    rabbitmq_server_factory_token,
     utc_now,
 )
 
@@ -126,3 +130,113 @@ async def test_clients_module_wires_rabbitmq_factory() -> None:
     )
 
     assert application.state.value == "compiled"
+    assert (application.graph.root, ServiceCluster) in application.graph.visibility
+
+
+@pytest.mark.asyncio
+async def test_keyed_rabbitmq_clients_export_distinct_cluster_tokens() -> None:
+    first = ClientsModule.register_cluster(
+        RabbitMqTransport("first"),
+        imports=(
+            RabbitMqModule.for_root(
+                RabbitMqOptions("amqp://localhost"),
+                key="first",
+            ),
+        ),
+        key="first",
+    )
+    second = ClientsModule.register_cluster(
+        RabbitMqTransport("second"),
+        imports=(
+            RabbitMqModule.for_root(
+                RabbitMqOptions("amqp://localhost"),
+                key="second",
+            ),
+        ),
+        key="second",
+    )
+
+    @module(imports=[first, second])
+    class Root:
+        pass
+
+    application = await NestApplication.create(Root)
+    first_ref = application.graph.visibility[
+        (application.graph.root, ClientsModule.get_cluster_token("first"))
+    ]
+    second_ref = application.graph.visibility[
+        (application.graph.root, ClientsModule.get_cluster_token("second"))
+    ]
+
+    assert first_ref.module_id.key == "first"
+    assert second_ref.module_id.key == "second"
+    assert first_ref != second_ref
+    assert (application.graph.root, ServiceCluster) not in application.graph.visibility
+
+
+@pytest.mark.asyncio
+async def test_two_rabbitmq_roots_resolve_only_their_exact_factory_tokens() -> None:
+    @module(
+        imports=[
+            RabbitMqModule.for_root(
+                RabbitMqOptions("amqp://first.example"), key="first"
+            ),
+            RabbitMqModule.for_root(
+                RabbitMqOptions("amqp://second.example"), key="second"
+            ),
+        ]
+    )
+    class Root:
+        pass
+
+    application = await NestApplication.create(Root)
+    resolver = application._kernel.resolver(application.graph.root)
+    first_server = await resolver.resolve(rabbitmq_server_factory_token("first"))
+    second_server = await resolver.resolve(rabbitmq_server_factory_token("second"))
+    first_client = await resolver.resolve(rabbitmq_client_factory_token("first"))
+    second_client = await resolver.resolve(rabbitmq_client_factory_token("second"))
+
+    assert isinstance(first_server, RabbitMqServerTransportFactory)
+    assert isinstance(second_server, RabbitMqServerTransportFactory)
+    assert isinstance(first_client, RabbitMqClientTransportFactory)
+    assert isinstance(second_client, RabbitMqClientTransportFactory)
+    assert first_server.manager.options.url == "amqp://first.example"
+    assert second_server.manager.options.url == "amqp://second.example"
+    assert first_client.manager is first_server.manager
+    assert second_client.manager is second_server.manager
+    assert first_server.manager is not second_server.manager
+    assert (application.graph.root, RabbitMqServerTransportFactory) not in (
+        application.graph.visibility
+    )
+    assert (application.graph.root, RabbitMqClientTransportFactory) not in (
+        application.graph.visibility
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("manage_transport", [False, True])
+async def test_application_shutdown_closes_cluster_router_and_owned_transport(
+    manage_transport: bool,
+) -> None:
+    broker = InMemoryBroker()
+    transport = InMemoryClientTransport(broker)
+    cluster = ServiceCluster(transport, manage_transport=manage_transport)
+
+    @module(providers=[ValueProvider(ServiceCluster, cluster)])
+    class Root:
+        pass
+
+    application = await NestApplication.create(Root)
+    await application.start()
+    await cluster.start()
+    router = cluster._router_task
+    assert router is not None and not router.done()
+
+    await application.shutdown()
+
+    assert cluster._closed is True
+    assert router.done()
+    assert transport.status.value == ("closed" if manage_transport else "running")
+    if not manage_transport:
+        await transport.close()
+    await broker.close()

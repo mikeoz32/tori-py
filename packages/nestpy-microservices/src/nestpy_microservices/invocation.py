@@ -5,6 +5,7 @@ from __future__ import annotations
 import inspect
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
+from datetime import datetime
 from enum import StrEnum
 from typing import Any, cast
 from uuid import UUID
@@ -28,10 +29,16 @@ from nestpy_microservices.contexts import EventContext, MessageContext, RpcConte
 from nestpy_microservices.errors import (
     MessageAuthorizationError,
     MessageConfigurationError,
+    MessageInvocationError,
     MessageRejectedError,
     MessageRetryableError,
 )
-from nestpy_microservices.identities import MessageLimits, require_uuid
+from nestpy_microservices.identities import (
+    MessageLimits,
+    require_utc,
+    require_uuid,
+    utc_now,
+)
 from nestpy_microservices.plans import (
     EventHandlerPlan,
     MessageParameterPlan,
@@ -47,6 +54,7 @@ class SettlementRecommendation(StrEnum):
     ACK = "ack"
     RETRY = "retry"
     REJECT = "reject"
+    UNSETTLED = "unsettled"
 
 
 @dataclass(frozen=True, slots=True)
@@ -59,6 +67,8 @@ class MessageInvocation:
     payload: object
     headers: Mapping[str, object]
     metadata: Mapping[str, object]
+    received_at: datetime = field(default_factory=utc_now)
+    expires_at: datetime | None = None
     attempt: int = 1
     redelivered: bool = False
     native: object | None = None
@@ -72,6 +82,9 @@ class MessageInvocation:
         require_uuid(self.message_id, "message_id")
         if self.correlation_id is not None:
             require_uuid(self.correlation_id, "correlation_id")
+        require_utc(self.received_at, "received_at")
+        if self.expires_at is not None:
+            require_utc(self.expires_at, "expires_at")
         object.__setattr__(self, "headers", freeze_headers(self.headers, self.limits))
         object.__setattr__(self, "metadata", freeze_headers(self.metadata, self.limits))
 
@@ -109,10 +122,15 @@ class MessagePipelineExecutor:
         invocation: MessageInvocation,
         *,
         encode_result: Callable[[object], Awaitable[object] | object],
+        prepared_arguments: Mapping[str, object] | None = None,
     ) -> InvocationCompletion:
         try:
             pipeline_result = await self._run_pipeline(
-                plan, context, resolver, invocation
+                plan,
+                context,
+                resolver,
+                invocation,
+                prepared_arguments=prepared_arguments,
             )
             if pipeline_result.is_response:
                 raise MessageConfigurationError(
@@ -183,6 +201,16 @@ class MessagePipelineExecutor:
     ) -> InvocationCompletion:
         """Run one attempt through a fresh exact-owner Nestpy work scope."""
 
+        try:
+            prepared_arguments = _prepare_arguments(plan.parameters, invocation)
+        except BaseException as error:
+            if not isinstance(error, Exception):
+                raise
+            return InvocationCompletion(
+                recommendation=SettlementRecommendation.REJECT,
+                body_error=error,
+            )
+
         async def operation(resolver: ScopedResolver) -> InvocationCompletion:
             context = _make_context(plan, resolver, invocation)
             return await self.run(
@@ -191,6 +219,7 @@ class MessagePipelineExecutor:
                 resolver,
                 invocation,
                 encode_result=encode_result,
+                prepared_arguments=prepared_arguments,
             )
 
         try:
@@ -200,7 +229,7 @@ class MessagePipelineExecutor:
                 error.body_error if isinstance(error.body_error, Exception) else None
             )
             return InvocationCompletion(
-                recommendation=SettlementRecommendation.RETRY,
+                recommendation=_scope_recommendation(body_error),
                 body_error=body_error,
                 scope_error=error,
             )
@@ -208,7 +237,7 @@ class MessagePipelineExecutor:
             if not isinstance(error, Exception):
                 raise
             return InvocationCompletion(
-                recommendation=SettlementRecommendation.RETRY,
+                recommendation=_scope_recommendation(error),
                 scope_error=error,
             )
 
@@ -218,10 +247,15 @@ class MessagePipelineExecutor:
         context: MessageContext,
         resolver: ScopedResolver,
         invocation: MessageInvocation,
+        prepared_arguments: Mapping[str, object] | None = None,
     ) -> PipelineResult:
         await self._run_guards(plan, context, resolver)
         arguments = await self._bind_arguments(
-            plan.parameters, context, resolver, invocation
+            plan.parameters,
+            context,
+            resolver,
+            invocation,
+            prepared_arguments=prepared_arguments,
         )
         await self._run_pipes(plan, context, resolver, arguments)
         return await self._run_interceptors(
@@ -252,17 +286,16 @@ class MessagePipelineExecutor:
         context: MessageContext,
         resolver: ScopedResolver,
         invocation: MessageInvocation,
+        *,
+        prepared_arguments: Mapping[str, object] | None = None,
     ) -> dict[str, object]:
         arguments: dict[str, object] = {}
         for parameter in parameters:
-            if parameter.kind == "payload":
-                value = invocation.payload
-                if parameter.source is not None:
-                    value = _field(value, parameter.source, parameter)
-            elif parameter.kind == "headers":
-                value = invocation.headers
-            elif parameter.kind == "header":
-                value = _field(invocation.headers, parameter.source, parameter)
+            if parameter.kind in {"payload", "headers", "header"}:
+                if prepared_arguments is None:
+                    value = _prepare_argument(parameter, invocation)
+                else:
+                    value = prepared_arguments[parameter.name]
             elif parameter.kind == "context":
                 value = context
             elif parameter.kind == "inject":
@@ -469,6 +502,8 @@ def _make_context(
         correlation_id=invocation.correlation_id,
         scope_resolver=resolver,
         message_metadata=invocation.metadata,
+        received_at=invocation.received_at,
+        expires_at=invocation.expires_at,
         attempt=invocation.attempt,
         redelivered=invocation.redelivered,
         native_value=invocation.native,
@@ -486,6 +521,49 @@ def _field(
     if not isinstance(value, Mapping) or source not in value:
         return parameter.default if parameter.has_default else RESULT_MISSING
     return cast(Mapping[str, object], value)[source]
+
+
+def _prepare_arguments(
+    parameters: tuple[MessageParameterPlan, ...],
+    invocation: MessageInvocation,
+) -> Mapping[str, object]:
+    return {
+        parameter.name: _prepare_argument(parameter, invocation)
+        for parameter in parameters
+        if parameter.kind in {"payload", "headers", "header"}
+    }
+
+
+def _prepare_argument(
+    parameter: MessageParameterPlan,
+    invocation: MessageInvocation,
+) -> object:
+    if parameter.kind == "payload":
+        value = invocation.payload
+        if parameter.source is not None:
+            value = _field(value, parameter.source, parameter)
+    elif parameter.kind == "headers":
+        value = invocation.headers
+    else:
+        value = _field(invocation.headers, parameter.source, parameter)
+    if value is RESULT_MISSING:
+        if parameter.has_default:
+            return parameter.default
+        raise MessageRejectedError(
+            f"required message argument {parameter.name!r} is missing"
+        )
+    if (
+        parameter.annotation is inspect.Signature.empty
+        or parameter.annotation is object
+        or parameter.annotation is Any
+    ):
+        return value
+    try:
+        return msgspec.convert(value, type=cast(Any, parameter.annotation))
+    except (TypeError, ValueError, msgspec.ValidationError) as error:
+        raise MessageRejectedError(
+            f"message argument {parameter.name!r} does not satisfy its annotation"
+        ) from error
 
 
 def _validate_result(value: object, annotation: object) -> object:
@@ -522,11 +600,18 @@ def _recommendation(
         return SettlementRecommendation.REJECT
     if isinstance(error, MessageRetryableError):
         return SettlementRecommendation.RETRY
+    if isinstance(error, MessageInvocationError):
+        return SettlementRecommendation.REJECT
     return (
         SettlementRecommendation.RETRY
         if isinstance(plan, EventHandlerPlan)
         else SettlementRecommendation.REJECT
     )
+
+
+def _scope_recommendation(error: Exception | None) -> SettlementRecommendation:
+    del error
+    return SettlementRecommendation.UNSETTLED
 
 
 __all__ = [

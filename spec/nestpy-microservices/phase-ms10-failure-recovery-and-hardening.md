@@ -1,5 +1,14 @@
 # MS10: Failure Recovery and Hardening
 
+## Status
+
+In progress; not complete. Current remediation covers typed publication
+failures, strict protocol rejection, bounded delayed retry/DLX, deterministic
+disconnect fencing, and additional shutdown cleanup tests. Real broker restart,
+network blackhole, reconnect at request/reply/ACK boundaries, stale delivery
+tags, forced shutdown, complete observability/security guidance, and broader
+fault injection remain unverified or unfinished.
+
 ## Purpose
 
 Prove bounded, explicit behavior across network, broker, task, codec, settlement,

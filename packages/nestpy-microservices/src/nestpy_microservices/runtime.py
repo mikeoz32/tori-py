@@ -4,15 +4,29 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable
-from typing import Protocol
-from uuid import uuid4
+from dataclasses import replace
+from uuid import UUID, uuid4
 
 from nestpy import DiscoveryService, ModulesContainer, ShutdownContext, WorkScopeFactory
 
 from nestpy_microservices.codec import MessageCodec, MsgspecJsonMessageCodec
 from nestpy_microservices.compiler import compile_discovered_service_handlers
-from nestpy_microservices.errors import TransportStateError
-from nestpy_microservices.identities import ServiceIdentity, utc_now
+from nestpy_microservices.decorators import EventDispatchMode
+from nestpy_microservices.errors import (
+    MessageAuthorizationError,
+    MessageRejectedError,
+    MessageRetryableError,
+    PublicRpcError,
+    TransportStateError,
+    TransportUnroutableError,
+)
+from nestpy_microservices.identities import (
+    EventIdentity,
+    MessageLimits,
+    RpcTarget,
+    ServiceIdentity,
+    utc_now,
+)
 from nestpy_microservices.invocation import (
     InvocationCompletion,
     MessageInvocation,
@@ -27,17 +41,14 @@ from nestpy_microservices.transport import (
     EventSubscription,
     Publication,
     ServerTransport,
+    ServerTransportFactory,
     TransportStatus,
 )
-from nestpy_microservices.wire import RemoteRpcErrorData, RpcResponseEnvelope
-
-
-class ServerTransportFactory(Protocol):
-    """Create one server transport without opening native resources."""
-
-    def create(
-        self, identity: ServiceIdentity, options: MicroservicesOptions
-    ) -> ServerTransport: ...
+from nestpy_microservices.wire import (
+    RemoteRpcErrorData,
+    RpcRequestEnvelope,
+    RpcResponseEnvelope,
+)
 
 
 class ServiceRuntime:
@@ -104,12 +115,13 @@ class ServiceRuntime:
                     plan.subscription,
                     destination=self.identity,
                     instance_id=self.options.instance_id,
+                    reliable=plan.metadata.reliable,
                 )
                 for plan in registry.event_handlers
             )
             try:
                 await transport.prepare(
-                    rpc_methods=tuple(plan.method for plan in registry.rpc_handlers),
+                    rpc_methods=registry.rpc_methods,
                     subscriptions=subscriptions,
                 )
                 self._registry = registry
@@ -175,89 +187,162 @@ class ServiceRuntime:
         transport = self._transport
         if registry is None or work_scopes is None or transport is None:
             raise TransportStateError("service runtime is not fully initialized")
-        if delivery.routing_key.startswith(f"{self.identity.label}."):
-            envelope = self._codec.decode_request(delivery.body)
-            plan = next(
-                (
-                    candidate
-                    for candidate in registry.rpc_handlers
-                    if candidate.method == envelope.method
-                ),
-                None,
+        if delivery.subscription is None:
+            try:
+                envelope = self._codec.decode_request(delivery.body)
+            except Exception as error:
+                return _terminal_rejection(error)
+            target = RpcTarget(
+                envelope.service, envelope.method, envelope.schema_version
+            )
+            if (
+                envelope.service != self.identity
+                or delivery.routing_key != target.routing_key
+                or delivery.message_id != envelope.message_id
+                or delivery.correlation_id != envelope.correlation_id
+                or delivery.reply_to != envelope.reply_to
+            ):
+                return _terminal_rejection(
+                    MessageRejectedError(
+                        "RPC transport metadata does not match envelope"
+                    )
+                )
+            now = utc_now()
+            if delivery.expires_at is not None and delivery.expires_at <= now:
+                return await self._publish_error_response(
+                    transport,
+                    envelope.correlation_id,
+                    envelope.reply_to.value,
+                    RemoteRpcErrorData(
+                        "deadline_exceeded",
+                        "The RPC deadline has elapsed.",
+                        False,
+                    ),
+                )
+            if envelope.deadline_at <= now:
+                return await self._publish_error_response(
+                    transport,
+                    envelope.correlation_id,
+                    envelope.reply_to.value,
+                    RemoteRpcErrorData(
+                        "deadline_exceeded",
+                        "The RPC deadline has elapsed.",
+                        False,
+                    ),
+                )
+            duration = (envelope.deadline_at - envelope.created_at).total_seconds()
+            if duration > self.options.max_accepted_rpc_timeout:
+                return _terminal_rejection(
+                    MessageRejectedError("RPC deadline exceeds the accepted duration")
+                )
+            plan = registry.rpc_by_target.get(
+                (envelope.method, envelope.schema_version)
             )
             if plan is None:
-                raise TransportStateError(
-                    f"RPC method {envelope.method!r} is not registered"
+                method_exists = envelope.method in registry.rpc_methods
+                return await self._publish_error_response(
+                    transport,
+                    envelope.correlation_id,
+                    envelope.reply_to.value,
+                    RemoteRpcErrorData(
+                        "unsupported_schema" if method_exists else "method_not_found",
+                        (
+                            "The RPC request schema is not supported."
+                            if method_exists
+                            else "The RPC method is not registered."
+                        ),
+                        False,
+                    ),
                 )
-            invocation = MessageInvocation(
-                application_id=self.identity.label,
-                message_id=envelope.message_id,
-                correlation_id=envelope.correlation_id,
-                payload=envelope.payload,
-                headers=envelope.headers,
-                metadata={"routing_key": delivery.routing_key, "kind": envelope.kind},
-                native=delivery.native,
+            invocation = _message_invocation(
+                self.identity,
+                delivery,
+                envelope,
+                self.options.message_limits,
             )
+            response_id = uuid4()
+
+            def encode_result(value: object) -> bytes:
+                return self._codec.encode_response(
+                    RpcResponseEnvelope(
+                        message_id=response_id,
+                        correlation_id=envelope.correlation_id,
+                        completed_at=utc_now(),
+                        result=value,
+                    )
+                )
+
             completion = await self._executor.invoke(
                 work_scopes,
                 plan,
                 invocation,
-                encode_result=lambda value: value,
+                encode_result=encode_result,
             )
-            error = completion.body_error or completion.scope_error
-            if error is None:
-                response = RpcResponseEnvelope(
-                    message_id=uuid4(),
-                    correlation_id=envelope.correlation_id,
-                    completed_at=utc_now(),
-                    result=completion.result,
-                )
+            if completion.scope_error is not None:
+                return completion
+            if completion.body_error is None:
+                encoded_response = completion.encoded_response
+                if not isinstance(encoded_response, bytes):
+                    raise TransportStateError("RPC executor did not encode a response")
             else:
-                response = RpcResponseEnvelope(
-                    message_id=uuid4(),
-                    correlation_id=envelope.correlation_id,
-                    completed_at=utc_now(),
-                    error=RemoteRpcErrorData(
-                        code=getattr(error, "diagnostic_code", "microservices.error"),
-                        message=str(error)[:4096] or type(error).__name__,
-                        retryable=(
-                            completion.recommendation is SettlementRecommendation.RETRY
-                        ),
-                    ),
+                encoded_response = self._codec.encode_response(
+                    RpcResponseEnvelope(
+                        message_id=response_id,
+                        correlation_id=envelope.correlation_id,
+                        completed_at=utc_now(),
+                        error=_safe_remote_error(completion.body_error),
+                    )
                 )
-            await transport.publish_reply(
-                Publication(
-                    message_id=response.message_id,
-                    routing_key=envelope.reply_to.value,
-                    body=self._codec.encode_response(response),
-                    headers={},
-                    mandatory=True,
-                    correlation_id=envelope.correlation_id,
-                )
+            return await self._publish_completion(
+                transport,
+                completion,
+                response_id=response_id,
+                correlation_id=envelope.correlation_id,
+                reply_to=envelope.reply_to.value,
+                body=encoded_response,
             )
-            return completion
 
-        envelope = self._codec.decode_event(delivery.body)
-        plan = next(
-            (
-                candidate
-                for candidate in registry.event_handlers
-                if candidate.identity.source == envelope.source
-                and candidate.identity.event == envelope.event
-                and candidate.identity.schema_version == envelope.schema_version
-            ),
-            None,
+        subscription = delivery.subscription
+        try:
+            event = self._codec.decode_event(delivery.body)
+            envelope_identity = EventIdentity(
+                event.source, event.event, event.schema_version
+            )
+            mode = EventDispatchMode(subscription.mode)
+        except Exception as error:
+            return _terminal_rejection(error)
+        if (
+            envelope_identity != subscription.identity
+            or delivery.routing_key != subscription.identity.routing_key
+            or delivery.message_id != event.message_id
+            or (
+                delivery.correlation_id is not None
+                and delivery.correlation_id != event.correlation_id
+            )
+        ):
+            return _terminal_rejection(
+                MessageRejectedError("event transport metadata does not match envelope")
+            )
+        plan = registry.event_by_subscription.get(
+            (subscription.identity, mode, subscription.subscription)
         )
         if plan is None:
-            raise TransportStateError(f"event {envelope.event!r} is not registered")
+            return _terminal_rejection(
+                MessageRejectedError("event subscription is not registered")
+            )
         invocation = MessageInvocation(
             application_id=self.identity.label,
-            message_id=envelope.message_id,
-            correlation_id=envelope.correlation_id,
-            payload=envelope.payload,
-            headers=envelope.headers,
-            metadata={"routing_key": delivery.routing_key, "kind": envelope.kind},
+            message_id=event.message_id,
+            correlation_id=event.correlation_id,
+            payload=event.payload,
+            headers=event.headers,
+            metadata={"routing_key": delivery.routing_key, "kind": event.kind},
+            received_at=delivery.received_at,
+            expires_at=delivery.expires_at,
+            attempt=delivery.attempt,
+            redelivered=delivery.redelivered,
             native=delivery.native,
+            limits=self.options.message_limits,
         )
         return await self._executor.invoke(
             work_scopes,
@@ -265,6 +350,59 @@ class ServiceRuntime:
             invocation,
             encode_result=lambda value: value,
         )
+
+    async def _publish_error_response(
+        self,
+        transport: ServerTransport,
+        correlation_id: UUID,
+        reply_to: str,
+        error: RemoteRpcErrorData,
+    ) -> InvocationCompletion:
+        response_id = uuid4()
+        completion = InvocationCompletion(
+            recommendation=SettlementRecommendation.REJECT,
+            body_error=MessageRejectedError(error.code),
+        )
+        body = self._codec.encode_response(
+            RpcResponseEnvelope(
+                message_id=response_id,
+                correlation_id=correlation_id,
+                completed_at=utc_now(),
+                error=error,
+            )
+        )
+        return await self._publish_completion(
+            transport,
+            completion,
+            response_id=response_id,
+            correlation_id=correlation_id,
+            reply_to=reply_to,
+            body=body,
+        )
+
+    async def _publish_completion(
+        self,
+        transport: ServerTransport,
+        completion: InvocationCompletion,
+        *,
+        response_id: UUID,
+        correlation_id: UUID,
+        reply_to: str,
+        body: bytes,
+    ) -> InvocationCompletion:
+        publication = Publication(
+            message_id=response_id,
+            routing_key=reply_to,
+            body=body,
+            headers={},
+            mandatory=True,
+            correlation_id=correlation_id,
+        )
+        try:
+            await transport.publish_reply(publication)
+        except TransportUnroutableError:
+            return replace(completion, recommendation=SettlementRecommendation.ACK)
+        return replace(completion, recommendation=SettlementRecommendation.ACK)
 
     async def _drain_tasks(self, remaining: Callable[[], float | None]) -> None:
         while self._tasks:
@@ -297,6 +435,71 @@ class ServiceRuntime:
                 except TimeoutError:
                     pass
                 return
+
+
+def _message_invocation(
+    identity: ServiceIdentity,
+    delivery: EncodedDelivery,
+    envelope: RpcRequestEnvelope,
+    limits: MessageLimits,
+) -> MessageInvocation:
+    return MessageInvocation(
+        application_id=identity.label,
+        message_id=envelope.message_id,
+        correlation_id=envelope.correlation_id,
+        payload=envelope.payload,
+        headers=envelope.headers,
+        metadata={"routing_key": delivery.routing_key, "kind": envelope.kind},
+        received_at=delivery.received_at,
+        expires_at=delivery.expires_at,
+        attempt=delivery.attempt,
+        redelivered=delivery.redelivered,
+        native=delivery.native,
+        limits=limits,
+    )
+
+
+def _terminal_rejection(error: Exception) -> InvocationCompletion:
+    return InvocationCompletion(
+        recommendation=SettlementRecommendation.REJECT,
+        body_error=error,
+    )
+
+
+def _safe_remote_error(error: Exception) -> RemoteRpcErrorData:
+    if isinstance(error, PublicRpcError):
+        try:
+            return RemoteRpcErrorData(
+                error.code,
+                error.public_message,
+                error.retryable,
+                error.details,
+            )
+        except Exception:
+            pass
+    if isinstance(error, MessageAuthorizationError):
+        return RemoteRpcErrorData(
+            "authorization_failed",
+            "The RPC request was not authorized.",
+            False,
+        )
+    if isinstance(error, MessageRetryableError):
+        return RemoteRpcErrorData(
+            "temporarily_unavailable",
+            "The RPC request could not be completed.",
+            True,
+        )
+    if isinstance(error, MessageRejectedError):
+        return RemoteRpcErrorData(
+            "invalid_request",
+            "The RPC request was rejected.",
+            False,
+        )
+    return RemoteRpcErrorData(
+        "internal_error",
+        "The remote service could not complete the request.",
+        False,
+    )
 
 
 __all__ = ["ServerTransportFactory", "ServiceRuntime"]

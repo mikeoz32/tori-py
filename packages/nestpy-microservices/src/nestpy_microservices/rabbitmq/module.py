@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Annotated
 
-from nestpy import DeferredModule, FactoryProvider, ModuleSpec, ValueProvider
+from nestpy import DeferredModule, FactoryProvider, Inject, ModuleSpec, ValueProvider
 
 from nestpy_microservices.rabbitmq.client import RabbitMqClientTransport
 from nestpy_microservices.rabbitmq.connection import RabbitMqConnectionManager
@@ -17,6 +18,9 @@ class RabbitMqRoot:
     key: str
     options: RabbitMqOptions
 
+    def __post_init__(self) -> None:
+        _validate_key(self.key)
+
 
 @dataclass(frozen=True, slots=True)
 class RabbitMqTransport:
@@ -25,8 +29,15 @@ class RabbitMqTransport:
     key: str = "default"
 
     def __post_init__(self) -> None:
-        if not isinstance(self.key, str) or not self.key:
-            raise ValueError("RabbitMqTransport key must be non-empty")
+        _validate_key(self.key)
+
+    @property
+    def server_factory_token(self) -> str:
+        return rabbitmq_server_factory_token(self.key)
+
+    @property
+    def client_factory_token(self) -> str:
+        return rabbitmq_client_factory_token(self.key)
 
 
 class RabbitMqServerTransportFactory:
@@ -41,6 +52,8 @@ class RabbitMqServerTransportFactory:
             self.manager,
             identity,
             prefetch=options.max_inflight_deliveries,
+            retry_delay_ms=self.manager.options.retry_delay_ms,
+            max_delivery_attempts=self.manager.options.max_delivery_attempts,
         )
 
 
@@ -63,9 +76,17 @@ class RabbitMqModule:
         if not isinstance(options, RabbitMqOptions):
             raise TypeError("options must be RabbitMqOptions")
         root = RabbitMqRoot(key, options)
+        root_token = rabbitmq_root_token(key)
+        manager_token = rabbitmq_manager_token(key)
+        server_factory_token = rabbitmq_server_factory_token(key)
+        client_factory_token = rabbitmq_client_factory_token(key)
 
         def create_manager(configured: RabbitMqRoot) -> RabbitMqConnectionManager:
             return RabbitMqConnectionManager(configured.options)
+
+        create_manager.__annotations__["configured"] = Annotated[
+            RabbitMqRoot, Inject(root_token)
+        ]
 
         def materialize() -> ModuleSpec:
             def create_server_factory(
@@ -80,23 +101,31 @@ class RabbitMqModule:
             ) -> RabbitMqClientTransportFactory:
                 return RabbitMqClientTransportFactory(manager, configured)
 
+            create_server_factory.__annotations__["manager"] = Annotated[
+                RabbitMqConnectionManager, Inject(manager_token)
+            ]
+            create_server_factory.__annotations__["configured"] = Annotated[
+                RabbitMqRoot, Inject(root_token)
+            ]
+            create_client_factory.__annotations__["manager"] = Annotated[
+                RabbitMqConnectionManager, Inject(manager_token)
+            ]
+            create_client_factory.__annotations__["configured"] = Annotated[
+                RabbitMqRoot, Inject(root_token)
+            ]
+
             return ModuleSpec(
                 providers=(
-                    ValueProvider(rabbitmq_root_token(key), root),
-                    ValueProvider(RabbitMqRoot, root),
-                    FactoryProvider(RabbitMqConnectionManager, create_manager),
-                    FactoryProvider(
-                        RabbitMqServerTransportFactory, create_server_factory
-                    ),
-                    FactoryProvider(
-                        RabbitMqClientTransportFactory, create_client_factory
-                    ),
+                    ValueProvider(root_token, root),
+                    FactoryProvider(manager_token, create_manager),
+                    FactoryProvider(server_factory_token, create_server_factory),
+                    FactoryProvider(client_factory_token, create_client_factory),
                 ),
                 exports=(
-                    rabbitmq_root_token(key),
-                    RabbitMqConnectionManager,
-                    RabbitMqServerTransportFactory,
-                    RabbitMqClientTransportFactory,
+                    root_token,
+                    manager_token,
+                    server_factory_token,
+                    client_factory_token,
                 ),
             )
 
@@ -104,9 +133,28 @@ class RabbitMqModule:
 
 
 def rabbitmq_root_token(key: str) -> str:
+    _validate_key(key)
+    return f"nestpy.rabbitmq.root.{key}"
+
+
+def rabbitmq_manager_token(key: str = "default") -> str:
+    _validate_key(key)
+    return f"nestpy.rabbitmq.manager.{key}"
+
+
+def rabbitmq_server_factory_token(key: str = "default") -> str:
+    _validate_key(key)
+    return f"nestpy.rabbitmq.server_factory.{key}"
+
+
+def rabbitmq_client_factory_token(key: str = "default") -> str:
+    _validate_key(key)
+    return f"nestpy.rabbitmq.client_factory.{key}"
+
+
+def _validate_key(key: str) -> None:
     if not isinstance(key, str) or not key:
         raise ValueError("RabbitMQ root key must be non-empty")
-    return f"nestpy.rabbitmq.root.{key}"
 
 
 __all__ = [
@@ -115,5 +163,8 @@ __all__ = [
     "RabbitMqRoot",
     "RabbitMqServerTransportFactory",
     "RabbitMqTransport",
+    "rabbitmq_client_factory_token",
+    "rabbitmq_manager_token",
     "rabbitmq_root_token",
+    "rabbitmq_server_factory_token",
 ]

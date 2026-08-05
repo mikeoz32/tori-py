@@ -1,5 +1,11 @@
 # MS6: ServiceCluster Client and Replies
 
+## Status
+
+Implemented. Keyed client registration, immutable service proxies, finite RPC
+deadlines, bounded pending calls, one reply router, and explicit uncertain
+outcomes are present with focused tests.
+
 ## Purpose
 
 Provide one asynchronous Python-native client for the complete logical service

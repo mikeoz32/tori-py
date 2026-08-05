@@ -2,8 +2,26 @@
 
 ## Status
 
-Implementation status: architecture and executable phase planning on
-`feature/nestpy-microservices`; package implementation has not started.
+Implementation status: the MS0-MS8 capability set is implemented in the current
+worktree. MS9 is partial/in progress: RabbitMQ event routing, topology,
+transport mechanics, and event-mode tests are implemented, but the required
+application-facing `EventDispatcher` API owned by the local service root remains.
+Focused package tests, in-memory transport conformance, and Docker-backed
+RabbitMQ round-trip, redelivery, unroutable-publication, and shared conformance
+tests are present.
+
+MS10 hardening and MS11 release acceptance are not complete. In particular,
+real broker restart/recovery and network-blackhole behavior have not been proven,
+and no full quality, artifact, documentation, or independent-review gate is
+claimed by this status update.
+
+| Phase range | Current status |
+| --- | --- |
+| MS0-MS6 | Implemented; focused contract, compiler, pipeline, in-memory, lifecycle, and client tests are present |
+| MS7-MS8 | Implemented; targeted unit and Docker-backed RabbitMQ coverage is present, with the MS10 fault matrix still outstanding |
+| MS9 | Partial/in progress; event routing, topology, transport mechanics, and event-mode tests are implemented; the root-owned application-facing `EventDispatcher` API remains |
+| MS10 | In progress; broker restart, blackhole, reconnect-boundary, stale-delivery-tag, forced-shutdown, and complete observability/security hardening remain |
+| MS11 | Not complete; examples, complete user/operations docs, full quality gates, built-artifact smoke tests, and independent release review remain |
 
 Architecture:
 [`NESTPY_MICROSERVICES_ARCHITECTURE.md`](NESTPY_MICROSERVICES_ARCHITECTURE.md).
@@ -168,6 +186,8 @@ cluster consumption, redelivery, deadlines, and response-before-ACK ordering.
 
 ### MS9: Clustered Event Dispatch
 
+- Implement the application-facing `EventDispatcher` API owned by the local
+  service root.
 - Implement source-service event exchanges and typed event publication.
 - Route and bind events by both alias and schema version.
 - Implement `SERVICE_POOL` stable per-handler-pool queues.

@@ -1,5 +1,11 @@
 # MS4: Transport Contract and In-Memory Broker
 
+## Status
+
+Implemented. The transport protocols, bounded non-durable in-memory broker, and
+shared RPC/event transport conformance helper are present, with focused
+in-memory coverage.
+
 ## Purpose
 
 Freeze the server/client transport boundary and prove service-cluster semantics
@@ -15,7 +21,9 @@ with a deterministic in-memory implementation before adding RabbitMQ.
   quiescence, status, native unwrap, and close.
 - `ClientTransport` lifecycle for event publish, RPC request publish, reply
   intake, status, native unwrap, and close.
-- Explicit `ACK`, `RETRY`, and `REJECT` settlement outcomes.
+- Explicit `ACK`, `RETRY`, `REJECT`, and `UNSETTLED` outcomes. `UNSETTLED`
+  performs no native settlement; transports model channel loss so the broker may
+  redeliver under its finite delivery policy.
 - Distinct confirmed, rejected, unroutable, unavailable, timeout, and
   indeterminate publication errors.
 

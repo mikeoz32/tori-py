@@ -5,22 +5,31 @@ Governing documents:
 - [`NESTPY_MICROSERVICES_ARCHITECTURE.md`](../../NESTPY_MICROSERVICES_ARCHITECTURE.md)
 - [`NESTPY_MICROSERVICES_IMPLEMENTATION_PLAN.md`](../../NESTPY_MICROSERVICES_IMPLEMENTATION_PLAN.md)
 
+## Current Status
+
+MS0-MS8 capabilities are implemented in the current worktree. MS9 is partial/in
+progress: RabbitMQ event routing, topology, transport mechanics, and event-mode
+tests are implemented, but the required application-facing `EventDispatcher`
+API owned by the local service root remains. Focused and Docker-backed RabbitMQ
+tests are present, but MS10 failure hardening and MS11 release acceptance are
+not complete. Broker restart and network-blackhole recovery are not proven.
+
 ## Phase Map
 
-| Phase | Specification | Main result |
-| --- | --- | --- |
-| MS0 | [Workspace and contracts](phase-ms0-workspace-and-contracts.md) | Installable typed optional package |
-| MS1 | [Service identity and wire protocol](phase-ms1-service-identity-and-wire-protocol.md) | Stable bounded RPC/event envelopes |
-| MS2 | [Controller discovery and handler compiler](phase-ms2-controller-discovery-and-handler-compiler.md) | Immutable application-wide handler registry |
-| MS3 | [Invocation pipeline and scopes](phase-ms3-invocation-pipeline-and-scopes.md) | Exact scoped broker invocation |
-| MS4 | [Transport contract and in-memory broker](phase-ms4-transport-contract-and-inmemory.md) | Executable transport conformance baseline |
-| MS5 | [Service runtime and lifecycle](phase-ms5-service-runtime-and-lifecycle.md) | Ready, quiescent standalone/hybrid service |
-| MS6 | [Cluster client and replies](phase-ms6-cluster-client-and-replies.md) | Shared bounded asynchronous RPC client |
-| MS7 | [RabbitMQ foundation and topology](phase-ms7-rabbitmq-foundation-and-topology.md) | Owned robust connection and exact topology |
-| MS8 | [RabbitMQ RPC service cluster](phase-ms8-rabbitmq-rpc-service-cluster.md) | Wildcard-bound competing service replicas |
-| MS9 | [Clustered event dispatch](phase-ms9-clustered-event-dispatch.md) | SERVICE_POOL, SINGLETON, and BROADCAST |
-| MS10 | [Failure recovery and hardening](phase-ms10-failure-recovery-and-hardening.md) | Bounded explicit distributed failures |
-| MS11 | [Acceptance, docs, and release](phase-ms11-acceptance-docs-and-release.md) | Reviewed releasable artifacts |
+| Phase | Specification | Main result | Status |
+| --- | --- | --- | --- |
+| MS0 | [Workspace and contracts](phase-ms0-workspace-and-contracts.md) | Installable typed optional package | Implemented; release artifact gate remains MS11 |
+| MS1 | [Service identity and wire protocol](phase-ms1-service-identity-and-wire-protocol.md) | Stable bounded RPC/event envelopes | Implemented |
+| MS2 | [Controller discovery and handler compiler](phase-ms2-controller-discovery-and-handler-compiler.md) | Immutable application-wide handler registry | Implemented |
+| MS3 | [Invocation pipeline and scopes](phase-ms3-invocation-pipeline-and-scopes.md) | Exact scoped broker invocation | Implemented |
+| MS4 | [Transport contract and in-memory broker](phase-ms4-transport-contract-and-inmemory.md) | Executable transport conformance baseline | Implemented |
+| MS5 | [Service runtime and lifecycle](phase-ms5-service-runtime-and-lifecycle.md) | Ready and quiescent service runtime | Implemented; examples remain MS11 |
+| MS6 | [Cluster client and replies](phase-ms6-cluster-client-and-replies.md) | Shared bounded asynchronous RPC client | Implemented |
+| MS7 | [RabbitMQ foundation and topology](phase-ms7-rabbitmq-foundation-and-topology.md) | Owned robust connection and exact topology | Implemented; restart recovery unproven |
+| MS8 | [RabbitMQ RPC service cluster](phase-ms8-rabbitmq-rpc-service-cluster.md) | Wildcard-bound competing service replicas | Implemented; full fault matrix pending |
+| MS9 | [Clustered event dispatch](phase-ms9-clustered-event-dispatch.md) | SERVICE_POOL, SINGLETON, and BROADCAST | Partial/in progress; routing/topology/transport mechanics and event-mode tests are implemented; root-owned application-facing `EventDispatcher` remains |
+| MS10 | [Failure recovery and hardening](phase-ms10-failure-recovery-and-hardening.md) | Bounded explicit distributed failures | In progress; not complete |
+| MS11 | [Acceptance, docs, and release](phase-ms11-acceptance-docs-and-release.md) | Reviewed releasable artifacts | Not complete |
 
 ## Governing Invariants
 

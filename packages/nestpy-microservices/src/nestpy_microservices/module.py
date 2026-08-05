@@ -4,12 +4,14 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import cast
+from typing import Annotated, cast
 
 from nestpy import (
+    CompiledGraph,
     DeferredModule,
     DiscoveryService,
     FactoryProvider,
+    Inject,
     ModuleImport,
     ModulesContainer,
     ModuleSpec,
@@ -20,8 +22,11 @@ from nestpy import (
 from nestpy_microservices.errors import TransportStateError
 from nestpy_microservices.identities import ServiceIdentity
 from nestpy_microservices.options import MicroservicesOptions
-from nestpy_microservices.runtime import ServerTransportFactory, ServiceRuntime
-from nestpy_microservices.transport import DeliveryDispatcher
+from nestpy_microservices.runtime import ServiceRuntime
+from nestpy_microservices.transport import (
+    KeyedTransportFactoryReference,
+    ServerTransportFactory,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -31,7 +36,6 @@ class MicroservicesRoot:
     identity: ServiceIdentity
     transport: object
     options: MicroservicesOptions
-    dispatcher: DeliveryDispatcher | None = None
 
 
 class MicroservicesModule:
@@ -46,46 +50,43 @@ class MicroservicesModule:
         options: MicroservicesOptions | None = None,
         imports: Iterable[ModuleImport] = (),
         key: str = "default",
-        dispatcher: DeliveryDispatcher | None = None,
     ) -> DeferredModule:
         if not isinstance(identity, ServiceIdentity):
             raise TypeError("identity must be a ServiceIdentity")
-        is_rabbitmq = _is_rabbitmq_transport(transport)
-        if not is_rabbitmq and not callable(getattr(transport, "create", None)):
+        is_reference = isinstance(transport, KeyedTransportFactoryReference)
+        if not is_reference and not isinstance(transport, ServerTransportFactory):
             raise TypeError("transport must provide create(identity, options)")
         selected_options = options or MicroservicesOptions()
         captured_imports = tuple(imports)
-        root = MicroservicesRoot(identity, transport, selected_options, dispatcher)
+        root = MicroservicesRoot(identity, transport, selected_options)
 
-        if is_rabbitmq:
-            from nestpy_microservices.rabbitmq.module import (
-                RabbitMqServerTransportFactory,
-            )
+        if is_reference:
+            reference = transport
 
             def create_runtime(
                 configured: MicroservicesRoot,
                 discovery: DiscoveryService,
                 modules: ModulesContainer,
                 work_scopes: WorkScopeFactory,
-                rabbit_factory: RabbitMqServerTransportFactory,
+                referenced_factory: object,
             ) -> ServiceRuntime:
-                if getattr(configured.transport, "key", None) != rabbit_factory.key:
+                if not isinstance(referenced_factory, ServerTransportFactory):
                     raise TransportStateError(
-                        "RabbitMQ transport key does not match the imported root"
+                        "referenced provider does not implement ServerTransportFactory"
                     )
                 return ServiceRuntime(
                     configured.identity,
-                    transport_factory=rabbit_factory,
+                    transport_factory=referenced_factory,
                     discovery=discovery,
                     modules=modules,
                     work_scopes=work_scopes,
                     options=configured.options,
-                    dispatcher=configured.dispatcher,
                 )
 
-            create_runtime.__annotations__["rabbit_factory"] = (
-                RabbitMqServerTransportFactory
-            )
+            create_runtime.__annotations__["referenced_factory"] = Annotated[
+                object,
+                Inject(reference.server_factory_token),
+            ]
         else:
 
             def create_runtime(
@@ -103,7 +104,6 @@ class MicroservicesModule:
                     modules=modules,
                     work_scopes=work_scopes,
                     options=configured.options,
-                    dispatcher=configured.dispatcher,
                 )
 
         def materialize() -> ModuleSpec:
@@ -117,11 +117,16 @@ class MicroservicesModule:
 
         return DeferredModule(cls, key, materialize)
 
-
-def _is_rabbitmq_transport(transport: object) -> bool:
-    from nestpy_microservices.rabbitmq.module import RabbitMqTransport
-
-    return isinstance(transport, RabbitMqTransport)
+    def validate_graph(self, graph: CompiledGraph) -> None:
+        roots = sum(
+            provider.key.token is MicroservicesRoot
+            for module_plan in graph.modules
+            for provider in module_plan.providers
+        )
+        if roots > 1:
+            raise TransportStateError(
+                "an application may configure at most one MicroservicesModule root"
+            )
 
 
 __all__ = ["MicroservicesModule", "MicroservicesRoot"]

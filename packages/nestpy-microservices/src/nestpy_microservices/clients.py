@@ -4,11 +4,13 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import cast
+from typing import Annotated, cast
 
 from nestpy import (
+    AliasProvider,
     DeferredModule,
     FactoryProvider,
+    Inject,
     ModuleImport,
     ModuleSpec,
     ValueProvider,
@@ -16,7 +18,11 @@ from nestpy import (
 
 from nestpy_microservices.cluster import ServiceCluster, ServiceClusterOptions
 from nestpy_microservices.errors import TransportStateError
-from nestpy_microservices.transport import ClientTransport
+from nestpy_microservices.transport import (
+    ClientTransport,
+    ClientTransportFactory,
+    KeyedTransportFactoryReference,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -39,8 +45,9 @@ class ClientsModule:
         imports: Iterable[ModuleImport] = (),
         key: str = "default",
     ) -> DeferredModule:
-        is_rabbitmq = _is_rabbitmq_transport(transport)
-        if not is_rabbitmq and not isinstance(transport, ClientTransport):
+        cluster_token = cls.get_cluster_token(key)
+        is_reference = isinstance(transport, KeyedTransportFactoryReference)
+        if not is_reference and not isinstance(transport, ClientTransport):
             raise TypeError("transport must implement ClientTransport")
         selected_options = ServiceClusterOptions() if options is None else options
         if not isinstance(selected_options, ServiceClusterOptions):
@@ -48,28 +55,27 @@ class ClientsModule:
         root = ClientClusterRoot(transport, selected_options)
         captured_imports = tuple(imports)
 
-        if is_rabbitmq:
-            from nestpy_microservices.rabbitmq.module import (
-                RabbitMqClientTransportFactory,
-            )
+        if is_reference:
+            reference = transport
 
             def create_cluster(
                 configured: ClientClusterRoot,
-                rabbit_factory: RabbitMqClientTransportFactory,
+                referenced_factory: object,
             ) -> ServiceCluster:
-                if getattr(configured.transport, "key", None) != rabbit_factory.key:
+                if not isinstance(referenced_factory, ClientTransportFactory):
                     raise TransportStateError(
-                        "RabbitMQ transport key does not match the imported root"
+                        "referenced provider does not implement ClientTransportFactory"
                     )
                 return ServiceCluster(
-                    rabbit_factory.create(),
+                    referenced_factory.create(),
                     options=configured.options,
                     manage_transport=True,
                 )
 
-            create_cluster.__annotations__["rabbit_factory"] = (
-                RabbitMqClientTransportFactory
-            )
+            create_cluster.__annotations__["referenced_factory"] = Annotated[
+                object,
+                Inject(reference.client_factory_token),
+            ]
         else:
 
             def create_cluster(configured: ClientClusterRoot) -> ServiceCluster:
@@ -83,18 +89,28 @@ class ClientsModule:
                 imports=captured_imports,
                 providers=(
                     ValueProvider(ClientClusterRoot, root),
-                    FactoryProvider(ServiceCluster, create_cluster),
+                    FactoryProvider(cluster_token, create_cluster),
+                    *(
+                        (AliasProvider(ServiceCluster, cluster_token),)
+                        if key == "default"
+                        else ()
+                    ),
                 ),
-                exports=(ServiceCluster,),
+                exports=(
+                    cluster_token,
+                    *((ServiceCluster,) if key == "default" else ()),
+                ),
             )
 
         return DeferredModule(cls, key, materialize)
 
+    @staticmethod
+    def get_cluster_token(key: str = "default") -> str:
+        """Return the deterministic injection token for one keyed cluster."""
 
-def _is_rabbitmq_transport(transport: object) -> bool:
-    from nestpy_microservices.rabbitmq.module import RabbitMqTransport
-
-    return isinstance(transport, RabbitMqTransport)
+        if not isinstance(key, str) or not key or key == "static":
+            raise ValueError("cluster key must be non-empty and not 'static'")
+        return f"nestpy.microservices.cluster.{key}"
 
 
 __all__ = ["ClientClusterRoot", "ClientsModule"]

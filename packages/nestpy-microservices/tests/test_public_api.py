@@ -16,6 +16,7 @@ def test_root_facade_is_exact_and_typed() -> None:
         "EventHandlerPlan",
         "EncodedDelivery",
         "ClientTransport",
+        "ClientTransportFactory",
         "ClientClusterRoot",
         "ClientsModule",
         "ServiceCluster",
@@ -25,6 +26,7 @@ def test_root_facade_is_exact_and_typed() -> None:
         "HandlerCompilationError",
         "DuplicateSettlementError",
         "EventSubscription",
+        "KeyedTransportFactoryReference",
         "InMemoryBroker",
         "InMemoryClientTransport",
         "InMemoryServerTransport",
@@ -73,6 +75,7 @@ def test_root_facade_is_exact_and_typed() -> None:
         "SettlementRecommendation",
         "Publication",
         "PublicationReceipt",
+        "ReplyProtocolFailure",
         "ServerTransport",
         "TransportCapacityError",
         "TransportCorrelationError",
@@ -86,10 +89,16 @@ def test_root_facade_is_exact_and_typed() -> None:
         "TransportUnavailableError",
         "TransportUnroutableError",
         "RabbitMqModule",
+        "RabbitMqChannelRole",
         "RabbitMqConnectionManager",
+        "RabbitMqConnectionError",
         "RabbitMqClientTransport",
+        "RabbitMqClientTransportFactory",
+        "RabbitMqDeliveryMetadata",
+        "RabbitMqError",
         "RabbitMqPublisher",
         "RabbitMqServerTransport",
+        "RabbitMqServerTransportFactory",
         "BindingDeclaration",
         "ExchangeDeclaration",
         "RabbitMqOptions",
@@ -97,7 +106,12 @@ def test_root_facade_is_exact_and_typed() -> None:
         "RabbitMqTopology",
         "RabbitMqTransport",
         "RabbitMqStatus",
+        "RabbitMqTopologyError",
         "QueueDeclaration",
+        "rabbitmq_client_factory_token",
+        "rabbitmq_manager_token",
+        "rabbitmq_root_token",
+        "rabbitmq_server_factory_token",
         "WireDeadlineError",
         "WireDecodingError",
         "WireEncodingError",
@@ -127,10 +141,40 @@ def test_root_facade_is_exact_and_typed() -> None:
 
 
 def test_rabbitmq_facade_is_lazy() -> None:
-    import sys
-
     import nestpy_microservices.rabbitmq as rabbitmq
 
-    assert "require_aio_pika" in rabbitmq.__all__
-    assert "RabbitMqOptions" in rabbitmq.__all__
-    assert "aio_pika" not in sys.modules
+    assert set(rabbitmq.__all__) == {
+        "BindingDeclaration",
+        "ExchangeDeclaration",
+        "QueueDeclaration",
+        "RabbitMqChannelRole",
+        "RabbitMqChannels",
+        "RabbitMqClientTransport",
+        "RabbitMqClientTransportFactory",
+        "RabbitMqConnectionError",
+        "RabbitMqConnectionManager",
+        "RabbitMqDeliveryMetadata",
+        "RabbitMqError",
+        "RabbitMqModule",
+        "RabbitMqOptions",
+        "RabbitMqPublisher",
+        "RabbitMqRoot",
+        "RabbitMqServerTransport",
+        "RabbitMqServerTransportFactory",
+        "RabbitMqStatus",
+        "RabbitMqTopology",
+        "RabbitMqTopologyError",
+        "RabbitMqTransport",
+        "compile_event_topology",
+        "compile_reply_topology",
+        "compile_rpc_topology",
+        "event_exchange_topology",
+        "merge_topologies",
+        "rabbitmq_client_factory_token",
+        "rabbitmq_manager_token",
+        "rabbitmq_root_token",
+        "rabbitmq_server_factory_token",
+        "require_aio_pika",
+    }
+    assert issubclass(rabbitmq.RabbitMqConnectionError, rabbitmq.RabbitMqError)
+    assert issubclass(rabbitmq.RabbitMqTopologyError, rabbitmq.RabbitMqError)

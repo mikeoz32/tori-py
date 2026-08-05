@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Protocol, runtime_checkable
 from nestpy.core.providers import Token
 
 if TYPE_CHECKING:
-    from nestpy.core.compiler import ModuleId, ProviderRef
+    from nestpy.core.compiler import CompiledGraph, ModuleId, ProviderRef
     from nestpy.core.discovery import ModuleView, ProviderView
     from nestpy.core.reflection import MetadataDecorator, MetadataKey
 
@@ -23,7 +23,15 @@ class ScopedResolver(Protocol):
         """Resolve one provider token."""
 
     async def resolve_ref(self, ref: ProviderRef) -> object:
-        """Resolve one compiler-qualified provider reference."""
+        """Resolve one exact provider reference visible from this module."""
+
+
+@runtime_checkable
+class GraphValidator(Protocol):
+    """Validate a complete graph before singleton or resource startup."""
+
+    def validate_graph(self, graph: CompiledGraph) -> None:
+        """Raise when the compiled application violates an extension invariant."""
 
 
 @runtime_checkable
@@ -262,6 +270,7 @@ __all__ = [
     "DiscoveryService",
     "ExceptionFilter",
     "ExecutionContext",
+    "GraphValidator",
     "Guard",
     "Interceptor",
     "Logger",

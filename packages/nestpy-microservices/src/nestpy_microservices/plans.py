@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from types import MappingProxyType
 
 from nestpy import ModuleId, ProviderRef, Token
@@ -103,9 +103,18 @@ class ServiceHandlerRegistry:
 
     rpc_handlers: tuple[RpcHandlerPlan, ...]
     event_handlers: tuple[EventHandlerPlan, ...]
+    rpc_by_target: Mapping[tuple[str, int], RpcHandlerPlan] = field(
+        init=False, repr=False
+    )
+    rpc_methods: frozenset[str] = field(init=False, repr=False)
+    event_by_subscription: Mapping[
+        tuple[EventIdentity, EventDispatchMode, str], EventHandlerPlan
+    ] = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
-        rpc_by_method = {plan.method: plan for plan in self.rpc_handlers}
+        rpc_by_target = {
+            (plan.method, plan.schema_version): plan for plan in self.rpc_handlers
+        }
         event_by_subscription = {
             (
                 plan.identity,
@@ -114,24 +123,21 @@ class ServiceHandlerRegistry:
             ): plan
             for plan in self.event_handlers
         }
-        if len(rpc_by_method) != len(self.rpc_handlers):
-            raise ValueError("duplicate RPC method alias in handler registry")
+        if len(rpc_by_target) != len(self.rpc_handlers):
+            raise ValueError("duplicate RPC target in handler registry")
         if len(event_by_subscription) != len(self.event_handlers):
             raise ValueError("duplicate event subscription in handler registry")
 
-    @property
-    def rpc_by_method(self) -> Mapping[str, RpcHandlerPlan]:
-        return MappingProxyType({plan.method: plan for plan in self.rpc_handlers})
-
-    @property
-    def event_by_subscription(
-        self,
-    ) -> Mapping[tuple[EventIdentity, EventDispatchMode, str], EventHandlerPlan]:
-        return MappingProxyType(
-            {
-                (plan.identity, plan.mode, plan.subscription): plan
-                for plan in self.event_handlers
-            }
+        object.__setattr__(self, "rpc_by_target", MappingProxyType(rpc_by_target))
+        object.__setattr__(
+            self,
+            "rpc_methods",
+            frozenset(plan.method for plan in self.rpc_handlers),
+        )
+        object.__setattr__(
+            self,
+            "event_by_subscription",
+            MappingProxyType(event_by_subscription),
         )
 
 

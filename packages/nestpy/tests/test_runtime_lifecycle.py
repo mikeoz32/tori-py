@@ -18,6 +18,7 @@ from nestpy import (
     ModuleSpec,
     Scope,
     ScopeClosedError,
+    ScopeError,
     ValueProvider,
     WorkScopeFactory,
     compile_graph,
@@ -69,6 +70,48 @@ async def test_value_singleton_request_cache_transient_and_alias_identity() -> N
         assert await request.resolve(TransientValue) is not await request.resolve(
             TransientValue
         )
+
+    await container.close()
+
+
+@pytest.mark.asyncio
+async def test_resolve_ref_requires_the_exact_ref_to_be_visible() -> None:
+    @module(
+        providers=[
+            ValueProvider("private", "private-value"),
+            ValueProvider("public", "public-value"),
+        ],
+        exports=["public"],
+    )
+    class Feature:
+        pass
+
+    @module(imports=[Feature])
+    class Root:
+        pass
+
+    graph = await graph_for(Root)
+    feature_id = next(
+        module_plan.module_id
+        for module_plan in graph.modules
+        if module_plan.module is Feature
+    )
+    private_ref = next(
+        ref
+        for ref in graph.providers
+        if ref.module_id == feature_id and ref.token == "private"
+    )
+    public_ref = graph.visibility[(graph.root, "public")]
+    container = Container(graph)
+
+    assert (
+        await container.resolver(graph.root).resolve_ref(public_ref) == "public-value"
+    )
+    assert (
+        await container.resolver(feature_id).resolve_ref(private_ref) == "private-value"
+    )
+    with pytest.raises(ScopeError, match="not visible"):
+        await container.resolver(graph.root).resolve_ref(private_ref)
 
     await container.close()
 

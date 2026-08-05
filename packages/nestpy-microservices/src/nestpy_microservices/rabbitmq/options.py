@@ -18,6 +18,9 @@ class RabbitMqOptions:
     reconnect_interval: float = 5.0
     tls: bool = False
     rpc_exchange: str = "nestpy.rpc"
+    reply_queue_expires_ms: int = 300_000
+    retry_delay_ms: int = 1_000
+    max_delivery_attempts: int = 5
 
     def __post_init__(self) -> None:
         if not isinstance(self.url, str) or not self.url:
@@ -50,6 +53,16 @@ class RabbitMqOptions:
             raise ValueError("tls must be boolean")
         if not isinstance(self.rpc_exchange, str) or not self.rpc_exchange:
             raise ValueError("rpc_exchange must be non-empty")
+        if not isinstance(self.reply_queue_expires_ms, int) or isinstance(
+            self.reply_queue_expires_ms, bool
+        ):
+            raise ValueError("reply_queue_expires_ms must be a positive integer")
+        if self.reply_queue_expires_ms <= 0:
+            raise ValueError("reply_queue_expires_ms must be a positive integer")
+        for name in ("retry_delay_ms", "max_delivery_attempts"):
+            value = getattr(self, name)
+            if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
+                raise ValueError(f"{name} must be a positive integer")
 
     def __repr__(self) -> str:
         parsed = urlsplit(self.url)
@@ -61,7 +74,10 @@ class RabbitMqOptions:
             f"heartbeat={self.heartbeat}, "
             f"connection_timeout={self.connection_timeout!r}, "
             f"reconnect_interval={self.reconnect_interval!r}, tls={self.tls!r}, "
-            f"rpc_exchange={self.rpc_exchange!r})"
+            f"rpc_exchange={self.rpc_exchange!r}, "
+            f"reply_queue_expires_ms={self.reply_queue_expires_ms}, "
+            f"retry_delay_ms={self.retry_delay_ms}, "
+            f"max_delivery_attempts={self.max_delivery_attempts})"
         )
 
 

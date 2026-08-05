@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import replace
+from datetime import datetime
 from typing import Annotated
 from uuid import uuid4
 
+import msgspec
 import pytest
 from nestpy import (
     ExecutionContext,
@@ -24,10 +26,12 @@ from nestpy_microservices import (
     Context,
     EventContext,
     EventDispatchMode,
+    Header,
     MessageConfigurationError,
     MessageInvocation,
     MessageLimits,
     MessagePipelineExecutor,
+    MessageRejectedError,
     MessageRetryableError,
     Payload,
     PipelinePlan,
@@ -41,6 +45,10 @@ from nestpy_microservices import (
 )
 
 MODULE_ID = ModuleId(object)
+
+
+class TypedRequest(msgspec.Struct):
+    count: int
 
 
 class Resolver:
@@ -296,6 +304,17 @@ def test_invocation_metadata_applies_size_limits() -> None:
             limits=MessageLimits(max_header_bytes=10),
         )
 
+    with pytest.raises(ValueError):
+        MessageInvocation(
+            "app",
+            uuid4(),
+            None,
+            "body",
+            {},
+            {},
+            received_at=datetime.now(),
+        )
+
 
 def test_custom_metadata_limits_reach_message_context() -> None:
     class Controller:
@@ -378,7 +397,7 @@ def test_scope_finalization_failure_is_not_reported_as_success() -> None:
         )
     )
 
-    assert completion.recommendation is SettlementRecommendation.RETRY
+    assert completion.recommendation is SettlementRecommendation.UNSETTLED
     assert completion.scope_error is not None
     assert not completion.succeeded
 
@@ -428,3 +447,102 @@ def test_event_success_does_not_encode_a_result() -> None:
 
     assert completion.succeeded
     assert completion.encoded_response is RESULT_MISSING
+
+
+def test_only_explicit_retryable_event_error_recommends_retry() -> None:
+    class Controller:
+        @event_handler(
+            ServiceIdentity("kinker", "members", 1),
+            "retry-classification",
+            schema_version=1,
+            mode=EventDispatchMode.SERVICE_POOL,
+            subscription="retry-classification",
+        )
+        async def handle(self, payload: Annotated[str, Payload()]) -> None:
+            if payload == "typed":
+                raise MessageRetryableError("try again")
+            raise RuntimeError("programming failure")
+
+    plan = compile_controller_message_handlers(MODULE_ID, Controller)[0]
+    executor = MessagePipelineExecutor()
+    scopes = Scopes(Resolver({Controller: Controller()}), [])
+
+    typed = asyncio.run(
+        executor.invoke(
+            scopes,
+            plan,
+            MessageInvocation("app", uuid4(), None, "typed", {}, {}),
+            encode_result=lambda value: value,
+        )
+    )
+    ordinary = asyncio.run(
+        executor.invoke(
+            scopes,
+            plan,
+            MessageInvocation("app", uuid4(), None, "ordinary", {}, {}),
+            encode_result=lambda value: value,
+        )
+    )
+
+    assert typed.recommendation is SettlementRecommendation.RETRY
+    assert ordinary.recommendation is SettlementRecommendation.RETRY
+
+
+def test_typed_payload_and_header_conversion_happens_before_scope_resolution() -> None:
+    class Controller:
+        @rpc("typed")
+        async def handle(
+            self,
+            payload: Annotated[TypedRequest, Payload()],
+            priority: Annotated[int, msgspec.Meta(ge=1), Header("priority")],
+        ) -> int:
+            assert isinstance(payload, TypedRequest)
+            assert isinstance(priority, int)
+            return payload.count + priority
+
+    plan = compile_controller_message_handlers(MODULE_ID, Controller)[0]
+    events: list[str] = []
+    completion = asyncio.run(
+        MessagePipelineExecutor().invoke(
+            Scopes(Resolver({Controller: Controller()}), events),
+            plan,
+            MessageInvocation(
+                "app",
+                uuid4(),
+                uuid4(),
+                {"count": 2},
+                {"priority": 3},
+                {},
+            ),
+            encode_result=lambda value: value,
+        )
+    )
+
+    assert completion.succeeded
+    assert completion.result == 5
+    assert events == ["scope-open", "scope-close"]
+
+
+def test_invalid_typed_input_is_rejected_before_work_scope_opens() -> None:
+    class Controller:
+        @rpc("typed-reject")
+        async def handle(
+            self,
+            payload: Annotated[int, msgspec.Meta(ge=1), Payload()],
+        ) -> int:
+            return payload
+
+    plan = compile_controller_message_handlers(MODULE_ID, Controller)[0]
+    events: list[str] = []
+    completion = asyncio.run(
+        MessagePipelineExecutor().invoke(
+            Scopes(Resolver({Controller: Controller()}), events),
+            plan,
+            MessageInvocation("app", uuid4(), uuid4(), 0, {}, {}),
+            encode_result=lambda value: value,
+        )
+    )
+
+    assert completion.recommendation is SettlementRecommendation.REJECT
+    assert isinstance(completion.body_error, MessageRejectedError)
+    assert events == []

@@ -1,13 +1,15 @@
 from __future__ import annotations
 
+import asyncio
 import sys
 from types import SimpleNamespace
-from typing import cast
+from typing import Any, cast
 from uuid import uuid4
 
 import pytest
 from nestpy_microservices.rabbitmq import (
     QueueDeclaration,
+    RabbitMqChannelRole,
     RabbitMqClientTransport,
     RabbitMqConnectionManager,
     RabbitMqModule,
@@ -30,10 +32,12 @@ from nestpy_microservices import (
     EventIdentity,
     EventSubscription,
     Publication,
+    RabbitMqConnectionError,
     RpcTarget,
     ServiceIdentity,
     SettlementRecommendation,
     TransportIndeterminateError,
+    TransportRejectedError,
     TransportUnroutableError,
 )
 
@@ -46,6 +50,12 @@ def test_options_redact_credentials_and_validate_defaults() -> None:
     assert "secret" not in repr(options)
     assert "example.test" in repr(options)
     assert options.reconnect_interval == 5.0
+    assert options.retry_delay_ms == 1_000
+    assert options.max_delivery_attempts == 5
+    with pytest.raises(ValueError):
+        RabbitMqOptions("amqp://localhost", retry_delay_ms=0)
+    with pytest.raises(ValueError):
+        RabbitMqOptions("amqp://localhost", max_delivery_attempts=0)
 
 
 def test_rpc_topology_uses_one_wildcard_service_queue() -> None:
@@ -54,7 +64,22 @@ def test_rpc_topology_uses_one_wildcard_service_queue() -> None:
     assert topology.exchanges[0].name == "nestpy.rpc"
     assert topology.queues[0].name == "nestpy.rpc.kinker.members.v1"
     assert topology.bindings[0].routing_key == "kinker.members.v1.*"
-    assert topology.queues[0].arguments == (("x-queue-type", "quorum"),)
+    assert dict(topology.queues[0].arguments) == {
+        "x-queue-type": "quorum",
+        "x-delivery-limit": 5,
+        "x-dead-letter-exchange": "nestpy.dead-letter",
+        "x-dead-letter-routing-key": topology.queues[0].name,
+    }
+    assert topology.queues[1].name.endswith(".dead-letter")
+    retry = topology.queues[2]
+    assert retry.name.endswith(".retry")
+    assert dict(retry.arguments) == {
+        "x-message-ttl": 1_000,
+        "x-dead-letter-exchange": "nestpy.rpc",
+        "x-max-length": 10_000,
+        "x-overflow": "reject-publish",
+    }
+    assert topology.bindings[2].routing_key == "kinker.members.v1.*"
 
 
 def test_event_and_reply_topology_use_declared_queue_types() -> None:
@@ -69,9 +94,36 @@ def test_event_and_reply_topology_use_declared_queue_types() -> None:
     reply = compile_reply_topology("reply." + "a" * 32)
 
     assert event.queues[0].name.endswith("--pool.kinker.members.v1.notify")
-    assert event.queues[0].arguments == (("x-queue-type", "quorum"),)
+    assert dict(event.queues[0].arguments)["x-delivery-limit"] == 5
     assert reply.queues[0].exclusive
     assert reply.queues[0].auto_delete
+    assert dict(reply.queues[0].arguments) == {"x-expires": 300_000}
+
+    custom_reply = compile_reply_topology(
+        "reply." + "b" * 32,
+        exchange="custom.rpc",
+    )
+    assert custom_reply.exchanges[0].name == "custom.rpc"
+    assert custom_reply.bindings[0].exchange == "custom.rpc"
+
+
+def test_reliable_broadcast_has_durable_nonexclusive_queue() -> None:
+    identity = EventIdentity(SERVICE, "profile-created", 1)
+    topology = compile_event_topology(
+        EventSubscription(
+            identity,
+            "broadcast",
+            "cache",
+            destination=SERVICE,
+            instance_id="replica-1",
+            reliable=True,
+        )
+    )
+
+    assert topology.queues[0].durable is True
+    assert topology.queues[0].exclusive is False
+    assert topology.queues[0].auto_delete is False
+    assert dict(topology.queues[0].arguments)["x-expires"] == 604_800_000
 
 
 def test_topology_merge_rejects_conflicting_declarations() -> None:
@@ -109,9 +161,11 @@ async def test_connection_manager_owns_three_channels_without_eager_import(
 
     class Channel:
         async def declare_exchange(self, *args, **kwargs):
+            calls.append(f"declare-exchange:{kwargs}")
             return Exchange()
 
         async def declare_queue(self, *args, **kwargs):
+            calls.append(f"declare-queue:{kwargs}")
             return Queue()
 
         async def close(self):
@@ -125,8 +179,15 @@ async def test_connection_manager_owns_three_channels_without_eager_import(
             calls.append("bind")
 
     class Connection:
+        close_callbacks = SimpleNamespace(
+            add=lambda callback: calls.append("loss-hook")
+        )
+        reconnect_callbacks = SimpleNamespace(
+            add=lambda callback: calls.append("recovery-hook")
+        )
+
         async def channel(self, **kwargs):
-            calls.append(f"channel:{kwargs['publisher_confirms']}")
+            calls.append(f"channel:{kwargs}")
             return Channel()
 
         async def close(self):
@@ -144,12 +205,74 @@ async def test_connection_manager_owns_three_channels_without_eager_import(
     manager = RabbitMqConnectionManager(RabbitMqOptions("amqp://localhost"))
 
     await manager.start()
-    await manager.declare(compile_rpc_topology(SERVICE))
+    await manager.declare(
+        compile_rpc_topology(SERVICE),
+        role=RabbitMqChannelRole.CONSUMER,
+    )
+
+    class Listener:
+        async def connection_lost(self, error):
+            calls.append("listener-lost")
+
+        async def connection_recovered(self):
+            calls.append("listener-recovered")
+
+    manager.register_recovery_listener(Listener())
+    await manager.notify_connection_lost(ConnectionError("lost"))
+    await manager.notify_connection_lost(ConnectionError("duplicate"))
+    assert manager.status is RabbitMqStatus.RECOVERING
+    await manager.notify_connection_recovered()
+    assert manager.status is RabbitMqStatus.READY
     await manager.close()
 
     assert manager.status is RabbitMqStatus.CLOSED
-    assert calls[:4] == ["connect", "channel:False", "channel:True", "channel:False"]
+    assert calls[0] == "connect"
+    assert "'on_return_raises': True" in calls[2]
+    assert all(
+        "'robust': False" in call for call in calls if call.startswith("declare-")
+    )
+    assert calls.count("bind") == 3
+    assert calls.count("listener-lost") == 1
+    assert "listener-recovered" in calls
     assert calls[-1] == "connection-close"
+
+
+@pytest.mark.asyncio
+async def test_partial_channel_startup_cleans_up_in_reverse(monkeypatch) -> None:
+    calls: list[str] = []
+
+    class Channel:
+        async def close(self) -> None:
+            calls.append("consumer-close")
+
+    class Connection:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def channel(self, **kwargs):
+            self.calls += 1
+            if self.calls == 1:
+                return Channel()
+            raise ConnectionError("publisher channel failed")
+
+        async def close(self) -> None:
+            calls.append("connection-close")
+
+    async def connect_robust(*args, **kwargs):
+        return Connection()
+
+    monkeypatch.setattr(
+        rabbitmq_connection,
+        "require_aio_pika",
+        lambda: SimpleNamespace(connect_robust=connect_robust),
+    )
+    manager = RabbitMqConnectionManager(RabbitMqOptions("amqp://localhost"))
+
+    with pytest.raises(RabbitMqConnectionError):
+        await manager.start()
+
+    assert calls == ["consumer-close", "connection-close"]
+    assert manager.status is RabbitMqStatus.FAILED
 
 
 @pytest.mark.asyncio
@@ -165,6 +288,9 @@ async def test_publisher_uses_confirm_channel_and_maps_mandatory_returns(
     class Exchange:
         async def publish(self, message, *, routing_key, mandatory):
             published.append((message, routing_key, mandatory))
+            from aiormq import spec
+
+            return spec.Basic.Ack()
 
     class Publisher:
         def __init__(self):
@@ -174,16 +300,19 @@ async def test_publisher_uses_confirm_channel_and_maps_mandatory_returns(
             return self.default_exchange
 
     fake_aio = SimpleNamespace(
-        DeliveryMode=SimpleNamespace(PERSISTENT="persistent"),
+        DeliveryMode=SimpleNamespace(
+            PERSISTENT="persistent", NOT_PERSISTENT="transient"
+        ),
         Message=Message,
     )
     monkeypatch.setattr(rabbitmq_publisher, "_load_aio_pika", lambda: fake_aio)
     manager = SimpleNamespace(
+        options=RabbitMqOptions("amqp://localhost"),
         channels=RabbitMqChannels(
             consumer=object(),
             publisher=Publisher(),
             reply=object(),
-        )
+        ),
     )
     publication = Publication(
         message_id=uuid4(),
@@ -206,11 +335,14 @@ async def test_publisher_uses_confirm_channel_and_maps_mandatory_returns(
 async def test_publisher_maps_unroutable_and_indeterminate_failures(
     monkeypatch,
 ) -> None:
-    class DeliveryError(Exception):
-        pass
+    from aio_pika import exceptions
+    from aiormq import spec
 
-    class ConnectionClosed(Exception):
-        pass
+    returned = SimpleNamespace(
+        delivery=spec.Basic.Return(reply_text="NO_ROUTE", routing_key="missing")
+    )
+    unroutable = exceptions.PublishError(cast(Any, returned), returned.delivery)
+    uncertain = exceptions.ChannelInvalidStateError("closed")
 
     class Exchange:
         def __init__(self, error):
@@ -227,7 +359,9 @@ async def test_publisher_maps_unroutable_and_indeterminate_failures(
             return self.default_exchange
 
     fake_aio = SimpleNamespace(
-        DeliveryMode=SimpleNamespace(PERSISTENT="persistent"),
+        DeliveryMode=SimpleNamespace(
+            PERSISTENT="persistent", NOT_PERSISTENT="transient"
+        ),
         Message=lambda **kwargs: kwargs,
     )
     monkeypatch.setattr(rabbitmq_publisher, "_load_aio_pika", lambda: fake_aio)
@@ -242,11 +376,12 @@ async def test_publisher_maps_unroutable_and_indeterminate_failures(
         )
 
     unroutable_manager = SimpleNamespace(
+        options=RabbitMqOptions("amqp://localhost"),
         channels=RabbitMqChannels(
             object(),
-            Publisher(DeliveryError()),
+            Publisher(unroutable),
             object(),
-        )
+        ),
     )
     with pytest.raises(TransportUnroutableError):
         await RabbitMqPublisher(
@@ -254,11 +389,12 @@ async def test_publisher_maps_unroutable_and_indeterminate_failures(
         ).publish(publication())
 
     uncertain_manager = SimpleNamespace(
+        options=RabbitMqOptions("amqp://localhost"),
         channels=RabbitMqChannels(
             object(),
-            Publisher(ConnectionClosed()),
+            Publisher(uncertain),
             object(),
-        )
+        ),
     )
     with pytest.raises(TransportIndeterminateError):
         await RabbitMqPublisher(
@@ -267,12 +403,42 @@ async def test_publisher_maps_unroutable_and_indeterminate_failures(
 
 
 @pytest.mark.asyncio
+async def test_publisher_maps_explicit_confirm_nack(monkeypatch) -> None:
+    from aiormq import spec
+
+    class Exchange:
+        async def publish(self, *args, **kwargs):
+            return spec.Basic.Nack()
+
+    class Publisher:
+        async def get_exchange(self, name: str, *, ensure: bool):
+            return Exchange()
+
+    fake_aio = SimpleNamespace(
+        DeliveryMode=SimpleNamespace(PERSISTENT=2, NOT_PERSISTENT=1),
+        Message=lambda **kwargs: kwargs,
+    )
+    monkeypatch.setattr(rabbitmq_publisher, "_load_aio_pika", lambda: fake_aio)
+    manager = SimpleNamespace(
+        options=RabbitMqOptions("amqp://localhost"),
+        channels=RabbitMqChannels(object(), Publisher(), object()),
+    )
+
+    with pytest.raises(TransportRejectedError):
+        await RabbitMqPublisher(cast(RabbitMqConnectionManager, manager)).publish(
+            Publication(uuid4(), "route", b"body", {}, mandatory=True)
+        )
+
+
+@pytest.mark.asyncio
 async def test_server_consumes_and_manually_settles_incoming_messages() -> None:
+    qos_calls: list[dict[str, object]] = []
+
     class Message:
         message_id = str(uuid4())
         routing_key = "kinker.members.v1.get"
         body = b"payload"
-        headers = {"x-attempt": 2}
+        headers = {"x-delivery-count": 1}
         redelivered = True
         correlation_id = str(uuid4())
         reply_to = "reply." + "a" * 32
@@ -293,20 +459,49 @@ async def test_server_consumes_and_manually_settles_incoming_messages() -> None:
         def __init__(self) -> None:
             self.callback = None
             self.cancelled = False
+            self.consume_kwargs = None
 
         async def consume(self, callback, **kwargs):
             self.callback = callback
+            self.consume_kwargs = kwargs
 
         async def cancel(self, tag: str) -> None:
             self.cancelled = True
 
     queue = Queue()
-    consumer_channel = SimpleNamespace(set_qos=_async_noop)
-    manager = SimpleNamespace(
-        declare=lambda topology: _return_queue(queue),
-        channels=SimpleNamespace(consumer=consumer_channel),
-    )
+
+    async def set_qos(**kwargs):
+        qos_calls.append(kwargs)
+
+    consumer_channel = SimpleNamespace(set_qos=set_qos)
+
+    class Manager:
+        options = RabbitMqOptions("amqp://localhost")
+        channels = SimpleNamespace(consumer=consumer_channel)
+
+        def register_recovery_listener(self, listener):
+            return None
+
+        def unregister_recovery_listener(self, listener):
+            return None
+
+        async def declare(self, topology, *, role):
+            assert role is RabbitMqChannelRole.CONSUMER
+            return await _return_queue(queue, topology)
+
+        async def notify_connection_lost(self, error):
+            return None
+
+    manager = Manager()
     server = RabbitMqServerTransport(cast(RabbitMqConnectionManager, manager), SERVICE)
+    retried: list[Publication] = []
+
+    class RetryPublisher:
+        async def publish(self, publication: Publication):
+            retried.append(publication)
+            return SimpleNamespace()
+
+    server._publisher = cast(Any, RetryPublisher())
     seen = []
     outcomes = iter(
         (
@@ -322,21 +517,208 @@ async def test_server_consumes_and_manually_settles_incoming_messages() -> None:
 
     await server.prepare(rpc_methods=("get",))
     await server.start(dispatch)
+    assert qos_calls == [{"prefetch_count": 1, "global_": False}]
+    assert queue.consume_kwargs is not None
+    assert queue.consume_kwargs["robust"] is False
     message = Message()
     assert queue.callback is not None
     await queue.callback(message)
 
     assert seen[0].attempt == 2
     assert seen[0].redelivered is True
+    assert seen[0].native is not message
+    assert not hasattr(seen[0].native, "ack")
     assert message.actions == [("ack", None)]
     retry_message = Message()
     await queue.callback(retry_message)
     reject_message = Message()
     await queue.callback(reject_message)
-    assert retry_message.actions == [("nack", True)]
+    assert retry_message.actions == [("ack", None)]
+    assert retried[0].native == (
+        "nestpy.rpc.kinker.members.v1.retry",
+        "kinker.members.v1.get",
+    )
+    assert retried[0].headers["x-nestpy-retry-count"] == 2
     assert reject_message.actions == [("reject", False)]
     await server.close()
     assert queue.cancelled is True
+
+
+@pytest.mark.asyncio
+async def test_reliable_broadcast_uses_exact_subscription_and_delayed_retry() -> None:
+    qos_calls: list[dict[str, object]] = []
+    identity = EventIdentity(SERVICE, "profile-created", 1)
+    subscription = EventSubscription(
+        identity,
+        "broadcast",
+        "cache",
+        destination=SERVICE,
+        instance_id="replica-1",
+        reliable=True,
+    )
+
+    class Message:
+        message_id = str(uuid4())
+        routing_key = identity.routing_key
+        body = b"event"
+        headers = {}
+        redelivered = False
+        correlation_id = None
+        reply_to = None
+
+        def __init__(self) -> None:
+            self.actions = []
+
+        async def ack(self) -> None:
+            self.actions.append(("ack", None))
+
+        async def nack(self, *, requeue: bool) -> None:
+            self.actions.append(("nack", requeue))
+
+        async def reject(self, *, requeue: bool) -> None:
+            self.actions.append(("reject", requeue))
+
+    class Queue:
+        def __init__(self) -> None:
+            self.callback = None
+            self.consume_kwargs = None
+
+        async def consume(self, callback, **kwargs):
+            self.callback = callback
+            self.consume_kwargs = kwargs
+
+        async def cancel(self, tag: str) -> None:
+            return None
+
+    queues: dict[str, Queue] = {}
+
+    async def set_qos(**kwargs):
+        qos_calls.append(kwargs)
+
+    class Manager:
+        options = RabbitMqOptions("amqp://localhost")
+        channels = SimpleNamespace(consumer=SimpleNamespace(set_qos=set_qos))
+
+        def register_recovery_listener(self, listener):
+            return None
+
+        def unregister_recovery_listener(self, listener):
+            return None
+
+        async def declare(self, topology, *, role):
+            for declaration in topology.queues:
+                queues.setdefault(declaration.name, Queue())
+            return queues
+
+        async def notify_connection_lost(self, error):
+            return None
+
+    server = RabbitMqServerTransport(
+        cast(RabbitMqConnectionManager, Manager()),
+        SERVICE,
+        prefetch=3,
+    )
+    retried: list[Publication] = []
+
+    class RetryPublisher:
+        async def publish(self, publication: Publication):
+            retried.append(publication)
+            return SimpleNamespace()
+
+    server._publisher = cast(Any, RetryPublisher())
+    seen = []
+
+    async def dispatch(delivery):
+        seen.append(delivery)
+        return SettlementRecommendation.RETRY
+
+    await server.prepare(subscriptions=(subscription,))
+    await server.start(dispatch)
+    assert qos_calls == [{"prefetch_count": 3, "global_": False}]
+    primary = next(
+        queue for name, queue in queues.items() if not name.endswith(".dead-letter")
+    )
+    assert primary.consume_kwargs is not None
+    assert primary.consume_kwargs["exclusive"] is True
+    assert primary.consume_kwargs["robust"] is False
+    assert primary.callback is not None
+    message = Message()
+    await primary.callback(message)
+
+    assert seen[0].subscription is subscription
+    assert message.actions == [("ack", None)]
+    assert retried[0].native == (
+        next(name for name in queues if name.endswith(".retry")),
+        identity.routing_key,
+    )
+    await server.close()
+
+
+@pytest.mark.asyncio
+async def test_stop_intake_attempts_every_consumer_cancellation() -> None:
+    first = EventSubscription(
+        EventIdentity(SERVICE, "first-event", 1),
+        "service_pool",
+        "first",
+        destination=SERVICE,
+    )
+    second = EventSubscription(
+        EventIdentity(SERVICE, "second-event", 1),
+        "service_pool",
+        "second",
+        destination=SERVICE,
+    )
+    cancelled: list[str] = []
+    qos_calls: list[dict[str, object]] = []
+
+    async def set_qos(**kwargs):
+        qos_calls.append(kwargs)
+
+    class Queue:
+        def __init__(self, name: str) -> None:
+            self.name = name
+
+        async def consume(self, callback, **kwargs):
+            return None
+
+        async def cancel(self, tag: str) -> None:
+            cancelled.append(self.name)
+            if len(cancelled) == 1:
+                raise ConnectionError("first cancellation failed")
+
+    queues: dict[str, Queue] = {}
+
+    class Manager:
+        options = RabbitMqOptions("amqp://localhost")
+        channels = SimpleNamespace(consumer=SimpleNamespace(set_qos=set_qos))
+
+        def register_recovery_listener(self, listener):
+            return None
+
+        def unregister_recovery_listener(self, listener):
+            return None
+
+        async def declare(self, topology, *, role):
+            for declaration in topology.queues:
+                queues.setdefault(declaration.name, Queue(declaration.name))
+            return queues
+
+    server = RabbitMqServerTransport(
+        cast(RabbitMqConnectionManager, Manager()), SERVICE, prefetch=2
+    )
+    await server.prepare(subscriptions=(first, second))
+
+    async def dispatch(delivery):
+        return SettlementRecommendation.ACK
+
+    await server.start(dispatch)
+    assert qos_calls == [{"prefetch_count": 1, "global_": False}]
+
+    with pytest.raises(RabbitMqConnectionError):
+        await server.stop_intake()
+
+    assert len(cancelled) == 2
+    await server.close()
 
 
 @pytest.mark.asyncio
@@ -355,14 +737,19 @@ async def test_client_publishes_rpc_and_events_and_correlates_replies(
 
         async def publish(self, message, *, routing_key, mandatory):
             published.append((self.name, routing_key, mandatory))
+            from aiormq import spec
+
+            return spec.Basic.Ack()
 
     class Queue:
         def __init__(self):
             self.callback = None
             self.cancelled = False
+            self.consume_kwargs = None
 
         async def consume(self, callback, **kwargs):
             self.callback = callback
+            self.consume_kwargs = kwargs
 
         async def cancel(self, tag: str):
             self.cancelled = True
@@ -378,19 +765,49 @@ async def test_client_publishes_rpc_and_events_and_correlates_replies(
             return exchanges[name]
 
     fake_aio = SimpleNamespace(
-        DeliveryMode=SimpleNamespace(PERSISTENT="persistent"),
+        DeliveryMode=SimpleNamespace(
+            PERSISTENT="persistent", NOT_PERSISTENT="transient"
+        ),
         Message=Message,
     )
     monkeypatch.setattr(rabbitmq_publisher, "_load_aio_pika", lambda: fake_aio)
-    manager = SimpleNamespace(
-        declare=lambda topology: _return_queue(queue, topology),
-        channels=SimpleNamespace(publisher=PublisherChannel()),
-    )
+    reply_qos: list[dict[str, object]] = []
+
+    async def set_reply_qos(**kwargs):
+        reply_qos.append(kwargs)
+
+    reply_channel = SimpleNamespace(set_qos=set_reply_qos)
+    declared_roles: list[RabbitMqChannelRole] = []
+
+    class Manager:
+        options = RabbitMqOptions("amqp://localhost")
+        channels = SimpleNamespace(
+            publisher=PublisherChannel(),
+            reply=reply_channel,
+        )
+
+        def register_recovery_listener(self, listener):
+            return None
+
+        def unregister_recovery_listener(self, listener):
+            return None
+
+        async def declare(self, topology, *, role):
+            declared_roles.append(role)
+            return await _return_queue(queue, topology)
+
+        async def notify_connection_lost(self, error):
+            return None
+
+    manager = Manager()
     client = RabbitMqClientTransport(
         cast(RabbitMqConnectionManager, manager), max_pending_replies=2
     )
     await client.start()
     assert queue.callback is not None
+    assert queue.consume_kwargs is not None
+    assert queue.consume_kwargs["robust"] is False
+    assert reply_qos == [{"prefetch_count": 2, "global_": False}]
     correlation_id = uuid4()
     rpc_publication = Publication(
         message_id=uuid4(),
@@ -408,18 +825,23 @@ async def test_client_publishes_rpc_and_events_and_correlates_replies(
     )
 
     class Reply:
-        def __init__(self) -> None:
+        def __init__(self, reply_correlation=correlation_id) -> None:
             self.message_id = str(uuid4())
             self.routing_key = client.reply_to.value
             self.body = b"reply"
             self.headers = {}
             self.redelivered = False
-            self.correlation_id = str(correlation_id)
+            self.correlation_id = str(reply_correlation)
             self.reply_to = None
             self.acked = False
+            self.rejected = False
 
         async def ack(self):
             self.acked = True
+
+        async def reject(self, *, requeue: bool):
+            assert requeue is False
+            self.rejected = True
 
     reply = Reply()
     await queue.callback(reply)
@@ -427,11 +849,39 @@ async def test_client_publishes_rpc_and_events_and_correlates_replies(
     received = await anext(replies)
 
     assert received.correlation_id == correlation_id
+    assert reply.acked is False
+    await cast(Any, replies).aclose()
     assert reply.acked is True
     assert published == [
         ("nestpy.rpc", rpc_publication.routing_key, True),
         (event.exchange_name, event.routing_key, True),
     ]
+    assert declared_roles == [
+        RabbitMqChannelRole.REPLY,
+        RabbitMqChannelRole.PUBLISHER,
+    ]
+
+    malformed = Reply()
+    malformed.headers = {"unsupported": object()}
+    await queue.callback(malformed)
+    assert malformed.acked is True
+    assert malformed.rejected is False
+
+    duplicate = Reply()
+    unknown = Reply(uuid4())
+    await queue.callback(duplicate)
+    await queue.callback(unknown)
+    old_reply_route = client.reply_to
+    stream = client.replies()
+    waiting = asyncio.create_task(anext(stream))
+    await asyncio.sleep(0)
+    assert duplicate.acked is True
+    assert unknown.acked is True
+    await client.connection_lost(ConnectionError("lost"))
+    with pytest.raises(StopAsyncIteration):
+        await waiting
+    await client.connection_recovered()
+    assert client.reply_to != old_reply_route
     await client.close()
     assert queue.cancelled is True
 

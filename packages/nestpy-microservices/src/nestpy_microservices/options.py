@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 
 from nestpy_microservices.identities import MessageLimits
@@ -34,6 +35,7 @@ class MicroservicesOptions:
         if (
             not isinstance(self.max_accepted_rpc_timeout, (int, float))
             or isinstance(self.max_accepted_rpc_timeout, bool)
+            or not math.isfinite(self.max_accepted_rpc_timeout)
             or self.max_accepted_rpc_timeout <= 0
         ):
             raise ValueError("max_accepted_rpc_timeout must be positive")

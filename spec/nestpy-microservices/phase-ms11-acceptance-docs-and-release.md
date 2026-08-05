@@ -1,5 +1,12 @@
 # MS11: Acceptance, Documentation, and Release
 
+## Status
+
+Not complete. Package documentation, focused tests, Docker-backed tests, and
+artifact-check scaffolding exist, but the planned examples, complete user and
+operations documentation, full pytest/Ruff/format/ty gates, isolated built-
+artifact verification, and independent release review remain.
+
 ## Purpose
 
 Prove the package from built artifacts, document operational semantics, and

@@ -1,5 +1,13 @@
 # MS8: RabbitMQ RPC Service Cluster
 
+## Status
+
+Implemented. The service queue/wildcard route, competing-consumer endpoint,
+deadline admission, confirmed reply-before-ACK flow, and bounded retry/DLX
+topology are present. Docker-backed round-trip, redelivery, unroutable publish,
+and shared conformance tests exist; crash/restart boundary coverage remains
+MS10.
+
 ## Purpose
 
 Implement the Nameko-derived service-cluster topology: one wildcard-bound queue

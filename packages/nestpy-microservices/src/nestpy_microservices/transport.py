@@ -6,7 +6,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Mappin
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
-from typing import Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 from uuid import UUID, uuid4
 
 from nestpy_microservices.identities import (
@@ -22,6 +22,9 @@ from nestpy_microservices.invocation import (
     SettlementRecommendation,
 )
 from nestpy_microservices.wire import freeze_headers
+
+if TYPE_CHECKING:
+    from nestpy_microservices.options import MicroservicesOptions
 
 _UNSET_RELIABILITY = object()
 
@@ -51,6 +54,7 @@ class EncodedDelivery:
     reply_to: ReplyRoute | None = None
     native: object | None = None
     expires_at: datetime | None = None
+    subscription: EventSubscription | None = None
 
     def __post_init__(self) -> None:
         require_uuid(self.message_id, "message_id")
@@ -69,7 +73,24 @@ class EncodedDelivery:
             require_uuid(self.correlation_id, "correlation_id")
         if self.expires_at is not None:
             require_utc(self.expires_at, "expires_at")
+        if self.subscription is not None and not isinstance(
+            self.subscription, EventSubscription
+        ):
+            raise TypeError("subscription must be an EventSubscription")
         object.__setattr__(self, "headers", freeze_headers(self.headers))
+
+
+@dataclass(frozen=True, slots=True)
+class ReplyProtocolFailure:
+    """Trusted reply correlation whose remaining transport metadata is invalid."""
+
+    correlation_id: UUID
+    reason: str
+
+    def __post_init__(self) -> None:
+        require_uuid(self.correlation_id, "correlation_id")
+        if not isinstance(self.reason, str) or not self.reason:
+            raise ValueError("reason must be a non-empty string")
 
 
 @dataclass(frozen=True, slots=True)
@@ -147,8 +168,8 @@ class EventSubscription:
             )
         if not isinstance(self.reliable, bool):
             raise ValueError("reliable must be boolean")
-        if self.mode in {"service_pool", "singleton"} and not reliability_unset:
-            raise ValueError(f"{self.mode} subscriptions do not accept reliable")
+        if self.mode in {"service_pool", "singleton"} and not self.reliable:
+            raise ValueError(f"{self.mode} subscriptions must be reliable")
         if self.mode == "service_pool" and self.destination is None:
             raise ValueError("service_pool subscriptions require a destination")
         if self.mode == "broadcast" and self.reliable and self.instance_id is None:
@@ -227,7 +248,9 @@ class ClientTransport(Protocol):
         self, identity: EventIdentity, publication: Publication
     ) -> PublicationReceipt: ...
 
-    def replies(self) -> AsyncIterator[EncodedDelivery]: ...
+    def replies(
+        self,
+    ) -> AsyncIterator[EncodedDelivery | ReplyProtocolFailure]: ...
 
     async def close(self) -> None: ...
 
@@ -238,14 +261,48 @@ class ClientTransport(Protocol):
     def unwrap(self) -> object: ...
 
 
+@runtime_checkable
+class ServerTransportFactory(Protocol):
+    """Create one server transport without opening native resources."""
+
+    def create(
+        self, identity: ServiceIdentity, options: MicroservicesOptions
+    ) -> ServerTransport: ...
+
+
+@runtime_checkable
+class ClientTransportFactory(Protocol):
+    """Create one client transport without opening native resources."""
+
+    def create(self) -> ClientTransport: ...
+
+
+@runtime_checkable
+class KeyedTransportFactoryReference(Protocol):
+    """Reference exact adapter-owned factory providers by one root key."""
+
+    @property
+    def key(self) -> str: ...
+
+    @property
+    def server_factory_token(self) -> type[object] | str: ...
+
+    @property
+    def client_factory_token(self) -> type[object] | str: ...
+
+
 __all__ = [
     "ClientTransport",
+    "ClientTransportFactory",
     "DeliveryDispatcher",
     "EncodedDelivery",
     "EventSubscription",
+    "KeyedTransportFactoryReference",
     "Publication",
     "PublicationReceipt",
+    "ReplyProtocolFailure",
     "ServerTransport",
+    "ServerTransportFactory",
     "TransportStatus",
     "TransportStatusEvent",
 ]

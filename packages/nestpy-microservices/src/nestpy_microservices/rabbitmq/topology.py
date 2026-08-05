@@ -9,6 +9,12 @@ from nestpy_microservices.identities import ReplyRoute, ServiceIdentity
 from nestpy_microservices.transport import EventSubscription
 
 _MAX_NAME_BYTES = 255
+_DEAD_LETTER_EXCHANGE = "nestpy.dead-letter"
+_DEFAULT_DELIVERY_LIMIT = 5
+_DEFAULT_RETRY_DELAY_MS = 1_000
+_RETRY_QUEUE_LIMIT = 10_000
+_RELIABLE_BROADCAST_EXPIRES_MS = 604_800_000
+_RELIABLE_BROADCAST_TTL_MS = 86_400_000
 
 
 @dataclass(frozen=True, slots=True)
@@ -44,30 +50,32 @@ class RabbitMqTopology:
 
 
 def compile_rpc_topology(
-    service: ServiceIdentity, *, exchange: str = "nestpy.rpc"
+    service: ServiceIdentity,
+    *,
+    exchange: str = "nestpy.rpc",
+    retry_delay_ms: int = _DEFAULT_RETRY_DELAY_MS,
+    delivery_limit: int = _DEFAULT_DELIVERY_LIMIT,
 ) -> RabbitMqTopology:
     _bounded(exchange, "RPC exchange")
     queue = f"nestpy.rpc.{service.label}"
     binding = f"{service.label}.*"
     _bounded(queue, "RPC queue")
     _bounded(binding, "RPC binding")
-    return RabbitMqTopology(
-        exchanges=(ExchangeDeclaration(exchange),),
-        queues=(
-            QueueDeclaration(
-                queue,
-                durable=True,
-                exclusive=False,
-                auto_delete=False,
-                arguments=(("x-queue-type", "quorum"),),
-            ),
-        ),
-        bindings=(BindingDeclaration(exchange, queue, binding),),
+    return _durable_topology(
+        exchange=exchange,
+        queue_name=queue,
+        routing_key=binding,
+        queue_arguments=(("x-queue-type", "quorum"),),
+        retry_delay_ms=retry_delay_ms,
+        delivery_limit=delivery_limit,
     )
 
 
 def compile_event_topology(
     subscription: EventSubscription,
+    *,
+    retry_delay_ms: int = _DEFAULT_RETRY_DELAY_MS,
+    delivery_limit: int = _DEFAULT_DELIVERY_LIMIT,
 ) -> RabbitMqTopology:
     identity = subscription.identity
     prefix = (
@@ -80,22 +88,10 @@ def compile_event_topology(
             f"{prefix}--pool.{subscription.destination.label}."
             f"{subscription.subscription}"
         )
-        queue = QueueDeclaration(
-            queue_name,
-            durable=True,
-            exclusive=False,
-            auto_delete=False,
-            arguments=(("x-queue-type", "quorum"),),
-        )
+        durable_arguments = (("x-queue-type", "quorum"),)
     elif subscription.mode == "singleton":
         queue_name = f"{prefix}--singleton.{subscription.subscription}"
-        queue = QueueDeclaration(
-            queue_name,
-            durable=True,
-            exclusive=False,
-            auto_delete=False,
-            arguments=(("x-queue-type", "quorum"),),
-        )
+        durable_arguments = (("x-queue-type", "quorum"),)
     else:
         assert subscription.destination is not None
         assert subscription.instance_id is not None
@@ -103,41 +99,153 @@ def compile_event_topology(
             f"{prefix}--broadcast.{subscription.destination.label}."
             f"{subscription.subscription}.{subscription.instance_id}"
         )
-        queue = QueueDeclaration(
-            queue_name,
-            durable=bool(subscription.reliable),
-            exclusive=True,
-            auto_delete=not subscription.reliable,
-        )
+        if subscription.reliable is True:
+            durable_arguments = (
+                ("x-expires", _RELIABLE_BROADCAST_EXPIRES_MS),
+                ("x-message-ttl", _RELIABLE_BROADCAST_TTL_MS),
+            )
+        else:
+            queue = QueueDeclaration(
+                queue_name,
+                durable=False,
+                exclusive=True,
+                auto_delete=True,
+            )
     _bounded(identity.exchange_name, "event exchange")
     _bounded(identity.routing_key, "event routing key")
     _bounded(queue_name, "event queue")
+    if subscription.reliable is True:
+        return _durable_topology(
+            exchange=identity.exchange_name,
+            queue_name=queue_name,
+            routing_key=identity.routing_key,
+            queue_arguments=durable_arguments,
+            retry_delay_ms=retry_delay_ms,
+            delivery_limit=delivery_limit,
+        )
     return RabbitMqTopology(
         exchanges=(ExchangeDeclaration(identity.exchange_name),),
         queues=(queue,),
         bindings=(
             BindingDeclaration(
-                identity.exchange_name, queue_name, identity.routing_key
+                identity.exchange_name,
+                queue_name,
+                identity.routing_key,
             ),
         ),
     )
 
 
-def compile_reply_topology(route: str) -> RabbitMqTopology:
+def compile_reply_topology(
+    route: str,
+    *,
+    exchange: str = "nestpy.rpc",
+    expires_ms: int = 300_000,
+) -> RabbitMqTopology:
     route = ReplyRoute(route).value
+    if (
+        not isinstance(expires_ms, int)
+        or isinstance(expires_ms, bool)
+        or expires_ms <= 0
+    ):
+        raise ValueError("reply queue expiry must be a positive integer")
+    _bounded(exchange, "RPC exchange")
     _bounded(route, "reply queue")
     return RabbitMqTopology(
-        exchanges=(ExchangeDeclaration("nestpy.rpc"),),
+        exchanges=(ExchangeDeclaration(exchange),),
         queues=(
             QueueDeclaration(
                 route,
                 durable=False,
                 exclusive=True,
                 auto_delete=True,
+                arguments=(("x-expires", expires_ms),),
             ),
         ),
-        bindings=(BindingDeclaration("nestpy.rpc", route, route),),
+        bindings=(BindingDeclaration(exchange, route, route),),
     )
+
+
+def event_exchange_topology(exchange: str) -> RabbitMqTopology:
+    """Return the producer-owned durable topic exchange declaration."""
+
+    _bounded(exchange, "event exchange")
+    return RabbitMqTopology(exchanges=(ExchangeDeclaration(exchange),))
+
+
+def _durable_topology(
+    *,
+    exchange: str,
+    queue_name: str,
+    routing_key: str,
+    queue_arguments: tuple[tuple[str, object], ...],
+    retry_delay_ms: int,
+    delivery_limit: int,
+) -> RabbitMqTopology:
+    _positive(retry_delay_ms, "retry delay")
+    _positive(delivery_limit, "delivery limit")
+    dead_queue = f"{queue_name}.dead-letter"
+    retry_queue = f"{queue_name}.retry"
+    retry_exchange = retry_exchange_name(queue_name)
+    _bounded(dead_queue, "dead-letter queue")
+    _bounded(retry_queue, "retry queue")
+    delivery_limit_arguments = (
+        (("x-delivery-limit", delivery_limit),)
+        if ("x-queue-type", "quorum") in queue_arguments
+        else ()
+    )
+    arguments = (
+        *queue_arguments,
+        *delivery_limit_arguments,
+        ("x-dead-letter-exchange", _DEAD_LETTER_EXCHANGE),
+        ("x-dead-letter-routing-key", queue_name),
+    )
+    return RabbitMqTopology(
+        exchanges=(
+            ExchangeDeclaration(exchange),
+            ExchangeDeclaration(_DEAD_LETTER_EXCHANGE),
+            ExchangeDeclaration(retry_exchange),
+        ),
+        queues=(
+            QueueDeclaration(queue_name, True, False, False, arguments),
+            QueueDeclaration(
+                dead_queue,
+                True,
+                False,
+                False,
+                (("x-queue-type", "quorum"),),
+            ),
+            QueueDeclaration(
+                retry_queue,
+                True,
+                False,
+                False,
+                (
+                    ("x-message-ttl", retry_delay_ms),
+                    ("x-dead-letter-exchange", exchange),
+                    ("x-max-length", _RETRY_QUEUE_LIMIT),
+                    ("x-overflow", "reject-publish"),
+                ),
+            ),
+        ),
+        bindings=(
+            BindingDeclaration(exchange, queue_name, routing_key),
+            BindingDeclaration(
+                _DEAD_LETTER_EXCHANGE,
+                dead_queue,
+                queue_name,
+            ),
+            BindingDeclaration(retry_exchange, retry_queue, routing_key),
+        ),
+    )
+
+
+def retry_exchange_name(queue_name: str) -> str:
+    """Return the dedicated retry exchange for one primary queue."""
+
+    value = f"{queue_name}.retry"
+    _bounded(value, "retry exchange")
+    return value
 
 
 def merge_topologies(*topologies: RabbitMqTopology) -> RabbitMqTopology:
@@ -179,6 +287,11 @@ def _bounded(value: str, field_name: str) -> None:
         raise ValueError(f"{field_name} exceeds RabbitMQ's 255-byte name limit")
 
 
+def _positive(value: int, field_name: str) -> None:
+    if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
+        raise ValueError(f"{field_name} must be a positive integer")
+
+
 __all__ = [
     "BindingDeclaration",
     "ExchangeDeclaration",
@@ -187,5 +300,7 @@ __all__ = [
     "compile_event_topology",
     "compile_reply_topology",
     "compile_rpc_topology",
+    "event_exchange_topology",
     "merge_topologies",
+    "retry_exchange_name",
 ]

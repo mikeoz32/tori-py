@@ -32,6 +32,7 @@ from nestpy_microservices.identities import (
 from nestpy_microservices.transport import (
     ClientTransport,
     Publication,
+    ReplyProtocolFailure,
     TransportStatus,
 )
 from nestpy_microservices.wire import RpcRequestEnvelope, RpcResponseEnvelope
@@ -366,16 +367,25 @@ class ServiceCluster:
             if self.manage_transport:
                 await self.transport.close()
 
+    async def on_application_shutdown(self) -> None:
+        await self.close()
+
     async def _route_replies(self) -> None:
         try:
             async for delivery in self.transport.replies():
                 correlation = delivery.correlation_id
                 if correlation is None:
                     continue
-                if delivery.routing_key != self.transport.reply_to.value:
-                    continue
                 future = self._pending.pop(correlation, None)
                 if future is None:
+                    continue
+                if isinstance(delivery, ReplyProtocolFailure):
+                    future.set_exception(RpcProtocolError(delivery.reason))
+                    continue
+                if delivery.routing_key != self.transport.reply_to.value:
+                    future.set_exception(
+                        RpcProtocolError("RPC reply route does not match")
+                    )
                     continue
                 try:
                     response = self.codec.decode_response(delivery.body)

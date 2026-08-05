@@ -121,7 +121,7 @@ def test_graph_aware_compilation_qualifies_injections_and_pipeline_tokens() -> N
 
 def test_registry_rejects_duplicate_rpc_and_event_identities() -> None:
     class DuplicateRpc:
-        @rpc("resolve-profile")
+        @rpc("resolve-profile", schema_version=2)
         async def other(self, payload: Annotated[object, Payload()]) -> object:
             return payload
 
@@ -145,6 +145,27 @@ def test_registry_rejects_duplicate_rpc_and_event_identities() -> None:
         compile_service_handler_registry(
             ((MODULE_ID, MessageController), (ModuleId(str), DuplicateEvent))
         )
+
+
+def test_registry_stores_immutable_exact_indexes_once() -> None:
+    class VersionOne:
+        @rpc("resolve-profile", schema_version=1)
+        async def resolve(self, payload: Annotated[object, Payload()]) -> object:
+            return payload
+
+    registry = compile_service_handler_registry(
+        ((MODULE_ID, MessageController), (ModuleId(str), VersionOne))
+    )
+
+    assert registry.rpc_by_target is registry.rpc_by_target
+    assert registry.event_by_subscription is registry.event_by_subscription
+    assert registry.rpc_by_target[("resolve-profile", 1)].schema_version == 1
+    assert registry.rpc_by_target[("resolve-profile", 2)].schema_version == 2
+    with pytest.raises(TypeError):
+        mutable_view = cast(
+            dict[tuple[str, int], RpcHandlerPlan], registry.rpc_by_target
+        )
+        mutable_view[("resolve-profile", 3)] = registry.rpc_handlers[0]
 
 
 def test_broadcast_default_and_reliable_modes_are_explicit() -> None:

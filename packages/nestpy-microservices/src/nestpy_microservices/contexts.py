@@ -4,11 +4,12 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from datetime import datetime
 from uuid import UUID
 
 from nestpy import ModuleId, ScopedResolver
 
-from nestpy_microservices.identities import MessageLimits
+from nestpy_microservices.identities import MessageLimits, require_utc, utc_now
 from nestpy_microservices.wire import freeze_headers
 
 
@@ -29,6 +30,8 @@ class MessageContext:
     correlation_id: UUID | None
     scope_resolver: ScopedResolver
     message_metadata: Mapping[str, object]
+    received_at: datetime = field(default_factory=utc_now)
+    expires_at: datetime | None = None
     attempt: int = 1
     redelivered: bool = False
     native_value: object | None = None
@@ -45,6 +48,9 @@ class MessageContext:
             raise ValueError("attempt must be a positive integer")
         if not isinstance(self.redelivered, bool):
             raise ValueError("redelivered must be boolean")
+        require_utc(self.received_at, "received_at")
+        if self.expires_at is not None:
+            require_utc(self.expires_at, "expires_at")
         object.__setattr__(
             self,
             "message_metadata",

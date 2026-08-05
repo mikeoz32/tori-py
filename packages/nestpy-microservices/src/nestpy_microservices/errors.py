@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 
 class MicroservicesError(Exception):
     """Base error for failures owned by the microservices integration."""
@@ -93,6 +95,34 @@ class MessageRejectedError(MessageInvocationError):
     """Explicit terminal message rejection."""
 
     diagnostic_code = "microservices.rejected"
+
+
+class PublicRpcError(MessageInvocationError):
+    """An application error explicitly approved for exposure to RPC callers."""
+
+    diagnostic_code = "microservices.public_rpc"
+
+    def __init__(
+        self,
+        code: str,
+        message: str,
+        *,
+        retryable: bool = False,
+        details: Mapping[str, object] | None = None,
+    ) -> None:
+        if not isinstance(code, str) or not code:
+            raise ValueError("public RPC error code must be a non-empty string")
+        if not isinstance(message, str) or not message:
+            raise ValueError("public RPC error message must be a non-empty string")
+        if not isinstance(retryable, bool):
+            raise ValueError("public RPC error retryable must be boolean")
+        if details is not None and not isinstance(details, Mapping):
+            raise TypeError("public RPC error details must be a mapping")
+        self.code = code
+        self.public_message = message
+        self.retryable = retryable
+        self.details = {} if details is None else dict(details)
+        super().__init__(message)
 
 
 class TransportError(MicroservicesError):
@@ -227,6 +257,7 @@ __all__ = [
     "MessageRetryableError",
     "MicroservicesError",
     "OptionalDependencyError",
+    "PublicRpcError",
     "DuplicateSettlementError",
     "TransportCapacityError",
     "TransportCorrelationError",

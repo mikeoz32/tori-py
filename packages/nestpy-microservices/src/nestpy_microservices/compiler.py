@@ -168,15 +168,14 @@ def _registry_from_plans(
 ) -> ServiceHandlerRegistry:
     rpc_handlers: list[RpcHandlerPlan] = []
     event_handlers: list[EventHandlerPlan] = []
-    rpc_aliases: set[str] = set()
+    rpc_targets: set[tuple[str, int]] = set()
     event_keys: set[tuple[object, EventDispatchMode, str]] = set()
     for plan in plans:
         if isinstance(plan, RpcHandlerPlan):
-            if plan.method in rpc_aliases:
-                raise HandlerCompilationError(
-                    f"duplicate RPC method alias {plan.method!r}"
-                )
-            rpc_aliases.add(plan.method)
+            key = (plan.method, plan.schema_version)
+            if key in rpc_targets:
+                raise HandlerCompilationError(f"duplicate RPC target {key!r}")
+            rpc_targets.add(key)
             rpc_handlers.append(plan)
             continue
         key = (plan.identity, plan.mode, plan.subscription)
@@ -237,15 +236,17 @@ def _compile_signature(
                 f"handler parameter {parameter.name} cannot be variadic"
             )
         annotation = hints.get(parameter.name, parameter.annotation)
-        base, markers = _annotation_markers(annotation)
+        converted_annotation, markers = _annotation_markers(annotation)
         if len(markers) != 1:
             raise HandlerCompilationError(
                 f"handler parameter {parameter.name} requires exactly one marker"
             )
         kind, source, token = _marker_details(markers[0])
-        context_types = getattr(base, "__mro__", ())
+        annotation_base = _annotation_base(converted_annotation)
+        context_types = getattr(annotation_base, "__mro__", ())
         if kind == "context" and (
-            not isinstance(base, type) or expected_context not in context_types
+            not isinstance(annotation_base, type)
+            or expected_context not in context_types
         ):
             raise HandlerCompilationError(
                 f"handler context parameter {parameter.name} has the wrong context type"
@@ -255,7 +256,7 @@ def _compile_signature(
         plans.append(
             MessageParameterPlan(
                 name=parameter.name,
-                annotation=base,
+                annotation=converted_annotation,
                 kind=kind,
                 source=source,
                 token=token,
@@ -277,13 +278,20 @@ def _annotation_markers(annotation: object) -> tuple[object, tuple[object, ...]]
     if get_origin(annotation) is not Annotated:
         return annotation, ()
     args = get_args(annotation)
-    markers = tuple(args[1:])
-    if not all(
-        isinstance(marker, (Payload, Context, Headers, Header, Inject))
-        for marker in markers
-    ):
-        return args[0], ()
-    return args[0], markers
+    markers = tuple(
+        marker
+        for marker in args[1:]
+        if isinstance(marker, (Payload, Context, Headers, Header, Inject))
+    )
+    retained = tuple(marker for marker in args[1:] if marker not in markers)
+    converted = Annotated[args[0], *retained] if retained else args[0]
+    return converted, markers
+
+
+def _annotation_base(annotation: object) -> object:
+    while get_origin(annotation) is Annotated:
+        annotation = get_args(annotation)[0]
+    return annotation
 
 
 def _marker_details(marker: object) -> tuple[str, str | None, Token | None]:

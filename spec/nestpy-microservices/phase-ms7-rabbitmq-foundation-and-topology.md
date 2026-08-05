@@ -1,5 +1,12 @@
 # MS7: RabbitMQ Foundation and Topology
 
+## Status
+
+Implemented. Lazy configuration, owned connection/channels, deterministic
+topology, confirms/returns, and framework recovery coordination are present.
+Normal broker paths have Docker-backed coverage; broker restart and blackhole
+recovery are not proven and remain MS10 work.
+
 ## Purpose
 
 Implement owned aio-pika resources and deterministic topology without yet
@@ -50,8 +57,9 @@ for RabbitMQ limits and reject invalid aliases before connection.
 - RabbitMQ inequivalent-argument/channel errors fail startup with actionable
   typed diagnostics.
 - Queue type is never migrated automatically.
-- Dynamic policies such as delivery limits and DLX are operator-managed where
-  RabbitMQ policies are appropriate.
+- Delivery limits, dead-letter resources, and delayed retry resources are
+  currently declared as deterministic topology; existing broker topology must
+  use equivalent arguments.
 - Framework declarations and consume registrations opt out of aio-pika robust
   replay with `robust=False`; the framework recovery coordinator re-declares
   the same immutable topology before intake.

@@ -1,5 +1,11 @@
 # MS3: Invocation Pipeline and Scopes
 
+## Status
+
+Implemented. Message contexts, ordered Nestpy pipelines, exact-owner work
+scopes, typed completion, cancellation, and scope-finalization behavior have
+focused tests in the package suite.
+
 ## Purpose
 
 Execute compiled RPC and event handlers with exact Nestpy DI ownership,
@@ -14,6 +20,8 @@ after scope finalization.
   native `unwrap()` escape hatch.
 - Typed invocation completion describing result availability, body failure,
   scope failure, encoded response, and settlement recommendation.
+- Scope-finalization uncertainty recommends `UNSETTLED`, never ACK, retry
+  publication, or terminal rejection.
 - Message-specific retry/reject/deadline/configuration errors.
 
 ## Scope Contract
