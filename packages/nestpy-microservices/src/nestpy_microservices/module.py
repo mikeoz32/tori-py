@@ -20,10 +20,12 @@ from nestpy import (
 )
 
 from nestpy_microservices.errors import TransportStateError
+from nestpy_microservices.events import EventDispatcher
 from nestpy_microservices.identities import ServiceIdentity
 from nestpy_microservices.options import MicroservicesOptions
 from nestpy_microservices.runtime import ServiceRuntime
 from nestpy_microservices.transport import (
+    ClientTransportFactory,
     KeyedTransportFactoryReference,
     ServerTransportFactory,
 )
@@ -87,6 +89,27 @@ class MicroservicesModule:
                 object,
                 Inject(reference.server_factory_token),
             ]
+
+            def create_event_dispatcher(
+                configured: MicroservicesRoot,
+                referenced_client_factory: object,
+            ) -> EventDispatcher:
+                if not isinstance(referenced_client_factory, ClientTransportFactory):
+                    raise TransportStateError(
+                        "referenced provider does not implement ClientTransportFactory"
+                    )
+                return EventDispatcher(
+                    configured.identity,
+                    referenced_client_factory,
+                    options=configured.options,
+                )
+
+            create_event_dispatcher.__annotations__["referenced_client_factory"] = (
+                Annotated[
+                    object,
+                    Inject(reference.client_factory_token),
+                ]
+            )
         else:
 
             def create_runtime(
@@ -107,12 +130,18 @@ class MicroservicesModule:
                 )
 
         def materialize() -> ModuleSpec:
+            providers = [
+                ValueProvider(MicroservicesRoot, root),
+                FactoryProvider(ServiceRuntime, create_runtime),
+            ]
+            if is_reference:
+                providers.append(
+                    FactoryProvider(EventDispatcher, create_event_dispatcher)
+                )
             return ModuleSpec(
                 imports=captured_imports,
-                providers=(
-                    ValueProvider(MicroservicesRoot, root),
-                    FactoryProvider(ServiceRuntime, create_runtime),
-                ),
+                providers=providers,
+                exports=(EventDispatcher,) if is_reference else (),
             )
 
         return DeferredModule(cls, key, materialize)

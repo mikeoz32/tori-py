@@ -736,10 +736,50 @@ payload, and explicit metadata; source identity comes from the local service
 root. It does not choose `SERVICE_POOL`, `SINGLETON`, or `BROADCAST`; those are
 consumer queue semantics.
 
-Event publication normally permits zero subscribers. Publisher confirms prove
-broker processing only. An optional explicit `require_route` policy may use
-mandatory publication for workflows that require at least one binding, but it
-still does not prove active consumers or handling.
+Its application API is:
+
+```python
+await dispatcher.publish(
+    "profile-created",
+    1,
+    payload,
+    headers={"trace": trace_id},
+    correlation_id=correlation_id,
+    causation_id=command_id,
+    require_route=False,
+)
+```
+
+`message_id` and `occurred_at` are generated for each call. `occurred_at` may be
+supplied explicitly when an outbox relay must preserve the original domain-event
+time. The caller cannot supply a source identity, exchange, routing key,
+destination, subscription, consumer mode, or message ID. The dispatcher builds
+and validates `EventEnvelope` and `EventIdentity` values with the root's codec
+and message limits, then returns the transport `PublicationReceipt`.
+
+`MicroservicesModule` registers and exports one managed singleton dispatcher
+only when its transport is a `KeyedTransportFactoryReference`. The dispatcher
+uses that reference's exact `client_factory_token`, while `ServiceRuntime` uses
+the exact `server_factory_token`; generic composition contains no adapter
+knowledge. A legacy direct `ServerTransportFactory` root remains valid for
+inbound-only tests and services, but does not provide `EventDispatcher` because
+it has no client factory. Attempting to inject the absent dispatcher is rejected
+by normal graph compilation.
+
+The client transport is created without native I/O during provider construction.
+Application bootstrap starts it in event-only mode without a reply consumer.
+Publication is admitted only while running. Quiescence closes admission first,
+drains accepted publication tasks against `ShutdownContext.remaining()`, and
+shutdown closes the owned client transport without starting another unbounded
+drain after the shared deadline. Explicit direct close drains accepted work when
+no shared shutdown budget applies. Bootstrap, quiescence, and close are
+idempotent and concurrency-safe.
+
+Event publication normally permits zero subscribers. The dispatcher uses
+mandatory publication to report whether at least one binding existed, suppresses
+the unroutable result unless `require_route=True`, and returns `routed=False` for
+the suppressed case. Publisher confirms and routing still do not prove active
+consumers or handling.
 
 ## 23. Event Handler API
 
@@ -873,6 +913,9 @@ The first RabbitMQ release requires RabbitMQ 4.0 or newer. Quorum retry uses
 broadcast uses classic queues for exclusive-consumer enforcement and therefore
 requires an explicit finite retry/DLX topology with persisted broker-visible
 attempt state; without one, retryable failures are terminally dead-lettered.
+Dedicated retry exchanges use `<queue>.retry` when that name fits the broker's
+127-byte exchange-name limit and otherwise use deterministic
+`nestpy.retry.<sha256>` names. Queue identity remains unchanged.
 
 ## 28. RabbitMQ Queue Types
 

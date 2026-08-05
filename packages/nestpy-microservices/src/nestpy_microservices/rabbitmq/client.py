@@ -74,6 +74,7 @@ class RabbitMqClientTransport(ClientTransport):
         self._ready = asyncio.Event()
         self._reply_stream_closed = asyncio.Event()
         self._reply_stream_closed.set()
+        self._receive_replies = True
         self._publisher = RabbitMqPublisher(manager)
         manager.register_recovery_listener(self)
 
@@ -85,16 +86,20 @@ class RabbitMqClientTransport(ClientTransport):
     def reply_to(self) -> ReplyRoute:
         return self._reply_to
 
-    async def start(self) -> None:
+    async def start(self, *, receive_replies: bool = True) -> None:
         if self._status is TransportStatus.QUIESCING:
             await self._ready.wait()
             self._require_running()
             return
         if self._status is not TransportStatus.CREATED:
             raise TransportStateError("client transport has already started")
+        if not isinstance(receive_replies, bool):
+            raise TypeError("receive_replies must be boolean")
+        self._receive_replies = receive_replies
         self._admission_open = True
         try:
-            await self._start_reply_consumer()
+            if receive_replies:
+                await self._start_reply_consumer()
         except BaseException:
             self._admission_open = False
             raise
@@ -105,6 +110,8 @@ class RabbitMqClientTransport(ClientTransport):
         self, target: RpcTarget, publication: Publication
     ) -> PublicationReceipt:
         self._require_running()
+        if not self._receive_replies:
+            raise TransportStateError("reply reception is disabled")
         if publication.routing_key != target.routing_key:
             raise ValueError("publication routing key does not match RPC target")
         correlation_id = publication.correlation_id
@@ -141,6 +148,8 @@ class RabbitMqClientTransport(ClientTransport):
 
     async def replies(self) -> AsyncIterator[_ReplyItem]:
         self._require_running()
+        if not self._receive_replies:
+            raise TransportStateError("reply reception is disabled")
         reply_queue = self._reply_queue
         self._reply_stream_closed.clear()
         try:
@@ -202,7 +211,7 @@ class RabbitMqClientTransport(ClientTransport):
 
     async def connection_lost(self, error: BaseException | None) -> None:
         del error
-        if self._status is TransportStatus.CLOSED:
+        if self._status is TransportStatus.CLOSED or not self._receive_replies:
             return
         self._recover_reply_route = (
             self._recover_reply_route or self._status is TransportStatus.RUNNING

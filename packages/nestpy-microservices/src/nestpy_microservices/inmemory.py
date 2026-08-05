@@ -613,25 +613,32 @@ class InMemoryClientTransport:
         self._status_events: asyncio.Queue[TransportStatusEvent] = asyncio.Queue()
         self._pending_replies: set[UUID] = set()
         self._completed_replies: deque[UUID] = deque(maxlen=max_pending_replies)
+        self._receive_replies = True
 
     @property
     def status(self) -> TransportStatus:
         return self._status
 
-    async def start(self) -> None:
+    async def start(self, *, receive_replies: bool = True) -> None:
         if self._status is not TransportStatus.CREATED:
             raise TransportStateError("client transport has already started")
-        self._reply_queue = await self.broker.register_reply_route(
-            self.reply_to,
-            self,
-            max_pending_replies=self.max_pending_replies,
-        )
+        if not isinstance(receive_replies, bool):
+            raise TypeError("receive_replies must be boolean")
+        self._receive_replies = receive_replies
+        if receive_replies:
+            self._reply_queue = await self.broker.register_reply_route(
+                self.reply_to,
+                self,
+                max_pending_replies=self.max_pending_replies,
+            )
         self._set_status(TransportStatus.RUNNING)
 
     async def publish_rpc(
         self, target: RpcTarget, publication: Publication
     ) -> PublicationReceipt:
         self._require_running()
+        if not self._receive_replies:
+            raise TransportStateError("reply reception is disabled")
         if publication.routing_key != target.routing_key:
             raise ValueError("publication routing key does not match RPC target")
         correlation_id = publication.correlation_id
@@ -676,6 +683,8 @@ class InMemoryClientTransport:
 
     async def replies(self) -> AsyncIterator[EncodedDelivery]:
         self._require_running()
+        if not self._receive_replies:
+            raise TransportStateError("reply reception is disabled")
         assert self._reply_queue is not None
         while self._status is TransportStatus.RUNNING:
             reply = await self._reply_queue.get()
@@ -693,7 +702,8 @@ class InMemoryClientTransport:
     async def close(self) -> None:
         if self._status is TransportStatus.CLOSED:
             return
-        await self.broker.unregister_reply_route(self.reply_to, self)
+        if self._receive_replies:
+            await self.broker.unregister_reply_route(self.reply_to, self)
         self._set_status(TransportStatus.CLOSED)
 
     def cancel_pending(self, correlation_id: UUID) -> None:

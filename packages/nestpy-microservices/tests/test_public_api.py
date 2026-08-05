@@ -8,6 +8,7 @@ def test_root_facade_is_exact_and_typed() -> None:
     assert set(nestpy_microservices.__all__) == {
         "EventIdentity",
         "EventEnvelope",
+        "EventDispatcher",
         "IdentityValidationError",
         "Context",
         "EventDispatchMode",

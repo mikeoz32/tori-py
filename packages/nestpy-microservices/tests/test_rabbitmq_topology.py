@@ -27,6 +27,7 @@ from nestpy_microservices.rabbitmq import (
 from nestpy_microservices.rabbitmq import connection as rabbitmq_connection
 from nestpy_microservices.rabbitmq import publisher as rabbitmq_publisher
 from nestpy_microservices.rabbitmq.connection import RabbitMqChannels
+from nestpy_microservices.rabbitmq.topology import retry_exchange_name
 
 from nestpy_microservices import (
     EventIdentity,
@@ -74,12 +75,24 @@ def test_rpc_topology_uses_one_wildcard_service_queue() -> None:
     retry = topology.queues[2]
     assert retry.name.endswith(".retry")
     assert dict(retry.arguments) == {
+        "x-queue-type": "classic",
         "x-message-ttl": 1_000,
         "x-dead-letter-exchange": "nestpy.rpc",
         "x-max-length": 10_000,
         "x-overflow": "reject-publish",
     }
     assert topology.bindings[2].routing_key == "kinker.members.v1.*"
+
+
+def test_long_retry_exchange_name_is_stable_and_broker_safe() -> None:
+    queue_name = "q" * 200
+
+    first = retry_exchange_name(queue_name)
+    second = retry_exchange_name(queue_name)
+
+    assert first == second
+    assert first.startswith("nestpy.retry.")
+    assert len(first.encode("utf-8")) <= 127
 
 
 def test_event_and_reply_topology_use_declared_queue_types() -> None:
@@ -98,6 +111,17 @@ def test_event_and_reply_topology_use_declared_queue_types() -> None:
     assert reply.queues[0].exclusive
     assert reply.queues[0].auto_delete
     assert dict(reply.queues[0].arguments) == {"x-expires": 300_000}
+
+    ephemeral = compile_event_topology(
+        EventSubscription(
+            identity,
+            "broadcast",
+            "cache",
+            destination=SERVICE,
+            instance_id="replica-1",
+        )
+    )
+    assert dict(ephemeral.queues[0].arguments) == {"x-queue-type": "classic"}
 
     custom_reply = compile_reply_topology(
         "reply." + "b" * 32,
@@ -123,7 +147,13 @@ def test_reliable_broadcast_has_durable_nonexclusive_queue() -> None:
     assert topology.queues[0].durable is True
     assert topology.queues[0].exclusive is False
     assert topology.queues[0].auto_delete is False
-    assert dict(topology.queues[0].arguments)["x-expires"] == 604_800_000
+    assert dict(topology.queues[0].arguments) == {
+        "x-queue-type": "classic",
+        "x-expires": 604_800_000,
+        "x-message-ttl": 86_400_000,
+        "x-dead-letter-exchange": "nestpy.dead-letter",
+        "x-dead-letter-routing-key": topology.queues[0].name,
+    }
 
 
 def test_topology_merge_rejects_conflicting_declarations() -> None:
@@ -329,6 +359,7 @@ async def test_publisher_uses_confirm_channel_and_maps_mandatory_returns(
     assert receipt.message_id == publication.message_id
     assert receipt.routed is True
     assert published[0][1:] == (publication.routing_key, True)
+    assert cast(Any, published[0][0]).kwargs["delivery_mode"] == "persistent"
 
 
 @pytest.mark.asyncio

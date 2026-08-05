@@ -26,6 +26,7 @@ from nestpy_microservices.errors import PublicRpcError
 from nestpy_microservices import (
     EncodedDelivery,
     EventContext,
+    EventDispatcher,
     EventDispatchMode,
     EventEnvelope,
     EventIdentity,
@@ -187,6 +188,7 @@ def test_module_materialization_only_captures_configuration() -> None:
     spec = cast(ModuleSpec, descriptor.factory())
     assert factory.created == 0
     assert len(tuple(spec.providers)) == 2
+    assert EventDispatcher not in spec.exports
 
 
 def test_module_root_does_not_expose_a_dispatcher_bypass() -> None:

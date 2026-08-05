@@ -7,12 +7,12 @@ Governing documents:
 
 ## Current Status
 
-MS0-MS8 capabilities are implemented in the current worktree. MS9 is partial/in
-progress: RabbitMQ event routing, topology, transport mechanics, and event-mode
-tests are implemented, but the required application-facing `EventDispatcher`
-API owned by the local service root remains. Focused and Docker-backed RabbitMQ
-tests are present, but MS10 failure hardening and MS11 release acceptance are
-not complete. Broker restart and network-blackhole recovery are not proven.
+MS0-MS9 capabilities are implemented in the current worktree, including the MS9
+root-owned application-facing `EventDispatcher`, RabbitMQ event routing,
+complete real-broker cardinality matrix, offline ephemeral behavior, and
+reliable-broadcast restart retention. MS10 failure hardening and MS11 release
+acceptance are not complete; broker restart and network-blackhole recovery are
+also unproven.
 
 ## Phase Map
 
@@ -27,7 +27,7 @@ not complete. Broker restart and network-blackhole recovery are not proven.
 | MS6 | [Cluster client and replies](phase-ms6-cluster-client-and-replies.md) | Shared bounded asynchronous RPC client | Implemented |
 | MS7 | [RabbitMQ foundation and topology](phase-ms7-rabbitmq-foundation-and-topology.md) | Owned robust connection and exact topology | Implemented; restart recovery unproven |
 | MS8 | [RabbitMQ RPC service cluster](phase-ms8-rabbitmq-rpc-service-cluster.md) | Wildcard-bound competing service replicas | Implemented; full fault matrix pending |
-| MS9 | [Clustered event dispatch](phase-ms9-clustered-event-dispatch.md) | SERVICE_POOL, SINGLETON, and BROADCAST | Partial/in progress; routing/topology/transport mechanics and event-mode tests are implemented; root-owned application-facing `EventDispatcher` remains |
+| MS9 | [Clustered event dispatch](phase-ms9-clustered-event-dispatch.md) | SERVICE_POOL, SINGLETON, and BROADCAST | Implemented; exit criteria proven against real RabbitMQ |
 | MS10 | [Failure recovery and hardening](phase-ms10-failure-recovery-and-hardening.md) | Bounded explicit distributed failures | In progress; not complete |
 | MS11 | [Acceptance, docs, and release](phase-ms11-acceptance-docs-and-release.md) | Reviewed releasable artifacts | Not complete |
 

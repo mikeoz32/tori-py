@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from hashlib import sha256
 from typing import Literal
 
 from nestpy_microservices.identities import ReplyRoute, ServiceIdentity
 from nestpy_microservices.transport import EventSubscription
 
 _MAX_NAME_BYTES = 255
+_MAX_EXCHANGE_NAME_BYTES = 127
 _DEAD_LETTER_EXCHANGE = "nestpy.dead-letter"
 _DEFAULT_DELIVERY_LIMIT = 5
 _DEFAULT_RETRY_DELAY_MS = 1_000
@@ -56,7 +58,7 @@ def compile_rpc_topology(
     retry_delay_ms: int = _DEFAULT_RETRY_DELAY_MS,
     delivery_limit: int = _DEFAULT_DELIVERY_LIMIT,
 ) -> RabbitMqTopology:
-    _bounded(exchange, "RPC exchange")
+    _bounded_exchange(exchange, "RPC exchange")
     queue = f"nestpy.rpc.{service.label}"
     binding = f"{service.label}.*"
     _bounded(queue, "RPC queue")
@@ -101,6 +103,7 @@ def compile_event_topology(
         )
         if subscription.reliable is True:
             durable_arguments = (
+                ("x-queue-type", "classic"),
                 ("x-expires", _RELIABLE_BROADCAST_EXPIRES_MS),
                 ("x-message-ttl", _RELIABLE_BROADCAST_TTL_MS),
             )
@@ -110,8 +113,9 @@ def compile_event_topology(
                 durable=False,
                 exclusive=True,
                 auto_delete=True,
+                arguments=(("x-queue-type", "classic"),),
             )
-    _bounded(identity.exchange_name, "event exchange")
+    _bounded_exchange(identity.exchange_name, "event exchange")
     _bounded(identity.routing_key, "event routing key")
     _bounded(queue_name, "event queue")
     if subscription.reliable is True:
@@ -149,7 +153,7 @@ def compile_reply_topology(
         or expires_ms <= 0
     ):
         raise ValueError("reply queue expiry must be a positive integer")
-    _bounded(exchange, "RPC exchange")
+    _bounded_exchange(exchange, "RPC exchange")
     _bounded(route, "reply queue")
     return RabbitMqTopology(
         exchanges=(ExchangeDeclaration(exchange),),
@@ -169,7 +173,7 @@ def compile_reply_topology(
 def event_exchange_topology(exchange: str) -> RabbitMqTopology:
     """Return the producer-owned durable topic exchange declaration."""
 
-    _bounded(exchange, "event exchange")
+    _bounded_exchange(exchange, "event exchange")
     return RabbitMqTopology(exchanges=(ExchangeDeclaration(exchange),))
 
 
@@ -221,6 +225,7 @@ def _durable_topology(
                 False,
                 False,
                 (
+                    ("x-queue-type", "classic"),
                     ("x-message-ttl", retry_delay_ms),
                     ("x-dead-letter-exchange", exchange),
                     ("x-max-length", _RETRY_QUEUE_LIMIT),
@@ -244,8 +249,10 @@ def retry_exchange_name(queue_name: str) -> str:
     """Return the dedicated retry exchange for one primary queue."""
 
     value = f"{queue_name}.retry"
-    _bounded(value, "retry exchange")
-    return value
+    if len(value.encode("utf-8")) <= _MAX_EXCHANGE_NAME_BYTES:
+        return value
+    digest = sha256(queue_name.encode("utf-8")).hexdigest()
+    return f"nestpy.retry.{digest}"
 
 
 def merge_topologies(*topologies: RabbitMqTopology) -> RabbitMqTopology:
@@ -285,6 +292,11 @@ def _merge[T](
 def _bounded(value: str, field_name: str) -> None:
     if len(value.encode("utf-8")) > _MAX_NAME_BYTES:
         raise ValueError(f"{field_name} exceeds RabbitMQ's 255-byte name limit")
+
+
+def _bounded_exchange(value: str, field_name: str) -> None:
+    if len(value.encode("utf-8")) > _MAX_EXCHANGE_NAME_BYTES:
+        raise ValueError(f"{field_name} exceeds RabbitMQ's 127-byte exchange limit")
 
 
 def _positive(value: int, field_name: str) -> None:

@@ -7,11 +7,12 @@ from typing import cast
 import nestpy_microservices.clients as clients_module
 import nestpy_microservices.module as server_module
 import pytest
-from nestpy import DeferredModule, ModuleSpec, ValueProvider
+from nestpy import ClassProvider, DeferredModule, ModuleSpec, ValueProvider, module
 from nestpy.testing import TestingModule
 
 from nestpy_microservices import (
     ClientsModule,
+    EventDispatcher,
     InMemoryBroker,
     InMemoryClientTransport,
     KeyedTransportFactoryReference,
@@ -51,9 +52,11 @@ class FakeServerFactory:
 @dataclass(slots=True)
 class FakeClientFactory:
     broker: InMemoryBroker
+    client: InMemoryClientTransport | None = None
 
     def create(self):
-        return InMemoryClientTransport(self.broker)
+        self.client = InMemoryClientTransport(self.broker)
+        return self.client
 
 
 class FakeAdapterModule:
@@ -81,8 +84,8 @@ class FakeAdapterModule:
 
 def test_generic_composition_modules_contain_no_adapter_specific_names() -> None:
     forbidden = "rabbit" + "mq"
-    for module in (server_module, clients_module):
-        source = Path(module.__file__).read_text(encoding="utf-8").lower()
+    for generic_module in (server_module, clients_module):
+        source = Path(generic_module.__file__).read_text(encoding="utf-8").lower()
         assert forbidden not in source
 
 
@@ -100,7 +103,16 @@ async def test_fake_non_rabbit_keyed_adapter_composes_without_generic_changes() 
         )
     ).compile()
     runtime = cast(ServiceRuntime, await server_application.resolve(ServiceRuntime))
+    dispatcher = cast(
+        EventDispatcher, await server_application.resolve(EventDispatcher)
+    )
+    client_factory = cast(
+        FakeClientFactory,
+        await server_application.resolve(reference.client_factory_token),
+    )
     assert isinstance(runtime._transport_factory, FakeServerFactory)
+    assert isinstance(dispatcher, EventDispatcher)
+    assert isinstance(client_factory.client, InMemoryClientTransport)
 
     client_application = await TestingModule.create(
         ClientsModule.register_cluster(
@@ -113,4 +125,36 @@ async def test_fake_non_rabbit_keyed_adapter_composes_without_generic_changes() 
 
     await client_application.close()
     await server_application.close()
+    await broker.close()
+
+
+@pytest.mark.asyncio
+async def test_application_module_can_inject_exported_root_dispatcher() -> None:
+    broker = InMemoryBroker()
+    reference = FakeTransportReference("application")
+
+    class Publisher:
+        def __init__(self, dispatcher: EventDispatcher) -> None:
+            self.dispatcher = dispatcher
+
+    @module(
+        imports=(
+            MicroservicesModule.for_root(
+                SERVICE,
+                transport=reference,
+                imports=(FakeAdapterModule.for_root(broker, reference),),
+            ),
+        ),
+        providers=(ClassProvider(Publisher),),
+    )
+    class ApplicationModule:
+        pass
+
+    application = await TestingModule.create(ApplicationModule).compile()
+    publisher = cast(Publisher, await application.resolve(Publisher))
+
+    assert publisher.dispatcher.identity == SERVICE
+    assert publisher.dispatcher.accepting is True
+
+    await application.close()
     await broker.close()

@@ -2,24 +2,21 @@
 
 ## Status
 
-Implementation status: the MS0-MS8 capability set is implemented in the current
-worktree. MS9 is partial/in progress: RabbitMQ event routing, topology,
-transport mechanics, and event-mode tests are implemented, but the required
-application-facing `EventDispatcher` API owned by the local service root remains.
-Focused package tests, in-memory transport conformance, and Docker-backed
-RabbitMQ round-trip, redelivery, unroutable-publication, and shared conformance
-tests are present.
+Implementation status: the MS0-MS9 capability set is implemented in the current
+worktree. The MS9 root-owned application-facing `EventDispatcher`, event
+routing, topology, transport mechanics, and event-mode tests are implemented.
+Focused package tests, in-memory dispatcher and transport conformance, and
+Docker-backed RabbitMQ dispatcher, cardinality, restart retention, round-trip,
+redelivery, unroutable-publication, and shared conformance tests are present.
 
 MS10 hardening and MS11 release acceptance are not complete. In particular,
-real broker restart/recovery and network-blackhole behavior have not been proven,
-and no full quality, artifact, documentation, or independent-review gate is
-claimed by this status update.
+real broker restart/recovery and network-blackhole behavior have not been proven.
 
 | Phase range | Current status |
 | --- | --- |
 | MS0-MS6 | Implemented; focused contract, compiler, pipeline, in-memory, lifecycle, and client tests are present |
 | MS7-MS8 | Implemented; targeted unit and Docker-backed RabbitMQ coverage is present, with the MS10 fault matrix still outstanding |
-| MS9 | Partial/in progress; event routing, topology, transport mechanics, and event-mode tests are implemented; the root-owned application-facing `EventDispatcher` API remains |
+| MS9 | Implemented; root-owned `EventDispatcher`, exact real-broker cardinality, offline ephemeral behavior, and reliable-broadcast restart are proven |
 | MS10 | In progress; broker restart, blackhole, reconnect-boundary, stale-delivery-tag, forced-shutdown, and complete observability/security hardening remain |
 | MS11 | Not complete; examples, complete user/operations docs, full quality gates, built-artifact smoke tests, and independent release review remain |
 
@@ -185,6 +182,12 @@ Exit gate: multi-process/multi-application tests demonstrate balanced service
 cluster consumption, redelivery, deadlines, and response-before-ACK ordering.
 
 ### MS9: Clustered Event Dispatch
+
+Implemented and covered by focused in-memory, generic keyed-adapter composition,
+application DI, and Docker-backed RabbitMQ tests. The real-broker matrix proves
+exact queue counts, competing pool and singleton consumers, every-instance
+broadcast, offline ephemeral loss, duplicate reliable identity rejection, and
+reliable-broadcast retention across consumer restart.
 
 - Implement the application-facing `EventDispatcher` API owned by the local
   service root.

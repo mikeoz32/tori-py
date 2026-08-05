@@ -14,6 +14,7 @@ import nestpy_microservices.rabbitmq
 
 assert set(nestpy_microservices.__all__) == {
     "EventEnvelope",
+    "EventDispatcher",
     "EventIdentity",
     "EventDispatchMode",
     "EventContext",

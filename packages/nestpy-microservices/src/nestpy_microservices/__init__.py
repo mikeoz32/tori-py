@@ -59,6 +59,7 @@ from nestpy_microservices.errors import (
     WireSizeLimitError,
     WireValidationError,
 )
+from nestpy_microservices.events import EventDispatcher
 from nestpy_microservices.identities import (
     EventIdentity,
     MessageLimits,
@@ -143,6 +144,7 @@ from nestpy_microservices.wire import (
 __all__ = [
     "EventIdentity",
     "EventEnvelope",
+    "EventDispatcher",
     "EventDispatchMode",
     "EventContext",
     "EventHandlerMetadata",

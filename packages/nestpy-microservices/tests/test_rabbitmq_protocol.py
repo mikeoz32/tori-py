@@ -192,6 +192,23 @@ async def test_untrusted_invalid_reply_identifiers_are_terminally_acked() -> Non
 
 
 @pytest.mark.asyncio
+async def test_event_only_client_never_opens_or_recovers_reply_routing() -> None:
+    manager = Manager()
+    client = RabbitMqClientTransport(cast(RabbitMqConnectionManager, manager))
+
+    await client.start(receive_replies=False)
+    assert manager.queues == {}
+
+    await client.connection_lost(None)
+    await client.connection_recovered()
+
+    assert client.status.value == "running"
+    assert client._recover_reply_route is False
+    assert manager.queues == {}
+    await client.close()
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("field_name", "value"),
     (
