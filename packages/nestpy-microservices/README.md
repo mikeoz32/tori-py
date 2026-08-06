@@ -7,14 +7,33 @@ Optional transport-neutral RPC and event delivery integration for Nestpy.
 The MS0-MS9 capability set is implemented in the repository worktree, including
 the root-owned application-facing `EventDispatcher`, complete real-broker event
 cardinality, offline ephemeral behavior, and reliable-broadcast restart
-retention. MS10 failure hardening and MS11 release gates are not complete;
-broker application restart is covered by the current MS10 slice, while
-network-blackhole and request/reply/ACK recovery remain unproven.
+retention. MS10 failure hardening is implemented; MS11 release gates are not complete;
+broker application restart, pending-RPC reconnect behavior, confirm/timeout
+classification, handler/reply blackholes, bounded retry/DLX, malformed schema
+dead-lettering, deleted reply routes, and active-RPC forced shutdown are
+covered by the current MS10 slice. Remaining work is release-level review and
+artifact acceptance.
 
 The base package depends only on Nestpy and `msgspec`. RabbitMQ support is
 available through the optional `rabbitmq` extra and is deliberately lazy:
 importing either the base package or its RabbitMQ facade does not import
 `aio_pika` or open a broker connection.
+
+## Operations And Security
+
+RabbitMQ status transitions are distinct and readiness is not inferred from a
+successful publish. An accepted or indeterminate RPC is never automatically
+republished. Monitor connection/transport status, pending RPC count, queue
+depth, redelivery, dead-letter depth, and publisher-confirm latency using
+bounded labels only; never use payloads, member identifiers, credentials,
+reply tokens, or remote error text as metric or log fields.
+
+Production deployments should use TLS, one credential and vhost permission set
+per service, and the minimum `configure`, `write`, and `read` permissions for
+the service's exchanges, queues, bindings, and reply route. Restrict target
+routing keys with RabbitMQ topic permissions when shared RPC exchanges are
+used. TLS verification failures and all indeterminate publication/settlement
+outcomes must remain typed failures.
 
 ```bash
 uv add nestpy-microservices

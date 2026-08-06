@@ -15,6 +15,7 @@ _DEAD_LETTER_EXCHANGE = "nestpy.dead-letter"
 _DEFAULT_DELIVERY_LIMIT = 5
 _DEFAULT_RETRY_DELAY_MS = 1_000
 _RETRY_QUEUE_LIMIT = 10_000
+_DEAD_LETTER_QUEUE_LIMIT = 10_000
 _RELIABLE_BROADCAST_EXPIRES_MS = 604_800_000
 _RELIABLE_BROADCAST_TTL_MS = 86_400_000
 
@@ -217,7 +218,11 @@ def _durable_topology(
                 True,
                 False,
                 False,
-                (("x-queue-type", "quorum"),),
+                (
+                    ("x-queue-type", "quorum"),
+                    ("x-max-length", _DEAD_LETTER_QUEUE_LIMIT),
+                    ("x-overflow", "drop-head"),
+                ),
             ),
             QueueDeclaration(
                 retry_queue,

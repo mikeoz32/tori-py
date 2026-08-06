@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import InitVar, dataclass, field
 from datetime import datetime
 from types import MappingProxyType
 from typing import Final, cast
@@ -40,6 +41,8 @@ def _freeze_value(
 ) -> object:
     if depth > max_depth:
         raise WireValidationError(f"{field_name} exceeds maximum nesting depth")
+    if isinstance(value, float) and not math.isfinite(value):
+        raise WireValidationError(f"{field_name} contains a non-finite float")
     if value is None or isinstance(value, (str, int, float, bool)):
         return value
     if isinstance(value, Mapping):
@@ -71,7 +74,7 @@ def freeze_headers(
 ) -> Mapping[str, object]:
     """Copy and deeply freeze safe header values."""
 
-    selected_limits = limits or MessageLimits()
+    selected_limits = MessageLimits() if limits is None else limits
     source = headers or {}
     if not isinstance(source, Mapping):
         raise WireValidationError("headers must be a mapping")
@@ -109,15 +112,20 @@ class MessageMetadata:
     correlation_id: UUID | None = None
     causation_id: UUID | None = None
     headers: Mapping[str, object] = field(default_factory=dict)
+    limits: InitVar[MessageLimits | None] = None
 
-    def __post_init__(self) -> None:
+    def __post_init__(self, limits: MessageLimits | None) -> None:
         require_uuid(self.message_id, "message_id")
         require_utc(self.created_at, "created_at")
         if self.correlation_id is not None:
             require_uuid(self.correlation_id, "correlation_id")
         if self.causation_id is not None:
             require_uuid(self.causation_id, "causation_id")
-        object.__setattr__(self, "headers", freeze_headers(self.headers))
+        object.__setattr__(
+            self,
+            "headers",
+            freeze_headers(self.headers, limits),
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -128,8 +136,9 @@ class RemoteRpcErrorData:
     message: str
     retryable: bool
     details: Mapping[str, object] = field(default_factory=dict)
+    limits: InitVar[MessageLimits | None] = None
 
-    def __post_init__(self) -> None:
+    def __post_init__(self, limits: MessageLimits | None) -> None:
         if not self.code or not isinstance(self.code, str):
             raise WireValidationError("remote error code must be a non-empty string")
         if not isinstance(self.message, str) or not self.message:
@@ -138,7 +147,7 @@ class RemoteRpcErrorData:
             raise WireValidationError("remote error message exceeds 4096 characters")
         if not isinstance(self.retryable, bool):
             raise WireValidationError("remote error retryable must be boolean")
-        object.__setattr__(self, "details", freeze_headers(self.details))
+        object.__setattr__(self, "details", freeze_headers(self.details, limits))
 
 
 @dataclass(frozen=True, slots=True)
@@ -157,8 +166,9 @@ class RpcRequestEnvelope:
     reply_to: ReplyRoute = field(default_factory=ReplyRoute.generate)
     headers: Mapping[str, object] = field(default_factory=dict)
     payload: object = None
+    limits: InitVar[MessageLimits | None] = None
 
-    def __post_init__(self) -> None:
+    def __post_init__(self, limits: MessageLimits | None) -> None:
         target = RpcTarget(self.service, self.method, self.schema_version)
         require_uuid(self.message_id, "message_id")
         require_uuid(self.correlation_id, "correlation_id")
@@ -175,7 +185,7 @@ class RpcRequestEnvelope:
         ):
             raise WireValidationError("idempotency_key must be a non-empty string")
         object.__setattr__(self, "method", target.method)
-        object.__setattr__(self, "headers", freeze_headers(self.headers))
+        object.__setattr__(self, "headers", freeze_headers(self.headers, limits))
 
     @property
     def kind(self) -> str:
@@ -191,8 +201,9 @@ class RpcResponseEnvelope:
     completed_at: datetime
     result: object = RESULT_MISSING
     error: RemoteRpcErrorData | None = None
+    limits: InitVar[MessageLimits | None] = None
 
-    def __post_init__(self) -> None:
+    def __post_init__(self, limits: MessageLimits | None) -> None:
         require_uuid(self.message_id, "message_id")
         require_uuid(self.correlation_id, "correlation_id")
         require_utc(self.completed_at, "completed_at")
@@ -223,8 +234,9 @@ class EventEnvelope:
     causation_id: UUID | None = None
     headers: Mapping[str, object] = field(default_factory=dict)
     payload: object = None
+    limits: InitVar[MessageLimits | None] = None
 
-    def __post_init__(self) -> None:
+    def __post_init__(self, limits: MessageLimits | None) -> None:
         identity = EventIdentity(self.source, self.event, self.schema_version)
         require_uuid(self.message_id, "message_id")
         require_utc(self.occurred_at, "occurred_at")
@@ -233,7 +245,7 @@ class EventEnvelope:
         if self.causation_id is not None:
             require_uuid(self.causation_id, "causation_id")
         object.__setattr__(self, "event", identity.event)
-        object.__setattr__(self, "headers", freeze_headers(self.headers))
+        object.__setattr__(self, "headers", freeze_headers(self.headers, limits))
 
     @property
     def kind(self) -> str:

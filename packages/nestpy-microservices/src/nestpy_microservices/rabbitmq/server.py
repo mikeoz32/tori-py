@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import math
-from collections.abc import AsyncIterator, Iterable, Mapping
+from collections import deque
+from collections.abc import AsyncIterator, Callable, Iterable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from functools import partial
@@ -31,6 +32,7 @@ from nestpy_microservices.invocation import (
 from nestpy_microservices.rabbitmq.connection import (
     RabbitMqChannelRole,
     RabbitMqConnectionManager,
+    _put_coalescing_status,
 )
 from nestpy_microservices.rabbitmq.publisher import RabbitMqPublisher
 from nestpy_microservices.rabbitmq.topology import (
@@ -117,13 +119,16 @@ class RabbitMqServerTransport(ServerTransport):
         self.retry_delay_ms = retry_delay_ms
         self.max_delivery_attempts = max_delivery_attempts
         self._status = TransportStatus.CREATED
-        self._status_events: asyncio.Queue[TransportStatusEvent] = asyncio.Queue()
+        self._status_events: asyncio.Queue[TransportStatusEvent] = asyncio.Queue(
+            maxsize=8
+        )
         self._topology: RabbitMqTopology | None = None
         self._consumer_specs: dict[str, _ConsumerSpec] = {}
         self._queues: dict[str, Any] = {}
         self._consumer_tags: dict[str, str] = {}
         self._deliveries: dict[int, _SettlementState] = {}
-        self._stale_delivery_ids: set[int] = set()
+        self._stale_delivery_ids: deque[int] = deque(maxlen=prefetch)
+        self._stale_delivery_id_set: set[int] = set()
         self._callback_tasks: set[asyncio.Task[Any]] = set()
         self._lifecycle_lock = asyncio.Lock()
         self._dispatcher: DeliveryDispatcher | None = None
@@ -213,19 +218,27 @@ class RabbitMqServerTransport(ServerTransport):
             raise ValueError("unsupported settlement recommendation")
         state = self._deliveries.pop(id(delivery), None)
         if state is None:
-            if id(delivery) in self._stale_delivery_ids:
-                self._stale_delivery_ids.discard(id(delivery))
+            if id(delivery) in self._stale_delivery_id_set:
+                self._forget_stale_delivery(id(delivery))
                 return
             raise DuplicateSettlementError("delivery was already settled")
         if state.generation != getattr(self.manager, "generation", 0):
             return
         if outcome is SettlementRecommendation.UNSETTLED:
-            await self.manager.fence_connection(
-                TransportIndeterminateError(
-                    "RabbitMQ delivery was intentionally left unsettled"
-                ),
-                generation=state.generation,
+            uncertainty = TransportIndeterminateError(
+                "RabbitMQ delivery was intentionally left unsettled"
             )
+            try:
+                await self.manager.fence_connection(
+                    uncertainty,
+                    generation=state.generation,
+                )
+            except BaseException as fence_error:
+                uncertainty.add_note(
+                    "RabbitMQ delivery fencing failed: "
+                    f"{type(fence_error).__name__}: {fence_error}"
+                )
+                raise uncertainty from fence_error
             return
         if (
             outcome is SettlementRecommendation.RETRY
@@ -251,16 +264,22 @@ class RabbitMqServerTransport(ServerTransport):
                 )
             except TransportRejectedError, TransportUnroutableError:
                 await self._settle_native(
-                    state.message.reject(requeue=False),
+                    partial(state.message.reject, requeue=False),
                     "RabbitMQ terminal retry rejection",
                     state.generation,
                 )
                 return
             except asyncio.CancelledError as error:
-                await self.manager.fence_connection(
-                    error,
-                    generation=state.generation,
-                )
+                try:
+                    await self.manager.fence_connection(
+                        error,
+                        generation=state.generation,
+                    )
+                except BaseException as fence_error:
+                    error.add_note(
+                        "RabbitMQ retry fencing failed: "
+                        f"{type(fence_error).__name__}: {fence_error}"
+                    )
                 error.add_note("RabbitMQ retry publication may be indeterminate")
                 raise
             except Exception as error:
@@ -271,23 +290,29 @@ class RabbitMqServerTransport(ServerTransport):
                         "RabbitMQ retry publication outcome is indeterminate"
                     )
                 )
-                await self.manager.fence_connection(
-                    uncertainty,
-                    generation=state.generation,
-                )
+                try:
+                    await self.manager.fence_connection(
+                        uncertainty,
+                        generation=state.generation,
+                    )
+                except BaseException as fence_error:
+                    uncertainty.add_note(
+                        "RabbitMQ retry fencing failed: "
+                        f"{type(fence_error).__name__}: {fence_error}"
+                    )
                 if uncertainty is error:
                     raise
                 raise uncertainty from error
             await self._settle_native(
-                state.message.ack(),
+                state.message.ack,
                 "RabbitMQ retry handoff ACK",
                 state.generation,
             )
             return
         operation = (
-            state.message.ack()
+            state.message.ack
             if outcome is SettlementRecommendation.ACK
-            else state.message.reject(requeue=False)
+            else partial(state.message.reject, requeue=False)
         )
         await self._settle_native(
             operation,
@@ -308,8 +333,8 @@ class RabbitMqServerTransport(ServerTransport):
             return
         if self._status is not TransportStatus.QUIESCING:
             self._set_status(TransportStatus.QUIESCING)
-        failures = await self._cancel_consumers()
         self._admission_open = False
+        failures = await self._cancel_consumers()
         await _cross_scheduling_fence()
         drain_errors = await self._drain_callbacks()
         if failures or drain_errors:
@@ -342,6 +367,7 @@ class RabbitMqServerTransport(ServerTransport):
         drain_errors = await self._drain_callbacks()
         self._deliveries.clear()
         self._stale_delivery_ids.clear()
+        self._stale_delivery_id_set.clear()
         self._queues.clear()
         self.manager.unregister_recovery_listener(self)
         self._set_status(TransportStatus.CLOSED)
@@ -371,7 +397,8 @@ class RabbitMqServerTransport(ServerTransport):
         self._admission_open = False
         self._consumer_tags.clear()
         self._queues.clear()
-        self._stale_delivery_ids.update(self._deliveries)
+        for delivery_id in self._deliveries:
+            self._remember_stale_delivery(delivery_id)
         self._deliveries.clear()
         self._set_status(TransportStatus.QUIESCING)
 
@@ -436,10 +463,12 @@ class RabbitMqServerTransport(ServerTransport):
         for queue_name, spec in self._consumer_specs.items():
             queue = self._queues[queue_name]
             tag = f"nestpy.{self.service.label}.{len(self._consumer_tags)}"
+            self._consumer_tags[queue_name] = tag
             callback = partial(
                 self._handoff_message,
                 subscription=spec.subscription,
                 retry_exchange=spec.retry_exchange,
+                generation=getattr(self.manager, "generation", 0),
             )
             try:
                 await queue.consume(
@@ -450,99 +479,114 @@ class RabbitMqServerTransport(ServerTransport):
                     robust=False,
                 )
             except BaseException as error:
-                try:
-                    await queue.cancel(tag)
-                except BaseException as cleanup_error:
+                cleanup_error = await self._cancel_consumer(queue, tag)
+                if cleanup_error is not None:
                     error.add_note(
                         "failed consumer cancellation: "
                         f"{type(cleanup_error).__name__}: {cleanup_error}"
                     )
                 raise
-            self._consumer_tags[queue_name] = tag
 
     async def _cancel_consumers(self) -> list[BaseException]:
-        failures: list[BaseException] = []
         consumers = tuple(
-            (self._queues.get(queue_name), tag)
+            (queue_name, self._queues.get(queue_name), tag)
             for queue_name, tag in self._consumer_tags.items()
         )
-        self._consumer_tags.clear()
-        for queue, tag in consumers:
+        tasks = {
+            queue_name: asyncio.create_task(self._cancel_consumer(queue, tag))
+            for queue_name, queue, tag in consumers
+            if queue is not None
+        }
+        failures: list[BaseException] = []
+        for queue_name, queue, _ in consumers:
             if queue is None:
                 failures.append(
                     TransportStateError("RabbitMQ consumer queue handle was lost")
                 )
                 continue
-            try:
-                await queue.cancel(tag)
-            except BaseException as error:
+            error = await tasks[queue_name]
+            if error is None:
+                self._consumer_tags.pop(queue_name, None)
+            else:
                 failures.append(error)
         return failures
+
+    async def _cancel_consumer(self, queue: Any, tag: str) -> BaseException | None:
+        task = asyncio.create_task(queue.cancel(tag))
+        try:
+            await asyncio.wait_for(
+                asyncio.shield(task),
+                timeout=self.manager.options.connection_timeout,
+            )
+        except asyncio.CancelledError:
+            task.cancel()
+            task.add_done_callback(_observe_task)
+            raise
+        except TimeoutError as error:
+            task.cancel()
+            task.add_done_callback(_observe_task)
+            return error
+        except Exception as error:
+            return error
+        return None
 
     async def _cancel_callbacks_for_recovery(self) -> None:
         current = asyncio.current_task()
         tasks = tuple(task for task in self._callback_tasks if task is not current)
         if not tasks:
             return
-        for task in tasks:
-            task.cancel()
-        _, pending = await asyncio.wait(
+        failures = await _drain_callback_tasks(
             tasks,
-            timeout=self.manager.options.connection_timeout,
+            self.manager.options.connection_timeout,
+            cancel_immediately=True,
+            lingering_message="RabbitMQ callbacks remained after recovery cancellation",
         )
-        if pending:
+        if failures:
             raise RabbitMqConnectionError(
                 "RabbitMQ callbacks did not drain before recovery deadline"
-            )
+            ) from failures[0]
 
     async def _drain_callbacks(self) -> list[BaseException]:
         current = asyncio.current_task()
         tasks = tuple(task for task in self._callback_tasks if task is not current)
         if not tasks:
             return []
-        done, pending = await asyncio.wait(
+        return await _drain_callback_tasks(
             tasks,
-            timeout=self.manager.options.connection_timeout,
+            self.manager.options.connection_timeout,
+            cancel_immediately=False,
+            lingering_message="RabbitMQ server callbacks remained after cancellation",
         )
-        for task in pending:
-            task.cancel()
-        if pending:
-            terminated, lingering = await asyncio.wait(
-                pending,
-                timeout=self.manager.options.connection_timeout,
-            )
-        else:
-            terminated, lingering = set(), set()
-        results = await asyncio.gather(*(done | terminated), return_exceptions=True)
-        failures = [
-            result
-            for result in results
-            if isinstance(result, BaseException)
-            and not isinstance(result, asyncio.CancelledError)
-        ]
-        if lingering:
-            failures.append(
-                TimeoutError("RabbitMQ server callbacks remained after cancellation")
-            )
-        return failures
 
     async def _settle_native(
         self,
-        operation: Any,
+        operation: Callable[[], Any],
         detail: str,
         generation: int,
     ) -> None:
         if generation != getattr(self.manager, "generation", 0):
             return
         try:
-            await operation
+            await operation()
         except asyncio.CancelledError as error:
-            await self.manager.fence_connection(error, generation=generation)
+            try:
+                await self.manager.fence_connection(error, generation=generation)
+            except BaseException as fence_error:
+                error.add_note(
+                    f"{detail} fencing failed: "
+                    f"{type(fence_error).__name__}: {fence_error}"
+                )
             error.add_note(f"{detail} may be indeterminate")
             raise
         except Exception as error:
             uncertainty = TransportIndeterminateError(f"{detail} is indeterminate")
-            await self.manager.fence_connection(uncertainty, generation=generation)
+            try:
+                await self.manager.fence_connection(uncertainty, generation=generation)
+            except BaseException as fence_error:
+                uncertainty.add_note(
+                    f"{detail} fencing failed: "
+                    f"{type(fence_error).__name__}: {fence_error}"
+                )
             raise uncertainty from error
 
     async def _handoff_message(
@@ -551,8 +595,9 @@ class RabbitMqServerTransport(ServerTransport):
         *,
         subscription: EventSubscription | None,
         retry_exchange: str | None,
+        generation: int,
     ) -> None:
-        generation = getattr(self.manager, "generation", 0)
+        current_generation = getattr(self.manager, "generation", 0)
         operation = (
             self._on_message(
                 message,
@@ -560,7 +605,7 @@ class RabbitMqServerTransport(ServerTransport):
                 retry_exchange=retry_exchange,
                 generation=generation,
             )
-            if self._admission_open
+            if self._admission_open and generation == current_generation
             else self._requeue_unadmitted(message, generation)
         )
         task = asyncio.create_task(operation)
@@ -570,7 +615,7 @@ class RabbitMqServerTransport(ServerTransport):
 
     async def _requeue_unadmitted(self, message: Any, generation: int) -> None:
         await self._settle_native(
-            message.nack(requeue=True),
+            partial(message.nack, requeue=True),
             "RabbitMQ delivery rejected by closed admission",
             generation,
         )
@@ -583,6 +628,8 @@ class RabbitMqServerTransport(ServerTransport):
         retry_exchange: str | None,
         generation: int,
     ) -> None:
+        if generation != getattr(self.manager, "generation", 0):
+            return
         try:
             delivery = _decode_message(
                 message,
@@ -593,7 +640,7 @@ class RabbitMqServerTransport(ServerTransport):
             raise
         except Exception:
             await self._settle_native(
-                message.reject(requeue=False),
+                partial(message.reject, requeue=False),
                 "malformed RabbitMQ delivery rejection",
                 generation,
             )
@@ -620,7 +667,7 @@ class RabbitMqServerTransport(ServerTransport):
             state = self._deliveries.pop(id(delivery), None)
             if state is not None:
                 await self._settle_native(
-                    state.message.nack(requeue=True),
+                    partial(state.message.nack, requeue=True),
                     "RabbitMQ delivery cancelled during shutdown",
                     state.generation,
                 )
@@ -639,9 +686,32 @@ class RabbitMqServerTransport(ServerTransport):
         if self._status is status:
             return
         self._status = status
-        self._status_events.put_nowait(
-            TransportStatusEvent(status, datetime.now(UTC), detail)
+        _put_coalescing_status(
+            self._status_events,
+            TransportStatusEvent(
+                status,
+                datetime.now(UTC),
+                detail,
+                getattr(self.manager, "generation", 0),
+            ),
+            key=lambda event: event.status,
         )
+
+    def _remember_stale_delivery(self, delivery_id: int) -> None:
+        if delivery_id in self._stale_delivery_id_set:
+            return
+        if len(self._stale_delivery_ids) == self._stale_delivery_ids.maxlen:
+            evicted = self._stale_delivery_ids.popleft()
+            self._stale_delivery_id_set.discard(evicted)
+        self._stale_delivery_ids.append(delivery_id)
+        self._stale_delivery_id_set.add(delivery_id)
+
+    def _forget_stale_delivery(self, delivery_id: int) -> None:
+        self._stale_delivery_id_set.discard(delivery_id)
+        try:
+            self._stale_delivery_ids.remove(delivery_id)
+        except ValueError:
+            pass
 
     def _require(self, expected: TransportStatus) -> None:
         if self._status is not expected:
@@ -767,6 +837,40 @@ def _expires_at(value: object, received_at: datetime) -> datetime | None:
     ):
         raise WireDecodingError("expiration is invalid")
     return received_at + timedelta(seconds=value)
+
+
+def _observe_task(task: asyncio.Task[Any]) -> None:
+    if not task.cancelled():
+        task.exception()
+
+
+async def _drain_callback_tasks(
+    tasks: tuple[asyncio.Task[Any], ...],
+    timeout: float,
+    *,
+    cancel_immediately: bool,
+    lingering_message: str,
+) -> list[BaseException]:
+    if cancel_immediately:
+        for task in tasks:
+            task.cancel()
+    done, pending = await asyncio.wait(tasks, timeout=timeout)
+    for task in pending:
+        task.cancel()
+    if pending:
+        terminated, lingering = await asyncio.wait(pending, timeout=timeout)
+    else:
+        terminated, lingering = set(), set()
+    results = await asyncio.gather(*(done | terminated), return_exceptions=True)
+    failures = [
+        result
+        for result in results
+        if isinstance(result, BaseException)
+        and not isinstance(result, asyncio.CancelledError)
+    ]
+    if lingering:
+        failures.append(TimeoutError(lingering_message))
+    return failures
 
 
 async def _cross_scheduling_fence() -> None:

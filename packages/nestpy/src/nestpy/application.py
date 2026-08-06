@@ -19,7 +19,7 @@ from nestpy.core.protocols import (
     Guard,
     Interceptor,
     Pipe,
-    ScopedResolver,
+    QualifiedScopedResolver,
 )
 from nestpy.core.providers import ProviderDeclaration, Token
 from nestpy.core.runtime import (
@@ -41,7 +41,7 @@ class ApplicationRuntime(Protocol):
     def request_scope(self, module_id: ModuleId) -> RequestScope:
         """Create one normal driver-request scope."""
 
-    def resolver(self, module_id: ModuleId) -> ScopedResolver:
+    def resolver(self, module_id: ModuleId) -> QualifiedScopedResolver:
         """Return an application-scope resolver for one module."""
 
 

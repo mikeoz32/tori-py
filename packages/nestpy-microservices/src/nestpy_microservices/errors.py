@@ -209,6 +209,12 @@ class RpcClientError(MicroservicesError):
     diagnostic_code = "microservices.rpc_client"
 
 
+class UnknownServiceError(RpcClientError):
+    """The requested service or contract version has no broker route."""
+
+    diagnostic_code = "microservices.unknown_service"
+
+
 class RpcTimeoutError(RpcClientError):
     """The local RPC deadline elapsed before a reply completed the call."""
 
@@ -276,6 +282,7 @@ __all__ = [
     "RpcOutcomeUnknownError",
     "RpcProtocolError",
     "RpcTimeoutError",
+    "UnknownServiceError",
     "WireDeadlineError",
     "WireDecodingError",
     "WireEncodingError",

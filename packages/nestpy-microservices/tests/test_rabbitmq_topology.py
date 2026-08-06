@@ -39,6 +39,7 @@ from nestpy_microservices import (
     SettlementRecommendation,
     TransportIndeterminateError,
     TransportRejectedError,
+    TransportTimeoutError,
     TransportUnroutableError,
 )
 
@@ -50,6 +51,9 @@ def test_options_redact_credentials_and_validate_defaults() -> None:
 
     assert "secret" not in repr(options)
     assert "example.test" in repr(options)
+    assert "heartbeat=60" in options.connection_url
+    assert "timeout=10.0" in options.connection_url
+    assert "name=nestpy-microservices" in options.connection_url
     assert options.reconnect_interval == 5.0
     assert options.retry_delay_ms == 1_000
     assert options.max_delivery_attempts == 5
@@ -57,6 +61,12 @@ def test_options_redact_credentials_and_validate_defaults() -> None:
         RabbitMqOptions("amqp://localhost", retry_delay_ms=0)
     with pytest.raises(ValueError):
         RabbitMqOptions("amqp://localhost", max_delivery_attempts=0)
+    with pytest.raises(ValueError, match="tls must match"):
+        RabbitMqOptions("amqp://localhost", tls=True)
+    with pytest.raises(ValueError, match="controlled"):
+        RabbitMqOptions("amqp://localhost/?heartbeat=0")
+    with pytest.raises(ValueError, match="controlled"):
+        RabbitMqOptions("amqps://localhost/?no_verify_ssl=1", tls=True)
 
 
 def test_rpc_topology_uses_one_wildcard_service_queue() -> None:
@@ -183,6 +193,28 @@ def test_rabbitmq_root_is_deferred_and_base_import_is_lazy() -> None:
     assert manager.status is RabbitMqStatus.CREATED
 
 
+def test_connection_status_queue_is_bounded_and_coalesces_repeats() -> None:
+    manager = RabbitMqConnectionManager(RabbitMqOptions("amqp://localhost"))
+
+    for _ in range(100):
+        manager._set_status(RabbitMqStatus.CONNECTING)
+        manager._set_status(RabbitMqStatus.RECOVERING)
+
+    assert manager._status_events.maxsize == 8
+    assert manager._status_events.qsize() <= 8
+    pending = []
+    while not manager._status_events.empty():
+        pending.append(manager._status_events.get_nowait())
+    assert (
+        pending
+        == [
+            RabbitMqStatus.CONNECTING,
+            RabbitMqStatus.RECOVERING,
+        ]
+        * 4
+    )
+
+
 @pytest.mark.asyncio
 async def test_connection_manager_owns_three_channels_without_eager_import(
     monkeypatch,
@@ -224,7 +256,7 @@ async def test_connection_manager_owns_three_channels_without_eager_import(
             calls.append("connection-close")
 
     async def connect_robust(*args, **kwargs):
-        calls.append("connect")
+        calls.append(f"connect:{kwargs}")
         return Connection()
 
     fake_aio = SimpleNamespace(
@@ -232,7 +264,7 @@ async def test_connection_manager_owns_three_channels_without_eager_import(
         connect_robust=connect_robust,
     )
     monkeypatch.setattr(rabbitmq_connection, "require_aio_pika", lambda: fake_aio)
-    manager = RabbitMqConnectionManager(RabbitMqOptions("amqp://localhost"))
+    manager = RabbitMqConnectionManager(RabbitMqOptions("amqps://localhost", tls=True))
 
     await manager.start()
     await manager.declare(
@@ -256,7 +288,8 @@ async def test_connection_manager_owns_three_channels_without_eager_import(
     await manager.close()
 
     assert manager.status is RabbitMqStatus.CLOSED
-    assert calls[0] == "connect"
+    assert calls[0].startswith("connect:")
+    assert "'ssl': True" in calls[0]
     assert "'on_return_raises': True" in calls[2]
     assert all(
         "'robust': False" in call for call in calls if call.startswith("declare-")
@@ -450,6 +483,14 @@ async def test_publisher_maps_unroutable_and_indeterminate_failures(
             mandatory=True,
         )
 
+    fenced: list[BaseException] = []
+
+    async def fence_connection(
+        error: BaseException, *, generation: int | None = None
+    ) -> None:
+        del generation
+        fenced.append(error)
+
     unroutable_manager = SimpleNamespace(
         options=RabbitMqOptions("amqp://localhost"),
         channels=RabbitMqChannels(
@@ -470,11 +511,13 @@ async def test_publisher_maps_unroutable_and_indeterminate_failures(
             Publisher(uncertain),
             object(),
         ),
+        fence_connection=fence_connection,
     )
     with pytest.raises(TransportIndeterminateError):
         await RabbitMqPublisher(
             cast(RabbitMqConnectionManager, uncertain_manager)
         ).publish(publication())
+    assert len(fenced) == 1
 
 
 @pytest.mark.asyncio
@@ -503,6 +546,155 @@ async def test_publisher_maps_explicit_confirm_nack(monkeypatch) -> None:
         await RabbitMqPublisher(cast(RabbitMqConnectionManager, manager)).publish(
             Publication(uuid4(), "route", b"body", {}, mandatory=True)
         )
+
+
+@pytest.mark.asyncio
+async def test_publisher_maps_real_delivery_error_nack(monkeypatch) -> None:
+    from aio_pika import exceptions
+    from aiormq import spec
+
+    delivery_error = exceptions.DeliveryError(None, spec.Basic.Nack())
+
+    class Exchange:
+        async def publish(self, *args, **kwargs):
+            raise delivery_error
+
+    class Publisher:
+        async def get_exchange(self, name: str, *, ensure: bool):
+            return Exchange()
+
+    fake_aio = SimpleNamespace(
+        DeliveryMode=SimpleNamespace(PERSISTENT=2, NOT_PERSISTENT=1),
+        Message=lambda **kwargs: kwargs,
+    )
+    monkeypatch.setattr(rabbitmq_publisher, "_load_aio_pika", lambda: fake_aio)
+    manager = SimpleNamespace(
+        options=RabbitMqOptions("amqp://localhost"),
+        channels=RabbitMqChannels(object(), Publisher(), object()),
+    )
+
+    with pytest.raises(TransportRejectedError):
+        await RabbitMqPublisher(cast(RabbitMqConnectionManager, manager)).publish(
+            Publication(uuid4(), "route", b"body", {}, mandatory=True)
+        )
+
+
+@pytest.mark.asyncio
+async def test_publisher_rejects_confirm_from_a_new_generation(monkeypatch) -> None:
+    class Exchange:
+        async def publish(self, *args, **kwargs):
+            manager.generation = 1
+            from aiormq import spec
+
+            return spec.Basic.Ack()
+
+    class Publisher:
+        async def get_exchange(self, name: str, *, ensure: bool):
+            return Exchange()
+
+    fake_aio = SimpleNamespace(
+        DeliveryMode=SimpleNamespace(PERSISTENT=2, NOT_PERSISTENT=1),
+        Message=lambda **kwargs: kwargs,
+    )
+    monkeypatch.setattr(rabbitmq_publisher, "_load_aio_pika", lambda: fake_aio)
+    fenced: list[tuple[BaseException, int | None]] = []
+
+    async def fence_connection(error: BaseException, *, generation: int | None = None):
+        fenced.append((error, generation))
+
+    manager = SimpleNamespace(
+        generation=0,
+        options=RabbitMqOptions("amqp://localhost"),
+        channels=RabbitMqChannels(object(), Publisher(), object()),
+        fence_connection=fence_connection,
+    )
+
+    with pytest.raises(TransportIndeterminateError, match="generation"):
+        await RabbitMqPublisher(cast(RabbitMqConnectionManager, manager)).publish(
+            Publication(uuid4(), "route", b"body", {}, mandatory=True)
+        )
+    assert len(fenced) == 1
+    assert fenced[0][1] == 0
+
+
+@pytest.mark.asyncio
+async def test_publisher_cancellation_during_confirm_fences_connection(
+    monkeypatch,
+) -> None:
+    started = asyncio.Event()
+
+    class Exchange:
+        async def publish(self, *args, **kwargs):
+            started.set()
+            await asyncio.Event().wait()
+
+    class Publisher:
+        async def get_exchange(self, name: str, *, ensure: bool):
+            return Exchange()
+
+    fake_aio = SimpleNamespace(
+        DeliveryMode=SimpleNamespace(PERSISTENT=2, NOT_PERSISTENT=1),
+        Message=lambda **kwargs: kwargs,
+    )
+    monkeypatch.setattr(rabbitmq_publisher, "_load_aio_pika", lambda: fake_aio)
+    fenced: list[BaseException] = []
+
+    async def fence_connection(
+        error: BaseException, *, generation: int | None = None
+    ) -> None:
+        del generation
+        fenced.append(error)
+
+    manager = SimpleNamespace(
+        options=RabbitMqOptions("amqp://localhost"),
+        channels=RabbitMqChannels(object(), Publisher(), object()),
+        fence_connection=fence_connection,
+    )
+    task = asyncio.create_task(
+        RabbitMqPublisher(cast(RabbitMqConnectionManager, manager)).publish(
+            Publication(uuid4(), "route", b"body", {}, mandatory=True)
+        )
+    )
+
+    await started.wait()
+    task.cancel()
+    with pytest.raises(TransportIndeterminateError):
+        await task
+    assert len(fenced) == 1
+    assert isinstance(fenced[0], TransportIndeterminateError)
+
+
+@pytest.mark.asyncio
+async def test_publisher_cancellation_before_broker_write_is_timeout(
+    monkeypatch,
+) -> None:
+    entered = asyncio.Event()
+
+    class Publisher:
+        async def get_exchange(self, name: str, *, ensure: bool):
+            del name, ensure
+            entered.set()
+            await asyncio.Event().wait()
+
+    fake_aio = SimpleNamespace(
+        DeliveryMode=SimpleNamespace(PERSISTENT=2, NOT_PERSISTENT=1),
+        Message=lambda **kwargs: kwargs,
+    )
+    monkeypatch.setattr(rabbitmq_publisher, "_load_aio_pika", lambda: fake_aio)
+    manager = SimpleNamespace(
+        options=RabbitMqOptions("amqp://localhost"),
+        channels=RabbitMqChannels(object(), Publisher(), object()),
+    )
+    task = asyncio.create_task(
+        RabbitMqPublisher(cast(RabbitMqConnectionManager, manager)).publish(
+            Publication(uuid4(), "route", b"body", {}, mandatory=True)
+        )
+    )
+
+    await entered.wait()
+    task.cancel()
+    with pytest.raises(TransportTimeoutError):
+        await task
 
 
 @pytest.mark.asyncio

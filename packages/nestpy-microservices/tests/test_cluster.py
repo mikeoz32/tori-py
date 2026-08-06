@@ -26,6 +26,8 @@ from nestpy_microservices import (
     ServiceIdentity,
     SettlementRecommendation,
     TransportCapacityError,
+    UnknownServiceError,
+    WireValidationError,
     rabbitmq_client_factory_token,
     rabbitmq_server_factory_token,
     utc_now,
@@ -118,6 +120,54 @@ async def test_cluster_rejects_pending_map_exhaustion_before_publish() -> None:
     await cluster.close()
     assert isinstance(pending.exception(), Exception)
     await broker.close()
+
+
+@pytest.mark.asyncio
+async def test_cluster_cleans_pending_entry_when_request_construction_fails() -> None:
+    broker = InMemoryBroker()
+    cluster = ServiceCluster(InMemoryClientTransport(broker))
+
+    with pytest.raises(WireValidationError):
+        await cluster.service(SERVICE).request(
+            "ping",
+            "hello",
+            response_type=str,
+            headers={"": "invalid"},
+        )
+
+    assert not cluster._pending
+    assert not cluster._pending_generations
+    await cluster.close()
+    await broker.close()
+
+
+@pytest.mark.asyncio
+async def test_cluster_maps_unroutable_rpc_to_unknown_service() -> None:
+    broker = InMemoryBroker()
+    cluster = ServiceCluster(InMemoryClientTransport(broker))
+
+    with pytest.raises(UnknownServiceError):
+        await cluster.service(SERVICE).request("ping", "hello", response_type=str)
+
+    assert not cluster._pending
+    await cluster.close()
+    await broker.close()
+
+
+def test_cluster_proxy_cache_is_bounded() -> None:
+    broker = InMemoryBroker()
+    cluster = ServiceCluster(
+        InMemoryClientTransport(broker),
+        options=ServiceClusterOptions(max_cached_proxies=2),
+    )
+
+    first = cluster.service(ServiceIdentity("kinker", "first", 1))
+    second = cluster.service(ServiceIdentity("kinker", "second", 1))
+    cluster.service(ServiceIdentity("kinker", "third", 1))
+
+    assert len(cluster._proxies) == 2
+    assert first not in cluster._proxies.values()
+    assert second in cluster._proxies.values()
 
 
 @pytest.mark.asyncio

@@ -2,13 +2,17 @@
 
 ## Status
 
-In progress; not complete. Current remediation covers typed publication
+Implemented. Current remediation covers typed publication
 failures, strict protocol rejection, bounded delayed retry/DLX, deterministic
 disconnect fencing, broker application restart with topology/consumer recovery,
-generation-fenced stale settlement, bounded recovery listeners, and additional
-shutdown cleanup tests. Network blackhole, reconnect at request/reply/ACK
-boundaries, forced shutdown, complete observability/security guidance, and
-broader fault injection remain unverified or unfinished.
+generation-fenced stale settlement, bounded recovery listeners, pending-RPC
+outcome-unknown handling, replacement reply-route readiness, and additional
+shutdown cleanup tests, a bounded proxy-injected network blackhole test, and
+active-RPC forced shutdown coverage. Publisher-confirm cancellation fencing,
+deleted exclusive reply-route settlement, and bounded poison-event retry/DLX
+coverage, malformed schema dead-lettering, and handler/reply blackhole
+redelivery coverage are also verified. MS11 owns artifact release, independent
+review, and deployment-specific observability integration.
 
 ## Purpose
 
@@ -45,6 +49,9 @@ These states are not collapsed into a generic timeout or success.
 - Unsettled old-channel messages may redeliver with the same message ID.
 - Client reply reconnect fails all old pending requests as outcome unknown.
 - New client requests wait for a completely ready replacement reply route.
+- A stale reply router can fail only requests from its own connection
+  generation; a request admitted on a replacement route is not cleared by the
+  old router's shutdown path.
 - No accepted/uncertain RPC request is automatically republished.
 - Event retry preserves message identity when application policy initiates it.
 

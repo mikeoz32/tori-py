@@ -9,7 +9,12 @@ from uuid import UUID
 
 from nestpy import ModuleId, ScopedResolver
 
-from nestpy_microservices.identities import MessageLimits, require_utc, utc_now
+from nestpy_microservices.identities import (
+    MessageLimits,
+    require_utc,
+    require_uuid,
+    utc_now,
+)
 from nestpy_microservices.wire import freeze_headers
 
 
@@ -30,6 +35,9 @@ class MessageContext:
     correlation_id: UUID | None
     scope_resolver: ScopedResolver
     message_metadata: Mapping[str, object]
+    message_id: UUID | None = None
+    causation_id: UUID | None = None
+    idempotency_key: str | None = None
     received_at: datetime = field(default_factory=utc_now)
     expires_at: datetime | None = None
     attempt: int = 1
@@ -44,6 +52,16 @@ class MessageContext:
             raise ValueError("module_identity must be a ModuleId")
         if not isinstance(self.handler_id, str) or not self.handler_id:
             raise ValueError("handler_id must be a non-empty string")
+        if self.message_id is not None:
+            require_uuid(self.message_id, "message_id")
+        if self.correlation_id is not None:
+            require_uuid(self.correlation_id, "correlation_id")
+        if self.causation_id is not None:
+            require_uuid(self.causation_id, "causation_id")
+        if self.idempotency_key is not None and (
+            not isinstance(self.idempotency_key, str) or not self.idempotency_key
+        ):
+            raise ValueError("idempotency_key must be a non-empty string")
         if not isinstance(self.attempt, int) or self.attempt <= 0:
             raise ValueError("attempt must be a positive integer")
         if not isinstance(self.redelivered, bool):

@@ -198,6 +198,8 @@ class InMemoryBroker:
                 if requeue and record.server is server and not record.settled:
                     queue.deliveries.pop(key)
                     server._delivery_queues.pop(id(record.delivery), None)
+                    record.queued.attempt += 1
+                    record.queued.redelivered = True
                     queue.messages.appendleft(record.queued)
                     if consumer is not None:
                         consumer.in_flight -= 1
@@ -619,6 +621,10 @@ class InMemoryClientTransport:
     def status(self) -> TransportStatus:
         return self._status
 
+    @property
+    def generation(self) -> int:
+        return 0
+
     async def start(self, *, receive_replies: bool = True) -> None:
         if self._status is not TransportStatus.CREATED:
             raise TransportStateError("client transport has already started")
@@ -680,6 +686,9 @@ class InMemoryClientTransport:
                 native=(identity.exchange_name, identity.routing_key),
             )
         )
+
+    def cancel_publication_after_reply(self, correlation_id: UUID) -> None:
+        del correlation_id
 
     async def replies(self) -> AsyncIterator[EncodedDelivery]:
         self._require_running()

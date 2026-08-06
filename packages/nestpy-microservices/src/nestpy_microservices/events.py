@@ -11,7 +11,11 @@ from uuid import UUID, uuid4
 from nestpy import ShutdownContext
 
 from nestpy_microservices.codec import MessageCodec, MsgspecJsonMessageCodec
-from nestpy_microservices.errors import TransportStateError, TransportUnroutableError
+from nestpy_microservices.errors import (
+    TransportCapacityError,
+    TransportStateError,
+    TransportUnroutableError,
+)
 from nestpy_microservices.identities import EventIdentity, ServiceIdentity, utc_now
 from nestpy_microservices.options import MicroservicesOptions
 from nestpy_microservices.transport import (
@@ -115,6 +119,10 @@ class EventDispatcher:
                 raise TransportStateError(
                     "event dispatcher is not accepting publications"
                 )
+            if self._transport.status is not TransportStatus.RUNNING:
+                raise TransportStateError("event dispatcher transport is not ready")
+            if len(self._tasks) >= self._options.max_inflight_deliveries:
+                raise TransportCapacityError("event publication task set is full")
             self._tasks.add(task)
         try:
             if not isinstance(require_route, bool):
@@ -130,6 +138,7 @@ class EventDispatcher:
                 causation_id=causation_id,
                 headers=freeze_headers(headers, self.options.message_limits),
                 payload=payload,
+                limits=self.options.message_limits,
             )
             body = self.codec.encode_event(envelope)
             publication = Publication(
@@ -158,6 +167,10 @@ class EventDispatcher:
             self._state = _DispatcherState.STARTING
             try:
                 await self._transport.start(receive_replies=False)
+                if self._transport.status is not TransportStatus.RUNNING:
+                    raise TransportStateError(
+                        "event dispatcher transport did not become ready"
+                    )
             except BaseException:
                 self._state = _DispatcherState.CLOSED
                 try:
@@ -165,15 +178,6 @@ class EventDispatcher:
                 except BaseException:
                     pass
                 raise
-            if self._transport.status is not TransportStatus.RUNNING:
-                self._state = _DispatcherState.CLOSED
-                try:
-                    await self._transport.close()
-                except BaseException:
-                    pass
-                raise TransportStateError(
-                    "event dispatcher transport did not become ready"
-                )
             self._state = _DispatcherState.RUNNING
 
     async def on_application_quiesce(self, context: ShutdownContext) -> None:
@@ -225,9 +229,15 @@ async def _cancel_tasks(
 ) -> None:
     for task in tasks:
         task.cancel()
+        task.add_done_callback(_consume_task_exception)
     timeout = remaining()
     if tasks and (timeout is None or timeout > 0):
         await asyncio.wait(tasks, timeout=timeout)
+
+
+def _consume_task_exception(task: asyncio.Task[object]) -> None:
+    if not task.cancelled():
+        task.exception()
 
 
 __all__ = ["EventDispatcher"]

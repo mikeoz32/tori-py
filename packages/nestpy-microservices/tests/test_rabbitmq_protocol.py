@@ -229,7 +229,13 @@ async def test_pending_malformed_reply_completes_with_protocol_failure(
     publication_ready = asyncio.Event()
 
     class Publisher:
-        async def publish(self, publication: Publication):
+        async def publish(
+            self,
+            publication: Publication,
+            *,
+            fence_on_cancel=None,
+        ):
+            del fence_on_cancel
             published.append(publication)
             publication_ready.set()
             return SimpleNamespace()
@@ -459,6 +465,37 @@ async def test_client_close_fences_reply_callback_before_close_sentinel() -> Non
 
 
 @pytest.mark.asyncio
+async def test_client_cancelling_a_blocked_reply_handoff_acks_the_delivery() -> None:
+    manager = Manager()
+    client = RabbitMqClientTransport(
+        cast(RabbitMqConnectionManager, manager), max_pending_replies=1
+    )
+    await client.start()
+
+    first = Message()
+    first.routing_key = client.reply_to.value
+    first.reply_to = None
+    first_correlation = UUID(cast(str, first.correlation_id))
+    client._pending.add(first_correlation)
+    await client._on_reply(first)
+
+    second = Message()
+    second.routing_key = client.reply_to.value
+    second.reply_to = None
+    second.correlation_id = str(uuid4())
+    client._pending.add(UUID(second.correlation_id))
+    handoff = asyncio.create_task(client._on_reply(second))
+    await asyncio.sleep(0)
+    assert second.actions == []
+
+    handoff.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await handoff
+    assert second.actions == [("ack", None)]
+    await client.close()
+
+
+@pytest.mark.asyncio
 async def test_server_skips_stale_generation_settlement() -> None:
     manager = Manager()
     server = RabbitMqServerTransport(cast(RabbitMqConnectionManager, manager), SERVICE)
@@ -502,6 +539,21 @@ async def test_server_skips_stale_generation_settlement() -> None:
     await callback
 
     assert message.actions == []
+    await server.close()
+
+
+@pytest.mark.asyncio
+async def test_server_bounds_stale_delivery_tracking_to_prefetch() -> None:
+    manager = Manager()
+    server = RabbitMqServerTransport(
+        cast(RabbitMqConnectionManager, manager), SERVICE, prefetch=2
+    )
+    server._deliveries = cast(Any, {1: object(), 2: object(), 3: object()})
+
+    await server._connection_lost(None)
+
+    assert len(server._stale_delivery_ids) == 2
+    assert len(server._stale_delivery_id_set) == 2
     await server.close()
 
 

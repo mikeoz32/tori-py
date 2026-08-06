@@ -20,6 +20,7 @@ from nestpy import (
     PipelineResult,
     PipelineStateError,
     ProviderRef,
+    QualifiedScopedResolver,
     ScopedResolver,
     ScopeFinalizationError,
     WorkScopeFactory,
@@ -67,6 +68,8 @@ class MessageInvocation:
     payload: object
     headers: Mapping[str, object]
     metadata: Mapping[str, object]
+    causation_id: UUID | None = None
+    idempotency_key: str | None = None
     received_at: datetime = field(default_factory=utc_now)
     expires_at: datetime | None = None
     attempt: int = 1
@@ -82,6 +85,12 @@ class MessageInvocation:
         require_uuid(self.message_id, "message_id")
         if self.correlation_id is not None:
             require_uuid(self.correlation_id, "correlation_id")
+        if self.causation_id is not None:
+            require_uuid(self.causation_id, "causation_id")
+        if self.idempotency_key is not None and (
+            not isinstance(self.idempotency_key, str) or not self.idempotency_key
+        ):
+            raise ValueError("idempotency_key must be a non-empty string")
         require_utc(self.received_at, "received_at")
         if self.expires_at is not None:
             require_utc(self.expires_at, "expires_at")
@@ -136,9 +145,7 @@ class MessagePipelineExecutor:
                 raise MessageConfigurationError(
                     "message interceptors cannot return native responses"
                 )
-            result = _validate_result(pipeline_result.value, plan.return_annotation)
-            if isinstance(plan, EventHandlerPlan) and result is not None:
-                raise MessageConfigurationError("event handlers must return None")
+            result = _validate_handler_result(plan, pipeline_result.value)
             encoded = (
                 RESULT_MISSING
                 if isinstance(plan, EventHandlerPlan)
@@ -163,16 +170,9 @@ class MessagePipelineExecutor:
                     )
                 else:
                     try:
-                        replacement = _validate_result(
-                            replacement_result.value, plan.return_annotation
+                        replacement = _validate_handler_result(
+                            plan, replacement_result.value
                         )
-                        if (
-                            isinstance(plan, EventHandlerPlan)
-                            and replacement is not None
-                        ):
-                            raise MessageConfigurationError(
-                                "event handlers must return None"
-                            )
                         encoded = (
                             RESULT_MISSING
                             if isinstance(plan, EventHandlerPlan)
@@ -257,7 +257,7 @@ class MessagePipelineExecutor:
             invocation,
             prepared_arguments=prepared_arguments,
         )
-        await self._run_pipes(plan, context, resolver, arguments)
+        await self._run_pipes(plan, context, resolver, invocation, arguments)
         return await self._run_interceptors(
             plan,
             context,
@@ -324,6 +324,7 @@ class MessagePipelineExecutor:
         plan: RpcHandlerPlan | EventHandlerPlan,
         context: MessageContext,
         resolver: ScopedResolver,
+        invocation: MessageInvocation,
         arguments: dict[str, object],
     ) -> None:
         pipes: list[object] = []
@@ -347,8 +348,15 @@ class MessagePipelineExecutor:
                 module_id=context.module_id or "",
             )
             for pipe in pipes:
-                arguments[parameter.name] = await cast(Pipe, pipe).transform(
+                transformed = await cast(Pipe, pipe).transform(
                     arguments[parameter.name], metadata
+                )
+                arguments[parameter.name] = (
+                    freeze_headers(
+                        cast(Mapping[str, object], transformed), invocation.limits
+                    )
+                    if parameter.kind == "headers"
+                    else transformed
                 )
 
     async def _run_interceptors(
@@ -469,6 +477,10 @@ class MessagePipelineExecutor:
     ) -> object:
         if provider_ref is None:
             return await resolver.resolve(cast(Any, fallback_token))
+        if not isinstance(resolver, QualifiedScopedResolver):
+            raise MessageConfigurationError(
+                "provider reference resolution is unavailable in this work scope"
+            )
         return await resolver.resolve_ref(provider_ref)
 
     async def _call_handler(
@@ -500,6 +512,9 @@ def _make_context(
         module_identity=plan.module_id,
         handler_id=f"{plan.controller.__qualname__}.{plan.method_name}",
         correlation_id=invocation.correlation_id,
+        message_id=invocation.message_id,
+        causation_id=invocation.causation_id,
+        idempotency_key=invocation.idempotency_key,
         scope_resolver=resolver,
         message_metadata=invocation.metadata,
         received_at=invocation.received_at,
@@ -552,6 +567,8 @@ def _prepare_argument(
         raise MessageRejectedError(
             f"required message argument {parameter.name!r} is missing"
         )
+    if parameter.kind == "headers":
+        return value
     if (
         parameter.annotation is inspect.Signature.empty
         or parameter.annotation is object
@@ -575,6 +592,16 @@ def _validate_result(value: object, annotation: object) -> object:
         raise MessageConfigurationError(
             "handler result does not satisfy its declared return annotation"
         ) from error
+
+
+def _validate_handler_result(
+    plan: RpcHandlerPlan | EventHandlerPlan,
+    value: object,
+) -> object:
+    result = _validate_result(value, plan.return_annotation)
+    if isinstance(plan, EventHandlerPlan) and result is not None:
+        raise MessageConfigurationError("event handlers must return None")
+    return result
 
 
 async def _encode_result(

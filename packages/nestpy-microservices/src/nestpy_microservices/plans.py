@@ -115,6 +115,7 @@ class ServiceHandlerRegistry:
         rpc_by_target = {
             (plan.method, plan.schema_version): plan for plan in self.rpc_handlers
         }
+        rpc_methods = {plan.method for plan in self.rpc_handlers}
         event_by_subscription = {
             (
                 plan.identity,
@@ -125,6 +126,8 @@ class ServiceHandlerRegistry:
         }
         if len(rpc_by_target) != len(self.rpc_handlers):
             raise ValueError("duplicate RPC target in handler registry")
+        if len(rpc_methods) != len(self.rpc_handlers):
+            raise ValueError("duplicate RPC method alias in handler registry")
         if len(event_by_subscription) != len(self.event_handlers):
             raise ValueError("duplicate event subscription in handler registry")
 
@@ -132,7 +135,7 @@ class ServiceHandlerRegistry:
         object.__setattr__(
             self,
             "rpc_methods",
-            frozenset(plan.method for plan in self.rpc_handlers),
+            frozenset(rpc_methods),
         )
         object.__setattr__(
             self,

@@ -149,7 +149,7 @@ def test_registry_rejects_duplicate_rpc_and_event_identities() -> None:
 
 def test_registry_stores_immutable_exact_indexes_once() -> None:
     class VersionOne:
-        @rpc("resolve-profile", schema_version=1)
+        @rpc("resolve-profile-v1", schema_version=1)
         async def resolve(self, payload: Annotated[object, Payload()]) -> object:
             return payload
 
@@ -159,7 +159,7 @@ def test_registry_stores_immutable_exact_indexes_once() -> None:
 
     assert registry.rpc_by_target is registry.rpc_by_target
     assert registry.event_by_subscription is registry.event_by_subscription
-    assert registry.rpc_by_target[("resolve-profile", 1)].schema_version == 1
+    assert registry.rpc_by_target[("resolve-profile-v1", 1)].schema_version == 1
     assert registry.rpc_by_target[("resolve-profile", 2)].schema_version == 2
     with pytest.raises(TypeError):
         mutable_view = cast(

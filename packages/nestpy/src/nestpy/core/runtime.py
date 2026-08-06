@@ -35,6 +35,7 @@ from nestpy.core.protocols import (
     DiscoveryService,
     GraphValidator,
     ModulesContainer,
+    QualifiedScopedResolver,
     ScopedResolver,
     ShutdownContext,
     WorkScopeFactory,
@@ -374,7 +375,7 @@ class Container:
         )
         self._closed = False
 
-    def resolver(self, module_id: ModuleId) -> ScopedResolver:
+    def resolver(self, module_id: ModuleId) -> QualifiedScopedResolver:
         return _Resolver(self, module_id, self._application)
 
     def new_request_scope(self, kind: str = "request") -> _ScopeState:
@@ -576,7 +577,9 @@ class RequestScope(AbstractAsyncContextManager[ScopedResolver]):
         self._container = container
         self.module_id = module_id
         self.state = container.new_request_scope(kind)
-        self.resolver: ScopedResolver = _Resolver(container, module_id, self.state)
+        self.resolver: QualifiedScopedResolver = _Resolver(
+            container, module_id, self.state
+        )
         self._on_open = on_open
         self._on_close = on_close
         self._entered = False
@@ -585,7 +588,7 @@ class RequestScope(AbstractAsyncContextManager[ScopedResolver]):
         self._cleanup_task: asyncio.Task[BaseException | None] | None = None
         self._exc_info: _ExceptionInfo = (None, None, None)
 
-    async def __aenter__(self) -> ScopedResolver:
+    async def __aenter__(self) -> QualifiedScopedResolver:
         if self._entered:
             raise ScopeError("request scope cannot be entered twice")
         self._entered = True
@@ -594,7 +597,7 @@ class RequestScope(AbstractAsyncContextManager[ScopedResolver]):
             self._on_open(self)
         return self.resolver
 
-    def resolver_for(self, module_id: ModuleId) -> ScopedResolver:
+    def resolver_for(self, module_id: ModuleId) -> QualifiedScopedResolver:
         """Create a resolver for another module using this request lease."""
 
         if not self._entered or self._closed:
@@ -776,7 +779,7 @@ class ApplicationKernel:
         self._lock = asyncio.Lock()
         self._shutdown_task: asyncio.Task[BaseException | None] | None = None
 
-    def resolver(self, module_id: ModuleId) -> ScopedResolver:
+    def resolver(self, module_id: ModuleId) -> QualifiedScopedResolver:
         return self.container.resolver(module_id)
 
     def request_scope(self, module_id: ModuleId) -> RequestScope:

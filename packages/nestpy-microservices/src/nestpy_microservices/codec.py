@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+import math
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime, timedelta
 from typing import Any, Protocol, cast
@@ -86,33 +88,62 @@ def _timestamp(value: datetime) -> str:
     return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
 
 
-def _canonical(value: object, field_name: str) -> object:
+def _canonical(value: object, field_name: str, limits: MessageLimits) -> object:
     if isinstance(value, Mapping):
-        return _canonical_builtins(value, field_name)
+        return _canonical_builtins(value, field_name, limits)
     try:
         builtins = msgspec.to_builtins(value)
-    except (TypeError, ValueError, msgspec.ValidationError) as error:
+    except (
+        RecursionError,
+        TypeError,
+        ValueError,
+        msgspec.ValidationError,
+    ) as error:
         raise WireEncodingError(f"{field_name} is not codec-compatible") from error
-    return _canonical_builtins(builtins, field_name)
+    return _canonical_builtins(builtins, field_name, limits)
 
 
-def _canonical_builtins(value: object, field_name: str, depth: int = 0) -> object:
+def _canonical_builtins(
+    value: object,
+    field_name: str,
+    limits: MessageLimits,
+    depth: int = 0,
+) -> object:
+    if depth > limits.max_nesting_depth:
+        raise WireSizeLimitError(f"{field_name} exceeds the nesting depth limit")
+    if isinstance(value, float) and not math.isfinite(value):
+        raise WireEncodingError(f"{field_name} contains a non-finite float")
     if value is None or isinstance(value, (str, int, float, bool)):
         return value
     if isinstance(value, Mapping):
+        if len(value) > limits.max_collection_items:
+            raise WireSizeLimitError(f"{field_name} exceeds the collection limit")
         items: list[tuple[str, object]] = []
         for key, item in value.items():
             if not isinstance(key, str) or not key:
                 raise WireEncodingError(f"{field_name} keys must be non-empty strings")
-            items.append((key, _canonical_builtins(item, field_name, depth + 1)))
+            items.append(
+                (
+                    key,
+                    _canonical_builtins(item, field_name, limits, depth + 1),
+                )
+            )
         return dict(sorted(items))
     if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
-        return [_canonical_builtins(item, field_name, depth + 1) for item in value]
+        if len(value) > limits.max_collection_items:
+            raise WireSizeLimitError(f"{field_name} exceeds the collection limit")
+        return [
+            _canonical_builtins(item, field_name, limits, depth + 1) for item in value
+        ]
     raise WireEncodingError(f"{field_name} contains an unsupported value")
 
 
-def _plain_headers(headers: Mapping[str, object]) -> dict[str, object]:
-    value = _canonical(headers, "headers")
+def _plain_headers(
+    headers: Mapping[str, object], limits: MessageLimits
+) -> dict[str, object]:
+    if len(headers) > limits.max_header_count:
+        raise WireSizeLimitError("headers exceed the configured count limit")
+    value = _canonical(headers, "headers", limits)
     if not isinstance(value, dict):
         raise WireEncodingError("headers must encode as an object")
     return cast(dict[str, object], value)
@@ -128,7 +159,10 @@ def _wire_service(service: ServiceIdentity) -> dict[str, object]:
 
 def _encode_json(value: Mapping[str, object], limits: MessageLimits) -> bytes:
     try:
+        _check_limits(value, limits)
         data = msgspec.json.encode(value)
+    except WireSizeLimitError:
+        raise
     except (TypeError, ValueError, msgspec.EncodeError) as error:
         raise WireEncodingError("wire envelope is not JSON encodable") from error
     if len(data) > limits.max_envelope_bytes:
@@ -142,8 +176,14 @@ def _decode_json(data: bytes, limits: MessageLimits) -> dict[str, Any]:
     if len(data) > limits.max_envelope_bytes:
         raise WireSizeLimitError("wire envelope exceeds the configured byte limit")
     try:
+        json.loads(
+            data,
+            object_pairs_hook=_reject_duplicate_members,
+            parse_constant=_reject_non_finite,
+            parse_float=_finite_float,
+        )
         value = msgspec.json.decode(data)
-    except (msgspec.DecodeError, ValueError, TypeError) as error:
+    except (RecursionError, msgspec.DecodeError, ValueError, TypeError) as error:
         raise WireDecodingError("wire data is not valid JSON") from error
     if not isinstance(value, dict):
         raise WireDecodingError("wire envelope must be a JSON object")
@@ -154,6 +194,8 @@ def _decode_json(data: bytes, limits: MessageLimits) -> dict[str, Any]:
 def _check_limits(value: object, limits: MessageLimits, depth: int = 0) -> None:
     if depth > limits.max_nesting_depth:
         raise WireSizeLimitError("wire value exceeds the nesting depth limit")
+    if isinstance(value, float) and not math.isfinite(value):
+        raise WireSizeLimitError("wire value contains a non-finite float")
     if isinstance(value, dict):
         if len(value) > limits.max_collection_items:
             raise WireSizeLimitError("wire object exceeds the collection limit")
@@ -166,6 +208,28 @@ def _check_limits(value: object, limits: MessageLimits, depth: int = 0) -> None:
             raise WireSizeLimitError("wire array exceeds the collection limit")
         for item in value:
             _check_limits(item, limits, depth + 1)
+
+
+def _reject_duplicate_members(
+    pairs: list[tuple[str, object]],
+) -> dict[str, object]:
+    value: dict[str, object] = {}
+    for key, item in pairs:
+        if key in value:
+            raise ValueError(f"duplicate JSON object member: {key!r}")
+        value[key] = item
+    return value
+
+
+def _reject_non_finite(value: str) -> object:
+    raise ValueError(f"non-finite JSON number is not allowed: {value}")
+
+
+def _finite_float(value: str) -> float:
+    parsed = float(value)
+    if not math.isfinite(parsed):
+        raise ValueError("JSON number is not finite")
+    return parsed
 
 
 def _require_fields(
@@ -238,7 +302,10 @@ def _headers(value: object, limits: MessageLimits) -> Mapping[str, object]:
         raise
     except WireValidationError as error:
         raise WireDecodingError(str(error)) from error
-    if len(msgspec.json.encode(_plain_headers(frozen))) > limits.max_header_bytes:
+    if (
+        len(msgspec.json.encode(_plain_headers(frozen, limits)))
+        > limits.max_header_bytes
+    ):
         raise WireSizeLimitError("headers exceed the configured byte limit")
     return frozen
 
@@ -246,13 +313,13 @@ def _headers(value: object, limits: MessageLimits) -> Mapping[str, object]:
 def _checked_headers(
     headers: Mapping[str, object], limits: MessageLimits
 ) -> dict[str, object]:
-    plain = _plain_headers(headers)
+    plain = _plain_headers(headers, limits)
     if len(msgspec.json.encode(plain)) > limits.max_header_bytes:
         raise WireSizeLimitError("headers exceed the configured byte limit")
     return plain
 
 
-def _remote_error(value: object) -> RemoteRpcErrorData:
+def _remote_error(value: object, limits: MessageLimits) -> RemoteRpcErrorData:
     if not isinstance(value, dict):
         raise WireDecodingError("error must be a JSON object")
     value = cast(dict[str, object], value)
@@ -262,7 +329,7 @@ def _remote_error(value: object) -> RemoteRpcErrorData:
     details = value["details"]
     if not isinstance(details, dict):
         raise WireDecodingError("error.details must be a JSON object")
-    details = cast(Mapping[str, object], details)
+    details = _headers(details, limits)
     retryable = value["retryable"]
     if not isinstance(retryable, bool):
         raise WireDecodingError("error.retryable must be boolean")
@@ -272,6 +339,7 @@ def _remote_error(value: object) -> RemoteRpcErrorData:
             _string(value["message"], "error.message"),
             retryable,
             details,
+            limits=limits,
         )
     except WireSizeLimitError:
         raise
@@ -303,7 +371,7 @@ class MsgspecJsonMessageCodec:
             "idempotency_key": envelope.idempotency_key,
             "reply_to": envelope.reply_to.value,
             "headers": _checked_headers(envelope.headers, self.limits),
-            "payload": _canonical(envelope.payload, "payload"),
+            "payload": _canonical(envelope.payload, "payload", self.limits),
         }
         return _encode_json(value, self.limits)
 
@@ -332,6 +400,7 @@ class MsgspecJsonMessageCodec:
                 reply_to=ReplyRoute(_string(value["reply_to"], "reply_to")),
                 headers=_headers(value["headers"], self.limits),
                 payload=value["payload"],
+                limits=self.limits,
             )
         except WireSizeLimitError:
             raise
@@ -346,7 +415,7 @@ class MsgspecJsonMessageCodec:
             "completed_at": _timestamp(envelope.completed_at),
         }
         if envelope.result is not RESULT_MISSING:
-            value["result"] = _canonical(envelope.result, "result")
+            value["result"] = _canonical(envelope.result, "result", self.limits)
         else:
             assert envelope.error is not None
             value["error"] = {
@@ -378,7 +447,10 @@ class MsgspecJsonMessageCodec:
                 correlation_id=_uuid(value["correlation_id"], "correlation_id"),
                 completed_at=_timestamp_value(value["completed_at"], "completed_at"),
                 result=value["result"] if has_result else RESULT_MISSING,
-                error=_remote_error(value["error"]) if has_error else None,
+                error=(
+                    _remote_error(value["error"], self.limits) if has_error else None
+                ),
+                limits=self.limits,
             )
         except WireSizeLimitError:
             raise
@@ -404,7 +476,7 @@ class MsgspecJsonMessageCodec:
                 else None
             ),
             "headers": _checked_headers(envelope.headers, self.limits),
-            "payload": _canonical(envelope.payload, "payload"),
+            "payload": _canonical(envelope.payload, "payload", self.limits),
         }
         return _encode_json(value, self.limits)
 

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
@@ -10,6 +12,7 @@ from nestpy_microservices.errors import (
     RabbitMqConnectionError,
     TransportIndeterminateError,
     TransportRejectedError,
+    TransportTimeoutError,
     TransportUnroutableError,
 )
 from nestpy_microservices.identities import utc_now
@@ -38,9 +41,13 @@ class RabbitMqPublisher:
         publication: Publication,
         *,
         persistent: bool = True,
+        fence_on_cancel: Callable[[], bool] | None = None,
     ) -> PublicationReceipt:
         if not isinstance(persistent, bool):
             raise TypeError("persistent must be boolean")
+        observed_generation = getattr(self.manager, "generation", 0)
+        publish_generation: int | None = None
+        publish_started = False
         try:
             aio_pika = _load_aio_pika()
             amqp = _load_amqp_types()
@@ -77,15 +84,54 @@ class RabbitMqPublisher:
                 exchange_name,
                 ensure=False,
             )
+            if observed_generation != getattr(self.manager, "generation", 0):
+                raise TransportTimeoutError(
+                    "RabbitMQ publication was interrupted before broker write"
+                )
+            publish_generation = getattr(self.manager, "generation", 0)
+            publish_started = True
             result = await exchange.publish(
                 message,
                 routing_key=publication.routing_key,
                 mandatory=publication.mandatory,
             )
+        except asyncio.CancelledError as error:
+            if not publish_started:
+                raise TransportTimeoutError(
+                    "RabbitMQ publication was cancelled before broker write"
+                ) from error
+            uncertainty = TransportIndeterminateError(
+                "RabbitMQ publication outcome is indeterminate after cancellation"
+            )
+            manager_status = getattr(self.manager, "status", None)
+            connection_is_ready = (
+                manager_status is None
+                or getattr(manager_status, "value", manager_status) == "ready"
+            )
+            if connection_is_ready and (fence_on_cancel is None or fence_on_cancel()):
+                await self._fence(uncertainty, publish_generation, note_target=error)
+            else:
+                error.add_note("RabbitMQ connection fencing suppressed after reply")
+            error.add_note("RabbitMQ publisher confirm may still be pending")
+            raise uncertainty from error
         except Exception as error:
             if isinstance(error, OptionalDependencyError):
                 raise
+            if isinstance(error, TransportTimeoutError):
+                raise
             amqp = _load_amqp_types()
+            if not publish_started:
+                raise RabbitMqConnectionError(
+                    "RabbitMQ publication failed before broker write"
+                ) from error
+            if publish_started and publish_generation != getattr(
+                self.manager, "generation", 0
+            ):
+                uncertainty = TransportIndeterminateError(
+                    "RabbitMQ publication crossed a connection generation"
+                )
+                await self._fence(uncertainty, publish_generation)
+                raise uncertainty from error
             if isinstance(error, amqp.publish_error) and publication.mandatory:
                 raise TransportUnroutableError(
                     f"RabbitMQ publication was unroutable: {publication.routing_key}"
@@ -95,13 +141,21 @@ class RabbitMqPublisher:
                     "RabbitMQ publisher confirm rejected the publication"
                 ) from error
             if isinstance(error, (*amqp.uncertainty_errors, TimeoutError, OSError)):
-                raise TransportIndeterminateError(
+                uncertainty = TransportIndeterminateError(
                     "RabbitMQ publication outcome is indeterminate"
-                ) from error
+                )
+                await self._fence(uncertainty, publish_generation)
+                raise uncertainty from error
             raise RabbitMqConnectionError(
                 "RabbitMQ publication failed before broker acceptance"
             ) from error
         if isinstance(result, amqp.ack):
+            if publish_generation != getattr(self.manager, "generation", 0):
+                uncertainty = TransportIndeterminateError(
+                    "RabbitMQ publication confirm crossed a connection generation"
+                )
+                await self._fence(uncertainty, publish_generation)
+                raise uncertainty
             return PublicationReceipt(
                 publication.message_id,
                 utc_now(),
@@ -111,9 +165,26 @@ class RabbitMqPublisher:
             raise TransportRejectedError(
                 "RabbitMQ publisher confirm rejected the publication"
             )
-        raise TransportIndeterminateError(
+        uncertainty = TransportIndeterminateError(
             "RabbitMQ publisher did not provide a definitive confirmation"
         )
+        await self._fence(uncertainty, publish_generation)
+        raise uncertainty
+
+    async def _fence(
+        self,
+        uncertainty: BaseException,
+        generation: int | None,
+        *,
+        note_target: BaseException | None = None,
+    ) -> None:
+        try:
+            await self.manager.fence_connection(uncertainty, generation=generation)
+        except BaseException as fence_error:
+            (note_target or uncertainty).add_note(
+                "RabbitMQ connection fencing failed: "
+                f"{type(fence_error).__name__}: {fence_error}"
+            )
 
 
 def _load_aio_pika() -> Any:

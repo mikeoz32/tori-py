@@ -52,14 +52,15 @@ def compile_controller_message_handlers(
         raise HandlerCompilationError("controller must be a class")
     plans: list[RpcHandlerPlan | EventHandlerPlan] = []
     for method_name, candidate in controller.__dict__.items():
-        handler = _unwrap_handler(candidate)
-        if handler is None:
+        unwrapped = _unwrap_handler(candidate)
+        if unwrapped is None:
             if _inherited_message_metadata(controller, method_name):
                 raise HandlerCompilationError(
                     f"non-callable override shadows decorated handler "
                     f"{controller.__qualname__}.{method_name}"
                 )
             continue
+        handler, skip_first_parameter = unwrapped
         rpc_metadata = get_rpc_metadata(handler)
         event_metadata = get_event_handler_metadata(handler)
         if rpc_metadata is not None and event_metadata is not None:
@@ -75,7 +76,11 @@ def compile_controller_message_handlers(
             )
         expected_context = RpcContext if rpc_metadata is not None else EventContext
         parameters, return_annotation = _compile_signature(
-            handler, expected_context, module_id, modules
+            handler,
+            expected_context,
+            module_id,
+            modules,
+            skip_first_parameter=skip_first_parameter,
         )
         controller_pipeline = _pipeline_plan(controller, module_id, modules)
         method_pipeline = _pipeline_plan(handler, module_id, modules)
@@ -163,19 +168,44 @@ def compile_discovered_service_handlers(
     return _registry_from_plans(compiled)
 
 
+def qualify_pipeline_plan(
+    pipeline: PipelinePlan,
+    module_id: ModuleId,
+    modules: ModulesContainer,
+) -> PipelinePlan:
+    """Compile provider-backed pipeline bindings against one module owner."""
+
+    bindings = (
+        ("middleware", pipeline.middleware),
+        ("guards", pipeline.guards),
+        ("pipes", pipeline.pipes),
+        ("interceptors", pipeline.interceptors),
+        ("filters", pipeline.filters),
+    )
+    if pipeline.middleware:
+        raise HandlerCompilationError(
+            "message middleware is unsupported; use guards, pipes, or interceptors"
+        )
+    return replace(
+        pipeline,
+        qualified_provider_refs=_qualified_pipeline_refs(bindings, module_id, modules),
+    )
+
+
 def _registry_from_plans(
     plans: Iterable[RpcHandlerPlan | EventHandlerPlan],
 ) -> ServiceHandlerRegistry:
     rpc_handlers: list[RpcHandlerPlan] = []
     event_handlers: list[EventHandlerPlan] = []
-    rpc_targets: set[tuple[str, int]] = set()
+    rpc_targets: set[str] = set()
     event_keys: set[tuple[object, EventDispatchMode, str]] = set()
     for plan in plans:
         if isinstance(plan, RpcHandlerPlan):
-            key = (plan.method, plan.schema_version)
-            if key in rpc_targets:
-                raise HandlerCompilationError(f"duplicate RPC target {key!r}")
-            rpc_targets.add(key)
+            if plan.method in rpc_targets:
+                raise HandlerCompilationError(
+                    f"duplicate RPC method alias {plan.method!r}"
+                )
+            rpc_targets.add(plan.method)
             rpc_handlers.append(plan)
             continue
         key = (plan.identity, plan.mode, plan.subscription)
@@ -189,9 +219,13 @@ def _registry_from_plans(
 
 
 def _unwrap_handler(candidate: object):
-    if isinstance(candidate, (staticmethod, classmethod)):
-        return candidate.__func__
-    return candidate if callable(candidate) else None
+    if isinstance(candidate, staticmethod):
+        return candidate.__func__, False
+    if isinstance(candidate, classmethod):
+        return candidate.__func__, True
+    if inspect.isfunction(candidate):
+        return candidate, True
+    return None
 
 
 def _inherited_message_metadata(controller: type[object], method_name: str) -> bool:
@@ -199,7 +233,8 @@ def _inherited_message_metadata(controller: type[object], method_name: str) -> b
         inherited = base.__dict__.get(method_name)
         if inherited is None:
             continue
-        handler = _unwrap_handler(inherited)
+        unwrapped = _unwrap_handler(inherited)
+        handler = None if unwrapped is None else unwrapped[0]
         if handler is not None and (
             get_rpc_metadata(handler) is not None
             or get_event_handler_metadata(handler) is not None
@@ -213,6 +248,8 @@ def _compile_signature(
     expected_context: type[object],
     module_id: ModuleId,
     modules: ModulesContainer | None,
+    *,
+    skip_first_parameter: bool,
 ) -> tuple[tuple[MessageParameterPlan, ...], object]:
     try:
         handler_callable = cast(Callable[..., object], handler)
@@ -224,8 +261,8 @@ def _compile_signature(
         ) from error
     plans: list[MessageParameterPlan] = []
     complete_payloads = 0
-    for parameter in signature.parameters.values():
-        if parameter.name == "self":
+    for index, parameter in enumerate(signature.parameters.values()):
+        if skip_first_parameter and index == 0:
             continue
         if parameter.kind in {
             inspect.Parameter.POSITIONAL_ONLY,
@@ -243,10 +280,8 @@ def _compile_signature(
             )
         kind, source, token = _marker_details(markers[0])
         annotation_base = _annotation_base(converted_annotation)
-        context_types = getattr(annotation_base, "__mro__", ())
-        if kind == "context" and (
-            not isinstance(annotation_base, type)
-            or expected_context not in context_types
+        if kind == "context" and not _context_annotation_accepts(
+            expected_context, annotation_base
         ):
             raise HandlerCompilationError(
                 f"handler context parameter {parameter.name} has the wrong context type"
@@ -294,6 +329,17 @@ def _annotation_base(annotation: object) -> object:
     return annotation
 
 
+def _context_annotation_accepts(
+    expected_context: type[object], annotation: object
+) -> bool:
+    if not isinstance(annotation, type):
+        return False
+    try:
+        return issubclass(expected_context, annotation)
+    except TypeError:
+        return False
+
+
 def _marker_details(marker: object) -> tuple[str, str | None, Token | None]:
     if isinstance(marker, Payload):
         return "payload", marker.source, None
@@ -320,19 +366,32 @@ def _pipeline_plan(
         ("interceptors", get_pipeline_metadata(target, "interceptors")),
         ("filters", get_pipeline_metadata(target, "filters")),
     )
-    qualified: list[tuple[str, ProviderRef]] = []
-    if modules is not None:
-        for kind, values in bindings:
-            for value in values:
-                if isinstance(value, (str, type)):
-                    qualified.append((kind, _provider_ref(modules, module_id, value)))
+    if bindings[0][1]:
+        raise HandlerCompilationError(
+            "message middleware is unsupported; use guards, pipes, or interceptors"
+        )
     return PipelinePlan(
         middleware=bindings[0][1],
         guards=bindings[1][1],
         pipes=bindings[2][1],
         interceptors=bindings[3][1],
         filters=bindings[4][1],
-        qualified_provider_refs=tuple(qualified),
+        qualified_provider_refs=_qualified_pipeline_refs(bindings, module_id, modules),
+    )
+
+
+def _qualified_pipeline_refs(
+    bindings: tuple[tuple[str, Iterable[object]], ...],
+    module_id: ModuleId,
+    modules: ModulesContainer | None,
+) -> tuple[tuple[str, ProviderRef], ...]:
+    if modules is None:
+        return ()
+    return tuple(
+        (kind, _provider_ref(modules, module_id, value))
+        for kind, values in bindings
+        for value in values
+        if isinstance(value, (str, type))
     )
 
 
@@ -357,4 +416,5 @@ __all__ = [
     "compile_controller_message_handlers",
     "compile_discovered_service_handlers",
     "compile_service_handler_registry",
+    "qualify_pipeline_plan",
 ]

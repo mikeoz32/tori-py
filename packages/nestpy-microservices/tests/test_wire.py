@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 from uuid import uuid4
@@ -17,6 +17,7 @@ from nestpy_microservices import (
     RpcResponseEnvelope,
     ServiceIdentity,
     WireDecodingError,
+    WireEncodingError,
     WireSizeLimitError,
 )
 
@@ -37,6 +38,8 @@ def _request() -> RpcRequestEnvelope:
         created_at=created_at,
         deadline_at=created_at + timedelta(seconds=5),
         correlation_id=uuid4(),
+        causation_id=uuid4(),
+        idempotency_key="profile-resolution-1",
         headers={"trace": {"sampled": True}, "tenant": "community"},
         payload=ProfilePayload("velvet", True),
     )
@@ -53,6 +56,8 @@ def test_request_round_trip_is_deterministic_and_typed() -> None:
     decoded = codec.decode_request(first)
     assert decoded == codec.decode_request(second)
     assert decoded.service == request.service
+    assert decoded.causation_id == request.causation_id
+    assert decoded.idempotency_key == request.idempotency_key
     assert decoded.payload == {"age_attested": True, "handle": "velvet"}
     trace = cast(Mapping[str, object], decoded.headers["trace"])
     assert trace["sampled"] is True
@@ -160,3 +165,44 @@ def test_header_byte_limit_preserves_size_error_during_decode() -> None:
 
     with pytest.raises(WireSizeLimitError):
         MsgspecJsonMessageCodec(MessageLimits(max_header_bytes=10)).decode_request(wire)
+
+
+def test_json_rejects_duplicate_members_and_non_finite_numbers() -> None:
+    codec = MsgspecJsonMessageCodec()
+
+    with pytest.raises(WireDecodingError):
+        codec.decode_request(b'{"kind":"rpc_request","kind":"rpc_request"}')
+    with pytest.raises(WireDecodingError):
+        codec.decode_request(b'{"kind":"rpc_request","payload":NaN}')
+    with pytest.raises(WireDecodingError):
+        codec.decode_request(b'{"kind":"rpc_request","payload":1e999}')
+
+    with pytest.raises(WireEncodingError):
+        codec.encode_request(replace(_request(), payload=float("inf")))
+
+
+def test_custom_limits_apply_to_deeper_outgoing_payloads() -> None:
+    payload: object = "leaf"
+    for _ in range(65):
+        payload = [payload]
+
+    codec = MsgspecJsonMessageCodec(MessageLimits(max_nesting_depth=66))
+    decoded = codec.decode_request(
+        codec.encode_request(replace(_request(), payload=payload))
+    )
+
+    assert decoded.payload == payload
+
+
+def test_outgoing_payload_limits_match_decode_limits() -> None:
+    request = _request()
+
+    with pytest.raises(WireSizeLimitError):
+        MsgspecJsonMessageCodec(MessageLimits(max_nesting_depth=1)).encode_request(
+            replace(request, payload={"nested": {"value": True}})
+        )
+
+    with pytest.raises(WireSizeLimitError):
+        MsgspecJsonMessageCodec(MessageLimits(max_collection_items=1)).encode_request(
+            replace(request, payload=["first", "second"])
+        )

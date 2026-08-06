@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any, Protocol
@@ -52,7 +52,7 @@ class RabbitMqConnectionManager:
     def __init__(self, options: RabbitMqOptions) -> None:
         self.options = options
         self._status = RabbitMqStatus.CREATED
-        self._status_events: asyncio.Queue[RabbitMqStatus] = asyncio.Queue()
+        self._status_events: asyncio.Queue[RabbitMqStatus] = asyncio.Queue(maxsize=8)
         self._connection: Any | None = None
         self._channels: RabbitMqChannels | None = None
         self._listeners: list[RabbitMqRecoveryListener] = []
@@ -113,10 +113,11 @@ class RabbitMqConnectionManager:
             try:
                 aio_pika = require_aio_pika()
                 connection = await aio_pika.connect_robust(
-                    self.options.url,
+                    self.options.connection_url,
                     heartbeat=self.options.heartbeat,
                     timeout=self.options.connection_timeout,
                     reconnect_interval=self.options.reconnect_interval,
+                    ssl=self.options.tls,
                     client_properties={"connection_name": self.options.connection_name},
                 )
                 consumer = await connection.channel(publisher_confirms=False)
@@ -412,28 +413,28 @@ class RabbitMqConnectionManager:
                 connection,
                 timeout=self.options.connection_timeout,
             )
-            self._recovery_error = cleanup_errors[0] if cleanup_errors else error
-            self._set_status(RabbitMqStatus.FAILED)
-            return
-        assert connection is not None
-        try:
-            await asyncio.wait_for(
-                native(error if isinstance(error, Exception) else None),
-                timeout=self.options.connection_timeout,
-            )
-            self._recovery_error = error
-            self._set_status(RabbitMqStatus.FAILED)
-        except BaseException as close_error:
+            recovery_error = cleanup_errors[0] if cleanup_errors else error
+        else:
+            assert connection is not None
             try:
                 await asyncio.wait_for(
-                    connection.close(),
+                    native(error if isinstance(error, Exception) else None),
                     timeout=self.options.connection_timeout,
                 )
-            except BaseException as fallback_error:
-                self._recovery_error = fallback_error
+            except BaseException as close_error:
+                try:
+                    await asyncio.wait_for(
+                        connection.close(),
+                        timeout=self.options.connection_timeout,
+                    )
+                except BaseException as fallback_error:
+                    recovery_error = fallback_error
+                else:
+                    recovery_error = close_error
             else:
-                self._recovery_error = close_error
-            self._set_status(RabbitMqStatus.FAILED)
+                recovery_error = error
+        self._recovery_error = recovery_error
+        self._set_status(RabbitMqStatus.FAILED)
 
     def _set_status(self, status: RabbitMqStatus) -> None:
         if self._status is status:
@@ -447,7 +448,26 @@ class RabbitMqConnectionManager:
             self._recovery_finished.set()
         elif status in {RabbitMqStatus.CONNECTING, RabbitMqStatus.RECOVERING}:
             self._recovery_finished.clear()
-        self._status_events.put_nowait(status)
+        _put_coalescing_status(self._status_events, status, key=lambda value: value)
+
+
+def _put_coalescing_status[T](
+    queue: asyncio.Queue[T], value: T, *, key: Callable[[T], object]
+) -> None:
+    """Keep distinct pending states while collapsing repeated transitions."""
+
+    pending: list[T] = []
+    while not queue.empty():
+        pending.append(queue.get_nowait())
+    value_key = key(value)
+    if pending and key(pending[-1]) == value_key:
+        pending[-1] = value
+    else:
+        pending.append(value)
+    if queue.maxsize:
+        pending = pending[-queue.maxsize :]
+    for item in pending:
+        queue.put_nowait(item)
 
 
 async def _close_resources(
@@ -476,16 +496,37 @@ async def _close_resources(
             if callable(native):
                 try:
                     await asyncio.wait_for(native(), timeout=timeout)
-                    close_task.add_done_callback(_consume_resource_task)
-                    return channel_failures
+                    task_failures = await _cancel_resource_task(close_task, timeout)
+                    return [*channel_failures, *task_failures]
                 except BaseException as native_error:
-                    close_task.cancel()
-                    close_task.add_done_callback(_consume_resource_task)
-                    return [*channel_failures, error, native_error]
-            close_task.cancel()
-            close_task.add_done_callback(_consume_resource_task)
-            return [*channel_failures, error]
+                    task_failures = await _cancel_resource_task(close_task, timeout)
+                    return [*channel_failures, error, native_error, *task_failures]
+            task_failures = await _cancel_resource_task(close_task, timeout)
+            return [*channel_failures, error, *task_failures]
     return channel_failures
+
+
+async def _cancel_resource_task(
+    task: asyncio.Task[object], timeout: float
+) -> list[BaseException]:
+    if task.done():
+        if task.cancelled():
+            return []
+        error = task.exception()
+        return [] if error is None else [error]
+    task.cancel()
+    try:
+        await asyncio.wait_for(asyncio.shield(task), timeout=timeout)
+    except asyncio.CancelledError:
+        if task.cancelled():
+            return []
+        raise
+    except TimeoutError as error:
+        task.add_done_callback(_consume_resource_task)
+        return [error]
+    except BaseException as error:
+        return [error]
+    return []
 
 
 def _consume_resource_task(task: asyncio.Task[object]) -> None:

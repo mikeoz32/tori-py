@@ -1,7 +1,12 @@
 from __future__ import annotations
 
 import nestpy_microservices
-from nestpy_microservices import MicroservicesError, OptionalDependencyError
+from nestpy_microservices import (
+    MicroservicesError,
+    OptionalDependencyError,
+    PublicRpcError,
+    UnknownServiceError,
+)
 
 
 def test_root_facade_is_exact_and_typed() -> None:
@@ -53,11 +58,13 @@ def test_root_facade_is_exact_and_typed() -> None:
         "MicroservicesError",
         "MsgspecJsonMessageCodec",
         "OptionalDependencyError",
+        "PublicRpcError",
         "RemoteRpcError",
         "RpcClientError",
         "RpcOutcomeUnknownError",
         "RpcProtocolError",
         "RpcTimeoutError",
+        "UnknownServiceError",
         "Payload",
         "PipelinePlan",
         "ReplyRoute",
@@ -134,6 +141,8 @@ def test_root_facade_is_exact_and_typed() -> None:
         hasattr(nestpy_microservices, name) for name in nestpy_microservices.__all__
     )
     assert issubclass(OptionalDependencyError, MicroservicesError)
+    assert issubclass(PublicRpcError, MicroservicesError)
+    assert issubclass(UnknownServiceError, MicroservicesError)
     assert MicroservicesError.diagnostic_code == "microservices.error"
     assert (
         OptionalDependencyError("aio-pika", "rabbitmq").diagnostic_code

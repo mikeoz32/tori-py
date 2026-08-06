@@ -22,6 +22,11 @@ class ScopedResolver(Protocol):
     async def resolve(self, token: Token) -> object:
         """Resolve one provider token."""
 
+
+@runtime_checkable
+class QualifiedScopedResolver(ScopedResolver, Protocol):
+    """Optional exact-reference resolution capability."""
+
     async def resolve_ref(self, ref: ProviderRef) -> object:
         """Resolve one exact provider reference visible from this module."""
 

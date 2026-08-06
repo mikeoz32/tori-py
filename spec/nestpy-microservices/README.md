@@ -10,9 +10,14 @@ Governing documents:
 MS0-MS9 capabilities are implemented in the current worktree, including the MS9
 root-owned application-facing `EventDispatcher`, RabbitMQ event routing,
 complete real-broker cardinality matrix, offline ephemeral behavior, and
-reliable-broadcast restart retention. MS10 failure hardening and MS11 release
-acceptance are not complete; broker application restart is covered by the MS10
-slice, while network-blackhole and request/reply/ACK recovery remain unproven.
+reliable-broadcast restart retention. MS10 failure hardening is implemented and
+MS11 release acceptance is not complete; broker application restart, pending-RPC reconnect
+behavior, and bounded proxy-injected network blackhole recovery are covered by
+the MS10 slice; publisher-confirm cancellation fencing, deleted-reply-route
+terminal settlement, poison-event retry/DLX behavior, malformed schema
+dead-lettering, handler/reply blackholes, pre-write timeout classification, and
+active-RPC forced shutdown are covered as well. The remaining work is complete
+observability/security hardening and MS11 release acceptance.
 
 ## Phase Map
 
@@ -28,7 +33,7 @@ slice, while network-blackhole and request/reply/ACK recovery remain unproven.
 | MS7 | [RabbitMQ foundation and topology](phase-ms7-rabbitmq-foundation-and-topology.md) | Owned robust connection and exact topology | Implemented; MS10 owns broker recovery hardening |
 | MS8 | [RabbitMQ RPC service cluster](phase-ms8-rabbitmq-rpc-service-cluster.md) | Wildcard-bound competing service replicas | Implemented; full fault matrix pending |
 | MS9 | [Clustered event dispatch](phase-ms9-clustered-event-dispatch.md) | SERVICE_POOL, SINGLETON, and BROADCAST | Implemented; exit criteria proven against real RabbitMQ |
-| MS10 | [Failure recovery and hardening](phase-ms10-failure-recovery-and-hardening.md) | Bounded explicit distributed failures | In progress; not complete |
+| MS10 | [Failure recovery and hardening](phase-ms10-failure-recovery-and-hardening.md) | Bounded explicit distributed failures | Implemented; MS11 release gates remain |
 | MS11 | [Acceptance, docs, and release](phase-ms11-acceptance-docs-and-release.md) | Reviewed releasable artifacts | Not complete |
 
 ## Governing Invariants

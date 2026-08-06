@@ -6,10 +6,13 @@ from typing import cast
 from uuid import UUID, uuid4
 
 import pytest
+
 from nestpy_microservices import (
     EventIdentity,
+    EventSubscription,
     IdentityValidationError,
     MessageLimits,
+    MicroservicesOptions,
     ReplyRoute,
     RpcTarget,
     ServiceIdentity,
@@ -65,6 +68,37 @@ def test_composed_names_and_reply_routes_are_bounded() -> None:
     assert generated.value.startswith("reply.")
     with pytest.raises(WireValidationError):
         ReplyRoute("reply.not-a-token")
+
+
+@pytest.mark.parametrize("field", ["subscription", "instance_id"])
+def test_event_route_aliases_use_the_canonical_grammar(field: str) -> None:
+    values: dict[str, object] = {
+        "identity": EventIdentity(
+            ServiceIdentity("kinker", "members", 1), "profile-created", 1
+        ),
+        "mode": "broadcast",
+        "subscription": "profile-cache",
+        "destination": ServiceIdentity("kinker", "members", 1),
+        "instance_id": "replica-a",
+    }
+    values[field] = "Invalid.Alias"
+
+    with pytest.raises(IdentityValidationError):
+        EventSubscription(**values)  # type: ignore[arg-type]
+
+    generated = EventSubscription(
+        values["identity"],
+        "broadcast",
+        "profile-cache",
+        destination=values["destination"],
+    )
+    assert generated.instance_id is not None
+    assert generated.instance_id.startswith("instance-")
+
+
+def test_options_validate_instance_aliases() -> None:
+    with pytest.raises(IdentityValidationError):
+        MicroservicesOptions(instance_id="Replica.A")
 
 
 def test_message_limits_and_time_values_are_explicitly_validated() -> None:

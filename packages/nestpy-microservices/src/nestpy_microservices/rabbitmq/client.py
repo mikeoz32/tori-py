@@ -25,6 +25,7 @@ from nestpy_microservices.identities import (
 from nestpy_microservices.rabbitmq.connection import (
     RabbitMqChannelRole,
     RabbitMqConnectionManager,
+    _put_coalescing_status,
 )
 from nestpy_microservices.rabbitmq.publisher import RabbitMqPublisher
 from nestpy_microservices.rabbitmq.server import _decode_message
@@ -61,11 +62,15 @@ class RabbitMqClientTransport(ClientTransport):
         self._reply_to = reply_to or ReplyRoute.generate()
         self.max_pending_replies = max_pending_replies
         self._status = TransportStatus.CREATED
-        self._status_events: asyncio.Queue[TransportStatusEvent] = asyncio.Queue()
+        self._status_events: asyncio.Queue[TransportStatusEvent] = asyncio.Queue(
+            maxsize=8
+        )
         self._reply_queue = self._new_reply_queue()
         self._reply_consumer: Any | None = None
         self._consumer_tag: str | None = None
         self._pending: set[UUID] = set()
+        self._publishing: set[UUID] = set()
+        self._reply_won_publications: set[UUID] = set()
         self._completed: deque[UUID] = deque(maxlen=max_pending_replies)
         self._settlements: dict[int, tuple[Any, int]] = {}
         self._callback_tasks: set[asyncio.Task[Any]] = set()
@@ -83,6 +88,10 @@ class RabbitMqClientTransport(ClientTransport):
     @property
     def status(self) -> TransportStatus:
         return self._status
+
+    @property
+    def generation(self) -> int:
+        return self.manager.generation
 
     @property
     def reply_to(self) -> ReplyRoute:
@@ -123,13 +132,20 @@ class RabbitMqClientTransport(ClientTransport):
                 "a correlation ID"
             )
         self._reserve(correlation_id)
+        self._publishing.add(correlation_id)
         try:
             return await self._publisher.publish(
-                _with_publication(publication, mandatory=True)
+                _with_publication(publication, mandatory=True),
+                fence_on_cancel=lambda: (
+                    correlation_id not in self._reply_won_publications
+                ),
             )
         except BaseException:
             self._pending.discard(correlation_id)
             raise
+        finally:
+            self._publishing.discard(correlation_id)
+            self._reply_won_publications.discard(correlation_id)
 
     async def publish_event(
         self, identity: EventIdentity, publication: Publication
@@ -191,11 +207,7 @@ class RabbitMqClientTransport(ClientTransport):
         self._admission_open = False
         await _cross_scheduling_fence()
         drain_errors = await self._drain_callbacks_and_replies()
-        self._pending.clear()
-        self._completed.clear()
-        self._settlements.clear()
-        self._reply_consumer = None
-        self._consumer_tag = None
+        self._clear_reply_state()
         self.manager.unregister_recovery_listener(self)
         self._set_status(TransportStatus.CLOSED)
         self._ready.set()
@@ -214,6 +226,10 @@ class RabbitMqClientTransport(ClientTransport):
 
     def cancel_pending(self, correlation_id: UUID) -> None:
         self._pending.discard(correlation_id)
+
+    def cancel_publication_after_reply(self, correlation_id: UUID) -> None:
+        if correlation_id in self._publishing:
+            self._reply_won_publications.add(correlation_id)
 
     async def connection_lost(self, error: BaseException | None) -> None:
         async with self._lifecycle_lock:
@@ -238,16 +254,21 @@ class RabbitMqClientTransport(ClientTransport):
         self._admission_open = False
         await _cross_scheduling_fence()
         old_reply_queue = self._reply_queue
-        await self._drain_callbacks_and_replies(old_reply_queue, settle=False)
-        self._pending.clear()
-        self._completed.clear()
-        self._settlements.clear()
-        self._reply_consumer = None
-        self._consumer_tag = None
+        drain_errors = await self._drain_callbacks_and_replies(
+            old_reply_queue, settle=False
+        )
+        self._clear_reply_state()
         self._reply_queue = self._new_reply_queue()
         _signal_queue_closed(old_reply_queue)
         self._ready.clear()
         self._set_status(TransportStatus.QUIESCING)
+        if drain_errors:
+            failure = RabbitMqConnectionError(
+                "RabbitMQ reply callbacks did not drain before recovery"
+            )
+            for drain_error in drain_errors:
+                failure.add_note(f"{type(drain_error).__name__}: {drain_error}")
+            raise failure from drain_errors[0]
 
     async def connection_recovered(self) -> None:
         async with self._lifecycle_lock:
@@ -308,45 +329,70 @@ class RabbitMqClientTransport(ClientTransport):
             prefetch_count=self.max_pending_replies,
             global_=False,
         )
+        self._reply_consumer = queue
+        self._consumer_tag = consumer_tag
         try:
             await queue.consume(
-                partial(self._handoff_reply, reply_queue=self._reply_queue),
+                partial(
+                    self._handoff_reply,
+                    reply_queue=self._reply_queue,
+                    generation=getattr(self.manager, "generation", 0),
+                ),
                 consumer_tag=consumer_tag,
                 no_ack=False,
                 robust=False,
             )
         except BaseException as error:
             try:
-                await queue.cancel(consumer_tag)
+                await self._cancel_reply_consumer()
             except BaseException as cleanup_error:
                 error.add_note(
                     "reply consumer cancellation failure: "
                     f"{type(cleanup_error).__name__}: {cleanup_error}"
                 )
             raise
-        self._reply_consumer = queue
-        self._consumer_tag = consumer_tag
 
     async def _cancel_reply_consumer(self) -> None:
         queue = self._reply_consumer
         tag = self._consumer_tag
-        self._reply_consumer = None
-        self._consumer_tag = None
         if queue is not None and tag is not None:
+            task = asyncio.create_task(queue.cancel(tag))
             try:
-                await queue.cancel(tag)
+                await asyncio.wait_for(
+                    asyncio.shield(task),
+                    timeout=self.manager.options.connection_timeout,
+                )
+            except asyncio.CancelledError:
+                task.cancel()
+                task.add_done_callback(_observe_task)
+                raise
+            except TimeoutError as error:
+                task.cancel()
+                task.add_done_callback(_observe_task)
+                raise RabbitMqConnectionError(
+                    "RabbitMQ reply consumer cancellation timed out"
+                ) from error
             except BaseException as error:
                 raise RabbitMqConnectionError(
                     "RabbitMQ reply consumer cancellation failed"
                 ) from error
+            self._reply_consumer = None
+            self._consumer_tag = None
 
     async def _handoff_reply(
         self,
         message: Any,
         *,
         reply_queue: asyncio.Queue[_ReplyItem | None],
+        generation: int,
     ) -> None:
-        task = asyncio.create_task(self._on_reply(message, reply_queue=reply_queue))
+        task = asyncio.create_task(
+            self._on_reply(
+                message,
+                reply_queue=reply_queue,
+                generation=generation,
+            )
+        )
         self._callback_tasks.add(task)
         task.add_done_callback(self._callback_tasks.discard)
         await asyncio.shield(task)
@@ -356,9 +402,12 @@ class RabbitMqClientTransport(ClientTransport):
         message: Any,
         *,
         reply_queue: asyncio.Queue[_ReplyItem | None] | None = None,
+        generation: int | None = None,
     ) -> None:
         reply_queue = self._reply_queue if reply_queue is None else reply_queue
-        generation = getattr(self.manager, "generation", 0)
+        generation = (
+            getattr(self.manager, "generation", 0) if generation is None else generation
+        )
         if not self._admission_open or reply_queue is not self._reply_queue:
             if reply_queue is self._reply_queue:
                 await self._ack_message(
@@ -424,12 +473,24 @@ class RabbitMqClientTransport(ClientTransport):
         try:
             await message.ack()
         except asyncio.CancelledError as error:
-            await self.manager.fence_connection(error, generation=generation)
+            try:
+                await self.manager.fence_connection(error, generation=generation)
+            except BaseException as fence_error:
+                error.add_note(
+                    f"{detail} fencing failed: "
+                    f"{type(fence_error).__name__}: {fence_error}"
+                )
             error.add_note(f"{detail} may be indeterminate")
             raise
         except Exception as error:
             uncertainty = TransportIndeterminateError(f"{detail} is indeterminate")
-            await self.manager.fence_connection(uncertainty, generation=generation)
+            try:
+                await self.manager.fence_connection(uncertainty, generation=generation)
+            except BaseException as fence_error:
+                uncertainty.add_note(
+                    f"{detail} fencing failed: "
+                    f"{type(fence_error).__name__}: {fence_error}"
+                )
             raise uncertainty from error
 
     async def _drain_callbacks_and_replies(
@@ -439,17 +500,7 @@ class RabbitMqClientTransport(ClientTransport):
         settle: bool = True,
     ) -> list[BaseException]:
         reply_queue = self._reply_queue if reply_queue is None else reply_queue
-        failures: list[BaseException] = []
-        while not reply_queue.empty():
-            delivery = reply_queue.get_nowait()
-            if delivery is not None:
-                if settle:
-                    try:
-                        await self._ack_reply(delivery)
-                    except BaseException as error:
-                        failures.append(error)
-                else:
-                    self._settlements.pop(id(delivery), None)
+        failures = await self._drain_reply_queue(reply_queue, settle=settle)
         current = asyncio.current_task()
         tasks = tuple(task for task in self._callback_tasks if task is not current)
         if tasks:
@@ -477,6 +528,16 @@ class RabbitMqClientTransport(ClientTransport):
                 failures.append(
                     TimeoutError("RabbitMQ reply callbacks remained after cancellation")
                 )
+        failures.extend(await self._drain_reply_queue(reply_queue, settle=settle))
+        return failures
+
+    async def _drain_reply_queue(
+        self,
+        reply_queue: asyncio.Queue[_ReplyItem | None],
+        *,
+        settle: bool,
+    ) -> list[BaseException]:
+        failures: list[BaseException] = []
         while not reply_queue.empty():
             delivery = reply_queue.get_nowait()
             if delivery is not None:
@@ -496,6 +557,13 @@ class RabbitMqClientTransport(ClientTransport):
             raise TransportCapacityError("pending reply map is full")
         self._pending.add(correlation_id)
 
+    def _clear_reply_state(self) -> None:
+        self._pending.clear()
+        self._completed.clear()
+        self._settlements.clear()
+        self._reply_consumer = None
+        self._consumer_tag = None
+
     def _new_reply_queue(self) -> asyncio.Queue[_ReplyItem | None]:
         return asyncio.Queue(maxsize=self.max_pending_replies)
 
@@ -503,7 +571,15 @@ class RabbitMqClientTransport(ClientTransport):
         if self._status is status:
             return
         self._status = status
-        self._status_events.put_nowait(TransportStatusEvent(status, utc_now()))
+        _put_coalescing_status(
+            self._status_events,
+            TransportStatusEvent(
+                status,
+                utc_now(),
+                generation=getattr(self.manager, "generation", 0),
+            ),
+            key=lambda event: event.status,
+        )
 
     def _require_running(self) -> None:
         if self._status is not TransportStatus.RUNNING:
@@ -513,6 +589,11 @@ class RabbitMqClientTransport(ClientTransport):
 def _clear_queue(queue: asyncio.Queue[_ReplyItem | None]) -> None:
     while not queue.empty():
         queue.get_nowait()
+
+
+def _observe_task(task: asyncio.Task[Any]) -> None:
+    if not task.cancelled():
+        task.exception()
 
 
 def _signal_queue_closed(queue: asyncio.Queue[_ReplyItem | None]) -> None:

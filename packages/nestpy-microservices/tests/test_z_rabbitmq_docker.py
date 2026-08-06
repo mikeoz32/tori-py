@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from hashlib import sha256
 from pathlib import Path
 from typing import Annotated, cast
+from urllib.parse import urlsplit, urlunsplit
 from urllib.request import Request, urlopen
 from uuid import uuid4
 
@@ -16,7 +17,13 @@ from nestpy.testing import TestingModule
 
 pytest.importorskip("pytest_docker")
 
-from nestpy_microservices.errors import RabbitMqConnectionError  # noqa: E402
+from nestpy_microservices.errors import (  # noqa: E402
+    RabbitMqConnectionError,
+    RpcOutcomeUnknownError,
+    RpcTimeoutError,
+    TransportIndeterminateError,
+)
+from nestpy_microservices.rabbitmq import compile_event_topology  # noqa: E402
 from nestpy_microservices.testing import assert_transport_conformance  # noqa: E402
 
 from nestpy_microservices import (  # noqa: E402
@@ -25,6 +32,7 @@ from nestpy_microservices import (  # noqa: E402
     EventContext,
     EventDispatcher,
     EventDispatchMode,
+    EventEnvelope,
     EventIdentity,
     EventSubscription,
     Headers,
@@ -36,6 +44,7 @@ from nestpy_microservices import (  # noqa: E402
     RabbitMqConnectionManager,
     RabbitMqModule,
     RabbitMqOptions,
+    RabbitMqPublisher,
     RabbitMqServerTransport,
     RabbitMqTransport,
     RpcResponseEnvelope,
@@ -43,6 +52,7 @@ from nestpy_microservices import (  # noqa: E402
     ServiceCluster,
     ServiceIdentity,
     SettlementRecommendation,
+    TransportError,
     TransportStatus,
     TransportUnroutableError,
     event_handler,
@@ -189,6 +199,116 @@ async def _restart_rabbitmq(docker_services) -> None:
         compose.execute("exec -T rabbitmq rabbitmqctl start_app")
 
     await asyncio.to_thread(restart)
+
+
+class _BlackholeProxy:
+    def __init__(self, target_url: str) -> None:
+        target = urlsplit(target_url)
+        if target.hostname is None or target.port is None:
+            raise ValueError("RabbitMQ target URL must include host and port")
+        self._target_host = target.hostname
+        self._target_port = target.port
+        self._server: asyncio.Server | None = None
+        self._tasks: set[asyncio.Task[None]] = set()
+        self._forwarding = asyncio.Event()
+        self._forwarding.set()
+
+    @property
+    def port(self) -> int:
+        if self._server is None or not self._server.sockets:
+            raise RuntimeError("blackhole proxy is not started")
+        return cast(int, self._server.sockets[0].getsockname()[1])
+
+    async def start(self) -> None:
+        self._server = await asyncio.start_server(
+            self._accept,
+            host="127.0.0.1",
+            port=0,
+        )
+
+    def url_for(self, target_url: str) -> str:
+        target = urlsplit(target_url)
+        credentials = ""
+        if target.username is not None:
+            credentials = target.username
+            if target.password is not None:
+                credentials += f":{target.password}"
+            credentials += "@"
+        return urlunsplit(target._replace(netloc=f"{credentials}127.0.0.1:{self.port}"))
+
+    async def block(self) -> None:
+        self._forwarding.clear()
+
+    async def unblock(self) -> None:
+        self._forwarding.set()
+
+    async def close(self) -> None:
+        self._forwarding.set()
+        if self._server is not None:
+            self._server.close()
+            await self._server.wait_closed()
+        tasks = tuple(self._tasks)
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+    async def _accept(
+        self,
+        reader: asyncio.StreamReader,
+        writer: asyncio.StreamWriter,
+    ) -> None:
+        task = asyncio.create_task(self._proxy(reader, writer))
+        self._tasks.add(task)
+        task.add_done_callback(self._task_finished)
+
+    async def _proxy(
+        self,
+        reader: asyncio.StreamReader,
+        writer: asyncio.StreamWriter,
+    ) -> None:
+        target_writer: asyncio.StreamWriter | None = None
+        relays: tuple[asyncio.Task[None], ...] = ()
+        try:
+            target_reader, target_writer = await asyncio.open_connection(
+                self._target_host,
+                self._target_port,
+            )
+            relays = (
+                asyncio.create_task(self._relay(reader, target_writer)),
+                asyncio.create_task(self._relay(target_reader, writer)),
+            )
+            _, pending = await asyncio.wait(
+                relays,
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            for task in pending:
+                task.cancel()
+            await asyncio.gather(*relays, return_exceptions=True)
+        finally:
+            for task in relays:
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(*relays, return_exceptions=True)
+            writer.close()
+            await writer.wait_closed()
+            if target_writer is not None:
+                target_writer.close()
+                await target_writer.wait_closed()
+
+    async def _relay(
+        self,
+        reader: asyncio.StreamReader,
+        writer: asyncio.StreamWriter,
+    ) -> None:
+        while data := await reader.read(65_536):
+            await self._forwarding.wait()
+            writer.write(data)
+            await writer.drain()
+
+    def _task_finished(self, task: asyncio.Task[None]) -> None:
+        self._tasks.discard(task)
+        if not task.cancelled():
+            task.exception()
 
 
 async def _wait_for_rabbitmq_ready(docker_services, url: str) -> None:
@@ -352,6 +472,186 @@ async def test_rabbitmq_rpc_roundtrip_and_event_redelivery(rabbitmq_url: str) ->
 
 @pytest.mark.asyncio
 @pytest.mark.rabbitmq
+async def test_rabbitmq_poison_event_reaches_dead_letter_after_bounded_retries(
+    rabbitmq_url: str,
+    rabbitmq_management_url: str,
+) -> None:
+    suffix = uuid4().hex[:8]
+    source = ServiceIdentity("poison", f"publisher-{suffix}", 1)
+    event = EventIdentity(source, "changed", 1)
+    service = ServiceIdentity("poison", f"worker-{suffix}", 1)
+    subscription = EventSubscription(
+        event,
+        "service_pool",
+        f"events-{suffix}",
+        destination=service,
+    )
+    manager = RabbitMqConnectionManager(
+        RabbitMqOptions(
+            rabbitmq_url,
+            connection_name=f"pytest-poison-{suffix}",
+        )
+    )
+    server = RabbitMqServerTransport(
+        manager,
+        service,
+        retry_delay_ms=50,
+        max_delivery_attempts=2,
+    )
+    publisher_manager: RabbitMqConnectionManager | None = None
+    dispatcher: EventDispatcher | None = None
+    deliveries: list[EncodedDelivery] = []
+
+    async def dispatch(delivery: EncodedDelivery) -> SettlementRecommendation:
+        deliveries.append(delivery)
+        return SettlementRecommendation.RETRY
+
+    topology = compile_event_topology(
+        subscription,
+        retry_delay_ms=50,
+        delivery_limit=2,
+    )
+    primary = topology.queues[0].name
+    dead_letter = f"{primary}.dead-letter"
+    try:
+        await manager.start()
+        await server.prepare(subscriptions=(subscription,))
+        await server.start(dispatch)
+        publisher_manager, dispatcher = await _start_dispatcher(
+            rabbitmq_url, source, suffix
+        )
+        await dispatcher.publish(
+            event.event,
+            event.schema_version,
+            {"sequence": 1},
+            require_route=True,
+        )
+
+        async with asyncio.timeout(15):
+            while len(deliveries) < 2:
+                await asyncio.sleep(0.05)
+        assert deliveries[1].redelivered is True
+        assert deliveries[1].message_id == deliveries[0].message_id
+
+        async with asyncio.timeout(15):
+            while True:
+                queues = await asyncio.to_thread(
+                    _load_management_collection,
+                    rabbitmq_management_url,
+                    "queues",
+                )
+                queue = next(
+                    (item for item in queues if item.get("name") == dead_letter),
+                    None,
+                )
+                messages = queue.get("messages") if queue is not None else None
+                if isinstance(messages, int) and messages >= 1:
+                    break
+                await asyncio.sleep(0.1)
+        assert len(deliveries) == 2
+    finally:
+        if dispatcher is not None:
+            await dispatcher.close()
+        if publisher_manager is not None:
+            await publisher_manager.close()
+        await server.close()
+        await manager.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.rabbitmq
+async def test_rabbitmq_unknown_event_schema_is_dead_lettered(
+    rabbitmq_url: str,
+    rabbitmq_management_url: str,
+) -> None:
+    suffix = uuid4().hex[:8]
+    source = ServiceIdentity("schema", f"publisher-{suffix}", 1)
+    event = EventIdentity(source, "changed", 1)
+    service = ServiceIdentity("schema", f"worker-{suffix}", 1)
+    subscription = EventSubscription(
+        event,
+        "service_pool",
+        f"events-{suffix}",
+        destination=service,
+    )
+    manager = RabbitMqConnectionManager(
+        RabbitMqOptions(
+            rabbitmq_url,
+            connection_name=f"pytest-schema-consumer-{suffix}",
+        )
+    )
+    publisher_manager = RabbitMqConnectionManager(
+        RabbitMqOptions(
+            rabbitmq_url,
+            connection_name=f"pytest-schema-publisher-{suffix}",
+        )
+    )
+    server = RabbitMqServerTransport(manager, service)
+    codec = MsgspecJsonMessageCodec()
+    deliveries: list[EncodedDelivery] = []
+
+    async def dispatch(delivery: EncodedDelivery) -> SettlementRecommendation:
+        deliveries.append(delivery)
+        decoded = codec.decode_event(delivery.body)
+        return (
+            SettlementRecommendation.REJECT
+            if decoded.schema_version != event.schema_version
+            else SettlementRecommendation.ACK
+        )
+
+    topology = compile_event_topology(subscription)
+    dead_letter = f"{topology.queues[0].name}.dead-letter"
+    try:
+        await manager.start()
+        await server.prepare(subscriptions=(subscription,))
+        await server.start(dispatch)
+        await publisher_manager.start()
+        envelope = EventEnvelope(
+            message_id=uuid4(),
+            source=source,
+            event=event.event,
+            schema_version=99,
+            occurred_at=utc_now(),
+            payload={"poison": True},
+        )
+        await RabbitMqPublisher(publisher_manager).publish(
+            Publication(
+                message_id=envelope.message_id,
+                routing_key=event.routing_key,
+                body=codec.encode_event(envelope),
+                headers={},
+                mandatory=True,
+                native=(event.exchange_name, event.routing_key),
+            )
+        )
+
+        async with asyncio.timeout(15):
+            while not deliveries:
+                await asyncio.sleep(0.05)
+        async with asyncio.timeout(15):
+            while True:
+                queues = await asyncio.to_thread(
+                    _load_management_collection,
+                    rabbitmq_management_url,
+                    "queues",
+                )
+                queue = next(
+                    (item for item in queues if item.get("name") == dead_letter),
+                    None,
+                )
+                messages = queue.get("messages") if queue is not None else None
+                if isinstance(messages, int) and messages >= 1:
+                    break
+                await asyncio.sleep(0.1)
+        assert len(deliveries) == 1
+    finally:
+        await server.close()
+        await publisher_manager.close()
+        await manager.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.rabbitmq
 async def test_rabbitmq_broker_restart_redeclares_topology_and_reopens_intake(
     rabbitmq_url: str,
     docker_services,
@@ -426,6 +726,450 @@ async def test_rabbitmq_broker_restart_redeclares_topology_and_reopens_intake(
             finally:
                 if server_manager is not None and server is not None:
                     await _close_event_server(server_manager, server)
+
+
+@pytest.mark.asyncio
+@pytest.mark.rabbitmq
+async def test_rabbitmq_network_blackhole_is_bounded_and_recovers(
+    rabbitmq_url: str,
+) -> None:
+    proxy = _BlackholeProxy(rabbitmq_url)
+    await proxy.start()
+    manager = RabbitMqConnectionManager(
+        RabbitMqOptions(
+            proxy.url_for(rabbitmq_url),
+            connection_name="pytest-network-blackhole",
+            heartbeat=1,
+            connection_timeout=2,
+        )
+    )
+    blocked = False
+    try:
+        await manager.start()
+        await proxy.block()
+        blocked = True
+
+        async with asyncio.timeout(15):
+            while manager.status.value == "ready":
+                await asyncio.sleep(0.1)
+        assert manager.status.value == "recovering"
+    finally:
+        if blocked:
+            await proxy.unblock()
+            async with asyncio.timeout(30):
+                while manager.status.value != "ready":
+                    await asyncio.sleep(0.1)
+        await manager.close()
+        await proxy.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.rabbitmq
+async def test_rabbitmq_network_blackhole_before_connect_is_bounded(
+    rabbitmq_url: str,
+) -> None:
+    proxy = _BlackholeProxy(rabbitmq_url)
+    await proxy.start()
+    manager = RabbitMqConnectionManager(
+        RabbitMqOptions(
+            proxy.url_for(rabbitmq_url),
+            connection_name="pytest-network-before-connect",
+            heartbeat=1,
+            connection_timeout=2,
+        )
+    )
+    replacement: RabbitMqConnectionManager | None = None
+    try:
+        await proxy.block()
+        with pytest.raises(RabbitMqConnectionError):
+            await asyncio.wait_for(manager.start(), timeout=8)
+        assert manager.status.value == "failed"
+        await proxy.unblock()
+        replacement = RabbitMqConnectionManager(
+            RabbitMqOptions(
+                rabbitmq_url,
+                connection_name="pytest-network-before-connect-replacement",
+            )
+        )
+        await replacement.start()
+        assert replacement.status.value == "ready"
+    finally:
+        await manager.close()
+        if replacement is not None:
+            await replacement.close()
+        await proxy.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.rabbitmq
+async def test_rabbitmq_confirm_uncertainty_fences_and_recovers(
+    rabbitmq_url: str,
+) -> None:
+    proxy = _BlackholeProxy(rabbitmq_url)
+    await proxy.start()
+    manager = RabbitMqConnectionManager(
+        RabbitMqOptions(
+            proxy.url_for(rabbitmq_url),
+            connection_name="pytest-confirm-uncertainty",
+            heartbeat=1,
+            connection_timeout=2,
+        )
+    )
+    blocked = False
+    try:
+        await manager.start()
+        await proxy.block()
+        blocked = True
+        publication = Publication(
+            message_id=uuid4(),
+            routing_key="integration.confirm-uncertainty",
+            body=b"payload",
+            headers={},
+            mandatory=True,
+        )
+
+        with pytest.raises(TransportIndeterminateError):
+            await asyncio.wait_for(
+                RabbitMqPublisher(manager).publish(publication),
+                timeout=15,
+            )
+        assert manager.generation > 0
+    finally:
+        if blocked:
+            await proxy.unblock()
+            async with asyncio.timeout(30):
+                while manager.status.value != "ready":
+                    await asyncio.sleep(0.1)
+        await manager.close()
+        await proxy.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.rabbitmq
+async def test_rabbitmq_deleted_reply_route_does_not_republish_request(
+    rabbitmq_url: str,
+) -> None:
+    service = ServiceIdentity("reply-route", f"worker-{uuid4().hex[:8]}", 1)
+    target = RpcTarget(service, "run", 1)
+    manager = RabbitMqConnectionManager(
+        RabbitMqOptions(rabbitmq_url, connection_name="pytest-deleted-reply")
+    )
+    server = RabbitMqServerTransport(manager, service)
+    client = RabbitMqClientTransport(manager, max_pending_replies=1)
+    cluster = ServiceCluster(client)
+    codec = MsgspecJsonMessageCodec()
+    entered = asyncio.Event()
+    release = asyncio.Event()
+    calls = 0
+    request_task: asyncio.Task[object] | None = None
+
+    async def dispatch(delivery: EncodedDelivery) -> SettlementRecommendation:
+        nonlocal calls
+        calls += 1
+        request = codec.decode_request(delivery.body)
+        entered.set()
+        await release.wait()
+        response = RpcResponseEnvelope(
+            message_id=uuid4(),
+            correlation_id=request.correlation_id,
+            completed_at=utc_now(),
+            result="done",
+        )
+        try:
+            await server.publish_reply(
+                Publication(
+                    message_id=response.message_id,
+                    routing_key=request.reply_to.value,
+                    body=codec.encode_response(response),
+                    headers={},
+                    mandatory=True,
+                    correlation_id=request.correlation_id,
+                )
+            )
+        except TransportUnroutableError:
+            return SettlementRecommendation.ACK
+        return SettlementRecommendation.ACK
+
+    try:
+        await manager.start()
+        await server.prepare(rpc_methods=(target.method,))
+        await server.start(dispatch)
+        await client.start()
+        request_task = asyncio.create_task(
+            cluster.service(service).request(
+                target.method,
+                "payload",
+                response_type=str,
+                timeout=3,
+            )
+        )
+        await asyncio.wait_for(entered.wait(), timeout=5)
+        # The exclusive reply queue is deleted when its client consumer closes.
+        await client.close()
+        release.set()
+
+        with pytest.raises((RpcTimeoutError, RpcOutcomeUnknownError)):
+            await request_task
+        request_task = None
+        await asyncio.sleep(0.5)
+        assert calls == 1
+    finally:
+        release.set()
+        if request_task is not None:
+            request_task.cancel()
+            await asyncio.gather(request_task, return_exceptions=True)
+        try:
+            await cluster.close()
+        finally:
+            try:
+                await server.close()
+            finally:
+                await manager.close()
+
+
+async def _run_rabbitmq_blackhole_redelivery_case(
+    rabbitmq_url: str,
+    *,
+    during_reply: bool,
+) -> int:
+    suffix = uuid4().hex[:8]
+    service = ServiceIdentity("blackhole", f"worker-{suffix}", 1)
+    target = RpcTarget(service, "run", 1)
+    proxy = _BlackholeProxy(rabbitmq_url)
+    await proxy.start()
+    server_manager = RabbitMqConnectionManager(
+        RabbitMqOptions(
+            proxy.url_for(rabbitmq_url),
+            connection_name=f"pytest-blackhole-server-{suffix}",
+            heartbeat=1,
+            connection_timeout=2,
+        )
+    )
+    client_manager = RabbitMqConnectionManager(
+        RabbitMqOptions(
+            rabbitmq_url,
+            connection_name=f"pytest-blackhole-client-{suffix}",
+        )
+    )
+    server = RabbitMqServerTransport(server_manager, service, prefetch=1)
+    client = RabbitMqClientTransport(client_manager, max_pending_replies=1)
+    cluster = ServiceCluster(client, manage_transport=True)
+    codec = MsgspecJsonMessageCodec()
+    phase_started = asyncio.Event()
+    release_phase = asyncio.Event()
+    calls = 0
+    message_ids: list[object] = []
+    request_task: asyncio.Task[object] | None = None
+    blocked = False
+
+    async def dispatch(delivery: EncodedDelivery) -> SettlementRecommendation:
+        nonlocal calls
+        calls += 1
+        request = codec.decode_request(delivery.body)
+        message_ids.append(request.message_id)
+        if calls == 1:
+            phase_started.set()
+            await release_phase.wait()
+            if not during_reply:
+                return SettlementRecommendation.ACK
+        response = RpcResponseEnvelope(
+            message_id=uuid4(),
+            correlation_id=request.correlation_id,
+            completed_at=utc_now(),
+            result="done",
+        )
+        try:
+            await server.publish_reply(
+                Publication(
+                    message_id=response.message_id,
+                    routing_key=request.reply_to.value,
+                    body=codec.encode_response(response),
+                    headers={},
+                    mandatory=True,
+                    correlation_id=request.correlation_id,
+                )
+            )
+        except TransportError:
+            if calls == 1 and during_reply:
+                return SettlementRecommendation.UNSETTLED
+            raise
+        return SettlementRecommendation.ACK
+
+    try:
+        await server_manager.start()
+        await server.prepare(rpc_methods=(target.method,))
+        await server.start(dispatch)
+        await client_manager.start()
+        request_task = asyncio.create_task(
+            cluster.service(service).request(
+                target.method,
+                "payload",
+                response_type=str,
+                timeout=30,
+            )
+        )
+        await asyncio.wait_for(phase_started.wait(), timeout=5)
+        await proxy.block()
+        blocked = True
+        async with asyncio.timeout(15):
+            while server_manager.status.value == "ready":
+                await asyncio.sleep(0.1)
+        release_phase.set()
+        await proxy.unblock()
+        blocked = False
+        async with asyncio.timeout(30):
+            while server_manager.status.value != "ready":
+                await asyncio.sleep(0.1)
+        result = await asyncio.wait_for(request_task, timeout=30)
+        request_task = None
+        assert result == "done"
+        assert calls >= 2
+        assert len(set(message_ids)) == 1
+        return calls
+    finally:
+        release_phase.set()
+        if blocked:
+            await proxy.unblock()
+        if request_task is not None:
+            request_task.cancel()
+            await asyncio.gather(request_task, return_exceptions=True)
+        try:
+            await cluster.close()
+        finally:
+            try:
+                await server.close()
+            finally:
+                try:
+                    await client_manager.close()
+                finally:
+                    try:
+                        await server_manager.close()
+                    finally:
+                        await proxy.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.rabbitmq
+async def test_rabbitmq_blackhole_during_handler_redelivers_without_client_republish(
+    rabbitmq_url: str,
+) -> None:
+    assert (
+        await _run_rabbitmq_blackhole_redelivery_case(
+            rabbitmq_url,
+            during_reply=False,
+        )
+        >= 2
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.rabbitmq
+async def test_rabbitmq_blackhole_during_reply_redelivers_unsettled_request(
+    rabbitmq_url: str,
+) -> None:
+    assert (
+        await _run_rabbitmq_blackhole_redelivery_case(
+            rabbitmq_url,
+            during_reply=True,
+        )
+        >= 2
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.rabbitmq
+async def test_rabbitmq_rpc_pending_request_is_unknown_across_broker_restart(
+    rabbitmq_url: str,
+    docker_services,
+) -> None:
+    suffix = uuid4().hex[:8]
+    service = ServiceIdentity("rpc-recovery", f"worker-{suffix}", 1)
+    manager = RabbitMqConnectionManager(
+        RabbitMqOptions(
+            rabbitmq_url,
+            connection_name=f"pytest-rpc-recovery-{suffix}",
+        )
+    )
+    server = RabbitMqServerTransport(manager, service)
+    client = RabbitMqClientTransport(manager, max_pending_replies=4)
+    cluster = ServiceCluster(client)
+    codec = MsgspecJsonMessageCodec()
+    first_request_started = asyncio.Event()
+    block_first_request = asyncio.Event()
+    request_task: asyncio.Task[object] | None = None
+    calls = 0
+
+    async def dispatch(delivery: EncodedDelivery) -> SettlementRecommendation:
+        nonlocal calls
+        calls += 1
+        request = codec.decode_request(delivery.body)
+        if calls == 1:
+            first_request_started.set()
+            await block_first_request.wait()
+        response = RpcResponseEnvelope(
+            message_id=uuid4(),
+            correlation_id=request.correlation_id,
+            completed_at=utc_now(),
+            result=str(request.payload).upper(),
+        )
+        await server.publish_reply(
+            Publication(
+                message_id=response.message_id,
+                routing_key=request.reply_to.value,
+                body=codec.encode_response(response),
+                headers={},
+                mandatory=True,
+                correlation_id=request.correlation_id,
+            )
+        )
+        return SettlementRecommendation.ACK
+
+    try:
+        await manager.start()
+        await server.prepare(rpc_methods=("run",))
+        await server.start(dispatch)
+        await client.start()
+        request_task = asyncio.create_task(
+            cluster.service(service).request(
+                "run",
+                "before",
+                response_type=str,
+                timeout=30,
+            )
+        )
+        await asyncio.wait_for(first_request_started.wait(), timeout=5)
+
+        await _restart_rabbitmq(docker_services)
+        await _wait_for_rabbitmq_ready(docker_services, rabbitmq_url)
+
+        with pytest.raises(RpcOutcomeUnknownError):
+            await asyncio.wait_for(request_task, timeout=15)
+            request_task = None
+
+        async with asyncio.timeout(45):
+            while not (
+                manager.status.value == "ready"
+                and server.status is TransportStatus.RUNNING
+                and client.status is TransportStatus.RUNNING
+            ):
+                await asyncio.sleep(0.1)
+
+        result = await cluster.service(service).request(
+            "run",
+            "after",
+            response_type=str,
+            timeout=30,
+        )
+        assert result == "AFTER"
+    finally:
+        block_first_request.set()
+        if request_task is not None:
+            request_task.cancel()
+            await asyncio.gather(request_task, return_exceptions=True)
+        await cluster.close()
+        await client.close()
+        await server.close()
+        await manager.close()
 
 
 @pytest.mark.asyncio
@@ -646,7 +1390,11 @@ async def test_rabbitmq_event_mode_cardinality_and_exact_queue_count(
                 assert arguments == {"x-queue-type": "classic"}
             elif name.endswith(".dead-letter"):
                 assert actual["type"] == "quorum"
-                assert arguments == {"x-queue-type": "quorum"}
+                assert arguments == {
+                    "x-queue-type": "quorum",
+                    "x-max-length": 10_000,
+                    "x-overflow": "drop-head",
+                }
             elif name.endswith(".retry"):
                 assert actual["type"] == "classic"
                 assert arguments == {
@@ -1002,4 +1750,68 @@ async def test_rabbitmq_server_close_drains_admitted_callback(
         release.set()
         await server.close()
         await client.close()
+        await manager.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.rabbitmq
+async def test_rabbitmq_forced_shutdown_fails_active_rpc_and_cleans_tasks(
+    rabbitmq_url: str,
+) -> None:
+    service = ServiceIdentity("shutdown", f"worker-{uuid4().hex[:8]}", 1)
+    target = RpcTarget(service, "wait", 1)
+    manager = RabbitMqConnectionManager(
+        RabbitMqOptions(rabbitmq_url, connection_name="pytest-forced-shutdown")
+    )
+    server = RabbitMqServerTransport(manager, service)
+    client = RabbitMqClientTransport(manager, max_pending_replies=1)
+    cluster = ServiceCluster(client, manage_transport=True)
+    admitted = asyncio.Event()
+    cancelled = asyncio.Event()
+    release = asyncio.Event()
+    request_task: asyncio.Task[object] | None = None
+
+    async def dispatch(delivery: EncodedDelivery) -> SettlementRecommendation:
+        del delivery
+        admitted.set()
+        try:
+            await release.wait()
+        except asyncio.CancelledError:
+            cancelled.set()
+            raise
+        return SettlementRecommendation.ACK
+
+    try:
+        await manager.start()
+        await server.prepare(rpc_methods=(target.method,))
+        await server.start(dispatch)
+        request_task = asyncio.create_task(
+            cluster.service(service).request(
+                target.method,
+                "request",
+                response_type=str,
+                timeout=10,
+            )
+        )
+        await asyncio.wait_for(admitted.wait(), timeout=5)
+
+        await cluster.close()
+        await server.close()
+        assert cluster._router_task is None or cluster._router_task.done()
+        assert cluster._status_task is None or cluster._status_task.done()
+        assert not client._callback_tasks
+        assert not manager._listener_tasks
+
+        with pytest.raises(RpcOutcomeUnknownError):
+            await request_task
+        request_task = None
+        assert cancelled.is_set()
+        assert not server._callback_tasks
+    finally:
+        release.set()
+        if request_task is not None:
+            request_task.cancel()
+            await asyncio.gather(request_task, return_exceptions=True)
+        await cluster.close()
+        await server.close()
         await manager.close()

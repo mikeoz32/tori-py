@@ -16,6 +16,7 @@ from nestpy_microservices.identities import (
     ServiceIdentity,
     require_utc,
     require_uuid,
+    validate_alias,
 )
 from nestpy_microservices.invocation import (
     InvocationCompletion,
@@ -153,14 +154,13 @@ class EventSubscription:
             raise TypeError("identity must be an EventIdentity")
         if self.mode not in {"service_pool", "singleton", "broadcast"}:
             raise ValueError("unsupported event dispatch mode")
-        if not isinstance(self.subscription, str) or not self.subscription:
-            raise ValueError("subscription must be a non-empty string")
+        validate_alias(self.subscription, "subscription")
         if self.destination is not None and not isinstance(
             self.destination, ServiceIdentity
         ):
             raise TypeError("destination must be a ServiceIdentity")
-        if self.instance_id is not None and not self.instance_id:
-            raise ValueError("instance_id must be non-empty when provided")
+        if self.instance_id is not None:
+            validate_alias(self.instance_id, "instance_id")
         reliability_unset = self.reliable is _UNSET_RELIABILITY
         if reliability_unset:
             object.__setattr__(
@@ -177,7 +177,7 @@ class EventSubscription:
         if self.mode == "broadcast" and self.destination is None:
             raise ValueError("broadcast subscriptions require a destination")
         if self.mode == "broadcast" and self.instance_id is None:
-            object.__setattr__(self, "instance_id", uuid4().hex)
+            object.__setattr__(self, "instance_id", f"instance-{uuid4().hex}")
 
 
 @dataclass(frozen=True, slots=True)
@@ -187,9 +187,16 @@ class TransportStatusEvent:
     status: TransportStatus
     changed_at: datetime
     detail: str = ""
+    generation: int = 0
 
     def __post_init__(self) -> None:
         require_utc(self.changed_at, "changed_at")
+        if (
+            not isinstance(self.generation, int)
+            or isinstance(self.generation, bool)
+            or self.generation < 0
+        ):
+            raise ValueError("generation must be a non-negative integer")
 
 
 DeliveryDispatcher = Callable[
@@ -236,6 +243,9 @@ class ClientTransport(Protocol):
     def status(self) -> TransportStatus: ...
 
     @property
+    def generation(self) -> int: ...
+
+    @property
     def reply_to(self) -> ReplyRoute: ...
 
     async def start(self, *, receive_replies: bool = True) -> None: ...
@@ -247,6 +257,8 @@ class ClientTransport(Protocol):
     async def publish_event(
         self, identity: EventIdentity, publication: Publication
     ) -> PublicationReceipt: ...
+
+    def cancel_publication_after_reply(self, correlation_id: UUID) -> None: ...
 
     def replies(
         self,

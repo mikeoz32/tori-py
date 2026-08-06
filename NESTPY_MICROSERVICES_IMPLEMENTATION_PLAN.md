@@ -9,16 +9,19 @@ Focused package tests, in-memory dispatcher and transport conformance, and
 Docker-backed RabbitMQ dispatcher, cardinality, restart retention, round-trip,
 redelivery, unroutable-publication, and shared conformance tests are present.
 
-MS10 hardening and MS11 release acceptance are not complete. The MS10 broker
-application restart recovery slice is proven; network-blackhole behavior and
-the request/reply/ACK fault matrix remain open.
+MS10 hardening is implemented and MS11 release acceptance is not complete. The MS10 broker
+application restart, pending-RPC reconnect, publisher-confirm cancellation,
+pre-write timeout classification, proxy-injected blackholes during handler and
+reply, bounded retry/DLX, malformed schema dead-lettering, deleted reply routes,
+and active-RPC forced-shutdown slices are proven; the remaining observability,
+security guidance, and release acceptance work remains open.
 
 | Phase range | Current status |
 | --- | --- |
 | MS0-MS6 | Implemented; focused contract, compiler, pipeline, in-memory, lifecycle, and client tests are present |
 | MS7-MS8 | Implemented; targeted unit and Docker-backed RabbitMQ coverage is present, with the MS10 fault matrix still outstanding |
 | MS9 | Implemented; root-owned `EventDispatcher`, exact real-broker cardinality, offline ephemeral behavior, and reliable-broadcast restart are proven |
-| MS10 | In progress; broker application restart and stale-settlement fencing are proven, while blackhole, reconnect-boundary, forced-shutdown, and complete observability/security hardening remain |
+| MS10 | Implemented; broker restart, stale-settlement fencing, pending-RPC reconnect, confirm/timeout classification, handler/reply blackholes, retry/DLX, deleted reply routes, malformed schema rejection, TLS wiring, and forced shutdown are proven |
 | MS11 | Not complete; examples, complete user/operations docs, full quality gates, built-artifact smoke tests, and independent release review remain |
 
 Architecture:
@@ -213,8 +216,12 @@ one-global, and every-instance delivery semantics.
 - Test publisher-confirm NACK, unroutable publication, channel closure, stale
   delivery tags, broker restart, and forced shutdown.
 - Current MS10 slice proves RabbitMQ application restart topology replay,
-  consumer reopening, bounded recovery listeners, and stale settlement fencing;
-  the remaining request/reply/ACK and fault-injection matrix is still open.
+  consumer reopening, bounded recovery listeners, stale settlement fencing, and
+  pending-RPC outcome-unknown/new-request recovery, plus a bounded
+  proxy-injected network blackhole, publisher-confirm cancellation fencing,
+  deleted-reply-route terminal ACK behavior, poison-event retry/DLX behavior,
+  and active-RPC forced shutdown; the remaining request/reply/ACK and
+  fault-injection matrix is still open.
 - Bound every payload, header set, pending request map, queue, task set, timeout,
   retry, and log path.
 - Add structured status, readiness, diagnostics, metrics hooks, and safe logging.

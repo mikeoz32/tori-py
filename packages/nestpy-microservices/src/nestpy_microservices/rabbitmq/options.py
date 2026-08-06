@@ -4,7 +4,11 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from urllib.parse import urlsplit
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+
+_CONTROLLED_QUERY_OPTIONS = frozenset(
+    {"heartbeat", "timeout", "name", "ssl", "no_verify_ssl"}
+)
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -25,16 +29,15 @@ class RabbitMqOptions:
     def __post_init__(self) -> None:
         if not isinstance(self.url, str) or not self.url:
             raise ValueError("url must be a non-empty AMQP URL")
-        parsed = urlsplit(self.url)
+        try:
+            parsed = urlsplit(self.url)
+            port = parsed.port
+        except ValueError as error:
+            raise ValueError("url is not a valid AMQP endpoint") from error
         if parsed.scheme not in {"amqp", "amqps"} or not parsed.hostname:
             raise ValueError("url must be one amqp:// or amqps:// endpoint")
-        try:
-            if parsed.port is not None and parsed.port <= 0:
-                raise ValueError("url port must be positive")
-        except ValueError as error:
-            raise ValueError("url has an invalid port") from error
-        if parsed.scheme == "amqps" and not self.tls:
-            raise ValueError("amqps URLs require tls=True")
+        if port is not None and not 0 < port <= 65_535:
+            raise ValueError("url port must be between 1 and 65535")
         if not isinstance(self.connection_name, str) or not self.connection_name:
             raise ValueError("connection_name must be non-empty")
         if not isinstance(self.heartbeat, int) or isinstance(self.heartbeat, bool):
@@ -51,6 +54,17 @@ class RabbitMqOptions:
             raise ValueError("reconnect_interval is fixed at 5 seconds")
         if not isinstance(self.tls, bool):
             raise ValueError("tls must be boolean")
+        if self.tls is not (parsed.scheme == "amqps"):
+            raise ValueError("tls must match the AMQP URL scheme")
+        query_names = {
+            name for name, _ in parse_qsl(parsed.query, keep_blank_values=True)
+        }
+        controlled = query_names & _CONTROLLED_QUERY_OPTIONS
+        if controlled:
+            names = ", ".join(sorted(controlled))
+            raise ValueError(
+                f"AMQP URL query options are controlled by RabbitMqOptions: {names}"
+            )
         if not isinstance(self.rpc_exchange, str) or not self.rpc_exchange:
             raise ValueError("rpc_exchange must be non-empty")
         if not isinstance(self.reply_queue_expires_ms, int) or isinstance(
@@ -79,6 +93,21 @@ class RabbitMqOptions:
             f"retry_delay_ms={self.retry_delay_ms}, "
             f"max_delivery_attempts={self.max_delivery_attempts})"
         )
+
+    @property
+    def connection_url(self) -> str:
+        """Return a URL whose broker-visible settings cannot be overridden."""
+
+        parsed = urlsplit(self.url)
+        query = parse_qsl(parsed.query, keep_blank_values=True)
+        query.extend(
+            (
+                ("heartbeat", str(self.heartbeat)),
+                ("timeout", str(self.connection_timeout)),
+                ("name", self.connection_name),
+            )
+        )
+        return urlunsplit(parsed._replace(query=urlencode(query)))
 
 
 __all__ = ["RabbitMqOptions"]
