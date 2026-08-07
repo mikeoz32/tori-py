@@ -17,4 +17,8 @@ def test_package_metadata_and_artifacts_are_present() -> None:
         "aio-pika>=10,<11"
     ]
     assert (package_root / "README.md").is_file()
+    assert (package_root / "docs/USER_GUIDE.md").is_file()
+    assert (package_root / "docs/OPERATIONS.md").is_file()
+    assert (package_root / "scripts/verify_artifacts.py").is_file()
+    assert (package_root / "scripts/verify_docs.py").is_file()
     assert (package_root / "src/nestpy_microservices/py.typed").is_file()

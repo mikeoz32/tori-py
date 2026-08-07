@@ -7,12 +7,13 @@ Optional transport-neutral RPC and event delivery integration for Nestpy.
 The MS0-MS9 capability set is implemented in the repository worktree, including
 the root-owned application-facing `EventDispatcher`, complete real-broker event
 cardinality, offline ephemeral behavior, and reliable-broadcast restart
-retention. MS10 failure hardening is implemented; MS11 release gates are not complete;
+retention. MS10 failure hardening and MS11 acceptance are implemented; the
+repository migration checksum baseline remains the final release gate;
 broker application restart, pending-RPC reconnect behavior, confirm/timeout
 classification, handler/reply blackholes, bounded retry/DLX, malformed schema
 dead-lettering, deleted reply routes, and active-RPC forced shutdown are
-covered by the current MS10 slice. Remaining work is release-level review and
-artifact acceptance.
+covered by the current MS10 slice. Run the MS11 commands from
+`docs/OPERATIONS.md` before release.
 
 The base package depends only on Nestpy and `msgspec`. RabbitMQ support is
 available through the optional `rabbitmq` extra and is deliberately lazy:
@@ -44,6 +45,12 @@ The package architecture and current phase status are documented in the
 repository-level `NESTPY_MICROSERVICES_ARCHITECTURE.md`,
 `NESTPY_MICROSERVICES_IMPLEMENTATION_PLAN.md`, and
 `spec/nestpy-microservices/README.md` files.
+
+## MS11 Guides
+
+- [User guide](docs/USER_GUIDE.md)
+- [Operations and release guide](docs/OPERATIONS.md)
+- [Executable examples](../../examples/nestpy/microservices/README.md)
 
 ## Event Publication
 

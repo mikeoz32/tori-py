@@ -9,7 +9,8 @@ Focused package tests, in-memory dispatcher and transport conformance, and
 Docker-backed RabbitMQ dispatcher, cardinality, restart retention, round-trip,
 redelivery, unroutable-publication, and shared conformance tests are present.
 
-MS10 hardening is implemented and MS11 release acceptance is not complete. The MS10 broker
+MS10 hardening and MS11 acceptance content are implemented, but the final
+release gate remains open for the repository migration checksum baseline. The MS10 broker
 application restart, pending-RPC reconnect, publisher-confirm cancellation,
 pre-write timeout classification, proxy-injected blackholes during handler and
 reply, bounded retry/DLX, malformed schema dead-lettering, deleted reply routes,
@@ -22,7 +23,7 @@ security guidance, and release acceptance work remains open.
 | MS7-MS8 | Implemented; targeted unit and Docker-backed RabbitMQ coverage is present, with the MS10 fault matrix still outstanding |
 | MS9 | Implemented; root-owned `EventDispatcher`, exact real-broker cardinality, offline ephemeral behavior, and reliable-broadcast restart are proven |
 | MS10 | Implemented; broker restart, stale-settlement fencing, pending-RPC reconnect, confirm/timeout classification, handler/reply blackholes, retry/DLX, deleted reply routes, malformed schema rejection, TLS wiring, and forced shutdown are proven |
-| MS11 | Not complete; examples, complete user/operations docs, full quality gates, built-artifact smoke tests, and independent release review remain |
+| MS11 | Implemented; acceptance examples, user/operations docs, docs verification, exact built-artifact checks, and independent release review are complete; the repository migration baseline remains |
 
 Architecture:
 [`NESTPY_MICROSERVICES_ARCHITECTURE.md`](NESTPY_MICROSERVICES_ARCHITECTURE.md).

@@ -413,10 +413,19 @@ class ServiceCluster:
                 self.transport.cancel_pending(correlation)
             self._pending.clear()
             self._pending_generations.clear()
+            transport_error: BaseException | None = None
+            if self.manage_transport:
+                try:
+                    await self.transport.close()
+                except BaseException as error:
+                    transport_error = error
             router = self._router_task
             if router is not None:
-                router.cancel()
-                await asyncio.gather(router, return_exceptions=True)
+                if self.manage_transport and transport_error is None:
+                    await asyncio.gather(router, return_exceptions=True)
+                else:
+                    router.cancel()
+                    await asyncio.gather(router, return_exceptions=True)
             self._router_reply_to = None
             self._router_generation = None
             status_task = self._status_task
@@ -424,9 +433,9 @@ class ServiceCluster:
             if status_task is not None and status_task is not asyncio.current_task():
                 status_task.cancel()
                 await asyncio.gather(status_task, return_exceptions=True)
-            if self.manage_transport:
-                await self.transport.close()
             self._close_complete = True
+            if transport_error is not None:
+                raise transport_error
 
     async def on_application_shutdown(self) -> None:
         await self.close()

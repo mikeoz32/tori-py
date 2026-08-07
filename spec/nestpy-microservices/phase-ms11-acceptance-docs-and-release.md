@@ -2,10 +2,10 @@
 
 ## Status
 
-Not complete. Package documentation, focused tests, Docker-backed tests, and
-artifact-check scaffolding exist, but the planned examples, complete user and
-operations documentation, full pytest/Ruff/format/ty gates, isolated built-
-artifact verification, and independent release review remain.
+Acceptance content is implemented. Package documentation, executable examples,
+focused tests, Docker-backed tests, docs verification, and isolated built-
+artifact verification exist. The final release gate remains open for the
+repository migration checksum baseline; independent release review is complete.
 
 ## Purpose
 
