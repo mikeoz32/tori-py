@@ -45,3 +45,8 @@ Run the example tests with:
 ```text
 uv run pytest examples/nestpy/microservices -q
 ```
+
+For a complete four-process application with an HTTP API gateway, three
+service-owned PostgreSQL databases, local CQRS, RabbitMQ RPC/events, and an
+application-owned outbox, see
+[`microservices_app`](../microservices_app/README.md).

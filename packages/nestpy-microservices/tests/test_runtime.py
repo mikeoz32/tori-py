@@ -4,9 +4,10 @@ from collections.abc import AsyncIterator, Iterable
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from inspect import signature
-from typing import Annotated, cast
+from typing import Annotated, Protocol, cast
 from uuid import uuid4
 
+import msgspec
 import pytest
 from nestpy import (
     DiscoveryService,
@@ -59,9 +60,22 @@ from nestpy_microservices import (
     TransportUnroutableError,
     event_handler,
     rpc,
+    rpc_call,
+    service_contract,
 )
 
 SERVICE = ServiceIdentity("kinker", "members", 1)
+OTHER_SERVICE = ServiceIdentity("kinker", "groups", 1)
+
+
+class ContractPayload(msgspec.Struct):
+    value: str
+
+
+@service_contract(OTHER_SERVICE)
+class OtherServiceContract(Protocol):
+    @rpc_call("contract-call", payload=ContractPayload)
+    async def call(self, value: str) -> str: ...
 
 
 class EmptyDiscovery:
@@ -238,6 +252,36 @@ async def test_module_installs_runtime_in_nest_application_lifecycle() -> None:
     assert factory.created == 1
     await application.shutdown()
     assert application.state.value == "stopped"
+    await broker.close()
+
+
+@pytest.mark.asyncio
+async def test_runtime_rejects_a_handler_from_another_service_contract() -> None:
+    broker = InMemoryBroker()
+    factory = Factory(broker)
+
+    @controller()
+    class WrongServiceController:
+        @rpc(OtherServiceContract.call)
+        async def call(
+            self,
+            payload: Annotated[ContractPayload, Payload()],
+        ) -> str:
+            return payload.value
+
+    @module(
+        imports=[MicroservicesModule.for_root(SERVICE, transport=factory)],
+        controllers=[WrongServiceController],
+    )
+    class ApplicationModule:
+        pass
+
+    application = await NestApplication.create(ApplicationModule)
+
+    with pytest.raises(TransportStateError, match="belongs to"):
+        await application.start()
+
+    assert factory.created == 0
     await broker.close()
 
 

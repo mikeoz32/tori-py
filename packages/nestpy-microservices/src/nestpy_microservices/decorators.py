@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from enum import StrEnum
+from typing import get_type_hints
 
 from nestpy import Inject, MetadataKey, metadata
 
@@ -36,6 +38,9 @@ class RpcMetadata:
 
     method: str
     schema_version: int
+    payload_type: type[object] | None = None
+    response_type: type[object] | None = None
+    service_identity: ServiceIdentity | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -93,14 +98,50 @@ _EVENT_KEY: MetadataKey[EventHandlerMetadata] = MetadataKey(
 )
 
 
-def rpc(method: str, *, schema_version: int = 1):
+def rpc(method: str | Callable[..., object], *, schema_version: int = 1):
     """Decorate one async method with a stable RPC alias."""
 
+    payload_type: type[object] | None = None
+    response_type: type[object] | None = None
+    service_identity: ServiceIdentity | None = None
+    if not isinstance(method, str):
+        from nestpy_microservices.contracts import (
+            get_rpc_call_metadata,
+            get_rpc_call_service_identity,
+        )
+
+        contract_method = method
+        contract_call = get_rpc_call_metadata(contract_method)
+        if contract_call is None:
+            raise HandlerCompilationError(
+                "RPC contract method requires @rpc_call metadata"
+            )
+        method = contract_call.method
+        schema_version = contract_call.schema_version
+        payload_type = contract_call.payload_type
+        response_type = get_type_hints(contract_method, include_extras=True).get(
+            "return"
+        )
+        service_identity = get_rpc_call_service_identity(contract_method)
+        if service_identity is None:
+            raise HandlerCompilationError(
+                "RPC contract method requires @service_contract metadata"
+            )
+        if response_type is None:
+            raise HandlerCompilationError(
+                "RPC contract method requires a response annotation"
+            )
     normalized_method = validate_alias(method, "RPC method")
     normalized_version = validate_version(schema_version, "schema_version")
     return metadata(
         _RPC_KEY,
-        RpcMetadata(normalized_method, normalized_version),
+        RpcMetadata(
+            normalized_method,
+            normalized_version,
+            payload_type,
+            response_type,
+            service_identity,
+        ),
     )
 
 

@@ -127,6 +127,14 @@ class ServiceRuntime:
         registry = compile_discovered_service_handlers(
             self._discovery, modules=self._modules
         )
+        for plan in registry.rpc_handlers:
+            contract_identity = plan.metadata.service_identity
+            if contract_identity is not None and contract_identity != self.identity:
+                raise TransportStateError(
+                    f"RPC handler {plan.method_name} belongs to "
+                    f"{contract_identity.namespace}.{contract_identity.name}."
+                    f"v{contract_identity.contract_version}, not this service"
+                )
         global_pipeline = self.options.global_pipeline
         if _has_provider_binding(global_pipeline):
             if self._work_scopes is None:

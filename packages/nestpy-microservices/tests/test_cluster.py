@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import asyncio
+from typing import Annotated, Protocol, cast
 from uuid import uuid4
 
+import msgspec
 import pytest
 from nestpy import NestApplication, ValueProvider, module
 
 from nestpy_microservices import (
     ClientsModule,
+    IdempotencyKey,
     InMemoryBroker,
     InMemoryClientTransport,
     InMemoryServerTransport,
@@ -28,13 +31,31 @@ from nestpy_microservices import (
     TransportCapacityError,
     UnknownServiceError,
     WireValidationError,
+    create_service_proxy,
     rabbitmq_client_factory_token,
     rabbitmq_server_factory_token,
+    rpc_call,
+    service_contract,
     utc_now,
 )
 
 SERVICE = ServiceIdentity("kinker", "members", 1)
 TARGET = RpcTarget(SERVICE, "ping", 1)
+
+
+class Request(msgspec.Struct):
+    value: str
+
+
+@service_contract(SERVICE)
+class MembersClient(Protocol):
+    @rpc_call("ping", payload=Request)
+    async def ping(
+        self,
+        value: str,
+        *,
+        idempotency_key: Annotated[str | None, IdempotencyKey()] = None,
+    ) -> str: ...
 
 
 @pytest.mark.asyncio
@@ -73,6 +94,63 @@ async def test_cluster_uses_one_reply_route_for_rpc_success() -> None:
     assert result == "HELLO"
     await cluster.close()
     await server.close()
+    await broker.close()
+
+
+@pytest.mark.asyncio
+async def test_dynamic_protocol_proxy_binds_payload_and_metadata() -> None:
+    broker = InMemoryBroker()
+    server = InMemoryServerTransport(broker, SERVICE)
+    await server.prepare(rpc_methods=(TARGET.method,))
+    codec = MsgspecJsonMessageCodec()
+
+    async def dispatch(delivery):
+        request = codec.decode_request(delivery.body)
+        assert request.payload == {"value": "hello"}
+        assert request.idempotency_key == "request-1"
+        response = RpcResponseEnvelope(
+            message_id=uuid4(),
+            correlation_id=request.correlation_id,
+            completed_at=utc_now(),
+            result="HELLO",
+        )
+        await server.publish_reply(
+            Publication(
+                message_id=response.message_id,
+                routing_key=request.reply_to.value,
+                body=codec.encode_response(response),
+                headers={},
+                mandatory=True,
+                correlation_id=request.correlation_id,
+            )
+        )
+        return SettlementRecommendation.ACK
+
+    await server.start(dispatch)
+    cluster = ServiceCluster(InMemoryClientTransport(broker))
+    client = cast(MembersClient, create_service_proxy(MembersClient, cluster))
+
+    assert await client.ping("hello", idempotency_key="request-1") == "HELLO"
+
+    await cluster.close()
+    await server.close()
+    await broker.close()
+
+
+@pytest.mark.asyncio
+async def test_clients_module_registers_protocol_contract_tokens() -> None:
+    broker = InMemoryBroker()
+    application = await NestApplication.create(
+        ClientsModule.register_cluster(
+            InMemoryClientTransport(broker),
+            contracts=(MembersClient,),
+        )
+    )
+    resolver = application._kernel.resolver(application.graph.root)
+
+    client = cast(MembersClient, await resolver.resolve(MembersClient))
+
+    assert callable(client.ping)
     await broker.close()
 
 

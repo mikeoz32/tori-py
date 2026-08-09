@@ -109,6 +109,29 @@ client fences the connection and reports an indeterminate outcome. A service
 may execute a request more than once, and a client may observe duplicate or
 late replies; replies with no pending correlation are acknowledged and ignored.
 
+## Typed Service Contracts
+
+Use a `Protocol` to declare the application-facing client API and let one
+dynamic proxy bind normal Python calls to explicit RPC DTOs:
+
+```python
+@service_contract(CATALOG)
+class CatalogService(Protocol):
+    @rpc_call("get-item", payload=GetCatalogItem)
+    async def get_item(self, item_id: int) -> CatalogItem: ...
+```
+
+Register contracts with `ClientsModule.register_cluster(...,
+contracts=(CatalogService,))` and inject `CatalogService`. The proxy uses
+`__getattr__` only for methods precompiled from the contract. Keep envelope
+metadata out of payloads with keyword-only `Annotated` markers, for example
+`idempotency_key: Annotated[str, IdempotencyKey()]`.
+
+Use `@rpc(CatalogService.get_item)` on the server to share the alias and schema
+version. Startup validates that the handler's complete `Payload()` DTO and
+return annotation match the Protocol method. DTOs remain explicit; Protocol
+parameters are mapped by name and must exactly match the declared DTO fields.
+
 ## Events
 
 `EventDispatchMode.SERVICE_POOL` provides competing service consumers.
@@ -133,3 +156,7 @@ redelivery, and confirmation behavior.
 
 See the executable examples in
 [`examples/nestpy/microservices`](../../../examples/nestpy/microservices/README.md).
+The application-level
+[`microservices_app`](../../../examples/nestpy/microservices_app/README.md)
+adds an HTTP gateway, three database-owning services, local CQRS, an outbox
+relay, and a runnable Docker Compose stack.

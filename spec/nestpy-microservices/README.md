@@ -35,6 +35,7 @@ observability/security hardening and MS11 release acceptance.
 | MS9 | [Clustered event dispatch](phase-ms9-clustered-event-dispatch.md) | SERVICE_POOL, SINGLETON, and BROADCAST | Implemented; exit criteria proven against real RabbitMQ |
 | MS10 | [Failure recovery and hardening](phase-ms10-failure-recovery-and-hardening.md) | Bounded explicit distributed failures | Implemented; MS11 release gates remain |
 | MS11 | [Acceptance, docs, and release](phase-ms11-acceptance-docs-and-release.md) | Reviewed releasable artifacts | Not complete |
+| MS12 | Typed service contracts | Protocol-driven dynamic RPC clients | In progress |
 
 ## Governing Invariants
 

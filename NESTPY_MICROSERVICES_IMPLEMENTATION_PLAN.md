@@ -251,6 +251,22 @@ shutdown deadline without diagnostics.
 Exit gate: all architecture acceptance criteria and repository quality gates
 pass from built artifacts.
 
+### MS12: Typed Service Contracts
+
+- Implement `@service_contract` and `@rpc_call` metadata for explicit async
+  Protocol clients with application-owned `msgspec.Struct` payload DTOs.
+- Compile Protocol signatures before startup; reject unresolved annotations,
+  incompatible payload fields, duplicate aliases, invalid metadata markers, and
+  non-async methods.
+- Provide one cached dynamic `__getattr__` proxy per contract and register it
+  through `ClientsModule` under the Protocol token.
+- Support `@rpc(Protocol.method)` and verify server payload/response contracts.
+- Retain low-level string request APIs and add no generated client classes,
+  schema inference, automatic retries, or transport-specific client contracts.
+
+Exit gate: protocol proxy, DI, binding, metadata, and server-contract mismatch
+tests pass without RabbitMQ; application examples use narrow injected Protocols.
+
 ## Cross-Phase Test Matrix
 
 Every phase adds focused tests and retains these cumulative requirements:

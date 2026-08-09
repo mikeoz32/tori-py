@@ -653,6 +653,29 @@ cluster was configured with an explicit default namespace; an explicit
 primary API because explicit `request(method, ...)` is clearer and easier to
 type.
 
+### Typed Service Contracts
+
+Applications may declare a `typing.Protocol` client contract with
+`@service_contract(ServiceIdentity(...))`. Each async method has an explicit
+`@rpc_call("method", payload=RequestDto)` declaration. Payload schemas remain
+application-owned `msgspec.Struct` types; the framework never infers or
+generates distributed schemas from Python signatures.
+
+`ClientsModule.register_cluster(..., contracts=(CatalogService,))` exports one
+generic dynamic proxy under each Protocol token. Its `__getattr__` resolves only
+precompiled contract methods, caches the resulting async callable, binds normal
+Python positional/keyword arguments, converts the named payload fields to the
+declared DTO, and delegates to the existing immutable `ServiceProxy`.
+`Annotated` keyword-only markers carry envelope metadata such as
+`IdempotencyKey`, `CorrelationId`, `CausationId`, `CallHeaders`, and
+`CallTimeout`; those values never become payload fields.
+
+The same Protocol method may be supplied to server `@rpc(Protocol.method)`.
+Startup compilation then verifies the handler's complete `Payload()` DTO and
+return annotation against the contract. The existing string-based `@rpc("...")`
+and `ServiceProxy.request("...", ...)` APIs remain the transport-level escape
+hatches; typed contracts add no retries or delivery guarantees.
+
 Publishing uses `mandatory=True` and publisher confirms. Broker acceptance does
 not imply handler completion. The client never automatically resends an RPC
 request after an accepted or indeterminate publication.

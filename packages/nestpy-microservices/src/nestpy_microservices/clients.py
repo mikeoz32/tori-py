@@ -17,6 +17,7 @@ from nestpy import (
 )
 
 from nestpy_microservices.cluster import ServiceCluster, ServiceClusterOptions
+from nestpy_microservices.contracts import create_service_proxy
 from nestpy_microservices.errors import TransportStateError
 from nestpy_microservices.transport import (
     ClientTransport,
@@ -43,6 +44,7 @@ class ClientsModule:
         *,
         options: ServiceClusterOptions | None = None,
         imports: Iterable[ModuleImport] = (),
+        contracts: Iterable[type[object]] = (),
         key: str = "default",
     ) -> DeferredModule:
         cluster_token = cls.get_cluster_token(key)
@@ -54,6 +56,11 @@ class ClientsModule:
             raise TypeError("options must be ServiceClusterOptions")
         root = ClientClusterRoot(transport, selected_options)
         captured_imports = tuple(imports)
+        captured_contracts = tuple(contracts)
+        if len(set(captured_contracts)) != len(captured_contracts):
+            raise ValueError("client contracts must be unique")
+        if not all(isinstance(contract, type) for contract in captured_contracts):
+            raise TypeError("client contracts must be classes")
 
         if is_reference:
             reference = transport
@@ -85,11 +92,27 @@ class ClientsModule:
                 )
 
         def materialize() -> ModuleSpec:
+            contract_providers: list[FactoryProvider] = []
+            for contract in captured_contracts:
+
+                def create_proxy(
+                    cluster: ServiceCluster,
+                    *,
+                    contract=contract,
+                ) -> object:
+                    return create_service_proxy(contract, cluster)
+
+                create_proxy.__annotations__["cluster"] = Annotated[
+                    ServiceCluster,
+                    Inject(cluster_token),
+                ]
+                contract_providers.append(FactoryProvider(contract, create_proxy))
             return ModuleSpec(
                 imports=captured_imports,
                 providers=(
                     ValueProvider(ClientClusterRoot, root),
                     FactoryProvider(cluster_token, create_cluster),
+                    *contract_providers,
                     *(
                         (AliasProvider(ServiceCluster, cluster_token),)
                         if key == "default"
@@ -98,6 +121,7 @@ class ClientsModule:
                 ),
                 exports=(
                     cluster_token,
+                    *captured_contracts,
                     *((ServiceCluster,) if key == "default" else ()),
                 ),
             )

@@ -91,6 +91,13 @@ def compile_controller_message_handlers(
                     f"RPC handler {controller.__qualname__}.{method_name} must "
                     "declare a return annotation"
                 )
+            _validate_rpc_contract(
+                controller,
+                method_name,
+                rpc_metadata,
+                parameters,
+                return_annotation,
+            )
             plans.append(
                 RpcHandlerPlan(
                     module_id=module_id,
@@ -127,6 +134,34 @@ def compile_controller_message_handlers(
                 )
             )
     return tuple(plans)
+
+
+def _validate_rpc_contract(
+    controller: type[object],
+    method_name: str,
+    metadata: object,
+    parameters: tuple[MessageParameterPlan, ...],
+    return_annotation: object,
+) -> None:
+    payload_type = getattr(metadata, "payload_type", None)
+    if payload_type is None:
+        return
+    complete_payloads = [
+        parameter
+        for parameter in parameters
+        if parameter.kind == "payload" and parameter.source is None
+    ]
+    if len(complete_payloads) != 1 or complete_payloads[0].annotation != payload_type:
+        raise HandlerCompilationError(
+            f"RPC handler {controller.__qualname__}.{method_name} payload does not "
+            "match its service contract"
+        )
+    response_type = getattr(metadata, "response_type", None)
+    if response_type is not None and return_annotation != response_type:
+        raise HandlerCompilationError(
+            f"RPC handler {controller.__qualname__}.{method_name} response does not "
+            "match its service contract"
+        )
 
 
 def compile_service_handler_registry(
