@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Protocol
+from typing import Protocol
 
 import msgspec
 
@@ -16,12 +16,7 @@ from examples.nestpy.microservices_app.common.contracts import (
     Notification,
     Order,
 )
-from nestpy_microservices import (
-    IdempotencyKey,
-    ServiceIdentity,
-    rpc_call,
-    service_contract,
-)
+from nestpy_microservices import ServiceIdentity, rpc_call, service_contract
 
 CATALOG = ServiceIdentity("demo", "catalog", 1)
 ORDERS = ServiceIdentity("demo", "orders", 1)
@@ -45,8 +40,6 @@ class CatalogService(CatalogItemLookup, Protocol):
         self,
         name: str,
         price_cents: int,
-        *,
-        idempotency_key: Annotated[str, IdempotencyKey()],
     ) -> CatalogItem: ...
 
     @rpc_call("get-item", payload=GetCatalogItem)
@@ -63,8 +56,6 @@ class OrdersService(Protocol):
         self,
         item_id: int,
         quantity: int,
-        *,
-        idempotency_key: Annotated[str, IdempotencyKey()],
     ) -> Order: ...
 
     @rpc_call("get-order", payload=GetOrder)

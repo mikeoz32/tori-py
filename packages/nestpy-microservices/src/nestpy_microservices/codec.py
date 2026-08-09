@@ -41,7 +41,6 @@ _REQUEST_FIELDS = frozenset(
         "deadline_at",
         "correlation_id",
         "causation_id",
-        "idempotency_key",
         "reply_to",
         "headers",
         "payload",
@@ -368,7 +367,6 @@ class MsgspecJsonMessageCodec:
                 if envelope.causation_id is not None
                 else None
             ),
-            "idempotency_key": envelope.idempotency_key,
             "reply_to": envelope.reply_to.value,
             "headers": _checked_headers(envelope.headers, self.limits),
             "payload": _canonical(envelope.payload, "payload", self.limits),
@@ -379,11 +377,8 @@ class MsgspecJsonMessageCodec:
         value = _decode_json(data, self.limits)
         _require_fields(value, _REQUEST_FIELDS, "RPC request")
         causation = value["causation_id"]
-        idempotency = value["idempotency_key"]
         if causation is not None:
             causation = _uuid(causation, "causation_id")
-        if idempotency is not None and not isinstance(idempotency, str):
-            raise WireDecodingError("idempotency_key must be a string or null")
         try:
             if value["kind"] != "rpc_request":
                 raise WireDecodingError("RPC request kind is invalid")
@@ -396,7 +391,6 @@ class MsgspecJsonMessageCodec:
                 deadline_at=_timestamp_value(value["deadline_at"], "deadline_at"),
                 correlation_id=_uuid(value["correlation_id"], "correlation_id"),
                 causation_id=causation,
-                idempotency_key=idempotency,
                 reply_to=ReplyRoute(_string(value["reply_to"], "reply_to")),
                 headers=_headers(value["headers"], self.limits),
                 payload=value["payload"],

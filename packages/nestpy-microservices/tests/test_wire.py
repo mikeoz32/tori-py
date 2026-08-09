@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
@@ -39,7 +40,6 @@ def _request() -> RpcRequestEnvelope:
         deadline_at=created_at + timedelta(seconds=5),
         correlation_id=uuid4(),
         causation_id=uuid4(),
-        idempotency_key="profile-resolution-1",
         headers={"trace": {"sampled": True}, "tenant": "community"},
         payload=ProfilePayload("velvet", True),
     )
@@ -53,14 +53,19 @@ def test_request_round_trip_is_deterministic_and_typed() -> None:
 
     assert first == second
     assert b'"kind":"rpc_request"' in first
+    assert b'"idempotency_key"' not in first
     decoded = codec.decode_request(first)
     assert decoded == codec.decode_request(second)
     assert decoded.service == request.service
     assert decoded.causation_id == request.causation_id
-    assert decoded.idempotency_key == request.idempotency_key
     assert decoded.payload == {"age_attested": True, "handle": "velvet"}
     trace = cast(Mapping[str, object], decoded.headers["trace"])
     assert trace["sampled"] is True
+
+    legacy = json.loads(first)
+    legacy["idempotency_key"] = "legacy-key"
+    with pytest.raises(WireDecodingError):
+        codec.decode_request(json.dumps(legacy).encode())
 
 
 def test_response_result_none_and_remote_error_are_exclusive() -> None:

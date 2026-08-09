@@ -30,10 +30,8 @@ from examples.nestpy.microservices_app.common.services import (
     HealthCheck,
 )
 from nestpy_microservices import (
-    Context,
     Payload,
     PublicRpcError,
-    RpcContext,
     ServiceIdentity,
     rpc,
 )
@@ -49,31 +47,24 @@ class CatalogItemRow(Base):
     __tablename__ = "catalog_items"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    idempotency_key: Mapped[str] = mapped_column(String(120), unique=True)
     name: Mapped[str] = mapped_column(String(120), unique=True)
     price_cents: Mapped[int] = mapped_column()
 
 
 @repository(CatalogItemRow)
 class CatalogRepository(Repository[CatalogItemRow]):
-    async def find_by_idempotency_key(self, key: str) -> CatalogItemRow | None:
-        return await self.find_one(CatalogItemRow.idempotency_key == key)
+    pass
 
 
 @dataclass(frozen=True, slots=True)
 class CreateItemCommand(Command[CatalogItem]):
     name: str
     price_cents: int
-    idempotency_key: str
 
 
 @dataclass(frozen=True, slots=True)
 class GetItemQuery(Query[CatalogItem]):
     item_id: int
-
-
-class IdempotencyConflictError(Exception):
-    """An idempotency key was reused for a different catalog request."""
 
 
 @command_handler(CreateItemCommand)
@@ -86,29 +77,11 @@ class CreateItemHandler:
         name = command.name.strip()
         if not name or command.price_cents <= 0:
             raise ValueError("name and positive price_cents are required")
-        try:
-            async with self._entities.transaction():
-                existing = await self._items.find_by_idempotency_key(
-                    command.idempotency_key
-                )
-                if existing is not None:
-                    return _replayed_item(existing, command, name)
-                row = await self._items.add(
-                    CatalogItemRow(
-                        idempotency_key=command.idempotency_key,
-                        name=name,
-                        price_cents=command.price_cents,
-                    )
-                )
-                return _to_contract(row)
-        except IntegrityError:
-            async with self._entities.transaction():
-                existing = await self._items.find_by_idempotency_key(
-                    command.idempotency_key
-                )
-                if existing is None:
-                    raise
-                return _replayed_item(existing, command, name)
+        async with self._entities.transaction():
+            row = await self._items.add(
+                CatalogItemRow(name=name, price_cents=command.price_cents)
+            )
+            return _to_contract(row)
 
 
 @query_handler(GetItemQuery)
@@ -143,26 +116,11 @@ class CatalogController:
     async def create_item(
         self,
         payload: Annotated[CreateCatalogItem, Payload()],
-        context: Annotated[RpcContext, Context()],
     ) -> CatalogItem:
-        idempotency_key = context.idempotency_key
-        if (
-            idempotency_key is None
-            or not idempotency_key.strip()
-            or len(idempotency_key) > 120
-            or "\x00" in idempotency_key
-        ):
-            raise PublicRpcError(
-                "invalid_request", "create-item requires a valid idempotency key."
-            )
         try:
             return await self._commands.execute(
-                CreateItemCommand(payload.name, payload.price_cents, idempotency_key)
+                CreateItemCommand(payload.name, payload.price_cents)
             )
-        except IdempotencyConflictError as error:
-            raise PublicRpcError(
-                "conflict", "The idempotency key was used for another request."
-            ) from error
         except ValueError as error:
             raise PublicRpcError(
                 "invalid_request", "Name and positive price_cents are required."
@@ -218,16 +176,6 @@ async def run() -> None:
 
 def _to_contract(row: CatalogItemRow) -> CatalogItem:
     return CatalogItem(row.id, row.name, row.price_cents)
-
-
-def _replayed_item(
-    row: CatalogItemRow,
-    command: CreateItemCommand,
-    normalized_name: str,
-) -> CatalogItem:
-    if row.name != normalized_name or row.price_cents != command.price_cents:
-        raise IdempotencyConflictError
-    return _to_contract(row)
 
 
 if __name__ == "__main__":

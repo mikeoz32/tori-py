@@ -33,12 +33,11 @@ reliable `BROADCAST`. The reliable broadcast example supplies the stable
 `MicroservicesOptions.instance_id` required for durable exclusive ownership.
 Durability is adapter-specific; in-memory queues are only test boundaries.
 
-## Deadlines, Idempotency, And Outbox
+## Deadlines And Outbox
 
-`policies.py` demonstrates an offline deadline, an application-owned
-idempotency store, and an outbox relay boundary. The transport does not invent
-idempotency keys and does not persist or relay an outbox on behalf of the
-application.
+`policies.py` demonstrates an offline deadline and an application-owned outbox
+relay boundary. The transport does not persist or relay an outbox on behalf of
+the application.
 
 Run the example tests with:
 

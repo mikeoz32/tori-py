@@ -24,7 +24,6 @@ result = await service.request(
     response_type=ResolveProfileResponse,
     schema_version=1,
     timeout=2.0,
-    idempotency_key=None,
     correlation_id=None,
     causation_id=None,
     headers=None,
@@ -71,8 +70,8 @@ default namespace and contract version. Defaults are 5 seconds, 30 seconds, and
   fresh timeout.
 - Timeout/cancellation before any write is local; while awaiting confirm it is
   indeterminate; after confirmed acceptance it is an accepted-request timeout.
-- A caller may reuse the same idempotency key only according to application
-  contract; the client does not invent one.
+- The transport does not model application idempotency; applications place any
+  deduplication identity in their own request contracts.
 
 ## Reply Router
 

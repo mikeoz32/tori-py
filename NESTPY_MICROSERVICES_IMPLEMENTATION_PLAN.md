@@ -141,8 +141,8 @@ readiness, rollback, quiescence, and shutdown.
 
 - Implement `ServiceCluster`, immutable service proxies, and explicit
   `request(method, ...)` calls.
-- Implement finite timeout validation, absolute deadlines, correlation IDs,
-  causation IDs, and optional idempotency keys.
+- Implement finite timeout validation, absolute deadlines, correlation IDs, and
+  causation IDs.
 - Share one bounded reply router across every target service.
 - Handle normal, remote-error, timeout, caller-cancellation, late, duplicate,
   unknown, and malformed replies.

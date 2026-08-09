@@ -513,7 +513,6 @@ created_at
 deadline_at
 correlation_id
 causation_id
-idempotency_key
 reply_to
 headers
 payload
@@ -523,9 +522,10 @@ Stable aliases never use Python module or class paths. IDs use canonical UUID
 text. Timestamps use UTC. Headers are immutable, size-limited, string-keyed, and
 restricted to codec-supported values.
 
-`idempotency_key` is optional at the transport level because read-only RPC may
-not require it. Application contracts that can create duplicate state or side
-effects MUST require and persist an idempotency identity.
+`message_id` identifies one transport message and remains stable across broker
+redelivery. It is not a business idempotency key: applications define any
+deduplication identity, scope, persistence, and replay policy in their own
+payloads and storage.
 
 The default wire codec is deterministic msgspec JSON. A custom codec must
 implement the same size, failure, and type-validation contract. Unsafe pickle or
@@ -667,7 +667,7 @@ precompiled contract methods, caches the resulting async callable, binds normal
 Python positional/keyword arguments, converts the named payload fields to the
 declared DTO, and delegates to the existing immutable `ServiceProxy`.
 `Annotated` keyword-only markers carry envelope metadata such as
-`IdempotencyKey`, `CorrelationId`, `CausationId`, `CallHeaders`, and
+`CorrelationId`, `CausationId`, `CallHeaders`, and
 `CallTimeout`; those values never become payload fields.
 
 The same Protocol method may be supplied to server `@rpc(Protocol.method)`.
@@ -1036,7 +1036,8 @@ completed as outcome unknown.
 On publisher uncertainty, the caller receives a typed indeterminate publish
 error unless RabbitMQ explicitly confirmed acceptance or rejection. Retrying an
 event may duplicate it; retrying RPC may duplicate remote execution. Message and
-idempotency IDs must remain stable when application policy permits a retry.
+application-owned business IDs must remain stable when application policy permits
+a retry.
 
 ## 32. Status and Native Access
 

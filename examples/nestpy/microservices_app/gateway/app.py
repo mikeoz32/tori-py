@@ -7,7 +7,6 @@ from typing import Annotated
 
 from nestpy import (
     Body,
-    Header,
     NestApplication,
     Path,
     PipelineResult,
@@ -85,14 +84,8 @@ class GatewayController:
     async def create_item(
         self,
         body: Annotated[CreateCatalogItem, Body()],
-        idempotency_key: Annotated[str, Header("idempotency-key")],
     ) -> CatalogItem:
-        _validate_idempotency_key(idempotency_key)
-        return await self._catalog.create_item(
-            body.name,
-            body.price_cents,
-            idempotency_key=idempotency_key,
-        )
+        return await self._catalog.create_item(body.name, body.price_cents)
 
     @get("/catalog/items/{item_id}")
     async def get_item(
@@ -106,14 +99,8 @@ class GatewayController:
     async def create_order(
         self,
         body: Annotated[CreateOrder, Body()],
-        idempotency_key: Annotated[str, Header("idempotency-key")],
     ) -> Order:
-        _validate_idempotency_key(idempotency_key)
-        return await self._orders.create_order(
-            body.item_id,
-            body.quantity,
-            idempotency_key=idempotency_key,
-        )
+        return await self._orders.create_order(body.item_id, body.quantity)
 
     @get("/orders/{order_id}")
     async def get_order(
@@ -188,11 +175,6 @@ class GatewayErrorFilter:
                 request=context.request,
             )
         )
-
-
-def _validate_idempotency_key(value: str) -> None:
-    if not value.strip() or len(value) > 120 or "\x00" in value:
-        raise HttpException(400, "A valid idempotency-key header is required.")
 
 
 gateway_reference = RabbitMqTransport()

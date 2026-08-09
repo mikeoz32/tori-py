@@ -99,12 +99,12 @@ may redeliver to the same or another replica. RPC execution is therefore at
 least once. Duplicate responses use the original correlation ID and are safely
 discarded after the first client completion.
 
-## Idempotency Contract
+## Duplicate Execution Boundary
 
 - Framework message IDs and correlation IDs do not provide exactly-once effects.
-- Mutating service contracts decide whether an idempotency key is required.
-- Application deduplication and state changes commit atomically where required.
-- An indeterminate handler or settlement outcome does not generate a new key.
+- `message_id` is a stable transport delivery identity, not a business key.
+- Applications define deduplication identities and commit policies in their own
+  request contracts and storage where required.
 - Read-only handlers still tolerate duplicate execution where possible.
 
 ## Tests

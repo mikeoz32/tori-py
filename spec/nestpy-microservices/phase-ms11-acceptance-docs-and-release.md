@@ -21,8 +21,8 @@ complete independent review before release.
 - Hybrid Starlette HTTP plus RPC/events application.
 - `SERVICE_POOL`, `SINGLETON`, ephemeral broadcast, and reliable broadcast.
 - Deadline-bound backlog while every service replica is offline.
-- Explicit idempotent mutating RPC example.
-- Outbox relay boundary example that does not claim built-in outbox support.
+- Application-owned outbox relay and durable-consumer deduplication examples
+  that do not claim built-in outbox or idempotency support.
 
 ## Documentation
 

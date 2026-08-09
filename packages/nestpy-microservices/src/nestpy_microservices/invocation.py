@@ -69,7 +69,6 @@ class MessageInvocation:
     headers: Mapping[str, object]
     metadata: Mapping[str, object]
     causation_id: UUID | None = None
-    idempotency_key: str | None = None
     received_at: datetime = field(default_factory=utc_now)
     expires_at: datetime | None = None
     attempt: int = 1
@@ -87,10 +86,6 @@ class MessageInvocation:
             require_uuid(self.correlation_id, "correlation_id")
         if self.causation_id is not None:
             require_uuid(self.causation_id, "causation_id")
-        if self.idempotency_key is not None and (
-            not isinstance(self.idempotency_key, str) or not self.idempotency_key
-        ):
-            raise ValueError("idempotency_key must be a non-empty string")
         require_utc(self.received_at, "received_at")
         if self.expires_at is not None:
             require_utc(self.expires_at, "expires_at")
@@ -514,7 +509,6 @@ def _make_context(
         correlation_id=invocation.correlation_id,
         message_id=invocation.message_id,
         causation_id=invocation.causation_id,
-        idempotency_key=invocation.idempotency_key,
         scope_resolver=resolver,
         message_metadata=invocation.metadata,
         received_at=invocation.received_at,

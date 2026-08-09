@@ -517,7 +517,6 @@ def _message_invocation(
         message_id=envelope.message_id,
         correlation_id=envelope.correlation_id,
         causation_id=envelope.causation_id,
-        idempotency_key=envelope.idempotency_key,
         payload=envelope.payload,
         headers=envelope.headers,
         metadata={"routing_key": delivery.routing_key, "kind": envelope.kind},

@@ -15,7 +15,6 @@ from nestpy import AliasProvider, NestApplication, controller, injectable, modul
 from nestpy_cqrs import CqrsModule, command_handler, query_handler
 from nestpy_sqlalchemy import EntityManager, Repository, SqlAlchemyModule, repository
 from sqlalchemy import DateTime, Integer, String, Text, select
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 from examples.nestpy.microservices_app.common.contracts import (
@@ -37,19 +36,16 @@ from examples.nestpy.microservices_app.common.services import (
 )
 from nestpy_microservices import (
     ClientsModule,
-    Context,
     EventDispatcher,
     Payload,
     PublicRpcError,
     RemoteRpcError,
-    RpcContext,
     ServiceIdentity,
     rpc,
     utc_now,
 )
 
 SERVICE = ServiceIdentity("demo", "orders", 1)
-CATALOG = ServiceIdentity("demo", "catalog", 1)
 logger = logging.getLogger(__name__)
 
 
@@ -61,7 +57,6 @@ class OrderRow(Base):
     __tablename__ = "orders"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    idempotency_key: Mapped[str] = mapped_column(String(120), unique=True)
     item_id: Mapped[int] = mapped_column(Integer)
     quantity: Mapped[int] = mapped_column(Integer)
     unit_price_cents: Mapped[int] = mapped_column(Integer)
@@ -80,8 +75,7 @@ class OutboxRow(Base):
 
 @repository(OrderRow)
 class OrderRepository(Repository[OrderRow]):
-    async def find_by_idempotency_key(self, key: str) -> OrderRow | None:
-        return await self.find_one(OrderRow.idempotency_key == key)
+    pass
 
 
 @repository(OutboxRow)
@@ -99,16 +93,11 @@ class OutboxRepository(Repository[OutboxRow]):
 class PlaceOrderCommand(Command[Order]):
     item_id: int
     quantity: int
-    idempotency_key: str
 
 
 @dataclass(frozen=True, slots=True)
 class GetOrderQuery(Query[Order]):
     order_id: int
-
-
-class IdempotencyConflictError(Exception):
-    """An idempotency key was reused for a different order request."""
 
 
 @command_handler(PlaceOrderCommand)
@@ -128,51 +117,33 @@ class PlaceOrderHandler:
     async def handle(self, command: PlaceOrderCommand) -> Order:
         if command.quantity <= 0:
             raise ValueError("quantity must be positive")
-        async with self._entities.transaction():
-            existing = await self._orders.find_by_idempotency_key(
-                command.idempotency_key
-            )
-            if existing is not None:
-                return _replayed_order(existing, command)
         item = await self._catalog.get_item(command.item_id)
-        try:
-            async with self._entities.transaction():
-                row = await self._orders.add(
-                    OrderRow(
-                        idempotency_key=command.idempotency_key,
-                        item_id=item.id,
-                        quantity=command.quantity,
-                        unit_price_cents=item.price_cents,
-                        status="created",
-                    )
+        async with self._entities.transaction():
+            row = await self._orders.add(
+                OrderRow(
+                    item_id=item.id,
+                    quantity=command.quantity,
+                    unit_price_cents=item.price_cents,
+                    status="created",
                 )
-                order = _to_contract(row)
-                await self._outbox.add(
-                    OutboxRow(
-                        event_id=str(uuid4()),
-                        event_name="order-created",
-                        payload=json.dumps(
-                            {
-                                "order_id": order.id,
-                                "item_id": order.item_id,
-                                "quantity": order.quantity,
-                                "total_cents": (
-                                    order.quantity * order.unit_price_cents
-                                ),
-                            },
-                            separators=(",", ":"),
-                        ),
-                    )
+            )
+            order = _to_contract(row)
+            await self._outbox.add(
+                OutboxRow(
+                    event_id=str(uuid4()),
+                    event_name="order-created",
+                    payload=json.dumps(
+                        {
+                            "order_id": order.id,
+                            "item_id": order.item_id,
+                            "quantity": order.quantity,
+                            "total_cents": order.quantity * order.unit_price_cents,
+                        },
+                        separators=(",", ":"),
+                    ),
                 )
-                return order
-        except IntegrityError:
-            async with self._entities.transaction():
-                existing = await self._orders.find_by_idempotency_key(
-                    command.idempotency_key
-                )
-                if existing is None:
-                    raise
-                return _replayed_order(existing, command)
+            )
+            return order
 
 
 @query_handler(GetOrderQuery)
@@ -266,30 +237,11 @@ class OrdersController:
     async def create_order(
         self,
         payload: Annotated[CreateOrder, Payload()],
-        context: Annotated[RpcContext, Context()],
     ) -> Order:
-        idempotency_key = context.idempotency_key
-        if (
-            idempotency_key is None
-            or not idempotency_key.strip()
-            or len(idempotency_key) > 120
-            or "\x00" in idempotency_key
-        ):
-            raise PublicRpcError(
-                "invalid_request", "create-order requires a valid idempotency key."
-            )
         try:
             return await self._commands.execute(
-                PlaceOrderCommand(
-                    payload.item_id,
-                    payload.quantity,
-                    idempotency_key,
-                )
+                PlaceOrderCommand(payload.item_id, payload.quantity)
             )
-        except IdempotencyConflictError as error:
-            raise PublicRpcError(
-                "conflict", "The idempotency key was used for another request."
-            ) from error
         except ValueError as error:
             raise PublicRpcError(
                 "invalid_request", "Order quantity must be positive."
@@ -364,12 +316,6 @@ def _to_contract(row: OrderRow) -> Order:
         row.unit_price_cents,
         row.status,
     )
-
-
-def _replayed_order(row: OrderRow, command: PlaceOrderCommand) -> Order:
-    if row.item_id != command.item_id or row.quantity != command.quantity:
-        raise IdempotencyConflictError
-    return _to_contract(row)
 
 
 if __name__ == "__main__":

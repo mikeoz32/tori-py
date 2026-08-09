@@ -3,22 +3,15 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass, field
-from typing import Annotated
-
-from nestpy import controller
+from dataclasses import dataclass
 
 from nestpy_microservices import (
-    Context,
     InMemoryBroker,
     InMemoryClientTransport,
     InMemoryServerTransport,
-    Payload,
-    RpcContext,
     RpcTimeoutError,
     ServiceCluster,
     ServiceIdentity,
-    rpc,
 )
 
 
@@ -47,38 +40,6 @@ async def demonstrate_offline_deadline() -> bool:
         await cluster.close()
         await server.close()
         await broker.close()
-
-
-@dataclass
-class IdempotencyStore:
-    """Application-owned deduplication state, not a built-in transport feature."""
-
-    applied: set[str] = field(default_factory=set)
-
-    def apply_once(self, key: str) -> str:
-        if key in self.applied:
-            return "duplicate"
-        self.applied.add(key)
-        return "applied"
-
-
-@controller()
-class MutatingController:
-    """An explicit idempotency-key boundary for a mutating RPC."""
-
-    def __init__(self, store: IdempotencyStore) -> None:
-        self.store = store
-
-    @rpc("update-profile")
-    async def update(
-        self,
-        payload: Annotated[dict[str, object], Payload()],
-        context: Annotated[RpcContext, Context()],
-    ) -> str:
-        del payload
-        if context.idempotency_key is None:
-            raise ValueError("mutating RPC requires an idempotency key")
-        return self.store.apply_once(context.idempotency_key)
 
 
 @dataclass(frozen=True)

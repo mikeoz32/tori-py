@@ -39,11 +39,6 @@ class RpcCallMetadata:
 
 
 @dataclass(frozen=True, slots=True)
-class IdempotencyKey:
-    """Bind a keyword-only protocol parameter to the RPC idempotency key."""
-
-
-@dataclass(frozen=True, slots=True)
 class CorrelationId:
     """Bind a keyword-only protocol parameter to the RPC correlation ID."""
 
@@ -90,7 +85,6 @@ _CONTRACT_KEY: MetadataKey[ServiceContractMetadata] = MetadataKey(
 _CALL_KEY: MetadataKey[RpcCallMetadata] = MetadataKey("nestpy.microservices.rpc_call")
 _REFLECTOR = Reflector()
 _OUTBOUND_MARKERS = {
-    IdempotencyKey: "idempotency_key",
     CorrelationId: "correlation_id",
     CausationId: "causation_id",
     CallHeaders: "headers",
@@ -249,7 +243,6 @@ class ProtocolServiceProxy:
                     float | None,
                     options.get("timeout", plan.metadata.timeout),
                 ),
-                idempotency_key=cast(str | None, options.get("idempotency_key")),
                 correlation_id=cast(UUID | None, options.get("correlation_id")),
                 causation_id=cast(UUID | None, options.get("causation_id")),
                 headers=cast(Mapping[str, object] | None, options.get("headers")),
@@ -354,7 +347,6 @@ __all__ = [
     "CallTimeout",
     "CausationId",
     "CorrelationId",
-    "IdempotencyKey",
     "ProtocolServiceProxy",
     "RpcCallMetadata",
     "RpcCallPlan",

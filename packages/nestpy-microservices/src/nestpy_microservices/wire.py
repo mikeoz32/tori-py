@@ -162,7 +162,6 @@ class RpcRequestEnvelope:
     deadline_at: datetime
     correlation_id: UUID
     causation_id: UUID | None = None
-    idempotency_key: str | None = None
     reply_to: ReplyRoute = field(default_factory=ReplyRoute.generate)
     headers: Mapping[str, object] = field(default_factory=dict)
     payload: object = None
@@ -180,10 +179,6 @@ class RpcRequestEnvelope:
             raise WireDeadlineError(str(error)) from error
         if not isinstance(self.reply_to, ReplyRoute):
             raise WireValidationError("reply_to must be a ReplyRoute")
-        if self.idempotency_key is not None and (
-            not isinstance(self.idempotency_key, str) or not self.idempotency_key
-        ):
-            raise WireValidationError("idempotency_key must be a non-empty string")
         object.__setattr__(self, "method", target.method)
         object.__setattr__(self, "headers", freeze_headers(self.headers, limits))
 

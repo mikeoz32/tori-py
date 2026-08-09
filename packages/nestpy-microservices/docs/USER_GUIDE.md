@@ -91,17 +91,18 @@ publication result is indeterminate and is never automatically republished.
 Competing consumers balance work without a strict round-robin guarantee.
 Prefetch, concurrency, pending replies, and queues are bounded by options.
 
-## RPC Deadlines And Idempotency
+## RPC Deadlines And Delivery Identity
 
 RPC calls have a finite timeout. The client sends an absolute UTC deadline and
 uses one monotonic budget for connection wait, publication, and reply wait. A
 request can time out before write, after accepted publication, or with an
 indeterminate publication outcome; these are different failures.
 
-The client does not create idempotency keys and does not retry accepted or
-indeterminate calls. Mutating handlers should require an application-owned
-idempotency key and persist the deduplication decision in the same application
-transaction as the mutation.
+The transport does not retry accepted or indeterminate RPC calls. Its
+`message_id` identifies one delivery and remains stable across broker
+redelivery; it is not an application idempotency key. If a use case needs
+deduplication, define the identity, scope, and persistence policy in that
+application's request contract and storage.
 
 Caller cancellation is local; it does not cancel work already accepted by the
 service. If cancellation leaves publication or settlement uncertain, the
@@ -125,7 +126,7 @@ Register contracts with `ClientsModule.register_cluster(...,
 contracts=(CatalogService,))` and inject `CatalogService`. The proxy uses
 `__getattr__` only for methods precompiled from the contract. Keep envelope
 metadata out of payloads with keyword-only `Annotated` markers, for example
-`idempotency_key: Annotated[str, IdempotencyKey()]`.
+`headers: Annotated[Mapping[str, object], CallHeaders()]`.
 
 Use `@rpc(CatalogService.get_item)` on the server to share the alias and schema
 version. Startup validates that the handler's complete `Payload()` DTO and

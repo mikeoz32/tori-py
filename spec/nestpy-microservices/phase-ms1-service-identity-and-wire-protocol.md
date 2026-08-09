@@ -44,14 +44,15 @@ The encoded request carries exactly:
 ```text
 message_id, kind, namespace, service, contract_version, method,
 schema_version, created_at, deadline_at, correlation_id, causation_id,
-idempotency_key, reply_to, headers, payload
+reply_to, headers, payload
 ```
 
 - `kind` is a fixed discriminant.
 - `deadline_at` is required and later than `created_at` at creation time.
 - Client configuration bounds the maximum accepted deadline.
 - `correlation_id` is required for request-response.
-- `causation_id` and `idempotency_key` are optional transport facts.
+- `causation_id` is an optional transport fact.
+- `message_id` remains stable across redelivery but is not business idempotency.
 - `reply_to` is opaque to application handlers and has the exact generated
   `reply.<32-lowercase-hex>` routing-key form.
 

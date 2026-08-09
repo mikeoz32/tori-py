@@ -138,7 +138,6 @@ def test_root_facade_is_exact_and_typed() -> None:
         "CallTimeout",
         "CausationId",
         "CorrelationId",
-        "IdempotencyKey",
         "ProtocolServiceProxy",
         "RpcCallMetadata",
         "RpcCallPlan",

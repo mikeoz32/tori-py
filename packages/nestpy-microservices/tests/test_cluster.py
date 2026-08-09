@@ -1,16 +1,20 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Mapping
 from typing import Annotated, Protocol, cast
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import msgspec
 import pytest
 from nestpy import NestApplication, ValueProvider, module
 
 from nestpy_microservices import (
+    CallHeaders,
+    CallTimeout,
+    CausationId,
     ClientsModule,
-    IdempotencyKey,
+    CorrelationId,
     InMemoryBroker,
     InMemoryClientTransport,
     InMemoryServerTransport,
@@ -54,7 +58,10 @@ class MembersClient(Protocol):
         self,
         value: str,
         *,
-        idempotency_key: Annotated[str | None, IdempotencyKey()] = None,
+        correlation_id: Annotated[UUID | None, CorrelationId()] = None,
+        causation_id: Annotated[UUID | None, CausationId()] = None,
+        headers: Annotated[Mapping[str, object] | None, CallHeaders()] = None,
+        timeout: Annotated[float | None, CallTimeout()] = None,
     ) -> str: ...
 
 
@@ -107,7 +114,10 @@ async def test_dynamic_protocol_proxy_binds_payload_and_metadata() -> None:
     async def dispatch(delivery):
         request = codec.decode_request(delivery.body)
         assert request.payload == {"value": "hello"}
-        assert request.idempotency_key == "request-1"
+        assert request.correlation_id == correlation_id
+        assert request.causation_id == causation_id
+        assert request.headers == {"trace": "request-1"}
+        assert (request.deadline_at - request.created_at).total_seconds() <= 0.2
         response = RpcResponseEnvelope(
             message_id=uuid4(),
             correlation_id=request.correlation_id,
@@ -129,8 +139,19 @@ async def test_dynamic_protocol_proxy_binds_payload_and_metadata() -> None:
     await server.start(dispatch)
     cluster = ServiceCluster(InMemoryClientTransport(broker))
     client = cast(MembersClient, create_service_proxy(MembersClient, cluster))
+    correlation_id = uuid4()
+    causation_id = uuid4()
 
-    assert await client.ping("hello", idempotency_key="request-1") == "HELLO"
+    assert (
+        await client.ping(
+            "hello",
+            correlation_id=correlation_id,
+            causation_id=causation_id,
+            headers={"trace": "request-1"},
+            timeout=0.2,
+        )
+        == "HELLO"
+    )
 
     await cluster.close()
     await server.close()

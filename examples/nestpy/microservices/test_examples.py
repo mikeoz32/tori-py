@@ -9,10 +9,7 @@ from examples.nestpy.microservices.events import (
     EventModesModule,
     reliable_broadcast_root,
 )
-from examples.nestpy.microservices.policies import (
-    MutatingController,
-    demonstrate_offline_deadline,
-)
+from examples.nestpy.microservices.policies import demonstrate_offline_deadline
 from examples.nestpy.microservices.replicas import (
     call_multiple_services,
     run_competing_replicas,
@@ -103,10 +100,3 @@ async def test_hybrid_application_composes_http_and_rpc() -> None:
 
     application = await create_hybrid_application(Factory())
     assert application.state.value == "compiled"
-
-
-def test_idempotency_example_is_a_controller() -> None:
-    registry = compile_service_handler_registry(
-        ((ModuleId(MutatingController), MutatingController),)
-    )
-    assert [plan.method for plan in registry.rpc_handlers] == ["update-profile"]

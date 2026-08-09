@@ -151,7 +151,6 @@ assert set(nestpy_microservices.__all__) == {
     "CallTimeout",
     "CausationId",
     "CorrelationId",
-    "IdempotencyKey",
     "ProtocolServiceProxy",
     "RpcCallMetadata",
     "RpcCallPlan",

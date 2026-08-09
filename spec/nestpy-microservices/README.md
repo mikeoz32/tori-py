@@ -7,7 +7,8 @@ Governing documents:
 
 ## Current Status
 
-MS0-MS9 capabilities are implemented in the current worktree, including the MS9
+MS0-MS10 and MS12 capabilities are implemented in the current worktree,
+including the MS9
 root-owned application-facing `EventDispatcher`, RabbitMQ event routing,
 complete real-broker cardinality matrix, offline ephemeral behavior, and
 reliable-broadcast restart retention. MS10 failure hardening is implemented and
@@ -35,7 +36,7 @@ observability/security hardening and MS11 release acceptance.
 | MS9 | [Clustered event dispatch](phase-ms9-clustered-event-dispatch.md) | SERVICE_POOL, SINGLETON, and BROADCAST | Implemented; exit criteria proven against real RabbitMQ |
 | MS10 | [Failure recovery and hardening](phase-ms10-failure-recovery-and-hardening.md) | Bounded explicit distributed failures | Implemented; MS11 release gates remain |
 | MS11 | [Acceptance, docs, and release](phase-ms11-acceptance-docs-and-release.md) | Reviewed releasable artifacts | Not complete |
-| MS12 | Typed service contracts | Protocol-driven dynamic RPC clients | In progress |
+| MS12 | Typed service contracts | Protocol-driven dynamic RPC clients | Implemented |
 
 ## Governing Invariants
 
