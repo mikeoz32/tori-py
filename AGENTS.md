@@ -29,7 +29,7 @@
 
 ## Nestpy SQLAlchemy
 - The async SQLAlchemy lifecycle/DI integration and its implementation order are recorded in `NESTPY_SQLALCHEMY_ARCHITECTURE.md`, `NESTPY_SQLALCHEMY_IMPLEMENTATION_PLAN.md`, and `spec/nestpy-sqlalchemy/README.md`.
-- Keep engine, session-factory, EntityManager, and explicitly registered repository providers singleton. EntityManager owns short-lived lexical transactions through an instance ContextVar with strict owner-task guards; operations require an active transaction, nested same-task scopes use savepoints, and repositories are never bound or cloned. Default and decorated custom repositories are allowed, but the integration must not add CQRS, event-sourcing, model scanning, generated repository classes, a custom query language, or startup migrations.
+- Keep engine, session-factory, EntityManager, and explicitly registered repository providers singleton. EntityManager auto-scopes standalone operations, reuses an active transaction through an instance ContextVar with strict owner-task guards, and uses savepoints for explicit same-task nesting; repositories are never bound or cloned. Default and decorated custom repositories are allowed, but the integration must not add CQRS, event-sourcing, model scanning, generated repository classes, a custom query language, or startup migrations.
 
 ## Nestpy OpenAPI
 - The accepted optional OpenAPI 3.1/Swagger UI package, Nestpy extension points, implementation order, and executable phases are recorded in `NESTPY_OPENAPI_ARCHITECTURE.md`, `NESTPY_OPENAPI_IMPLEMENTATION_PLAN.md`, and `spec/nestpy-openapi/README.md`.

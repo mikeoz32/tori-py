@@ -53,7 +53,7 @@ class Repository[EntityT]:
         return self._entity_type
 
     async def add(self, entity: EntityT) -> EntityT:
-        """Add and flush one entity in the active transaction."""
+        """Add and flush one entity in the current or automatic transaction."""
 
         self._require_entity(entity)
         return await self._entities.add(entity)
@@ -149,6 +149,7 @@ class Repository[EntityT]:
     ) -> EntityT | None:
         """Return exactly one matching entity or None, rejecting duplicates."""
 
+        self._entities._require_explicit_lock_scope(with_for_update)
         statement = (
             select(self._entity_type).where(*criteria).options(*options).limit(2)
         )
@@ -165,6 +166,7 @@ class Repository[EntityT]:
     ) -> EntityT:
         """Return exactly one matching entity or propagate native result errors."""
 
+        self._entities._require_explicit_lock_scope(with_for_update)
         statement = (
             select(self._entity_type).where(*criteria).options(*options).limit(2)
         )

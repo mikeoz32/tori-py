@@ -100,6 +100,8 @@ class ItemRepository(Repository[Item]):
 
 async def _create_manager(
     database: Path,
+    *,
+    autoflush: bool = False,
 ) -> tuple[AsyncEngine, EntityManager]:
     engine = create_async_engine(f"sqlite+aiosqlite:///{database.as_posix()}")
     async with engine.begin() as connection:
@@ -108,7 +110,7 @@ async def _create_manager(
         async_sessionmaker(
             engine,
             expire_on_commit=False,
-            autoflush=False,
+            autoflush=autoflush,
             autobegin=False,
         )
     )
@@ -119,77 +121,84 @@ async def _create_manager(
 async def test_default_repository_crud_and_native_expression_queries(
     tmp_path: Path,
 ) -> None:
-    engine, entities = await _create_manager(tmp_path / "repository.db")
+    engine, entities = await _create_manager(
+        tmp_path / "repository.db",
+        autoflush=True,
+    )
     items = Repository(Item, entities)
     try:
         assert isinstance(items, Repository)
         assert items.entity_type is Item
-        async with entities.transaction():
-            alpha, beta, gamma = await items.add_all(
-                (
-                    Item(name="alpha", category="one"),
-                    Item(name="beta", category="one"),
-                    Item(name="gamma", category="two"),
-                )
+        alpha, beta, gamma = await items.add_all(
+            (
+                Item(name="alpha", category="one"),
+                Item(name="beta", category="one"),
+                Item(name="gamma", category="two"),
             )
-            assert (alpha.id, beta.id, gamma.id) == (1, 2, 3)
-            assert len(await items.find(order_by=(Item.id,))) == 3
-            assert len(await items.find(order_by=(Item.id,), limit=3)) == 3
-            assert (await items.get_one(alpha.id)).name == "alpha"
-            assert await items.get(999) is None
+        )
+        assert (alpha.id, beta.id, gamma.id) == (1, 2, 3)
+        assert len(await items.find(order_by=(Item.id,))) == 3
+        assert len(await items.find(order_by=(Item.id,), limit=3)) == 3
+        assert (await items.get_one(alpha.id)).name == "alpha"
+        assert await items.get(999) is None
 
-            found = await items.find(
-                Item.category == "one",
-                order_by=(Item.name.desc(),),
-                offset=1,
-                limit=1,
-            )
-            assert [item.name for item in found] == ["alpha"]
-            assert (await items.find_one(Item.name == "beta")) is not None
-            assert await items.find_one(Item.name == "missing") is None
-            assert (await items.find_one_or_raise(Item.name == "gamma")).id == gamma.id
-            with pytest.raises(NoResultFound):
-                await items.find_one_or_raise(Item.name == "missing")
-            with pytest.raises(MultipleResultsFound):
-                await items.find_one(Item.category == "one")
-            with pytest.raises(MultipleResultsFound):
-                await items.find_one_or_raise(Item.category == "one")
-            assert await items.count() == 3
-            assert await items.count(Item.category == "one") == 2
-            assert await items.exists(Item.name == "alpha")
-            assert not await items.exists(Item.name == "missing")
+        found = await items.find(
+            Item.category == "one",
+            order_by=(Item.name.desc(),),
+            offset=1,
+            limit=1,
+        )
+        assert [item.name for item in found] == ["alpha"]
+        assert (await items.find_one(Item.name == "beta")) is not None
+        assert await items.find_one(Item.name == "missing") is None
+        assert (await items.find_one_or_raise(Item.name == "gamma")).id == gamma.id
+        with pytest.raises(NoResultFound):
+            await items.find_one_or_raise(Item.name == "missing")
+        with pytest.raises(MultipleResultsFound):
+            await items.find_one(Item.category == "one")
+        with pytest.raises(MultipleResultsFound):
+            await items.find_one_or_raise(Item.category == "one")
+        assert await items.count() == 3
+        assert await items.count(Item.category == "one") == 2
+        assert await items.exists(Item.name == "alpha")
+        assert not await items.exists(Item.name == "missing")
 
-            groups = Repository(Group, entities)
-            created_group = await groups.add(
-                Group(
-                    name="maintainers",
-                    members=[GroupMember(name="Ada"), GroupMember(name="Grace")],
-                )
+        groups = Repository(Group, entities)
+        created_group = await groups.add(
+            Group(
+                name="maintainers",
+                members=[GroupMember(name="Ada"), GroupMember(name="Grace")],
             )
-            loaded_group = await groups.find_one_or_raise(
-                Group.id == created_group.id,
-                options=(joinedload(Group.members),),
-            )
-            assert [member.name for member in loaded_group.members] == ["Ada", "Grace"]
-            optional_group = await groups.find_one(
-                Group.id == created_group.id,
-                options=(joinedload(Group.members),),
-            )
-            assert optional_group is not None
-            assert [member.name for member in optional_group.members] == [
-                "Ada",
-                "Grace",
-            ]
+        )
+        loaded_group = await groups.find_one_or_raise(
+            Group.id == created_group.id,
+            options=(joinedload(Group.members),),
+        )
+        assert [member.name for member in loaded_group.members] == ["Ada", "Grace"]
+        optional_group = await groups.find_one(
+            Group.id == created_group.id,
+            options=(joinedload(Group.members),),
+        )
+        assert optional_group is not None
+        assert [member.name for member in optional_group.members] == [
+            "Ada",
+            "Grace",
+        ]
 
         assert sa_inspect(alpha).detached
         assert sa_inspect(loaded_group).detached
+        loaded_group.members[0].name = "must-not-commit"
+        await entities.refresh(loaded_group, attribute_names=("name",))
+        reloaded_group = await groups.find_one_or_raise(
+            Group.id == created_group.id,
+            options=(joinedload(Group.members),),
+        )
+        assert [member.name for member in reloaded_group.members] == ["Ada", "Grace"]
         beta.name = "renamed"
-        async with entities.transaction():
-            merged = await items.merge(beta)
-            assert merged.name == "renamed"
-            await items.delete(merged)
-        async with entities.transaction():
-            assert await items.count() == 2
+        merged = await items.merge(beta)
+        assert merged.name == "renamed"
+        await items.delete(merged)
+        assert await items.count() == 2
     finally:
         await engine.dispose()
 
@@ -202,8 +211,8 @@ async def test_custom_and_default_repositories_share_ambient_transaction(
     custom = ItemRepository(Item, entities)
     failure = RuntimeError("abort repository transaction")
     try:
+        await custom.add(Item(name="outside", category="stable"))
         async with entities.transaction():
-            await custom.add(Item(name="outside", category="stable"))
             child = asyncio.create_task(custom.count())
             with pytest.raises(TransactionContextError, match="child task"):
                 await child
@@ -227,25 +236,22 @@ async def test_custom_and_default_repositories_share_ambient_transaction(
                     "inside"
                 ]
                 raise failure
-        async with entities.transaction():
-            assert [item.name for item in await custom.find()] == ["outside"]
+        assert [item.name for item in await custom.find()] == ["outside"]
     finally:
         await engine.dispose()
 
 
 @pytest.mark.asyncio
-async def test_repository_requires_its_own_manager_transaction(
+async def test_repository_auto_scopes_with_its_own_manager(
     tmp_path: Path,
 ) -> None:
     first_engine, first_entities = await _create_manager(tmp_path / "first.db")
     second_engine, second_entities = await _create_manager(tmp_path / "second.db")
     repository_ = Repository(Item, first_entities)
     try:
-        with pytest.raises(TransactionContextError, match="active transaction"):
-            await repository_.count()
+        assert await repository_.count() == 0
         async with second_entities.transaction():
-            with pytest.raises(TransactionContextError, match="active transaction"):
-                await repository_.count()
+            assert await repository_.count() == 0
         async with first_entities.transaction():
             assert await repository_.count() == 0
     finally:
@@ -265,9 +271,9 @@ async def test_repository_validates_entities_pagination_and_lock_lifetime(
         for arguments in ({"offset": -1}, {"offset": True}, {"limit": 0}):
             with pytest.raises(ValueError):
                 await items.find(**cast(Any, arguments))
-        with pytest.raises(TransactionContextError, match="active transaction"):
+        with pytest.raises(TransactionContextError, match="explicit transaction"):
             await items.get(1, with_for_update=True)
-        with pytest.raises(TransactionContextError, match="active transaction"):
+        with pytest.raises(TransactionContextError, match="explicit transaction"):
             await items.find_one(with_for_update=True)
         async with entities.transaction():
             assert await items.get(1, with_for_update=True) is None
@@ -344,16 +350,13 @@ async def test_single_result_queries_apply_a_two_row_limit(tmp_path: Path) -> No
 
     event.listen(engine.sync_engine, "before_cursor_execute", capture_statement)
     try:
-        async with entities.transaction():
-            await items.add_all(
-                tuple(
-                    Item(name=f"item-{index}", category="many") for index in range(20)
-                )
-            )
-            with pytest.raises(MultipleResultsFound):
-                await items.find_one(Item.category == "many")
-            with pytest.raises(MultipleResultsFound):
-                await items.find_one_or_raise(Item.category == "many")
+        await items.add_all(
+            tuple(Item(name=f"item-{index}", category="many") for index in range(20))
+        )
+        with pytest.raises(MultipleResultsFound):
+            await items.find_one(Item.category == "many")
+        with pytest.raises(MultipleResultsFound):
+            await items.find_one_or_raise(Item.category == "many")
     finally:
         event.remove(engine.sync_engine, "before_cursor_execute", capture_statement)
         await engine.dispose()

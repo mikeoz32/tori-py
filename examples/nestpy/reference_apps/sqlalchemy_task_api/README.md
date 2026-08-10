@@ -45,8 +45,9 @@ GET  /tasks/{task_id}
   custom SQLAlchemy query policy for ordered listing.
 - `TaskService` and its controller are stateless singleton providers declared
   with `@injectable()`/`@controller()` and constructor injection.
-- Each service method opens a narrow lexical `EntityManager.transaction()`;
-  repository operations automatically use that task-local session.
+- Standalone service operations rely on automatic repository transactions;
+  explicit `EntityManager.transaction()` remains available for atomic
+  multi-operation work.
 - Controllers return DTOs rather than SQLAlchemy ORM rows.
 - Schema creation is an application-owned lifecycle provider. It is included
   only to keep the SQLite example runnable; production applications should use
@@ -56,8 +57,9 @@ GET  /tasks/{task_id}
 
 The example also makes current limitations visible:
 
-- ORM entities detach when their lexical transaction closes. Relationships
-  required afterward must be loaded explicitly through SQLAlchemy loader options.
+- ORM entities detach when their automatic or lexical transaction closes.
+  Relationships required afterward must be loaded explicitly through SQLAlchemy
+  loader options.
 - Nested same-task transaction scopes create savepoints; child-task use is
   rejected rather than sharing an unsafe `AsyncSession`.
 - Application-owned startup work that needs the engine requires a lifecycle

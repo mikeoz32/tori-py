@@ -80,31 +80,28 @@ The concrete class is its DI token. Custom repositories are stateless, directly
 specialize `Repository[Entity]`, inherit the base constructor, and have no
 additional constructor dependencies.
 
-## Lexical Transactions
+## Automatic Operations
 
 ```python
 from nestpy import injectable
-from nestpy_sqlalchemy import EntityManager
 
 
 @injectable()
 class MemberService:
-    def __init__(self, entities: EntityManager, members: MemberRepository) -> None:
-        self._entities = entities
+    def __init__(self, members: MemberRepository) -> None:
         self._members = members
 
     async def create(self, name: str) -> MemberRow:
-        async with self._entities.transaction():
-            return await self._members.add(MemberRow(name=name))
+        return await self._members.add(MemberRow(name=name))
 
     async def get(self, member_id: int) -> MemberRow | None:
-        async with self._entities.transaction():
-            return await self._members.get(member_id)
+        return await self._members.get(member_id)
 ```
 
-Every manager and repository operation requires an active transaction. The
-outermost context opens a fresh session, commits or rolls back, and always
-closes. `transaction()` yields the same singleton manager, so direct operations
+Each standalone manager or repository operation opens a fresh transaction,
+commits or rolls back, and always closes its session. If the current task already
+owns an explicit transaction, the operation reuses it without creating a
+savepoint. `transaction()` yields the same singleton manager, so direct operations
 remain available without another transaction type:
 
 ```python
@@ -113,9 +110,14 @@ async with entities.transaction() as transaction:
     count = await transaction.scalar(select(func.count()).select_from(MemberRow))
 ```
 
-ORM entities become detached after the lexical context closes. Load required
-relationships before exit. The default `expire_on_commit=False` keeps loaded
-attributes available; opting into `True` may leave detached attributes expired.
+ORM entities become detached after the automatic operation or lexical context
+closes. Load required relationships before return. The default
+`expire_on_commit=False` keeps loaded attributes available; opting into `True`
+may leave detached attributes expired.
+`flush()` remains transaction-local because no Unit of Work survives a completed
+standalone operation.
+Standalone `refresh()` temporarily reattaches and then expunges the supplied
+entity graph so unrelated detached changes are not committed.
 
 ## Atomic Composition
 
@@ -149,8 +151,9 @@ manager. SQLAlchemy may flush pending state before opening the savepoint.
 `EntityManager` stores current state only in an instance-owned `ContextVar`.
 Parallel top-level tasks receive distinct sessions. Child tasks inherit Python
 context values, so an owner-task guard rejects manager or repository use from a
-child task. Calls outside a transaction and use through an escaped context raise
-`TransactionContextError`.
+child task while the parent transaction is active. Escaped inherited context is
+also rejected rather than silently opening a new session. Locking reads require
+an explicit transaction so their lock survives the method call.
 
 Named roots use explicit tokens:
 

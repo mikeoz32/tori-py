@@ -9,7 +9,6 @@ from nestpy_sqlalchemy import (
     Repository,
     SqlAlchemyConfigurationError,
     SqlAlchemyModule,
-    get_entity_manager_token,
     get_repository_token,
     inject_repository,
     repository,
@@ -167,23 +166,11 @@ async def test_repository_features_keep_keyed_database_state_isolated(
                 get_repository_token(FeatureItem, key="analytics")
             ),
         )
-        default_entities = cast(
-            EntityManager,
-            await application.resolve(EntityManager),
-        )
-        analytics_entities = cast(
-            EntityManager,
-            await application.resolve(get_entity_manager_token(key="analytics")),
-        )
-        async with default_entities.transaction():
-            await default_items.add(FeatureItem(name="primary"))
-        async with analytics_entities.transaction():
-            await analytics_items.add(FeatureItem(name="analytics"))
+        await default_items.add(FeatureItem(name="primary"))
+        await analytics_items.add(FeatureItem(name="analytics"))
 
-        async with default_entities.transaction():
-            assert [item.name for item in await default_items.find()] == ["primary"]
-        async with analytics_entities.transaction():
-            assert [item.name for item in await analytics_items.find()] == ["analytics"]
+        assert [item.name for item in await default_items.find()] == ["primary"]
+        assert [item.name for item in await analytics_items.find()] == ["analytics"]
     finally:
         await application.close()
         await default_engine.dispose()

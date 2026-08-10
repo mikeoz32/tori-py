@@ -158,8 +158,12 @@ async with entities.transaction() as transaction:
 
 The outermost context creates a fresh session, begins a transaction, commits on
 success, rolls back on failure, and always closes the session even when
-finalization fails. Every entity or repository operation requires this active
-lexical context; there are no one-shot operations.
+finalization fails. Every standalone CRUD, query, or statement operation first
+checks the contextual state. A valid transaction owned by the current task is
+reused directly without a savepoint. With no current state, the operation opens
+its own top-level transaction, commits or rolls back, and closes its session
+before returning. Standalone writes therefore commit automatically, and
+standalone reads return buffered, detached results.
 
 Calling `transaction()` again on the same manager in the same task opens
 `AsyncSession.begin_nested()` and yields the same manager. A caught nested
@@ -169,15 +173,22 @@ SQLAlchemy may flush pending state before creating a savepoint even when
 
 Each top-level task has a distinct contextual state and session. Child tasks
 inherit Python context values, so every operation validates that
-`asyncio.current_task()` is the owning task. Child-task use, calls outside a
-transaction, and escaped contextual state raise `TransactionContextError`.
+`asyncio.current_task()` is the owning task. Inherited child-task and escaped
+contextual state raise `TransactionContextError` rather than silently opening an
+independent operation transaction.
 Independent transactions from different roots remain independent and are not a
 distributed transaction.
 
 The manager exposes `add()`, `add_all()`, `get()`, `get_one()`, `merge()`,
 `delete()`, `flush()`, `refresh()`, and buffered `execute()`, `scalar()`, and
 `scalars()`. It does not expose commit, rollback, close, or streaming results;
-the lexical context owns finalization.
+the manager-owned operation or lexical context owns finalization. Locking reads
+with `with_for_update=True` require an explicit active transaction so the lock
+outlives the method call. `flush()` is likewise transaction-local because no Unit
+of Work survives a completed standalone operation.
+Standalone `refresh()` temporarily reattaches the supplied entity, refreshes it,
+and expunges the attached graph before commit so unrelated detached changes do
+not become writes.
 
 ## 7. Repositories
 
@@ -186,8 +197,8 @@ the lexical context owns finalization.
 `find_one()`, `find_one_or_raise()`, `count()`, and `exists()` using native
 SQLAlchemy expressions, loader options, ordering, and bounded offset/limit
 values. It does not accept criteria dictionaries or define a separate query
-language. Repository methods use the manager's active contextual session and
-raise `TransactionContextError` outside a transaction.
+language. Repository methods reuse the manager's active contextual session or
+receive a standalone operation transaction automatically.
 
 Default repository DI is explicit:
 
@@ -252,9 +263,10 @@ class MemberService:
             member.activate()
 ```
 
-Transaction contexts SHOULD be kept around the narrowest contiguous persistence
-work. Awaiting unrelated network or policy work while holding a database
-transaction SHOULD be avoided.
+Explicit transaction contexts SHOULD be used only for the narrowest contiguous
+atomic persistence work, locks, or savepoints. A standalone manager or repository
+call needs no surrounding context. Awaiting unrelated network or policy work
+while holding a database transaction SHOULD be avoided.
 
 ## 9. Models and Migrations
 
@@ -274,9 +286,10 @@ Contract tests MUST verify:
 - each concurrent top-level transaction receives a distinct session;
 - success commits and closes exactly once;
 - failure rolls back and closes exactly once;
+- standalone operations auto-scope transactions and reuse an active transaction;
 - the manager yielded by every scope is the singleton itself;
 - same-task nesting uses savepoints with bounded rollback;
-- child-task, escaped, and no-transaction operations fail explicitly;
+- child-task and escaped-context operations fail explicitly;
 - repositories automatically share one identity map and transaction;
 - keyed roots resolve distinct managers;
 - owned and external engine disposal semantics;

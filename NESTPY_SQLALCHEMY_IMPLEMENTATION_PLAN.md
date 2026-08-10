@@ -2,7 +2,7 @@
 
 ## Status
 
-Implementation status: completed through guarded ambient transactions.
+Implementation status: completed through auto-scoped operation transactions.
 
 Architecture: [`NESTPY_SQLALCHEMY_ARCHITECTURE.md`](NESTPY_SQLALCHEMY_ARCHITECTURE.md).
 
@@ -30,7 +30,8 @@ Architecture: [`NESTPY_SQLALCHEMY_ARCHITECTURE.md`](NESTPY_SQLALCHEMY_ARCHITECTU
 - Dispose owned engines exactly once during shutdown or startup rollback.
 - Register one singleton `async_sessionmaker` per root.
 - Register one singleton `EntityManager` per root directly over the session factory.
-- Require lexical manager transactions for every entity/repository operation.
+- Auto-scope standalone entity/repository operations and reuse a valid active
+  transaction without opening a savepoint.
 - Propagate current state only through an instance ContextVar with owner-task guards.
 - Use native savepoints for same-task nested scopes.
 
@@ -63,8 +64,8 @@ Architecture: [`NESTPY_SQLALCHEMY_ARCHITECTURE.md`](NESTPY_SQLALCHEMY_ARCHITECTU
   generated classes.
 - Add deterministic repository tokens, `inject_repository()`, and
   `SqlAlchemyModule.for_feature()` over global keyed managers.
-- Make repositories use their keyed manager's active contextual transaction;
-  remove binding, cloning, one-shot execution, and transaction arguments.
+- Make repositories use their keyed manager's active contextual transaction or
+  automatic operation scope; remove binding, cloning, and transaction arguments.
 - Verify default/custom DI, named roots, detached values, rich queries,
   transaction rollback, context errors, and exact public artifacts.
 

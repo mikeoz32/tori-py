@@ -20,21 +20,24 @@ architecture and implementation order are recorded in:
    annotation-based Nestpy DI.
 8. One session factory and EntityManager exist per root; roots
    are global by default and remain deterministically keyed.
-9. Every top-level lexical transaction creates a fresh session and always closes
-   it; there are no one-shot persistence operations.
+9. Every standalone operation and top-level lexical transaction creates a fresh
+   session and always closes it.
 10. EntityManager is singleton and retains current state only in an
     instance-owned ContextVar guarded by owning task identity.
 11. `EntityManager.transaction()` yields the same singleton manager; same-task
     nesting uses SQLAlchemy savepoints.
-12. Repository and manager operations outside an active transaction, from child
-    tasks, or through escaped context fail with a typed integration error.
+12. Standalone CRUD, query, and statement operations reuse a valid transaction
+    owned by the current task or open an automatic operation transaction.
+    `flush()` and locking reads require an explicit transaction. Inherited
+    child-task and escaped contexts fail with a typed integration error instead
+    of falling back to a new session.
 13. Transactions expose no commit, rollback, or close control.
 14. Explicit feature registration provides default model-bound repositories and
     decorated custom repository classes without scanning or generated classes.
 15. Repository criteria are native SQLAlchemy expressions, not a custom query
     language.
 16. Repositories are never cloned or bound; same-task calls automatically use
-    their keyed manager's active transaction.
+    their keyed manager's active transaction or a standalone operation scope.
 17. Models, metadata, migrations, and application query policy remain
     application-owned.
 18. There is no model scan, generated repository class, CQRS, event-sourcing,

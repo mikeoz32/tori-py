@@ -14,7 +14,6 @@ from nestpy_sqlalchemy import (
     SqlAlchemyConfigurationError,
     SqlAlchemyModule,
     SqlAlchemyOptions,
-    TransactionContextError,
     get_engine_token,
     get_entity_manager_token,
     get_session_factory_token,
@@ -54,6 +53,12 @@ class _FakeSession:
 
     def begin(self) -> _FakeTransactionContext:
         return _FakeTransactionContext(self)
+
+    async def scalar(self, statement: object, params: object = None) -> object:
+        del params
+        if isinstance(statement, BaseException):
+            raise statement
+        return statement
 
 
 class _FakeTransactionContext:
@@ -198,8 +203,8 @@ async def test_transaction_closes_session_when_finalization_fails(
     assert opened.exit_calls == 1
     assert opened.commit_calls == (body_error is None)
     assert opened.rollback_calls == (body_error is not None)
-    with pytest.raises(TransactionContextError, match="active transaction"):
-        await entities.scalar(cast(Any, object()))
+    async with entities.transaction():
+        pass
 
 
 @pytest.mark.asyncio
@@ -223,8 +228,24 @@ async def test_transaction_closes_session_when_task_is_cancelled() -> None:
     assert opened.exit_calls == 1
     assert opened.commit_calls == 0
     assert opened.rollback_calls == 1
-    with pytest.raises(TransactionContextError, match="active transaction"):
-        await entities.scalar(cast(Any, object()))
+    async with entities.transaction():
+        pass
+
+
+@pytest.mark.asyncio
+async def test_automatic_operations_commit_rollback_and_close_exactly_once() -> None:
+    factory = _FakeSessionFactory()
+    entities = EntityManager(cast(Any, factory))
+
+    assert await entities.scalar(cast(Any, 7)) == 7
+    failure = RuntimeError("operation failed")
+    with pytest.raises(RuntimeError, match="operation failed") as captured:
+        await entities.scalar(cast(Any, failure))
+    assert captured.value is failure
+
+    assert [session.commit_calls for session in factory.sessions] == [1, 0]
+    assert [session.rollback_calls for session in factory.sessions] == [0, 1]
+    assert [session.exit_calls for session in factory.sessions] == [1, 1]
 
 
 class _Config:

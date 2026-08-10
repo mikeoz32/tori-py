@@ -1,8 +1,8 @@
 """Singleton entity manager over guarded task-local SQLAlchemy transactions."""
 
 import asyncio
-from collections.abc import Iterable, Mapping, Sequence
-from contextlib import AbstractAsyncContextManager, asynccontextmanager
+from collections.abc import AsyncIterator, Iterable, Mapping, Sequence
+from contextlib import AbstractAsyncContextManager, asynccontextmanager, nullcontext
 from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import Any, Self, cast
@@ -24,7 +24,7 @@ class _TransactionState:
 
 
 class EntityManager:
-    """Own lexical transactions and expose operations on their current session."""
+    """Auto-scope operations and own explicit contextual transactions."""
 
     __slots__ = ("_current", "_factory")
 
@@ -67,23 +67,23 @@ class EntityManager:
                     self._current.reset(token)
 
     async def add[EntityT](self, entity: EntityT) -> EntityT:
-        """Add and flush one entity in the active transaction."""
+        """Add and flush one entity in the current or an automatic transaction."""
 
-        session = self._require_session()
-        session.add(entity)
-        await self.flush()
+        async with self._operation() as session:
+            session.add(entity)
+            await self.flush()
         return entity
 
     async def add_all[EntityT](
         self,
         entities: Iterable[EntityT],
     ) -> tuple[EntityT, ...]:
-        """Add and flush entities in the active transaction."""
+        """Add and flush entities in the current or an automatic transaction."""
 
         values = tuple(entities)
-        session = self._require_session()
-        session.add_all(values)
-        await self.flush()
+        async with self._operation() as session:
+            session.add_all(values)
+            await self.flush()
         return values
 
     async def get[EntityT](
@@ -95,15 +95,17 @@ class EntityManager:
         populate_existing: bool = False,
         with_for_update: bool = False,
     ) -> EntityT | None:
-        """Load one entity by primary key from the active identity map."""
+        """Load one entity by primary key in the current or an automatic scope."""
 
-        return await self._require_session().get(
-            entity_type,
-            cast(Any, identity),
-            options=options,
-            populate_existing=populate_existing,
-            with_for_update=with_for_update,
-        )
+        self._require_explicit_lock_scope(with_for_update)
+        async with self._operation() as session:
+            return await session.get(
+                entity_type,
+                cast(Any, identity),
+                options=options,
+                populate_existing=populate_existing,
+                with_for_update=with_for_update,
+            )
 
     async def get_one[EntityT](
         self,
@@ -116,13 +118,15 @@ class EntityManager:
     ) -> EntityT:
         """Load one entity by primary key or raise SQLAlchemy's no-result error."""
 
-        return await self._require_session().get_one(
-            entity_type,
-            cast(Any, identity),
-            options=options,
-            populate_existing=populate_existing,
-            with_for_update=with_for_update,
-        )
+        self._require_explicit_lock_scope(with_for_update)
+        async with self._operation() as session:
+            return await session.get_one(
+                entity_type,
+                cast(Any, identity),
+                options=options,
+                populate_existing=populate_existing,
+                with_for_update=with_for_update,
+            )
 
     async def merge[EntityT](
         self,
@@ -131,19 +135,19 @@ class EntityManager:
         load: bool = True,
         options: Sequence[Any] = (),
     ) -> EntityT:
-        """Merge and flush detached state in the active transaction."""
+        """Merge and flush detached state in the current or automatic transaction."""
 
-        session = self._require_session()
-        merged = await session.merge(entity, load=load, options=options)
-        await self.flush()
-        return merged
+        async with self._operation() as session:
+            merged = await session.merge(entity, load=load, options=options)
+            await self.flush()
+            return merged
 
     async def delete(self, entity: object) -> None:
-        """Delete and flush one entity in the active transaction."""
+        """Delete and flush one entity in the current or automatic transaction."""
 
-        session = self._require_session()
-        await session.delete(entity)
-        await self.flush()
+        async with self._operation() as session:
+            await session.delete(entity)
+            await self.flush()
 
     async def flush(self, entities: Sequence[object] | None = None) -> None:
         """Flush pending changes without finalizing the active transaction."""
@@ -157,25 +161,34 @@ class EntityManager:
         attribute_names: Iterable[str] | None = None,
         with_for_update: bool = False,
     ) -> None:
-        """Refresh attributes of a persistent entity."""
+        """Refresh attributes in the current or an automatic transaction."""
 
-        await self._require_session().refresh(
-            entity,
-            attribute_names=attribute_names,
-            with_for_update=with_for_update,
-        )
+        self._require_explicit_lock_scope(with_for_update)
+        standalone = self._current.get() is None
+        async with self._operation() as session:
+            if standalone:
+                session.add(entity)
+            try:
+                autoflush_guard = session.no_autoflush if standalone else nullcontext()
+                with autoflush_guard:
+                    await session.refresh(
+                        entity,
+                        attribute_names=attribute_names,
+                        with_for_update=with_for_update,
+                    )
+            finally:
+                if standalone:
+                    session.expunge_all()
 
     async def execute(
         self,
         statement: Executable,
         params: ExecuteParams = None,
     ) -> Result[Any]:
-        """Execute one buffered SQLAlchemy statement in the active transaction."""
+        """Execute a buffered statement in the current or automatic transaction."""
 
-        return await self._require_session().execute(
-            statement,
-            params=cast(Any, params),
-        )
+        async with self._operation() as session:
+            return await session.execute(statement, params=cast(Any, params))
 
     async def scalar(
         self,
@@ -184,10 +197,8 @@ class EntityManager:
     ) -> Any:
         """Execute a statement and return its first scalar value."""
 
-        return await self._require_session().scalar(
-            statement,
-            params=cast(Any, params),
-        )
+        async with self._operation() as session:
+            return await session.scalar(statement, params=cast(Any, params))
 
     async def scalars(
         self,
@@ -196,10 +207,25 @@ class EntityManager:
     ) -> ScalarResult[Any]:
         """Execute a statement and return its buffered scalar result."""
 
-        return await self._require_session().scalars(
-            statement,
-            params=cast(Any, params),
-        )
+        async with self._operation() as session:
+            return await session.scalars(statement, params=cast(Any, params))
+
+    @asynccontextmanager
+    async def _operation(self) -> AsyncIterator[AsyncSession]:
+        state = self._current.get()
+        if state is not None:
+            self._validate_state(state)
+            yield state.session
+            return
+
+        async with self.transaction():
+            yield self._require_session()
+
+    def _require_explicit_lock_scope(self, with_for_update: bool) -> None:
+        if with_for_update and self._current.get() is None:
+            raise TransactionContextError(
+                "with_for_update requires an explicit transaction"
+            )
 
     def _require_session(self) -> AsyncSession:
         state = self._current.get()
