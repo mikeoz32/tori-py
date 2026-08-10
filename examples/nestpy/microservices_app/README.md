@@ -84,6 +84,11 @@ the notifications consumer deduplicates by event ID. The example deliberately
 does not implement business-command idempotency; that policy belongs to a real
 application's request contract and persistence model.
 
+Solitary repository and manager operations use `nestpy-sqlalchemy`'s automatic
+transaction scope. Explicit transactions remain only where several database
+operations must succeed together: order plus outbox persistence, event dedupe,
+and outbox state changes.
+
 HTTP inputs use Nestpy's existing `MsgspecValidationPipe`. RPC and event inputs
 use typed `Payload()`/`Header()` annotations; the existing microservices binder
 converts them with msgspec and rejects invalid messages before handler execution.

@@ -148,16 +148,14 @@ class PlaceOrderHandler:
 
 @query_handler(GetOrderQuery)
 class GetOrderHandler:
-    def __init__(self, entities: EntityManager, orders: OrderRepository) -> None:
-        self._entities = entities
+    def __init__(self, orders: OrderRepository) -> None:
         self._orders = orders
 
     async def handle(self, query: GetOrderQuery) -> Order:
-        async with self._entities.transaction():
-            row = await self._orders.get(query.order_id)
-            if row is None:
-                raise LookupError(f"order {query.order_id} was not found")
-            return _to_contract(row)
+        row = await self._orders.get(query.order_id)
+        if row is None:
+            raise LookupError(f"order {query.order_id} was not found")
+        return _to_contract(row)
 
 
 @injectable()
@@ -270,8 +268,7 @@ class OrdersController:
         payload: Annotated[HealthCheck, Payload()],
     ) -> dict[str, str]:
         del payload
-        async with self._entities.transaction():
-            await self._entities.scalar(select(1))
+        await self._entities.scalar(select(1))
         return {"status": "ok"}
 
 

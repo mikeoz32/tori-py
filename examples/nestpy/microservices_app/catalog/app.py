@@ -69,33 +69,29 @@ class GetItemQuery(Query[CatalogItem]):
 
 @command_handler(CreateItemCommand)
 class CreateItemHandler:
-    def __init__(self, entities: EntityManager, items: CatalogRepository) -> None:
-        self._entities = entities
+    def __init__(self, items: CatalogRepository) -> None:
         self._items = items
 
     async def handle(self, command: CreateItemCommand) -> CatalogItem:
         name = command.name.strip()
         if not name or command.price_cents <= 0:
             raise ValueError("name and positive price_cents are required")
-        async with self._entities.transaction():
-            row = await self._items.add(
-                CatalogItemRow(name=name, price_cents=command.price_cents)
-            )
-            return _to_contract(row)
+        row = await self._items.add(
+            CatalogItemRow(name=name, price_cents=command.price_cents)
+        )
+        return _to_contract(row)
 
 
 @query_handler(GetItemQuery)
 class GetItemHandler:
-    def __init__(self, entities: EntityManager, items: CatalogRepository) -> None:
-        self._entities = entities
+    def __init__(self, items: CatalogRepository) -> None:
         self._items = items
 
     async def handle(self, query: GetItemQuery) -> CatalogItem:
-        async with self._entities.transaction():
-            row = await self._items.get(query.item_id)
-            if row is None:
-                raise LookupError(f"catalog item {query.item_id} was not found")
-            return _to_contract(row)
+        row = await self._items.get(query.item_id)
+        if row is None:
+            raise LookupError(f"catalog item {query.item_id} was not found")
+        return _to_contract(row)
 
 
 @controller()
@@ -146,8 +142,7 @@ class CatalogController:
         payload: Annotated[HealthCheck, Payload()],
     ) -> dict[str, str]:
         del payload
-        async with self._entities.transaction():
-            await self._entities.scalar(select(1))
+        await self._entities.scalar(select(1))
         return {"status": "ok"}
 
 

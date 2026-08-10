@@ -110,12 +110,11 @@ class NotificationsController:
         self,
         payload: Annotated[ListNotifications, Payload()],
     ) -> list[Notification]:
-        async with self._entities.transaction():
-            rows = await self._notifications.find(
-                order_by=(NotificationRow.id.desc(),),
-                limit=payload.limit,
-            )
-            return [Notification(row.id, row.event_id, row.message) for row in rows]
+        rows = await self._notifications.find(
+            order_by=(NotificationRow.id.desc(),),
+            limit=payload.limit,
+        )
+        return [Notification(row.id, row.event_id, row.message) for row in rows]
 
     @rpc(NotificationsService.health)
     async def health(
@@ -123,8 +122,7 @@ class NotificationsController:
         payload: Annotated[HealthCheck, Payload()],
     ) -> dict[str, str]:
         del payload
-        async with self._entities.transaction():
-            await self._entities.scalar(select(1))
+        await self._entities.scalar(select(1))
         return {"status": "ok"}
 
 

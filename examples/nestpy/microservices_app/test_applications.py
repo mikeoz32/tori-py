@@ -92,9 +92,8 @@ async def test_place_order_creates_one_atomic_outbox_record() -> None:
     )
     try:
         order = await handler.handle(PlaceOrderCommand(1, 2))
-        async with entities.transaction():
-            order_count = await orders.count()
-            outbox_count = await outbox.count()
+        order_count = await orders.count()
+        outbox_count = await outbox.count()
     finally:
         await engine.dispose()
 
@@ -117,8 +116,7 @@ async def test_notification_consumer_deduplicates_and_lists_newest_first() -> No
         await controller.order_created(event, "event-1")
         await controller.order_created(OrderCreated(2, 1, 1, 9900), "event-2")
         newest = await controller.list_notifications(ListNotifications(1))
-        async with entities.transaction():
-            count = await repository.count()
+        count = await repository.count()
     finally:
         await engine.dispose()
 
