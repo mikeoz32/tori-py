@@ -78,7 +78,7 @@ streams = PersistentStreamsModule.for_root(
     PersistentStreamsOptions(
         bindings=(member_activity_binding,),
     ),
-    adapter=rabbitmq,
+    imports=[rabbitmq],
 )
 
 
@@ -87,15 +87,16 @@ class AppModule:
     pass
 ```
 
-`RabbitMqPersistentStreamsModule.for_root()` returns a configured adapter
-reference containing its private `ModuleImport` and exported adapter token. It
-is not imported separately by the application. `PersistentStreamsModule` puts
-that module import in its own materialized `ModuleSpec.imports`, injects the
-exact exported adapter token, and exports application-facing stream providers.
+`RabbitMqPersistentStreamsModule.for_root()` returns a `DeferredModule` that
+provides and exports the public runtime-checkable `StreamAdapterFactory` Protocol
+class as its canonical Nestpy token. `PersistentStreamsModule` receives that
+descriptor in its normal `imports`, directly injects `StreamAdapterFactory`, and
+exports application-facing stream providers.
 
-This composition prevents a root that names an adapter token but forgets to
-import the module providing it. It also permits testing overrides at the module
-boundary without a process-global adapter registry.
+This is standard Nest-style module composition. A missing adapter produces
+`provider.unresolved`; two distinct imported adapter module classes exporting
+the same token produce `provider.ambiguous`. No process-global adapter registry
+or adapter-specific token wrapper is needed.
 
 The root is always `global_=True`. There is no `global_` argument, public root
 `key`, or local root mode. A second `PersistentStreamsModule` root in one
@@ -111,13 +112,12 @@ class PersistentStreamsModule:
         cls,
         options: PersistentStreamsOptions,
         *,
-        adapter: ConfiguredStreamAdapter,
+        imports: Iterable[ModuleImport] = (),
     ) -> DeferredModule: ...
 
     @classmethod
     def for_root_async(
         cls,
-        adapter: ConfiguredStreamAdapter,
         *,
         bindings: Iterable[StreamBinding],
         publishers: Iterable[PublisherRegistration] = (),
@@ -138,9 +138,10 @@ duplicate the static publisher inventory. Static inventory validation does not
 construct placeholder runtime settings; owner limits are checked against the
 resolved factory result.
 
-The async root internally imports both `adapter.module` and the factory's
-explicit `imports`. Adapter configuration is separate and may provide its own
-annotation-driven async factory API.
+The async root's explicit `imports` serve both adapter composition and runtime
+options-factory dependencies. Adapter configuration is separate and may provide
+its own annotation-driven async factory API; an adapter's async imports remain
+local to resolving that adapter's options factory.
 
 ## 6. Immutable Stream Bindings
 
@@ -406,13 +407,10 @@ producer coordinate/handle.
 
 ## 14. Adapter Contract
 
-A `ConfiguredStreamAdapter` reference exposes only:
-
-- its private Nestpy `ModuleImport`;
-- the exact token exporting one `StreamAdapterFactory`;
-- an adapter kind used for bounded diagnostics.
-
-The factory creates an application-owned `PersistentStreamAdapter` from immutable
+Each adapter module provides and exports the public runtime-checkable
+`StreamAdapterFactory` Protocol class itself as the canonical provider token.
+Its configuration methods return `DeferredModule` directly. The factory creates
+an application-owned `PersistentStreamAdapter` from immutable
 compiled bindings. The Nestpy runtime supplies each compiled handler as the
 framework-neutral consumer runner's record callback. The adapter:
 
@@ -531,7 +529,7 @@ The first implementation does not provide:
 
 The architecture is implemented when an application can:
 
-1. import one always-global root that internally imports one adapter reference;
+1. import one always-global root composed with exactly one adapter module;
 2. configure the root synchronously or through an injectable sync/async factory;
 3. discover stream handlers across all explicit controllers without scanning;
 4. decode typed DTOs and execute the full Nestpy pipeline in exact-owner scopes;

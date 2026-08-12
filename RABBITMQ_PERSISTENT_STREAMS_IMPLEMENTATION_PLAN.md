@@ -50,7 +50,7 @@ certainty, TLS, retention/checkpoint hardening, and failure tests remain gates.
 
 ### RPS1: Configuration and Resources (Incomplete)
 
-- Implement bounded redacted options, sync/async Nestpy adapter references,
+- Implement bounded redacted options, sync/async Nestpy adapter modules,
   owned native resources, generation fencing, and capability publication.
 
 ### RPS2: Topology (Incomplete)

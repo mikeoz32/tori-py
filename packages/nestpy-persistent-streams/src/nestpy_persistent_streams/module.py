@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
-from typing import Annotated
 
 from nestpy import (
     AliasProvider,
@@ -12,7 +11,6 @@ from nestpy import (
     DeferredModule,
     DiscoveryService,
     FactoryProvider,
-    Inject,
     ModuleImport,
     ModuleProvider,
     ModulesContainer,
@@ -23,7 +21,7 @@ from nestpy import (
 )
 
 from nestpy_persistent_streams.contracts import (
-    ConfiguredStreamAdapter,
+    StreamAdapterFactory,
     StreamPublisher,
 )
 from nestpy_persistent_streams.errors import StreamConfigurationError
@@ -56,7 +54,7 @@ def _runtime_factory(
     discovery: DiscoveryService,
     modules: ModulesContainer,
     work_scopes: WorkScopeFactory,
-    adapter_factory: object,
+    adapter_factory: StreamAdapterFactory,
     publisher_inventory: _PublisherInventory,
 ) -> StreamRuntime:
     return StreamRuntime(
@@ -77,13 +75,13 @@ class PersistentStreamsModule:
         cls,
         options: PersistentStreamsOptions,
         *,
-        adapter: ConfiguredStreamAdapter,
+        imports: Iterable[ModuleImport] = (),
     ) -> DeferredModule:
         if not isinstance(options, PersistentStreamsOptions):
             raise TypeError("options must be PersistentStreamsOptions")
         return cls._descriptor(
-            adapter,
             option_providers=(ValueProvider(PersistentStreamsOptions, options),),
+            imports=imports,
             bindings=options.bindings,
             publishers=options.publishers,
         )
@@ -91,7 +89,6 @@ class PersistentStreamsModule:
     @classmethod
     def for_root_async(
         cls,
-        adapter: ConfiguredStreamAdapter,
         *,
         use_factory: Callable[..., object],
         bindings: Iterable[StreamBinding],
@@ -110,7 +107,6 @@ class PersistentStreamsModule:
             return PersistentStreamsOptions(static_bindings, static_publishers, runtime)
 
         return cls._descriptor(
-            adapter,
             option_providers=(
                 FactoryProvider(PersistentStreamsRuntimeOptions, use_factory),
                 FactoryProvider(PersistentStreamsOptions, create_options),
@@ -123,16 +119,13 @@ class PersistentStreamsModule:
     @classmethod
     def _descriptor(
         cls,
-        adapter: ConfiguredStreamAdapter,
         *,
         option_providers: tuple[ModuleProvider, ...],
         bindings: tuple[StreamBinding, ...],
         publishers: tuple[PublisherRegistration, ...],
         imports: Iterable[ModuleImport] = (),
     ) -> DeferredModule:
-        if not isinstance(adapter, ConfiguredStreamAdapter):
-            raise TypeError("adapter must be ConfiguredStreamAdapter")
-        imported = (adapter.module, *tuple(imports))
+        imported = tuple(imports)
         declared_publishers = publishers
         if any(
             not isinstance(value, PublisherRegistration)
@@ -147,7 +140,7 @@ class PersistentStreamsModule:
             discovery: DiscoveryService,
             modules: ModulesContainer,
             work_scopes: WorkScopeFactory,
-            adapter_factory: object,
+            adapter_factory: StreamAdapterFactory,
             publisher_inventory: _PublisherInventory,
         ) -> StreamRuntime:
             return _runtime_factory(
@@ -158,10 +151,6 @@ class PersistentStreamsModule:
                 adapter_factory,
                 publisher_inventory,
             )
-
-        create_runtime.__annotations__["adapter_factory"] = Annotated[
-            object, Inject(adapter.factory_token)
-        ]
 
         def materialize() -> ModuleSpec:
             providers: list[ModuleProvider] = [

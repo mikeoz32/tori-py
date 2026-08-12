@@ -116,7 +116,7 @@ async def test_three_publishers_delegate_to_one_runtime_and_handler() -> None:
     factory = InMemoryStreamAdapterFactory()
     streams = PersistentStreamsModule.for_root(
         stream_options(),
-        adapter=InMemoryPersistentStreamsModule.for_root(factory),
+        imports=[InMemoryPersistentStreamsModule.for_root(factory)],
     )
 
     @module(imports=[streams], controllers=[Projection])
@@ -185,7 +185,7 @@ async def test_partition_processing_is_serial_and_preserves_sparse_offsets() -> 
         runtime=PersistentStreamsRuntimeOptions(max_concurrency=4, poll_interval=0.001),
     )
     streams = PersistentStreamsModule.for_root(
-        options, adapter=InMemoryPersistentStreamsModule.for_root()
+        options, imports=[InMemoryPersistentStreamsModule.for_root()]
     )
 
     @module(imports=[streams], controllers=[Projection])
@@ -240,7 +240,7 @@ async def test_cross_partition_concurrency_is_bounded() -> None:
         runtime=PersistentStreamsRuntimeOptions(max_concurrency=2, poll_interval=0.001),
     )
     streams = PersistentStreamsModule.for_root(
-        options, adapter=InMemoryPersistentStreamsModule.for_root()
+        options, imports=[InMemoryPersistentStreamsModule.for_root()]
     )
 
     @module(imports=[streams], controllers=[Projection])
@@ -291,7 +291,7 @@ async def test_shutdown_cancellation_leaves_active_record_uncheckpointed() -> No
         runtime=PersistentStreamsRuntimeOptions(poll_interval=0.001),
     )
     streams = PersistentStreamsModule.for_root(
-        options, adapter=InMemoryPersistentStreamsModule.for_root()
+        options, imports=[InMemoryPersistentStreamsModule.for_root()]
     )
 
     @module(imports=[streams], controllers=[Projection])
@@ -344,7 +344,7 @@ async def test_pipe_and_interceptor_order_precedes_checkpoint() -> None:
     factory = InMemoryStreamAdapterFactory()
     streams = PersistentStreamsModule.for_root(
         stream_options(),
-        adapter=InMemoryPersistentStreamsModule.for_root(factory),
+        imports=[InMemoryPersistentStreamsModule.for_root(factory)],
     )
 
     @module(imports=[streams], controllers=[Projection])
@@ -378,7 +378,7 @@ async def test_handler_failure_blocks_partition_without_checkpoint() -> None:
     factory = InMemoryStreamAdapterFactory()
     streams = PersistentStreamsModule.for_root(
         stream_options(),
-        adapter=InMemoryPersistentStreamsModule.for_root(factory),
+        imports=[InMemoryPersistentStreamsModule.for_root(factory)],
     )
 
     @module(imports=[streams], controllers=[Projection])
@@ -412,9 +412,9 @@ async def test_async_factory_is_injected_and_not_called_during_materialization()
         return PersistentStreamsRuntimeOptions(poll_interval=0.001)
 
     streams = PersistentStreamsModule.for_root_async(
-        InMemoryPersistentStreamsModule.for_root(),
         use_factory=create_options,
         bindings=stream_options().bindings,
+        imports=[InMemoryPersistentStreamsModule.for_root()],
         publishers=(PublisherRegistration("events", name="event-writes"),),
     )
     assert calls == 0
@@ -459,10 +459,9 @@ async def test_provider_token_codec_and_resolver_are_resolved_from_imports() -> 
         )
 
     streams = PersistentStreamsModule.for_root_async(
-        InMemoryPersistentStreamsModule.for_root(),
         use_factory=create_options,
         bindings=(binding,),
-        imports=(ComponentsModule,),
+        imports=[InMemoryPersistentStreamsModule.for_root(), ComponentsModule],
         publishers=(PublisherRegistration("events", name="event-writes"),),
     )
 
@@ -495,7 +494,7 @@ async def test_filter_cannot_recover_a_failed_attempt() -> None:
             raise RuntimeError(payload.value)
 
     streams = PersistentStreamsModule.for_root(
-        stream_options(), adapter=InMemoryPersistentStreamsModule.for_root()
+        stream_options(), imports=[InMemoryPersistentStreamsModule.for_root()]
     )
 
     @module(imports=[streams], controllers=[Projection])
@@ -612,7 +611,7 @@ async def test_work_scope_cleanup_happens_before_checkpoint() -> None:
     factory = InMemoryStreamAdapterFactory(cast(PersistentStreamAdapter, tracking_log))
     streams = PersistentStreamsModule.for_root(
         stream_options(),
-        adapter=InMemoryPersistentStreamsModule.for_root(factory),
+        imports=[InMemoryPersistentStreamsModule.for_root(factory)],
     )
 
     @module(imports=[streams], controllers=[Projection], providers=[Resource])

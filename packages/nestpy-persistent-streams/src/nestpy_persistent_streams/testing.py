@@ -7,11 +7,7 @@ from dataclasses import dataclass
 from nestpy import DeferredModule, ModuleSpec, ValueProvider
 from persistent_streams import InMemoryPersistentLog, PersistentStreamAdapter
 
-from nestpy_persistent_streams.contracts import ConfiguredStreamAdapter
-
-IN_MEMORY_STREAM_ADAPTER_FACTORY = (
-    "nestpy-persistent-streams:testing:in-memory-adapter-factory"
-)
+from nestpy_persistent_streams.contracts import StreamAdapterFactory
 
 
 @dataclass(slots=True)
@@ -30,31 +26,25 @@ class InMemoryStreamAdapterFactory:
 
 
 class InMemoryPersistentStreamsModule:
-    """Materialize a configured in-memory adapter reference."""
+    """Configure an in-memory adapter module for normal Nestpy imports."""
 
     @classmethod
     def for_root(
         cls,
         factory: InMemoryStreamAdapterFactory | None = None,
-    ) -> ConfiguredStreamAdapter:
+    ) -> DeferredModule:
         selected = factory or InMemoryStreamAdapterFactory()
 
         def materialize() -> ModuleSpec:
             return ModuleSpec(
-                providers=[ValueProvider(IN_MEMORY_STREAM_ADAPTER_FACTORY, selected)],
-                exports=[IN_MEMORY_STREAM_ADAPTER_FACTORY],
+                providers=[ValueProvider(StreamAdapterFactory, selected)],
+                exports=[StreamAdapterFactory],
             )
 
-        descriptor = DeferredModule(cls, "default", materialize)
-        return ConfiguredStreamAdapter(
-            descriptor,
-            IN_MEMORY_STREAM_ADAPTER_FACTORY,
-            "in-memory",
-        )
+        return DeferredModule(cls, "default", materialize)
 
 
 __all__ = [
-    "IN_MEMORY_STREAM_ADAPTER_FACTORY",
     "InMemoryPersistentStreamsModule",
     "InMemoryStreamAdapterFactory",
 ]

@@ -42,15 +42,17 @@ dependency and facade inventories.
 
 ### NPS1: Root Composition and Configuration
 
-- Implement `ConfiguredStreamAdapter` module/token references.
+- Use the public runtime-checkable `StreamAdapterFactory` Protocol class as the
+  canonical Nestpy provider token exported by every adapter module.
 - Implement one always-global `PersistentStreamsModule.for_root()`.
 - Implement annotation-driven `for_root_async()` for sync/async factories.
-- Internally import the adapter module and reject a second application root.
+- Compose adapter and configuration dependencies through standard module imports
+  and reject a second application root.
 - Validate immutable bindings and fixed stream/codec/router plus optional named
   producer/ID policy; fully support unnamed publishing.
 
-Exit gate: one root resolves several bindings and one adapter without the app
-importing the adapter module separately.
+Exit gate: one root resolves several bindings and exactly one imported adapter;
+missing and competing adapters use standard Nestpy provider diagnostics.
 
 ### NPS2: Handler Metadata and Compiler
 

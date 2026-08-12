@@ -7,6 +7,8 @@ from typing import Any, cast
 from uuid import UUID, uuid4
 
 import pytest
+from nestpy import ModuleSpec, module
+from nestpy_persistent_streams import StreamAdapterFactory
 from persistent_streams import (
     AdapterContractError,
     AppendRequest,
@@ -574,9 +576,26 @@ def test_factory_and_module_materialization_are_lazy() -> None:
     log = factory.create(())
     assert isinstance(log, RabbitMqPersistentLog)
     assert log.unwrap() == (None, None)
-    reference = RabbitMqPersistentStreamsModule.for_root(selected)
-    assert reference.kind == "rabbitmq-stream"
+    descriptor = RabbitMqPersistentStreamsModule.for_root(selected)
+    assert descriptor.module is RabbitMqPersistentStreamsModule
+    spec = cast(ModuleSpec, descriptor.factory())
+    assert tuple(spec.exports) == (StreamAdapterFactory,)
     assert "rstream.producer" in sys.modules  # imported only by explicit facade use
+
+
+def test_async_module_preserves_its_options_factory_imports() -> None:
+    @module()
+    class ConfigurationModule:
+        pass
+
+    descriptor = RabbitMqPersistentStreamsModule.for_root_async(
+        use_factory=options,
+        imports=[ConfigurationModule],
+    )
+    spec = cast(ModuleSpec, descriptor.factory())
+
+    assert tuple(spec.imports) == (ConfigurationModule,)
+    assert tuple(spec.exports) == (StreamAdapterFactory,)
 
 
 @pytest.mark.asyncio

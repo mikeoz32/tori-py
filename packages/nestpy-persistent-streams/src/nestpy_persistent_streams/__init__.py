@@ -8,7 +8,6 @@ from nestpy_persistent_streams.compiler import (
 )
 from nestpy_persistent_streams.contexts import StreamContext
 from nestpy_persistent_streams.contracts import (
-    ConfiguredStreamAdapter,
     ConfiguredStreamPublisher,
     PartitionKeyResolver,
     PublishingIdSource,
@@ -59,7 +58,6 @@ from nestpy_persistent_streams.runtime import (
 )
 
 __all__ = [
-    "ConfiguredStreamAdapter",
     "ConfiguredStreamPublisher",
     "NestpyPersistentStreamsError",
     "PartitionKeyResolver",

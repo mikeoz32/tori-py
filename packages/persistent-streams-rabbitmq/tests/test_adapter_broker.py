@@ -435,7 +435,7 @@ async def test_nestpy_module_publisher_handler_and_lifecycle() -> None:
                 single_instance_consumer_groups=True,
             ),
         ),
-        adapter=RabbitMqPersistentStreamsModule.for_root(selected),
+        imports=[RabbitMqPersistentStreamsModule.for_root(selected)],
     )
 
     @module(imports=[streams], controllers=[Projection])
@@ -494,7 +494,7 @@ async def test_nestpy_quiesce_waits_for_blocked_handler_checkpoint() -> None:
                 single_instance_consumer_groups=True,
             ),
         ),
-        adapter=RabbitMqPersistentStreamsModule.for_root(selected),
+        imports=[RabbitMqPersistentStreamsModule.for_root(selected)],
     )
 
     @module(imports=[streams], controllers=[Projection])
@@ -560,7 +560,7 @@ async def test_nestpy_failure_abandons_delivery_without_shutdown_delay(
                 owner_id_is_replica_unique=True,
             ),
         ),
-        adapter=RabbitMqPersistentStreamsModule.for_root(selected),
+        imports=[RabbitMqPersistentStreamsModule.for_root(selected)],
     )
 
     @module(imports=[streams], controllers=[Projection])

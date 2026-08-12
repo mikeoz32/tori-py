@@ -2,9 +2,9 @@
 
 [`app.py`](app.py) is a runnable, broker-free `NestApplication` showing a typed DTO
 codec, a handler pipe, partition metadata, checkpointed `@stream_handler`
-delivery, and one global `PersistentStreamsModule` root. That root imports the
-configured in-memory adapter internally; `ApplicationModule` imports only the
-streams root. An injectable bootstrap provider publishes the demo records after
+delivery, and one global `PersistentStreamsModule` root. That root composes the
+in-memory adapter through its `imports`; `ApplicationModule` imports only the streams
+root. An injectable bootstrap provider publishes the demo records after
 the stream runtime is ready, and normal application shutdown drains and closes it.
 The application factory creates fresh module and adapter composition for every
 application instance.
@@ -36,7 +36,7 @@ rabbit = RabbitMqPersistentStreamsModule.for_root(
         )
     )
 )
-streams = PersistentStreamsModule.for_root(options, adapter=rabbit)
+streams = PersistentStreamsModule.for_root(options, imports=[rabbit])
 ```
 
 RabbitMQ startup verifies only the adapter's documented topology facts. Review

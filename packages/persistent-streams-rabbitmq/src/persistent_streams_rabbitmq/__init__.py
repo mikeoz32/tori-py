@@ -29,7 +29,6 @@ if TYPE_CHECKING:
         TopologyPreflight,
     )
     from persistent_streams_rabbitmq.nestpy import (
-        RABBITMQ_STREAM_ADAPTER_FACTORY,
         RabbitMqPersistentStreamsModule,
         RabbitMqStreamAdapterFactory,
     )
@@ -47,7 +46,6 @@ __all__ = [
     "EnvelopeError",
     "EnvelopeLimits",
     "RABBITMQ_START_MODE_CAPABILITIES",
-    "RABBITMQ_STREAM_ADAPTER_FACTORY",
     "RabbitMqConnectionOptions",
     "RabbitMqPartitionLease",
     "RabbitMqPersistentLog",
@@ -86,7 +84,6 @@ _MODULES = {
     "RabbitMqPartitionLease": "log",
     "RabbitMqPersistentLog": "log",
     "TopologyPreflight": "log",
-    "RABBITMQ_STREAM_ADAPTER_FACTORY": "nestpy",
     "RabbitMqPersistentStreamsModule": "nestpy",
     "RabbitMqStreamAdapterFactory": "nestpy",
 }

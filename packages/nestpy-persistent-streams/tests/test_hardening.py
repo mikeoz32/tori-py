@@ -208,7 +208,7 @@ async def test_checkpoint_cancellation_blocks_with_unknown_outcome(
             del payload
 
     adapter = CheckpointAdapter()
-    streams = PersistentStreamsModule.for_root(options(), adapter=configured(adapter))
+    streams = PersistentStreamsModule.for_root(options(), imports=[configured(adapter)])
 
     @module(imports=[streams], controllers=[Projection])
     class AppModule:
@@ -251,7 +251,7 @@ async def test_publication_admission_is_fenced_before_quiesce_drain() -> None:
             quiesced.set()
 
     adapter = BarrierAdapter()
-    streams = PersistentStreamsModule.for_root(options(), adapter=configured(adapter))
+    streams = PersistentStreamsModule.for_root(options(), imports=[configured(adapter)])
 
     @module(imports=[streams])
     class AppModule:
@@ -292,7 +292,7 @@ async def test_quiesce_failure_still_drains_accepted_publications() -> None:
             return None
 
     adapter = FailingQuiesceAdapter()
-    streams = PersistentStreamsModule.for_root(options(), adapter=configured(adapter))
+    streams = PersistentStreamsModule.for_root(options(), imports=[configured(adapter)])
 
     @module(imports=[streams])
     class AppModule:
@@ -335,7 +335,7 @@ async def test_close_cancels_admitted_publications_before_adapter_close() -> Non
             await super().close()
 
     adapter = CloseOrderingAdapter()
-    streams = PersistentStreamsModule.for_root(options(), adapter=configured(adapter))
+    streams = PersistentStreamsModule.for_root(options(), imports=[configured(adapter)])
 
     @module(imports=[streams])
     class AppModule:
@@ -373,7 +373,7 @@ async def test_publication_admission_rejects_above_configured_capacity() -> None
         ),
     )
     streams = PersistentStreamsModule.for_root(
-        bounded, adapter=configured(BarrierAdapter())
+        bounded, imports=[configured(BarrierAdapter())]
     )
 
     @module(imports=[streams])
@@ -407,7 +407,7 @@ async def test_bootstrap_waits_for_adapter_start_readiness() -> None:
             await super().start()
 
     adapter = StartBarrierAdapter()
-    streams = PersistentStreamsModule.for_root(options(), adapter=configured(adapter))
+    streams = PersistentStreamsModule.for_root(options(), imports=[configured(adapter)])
 
     @module(imports=[streams])
     class AppModule:
@@ -450,7 +450,7 @@ async def test_partition_intake_failure_after_registration_degrades_readiness() 
             del payload
 
     streams = PersistentStreamsModule.for_root(
-        options(), adapter=configured(FailingAdapter())
+        options(), imports=[configured(FailingAdapter())]
     )
 
     @module(imports=[streams], controllers=[Projection])
@@ -487,7 +487,7 @@ async def test_stopped_lease_after_registration_degrades_readiness() -> None:
             del payload
 
     streams = PersistentStreamsModule.for_root(
-        options(), adapter=configured(StoppedAdapter())
+        options(), imports=[configured(StoppedAdapter())]
     )
 
     @module(imports=[streams], controllers=[Projection])
@@ -526,7 +526,7 @@ async def test_natural_consumer_exit_degrades_readiness() -> None:
             del payload
 
     streams = PersistentStreamsModule.for_root(
-        options(), adapter=configured(StoppingAdapter())
+        options(), imports=[configured(StoppingAdapter())]
     )
 
     @module(imports=[streams], controllers=[Projection])
@@ -558,7 +558,7 @@ async def test_adapter_start_failure_rolls_back_prepared_resources() -> None:
             await super().close()
 
     streams = PersistentStreamsModule.for_root(
-        options(), adapter=configured(StartFailureAdapter())
+        options(), imports=[configured(StartFailureAdapter())]
     )
 
     @module(imports=[streams])
@@ -585,10 +585,9 @@ async def test_async_runtime_factory_injects_imports_and_propagates_failure() ->
         return PersistentStreamsRuntimeOptions(owner_id=owner)
 
     streams = PersistentStreamsModule.for_root_async(
-        InMemoryPersistentStreamsModule.for_root(),
         bindings=(binding(),),
         use_factory=settings,
-        imports=(ConfigurationModule,),
+        imports=[InMemoryPersistentStreamsModule.for_root(), ConfigurationModule],
     )
 
     @module(imports=[streams])
@@ -604,9 +603,9 @@ async def test_async_runtime_factory_injects_imports_and_propagates_failure() ->
         raise RuntimeError("settings failed")
 
     failed = PersistentStreamsModule.for_root_async(
-        InMemoryPersistentStreamsModule.for_root(),
         bindings=(binding(),),
         use_factory=failed_settings,
+        imports=[InMemoryPersistentStreamsModule.for_root()],
     )
 
     @module(imports=[failed])
@@ -635,9 +634,9 @@ async def test_async_runtime_owner_is_validated_only_after_factory_resolution() 
         return PersistentStreamsRuntimeOptions(owner_id="x", poll_interval=0.001)
 
     streams = PersistentStreamsModule.for_root_async(
-        InMemoryPersistentStreamsModule.for_root(),
         bindings=(constrained,),
         use_factory=settings,
+        imports=[InMemoryPersistentStreamsModule.for_root()],
     )
 
     @module(imports=[streams])
@@ -689,7 +688,7 @@ async def test_handlers_resolve_dependencies_from_their_exact_owner_modules() ->
         pass
 
     streams = PersistentStreamsModule.for_root(
-        options(), adapter=InMemoryPersistentStreamsModule.for_root()
+        options(), imports=[InMemoryPersistentStreamsModule.for_root()]
     )
 
     @module(imports=[streams, FirstModule, SecondModule])
@@ -733,7 +732,7 @@ async def test_codec_and_dto_failures_block_without_checkpoint(mode: str) -> Non
             (failed_binding,),
             runtime=PersistentStreamsRuntimeOptions(poll_interval=0.001),
         ),
-        adapter=InMemoryPersistentStreamsModule.for_root(),
+        imports=[InMemoryPersistentStreamsModule.for_root()],
     )
 
     @module(imports=[streams], controllers=[Projection])
@@ -788,7 +787,7 @@ async def test_pipeline_component_failures_block_without_checkpoint(
     Projection.apply = decorators[component](Projection.apply)
     Projection = controller()(Projection)
     streams = PersistentStreamsModule.for_root(
-        options(), adapter=InMemoryPersistentStreamsModule.for_root()
+        options(), imports=[InMemoryPersistentStreamsModule.for_root()]
     )
 
     @module(imports=[streams], controllers=[Projection])
@@ -829,7 +828,7 @@ async def test_work_scope_cleanup_failure_blocks_without_checkpoint() -> None:
         Resource, StreamInject(Resource)
     ]
     streams = PersistentStreamsModule.for_root(
-        options(), adapter=InMemoryPersistentStreamsModule.for_root()
+        options(), imports=[InMemoryPersistentStreamsModule.for_root()]
     )
 
     @module(imports=[streams], controllers=[Projection], providers=[Resource])

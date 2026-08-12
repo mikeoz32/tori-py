@@ -73,7 +73,7 @@ streams = PersistentStreamsModule.for_root(
             PublisherRegistration("member-activity", protocol=MemberPublisher),
         ),
     ),
-    adapter=InMemoryPersistentStreamsModule.for_root(),
+    imports=[InMemoryPersistentStreamsModule.for_root()],
 )
 
 
@@ -92,7 +92,7 @@ class ApplicationModule:
     pass
 ```
 
-The root is always global and imports the configured adapter module internally.
+The root is always global and composes adapter modules through normal Nestpy imports.
 Use `StreamPublisher` for alias-selected publishing,
 `Annotated[ConfiguredStreamPublisher[MemberUpdated],
 Inject(stream_publisher_token("member-activity"))]` for a fixed named publisher,
@@ -103,10 +103,9 @@ annotations and `Annotated[..., Inject(token)]` dependencies work:
 
 ```python
 streams = PersistentStreamsModule.for_root_async(
-    InMemoryPersistentStreamsModule.for_root(),
     bindings=(binding,),
     use_factory=create_runtime_options,
-    imports=(ConfigurationModule,),
+    imports=[InMemoryPersistentStreamsModule.for_root(), ConfigurationModule],
     publishers=(
         PublisherRegistration("member-activity", name="member-activity"),
         PublisherRegistration("member-activity", protocol=MemberPublisher),
@@ -165,9 +164,10 @@ source-data/checkpoint reset. Skipping a poison record is not an integration API
 
 ## Adapter Authors
 
-An adapter module exports exactly one `StreamAdapterFactory` token and returns a
-`ConfiguredStreamAdapter` containing that private module import, token, and a
-bounded diagnostic kind. The factory receives resolved immutable bindings and
+An adapter module provides and exports the public runtime-checkable
+`StreamAdapterFactory` Protocol class as its canonical Nestpy token. Its
+`for_root()` and `for_root_async()` methods return a `DeferredModule` directly.
+The factory receives resolved immutable bindings and
 returns a public `persistent_streams.PersistentStreamAdapter`. Its `start()`
 must cross the native readiness barrier and its `quiesce()` must close intake
 and callback handoff before returning. It must preserve exact

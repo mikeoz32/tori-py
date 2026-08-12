@@ -29,7 +29,7 @@ its repository-wide gate remains blocked by unrelated baseline failures.
 1. `nestpy-persistent-streams` depends on Nestpy and persistent-stream contracts;
    neither has a reverse dependency.
 2. One application imports one always-global persistent-stream root.
-3. The root imports its configured adapter module/reference internally.
+3. The root composes exactly one adapter module through standard Nestpy imports.
 4. Async configuration uses annotation-driven injectable sync/async factories.
 5. Discovery examines direct `@stream_handler` methods on all explicit
    controllers through `DiscoveryService`.

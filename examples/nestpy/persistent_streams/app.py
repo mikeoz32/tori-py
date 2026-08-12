@@ -99,7 +99,7 @@ class MemberProjection:
         partition: Annotated[int, StreamPartition()],
         offset: Annotated[int, StreamOffset()],
     ) -> None:
-        type(self).handled.append(HandledMemberUpdate(payload, partition, offset))
+        MemberProjection.handled.append(HandledMemberUpdate(payload, partition, offset))
 
 
 @injectable()
@@ -120,7 +120,7 @@ class DemoRunner:
         self._protocol = protocol
 
     async def on_application_bootstrap(self) -> None:
-        type(self).receipts = [
+        DemoRunner.receipts = [
             await self._raw.publish(
                 STREAM_ALIAS, MemberUpdated("member-1", "  ada lovelace ")
             ),
@@ -131,7 +131,7 @@ class DemoRunner:
         ]
 
         async with asyncio.timeout(1):
-            while len(MemberProjection.handled) < len(type(self).receipts):
+            while len(MemberProjection.handled) < len(DemoRunner.receipts):
                 await asyncio.sleep(0.005)
 
 
@@ -160,7 +160,7 @@ def application_module() -> type[object]:
     # Each application owns a fresh adapter because shutdown permanently closes it.
     streams = PersistentStreamsModule.for_root(
         options,
-        adapter=InMemoryPersistentStreamsModule.for_root(),
+        imports=[InMemoryPersistentStreamsModule.for_root()],
     )
 
     @module(

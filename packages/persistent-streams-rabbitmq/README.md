@@ -58,10 +58,10 @@ rabbit = RabbitMqPersistentStreamsModule.for_root(
         )
     )
 )
-streams = PersistentStreamsModule.for_root(options, adapter=rabbit)
+streams = PersistentStreamsModule.for_root(options, imports=[rabbit])
 ```
 
-Constructing options, the configured reference, factory, or log performs no I/O.
+Constructing options, the deferred module, factory, or log performs no I/O.
 `for_root_async()` resolves secrets/configuration through normal Nestpy injection.
 The broker-free
 [`examples/nestpy/persistent_streams`](../../examples/nestpy/persistent_streams/README.md)

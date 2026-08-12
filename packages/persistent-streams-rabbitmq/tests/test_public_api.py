@@ -26,7 +26,6 @@ def test_rps0_package_boundary_is_exact() -> None:
         "EnvelopeError",
         "EnvelopeLimits",
         "RABBITMQ_START_MODE_CAPABILITIES",
-        "RABBITMQ_STREAM_ADAPTER_FACTORY",
         "RabbitMqConnectionOptions",
         "RabbitMqPartitionLease",
         "RabbitMqPersistentLog",

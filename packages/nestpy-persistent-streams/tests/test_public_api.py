@@ -10,15 +10,19 @@ from typing import cast
 
 import nestpy_persistent_streams
 import pytest
-from nestpy import BootstrapError, ModuleSpec, NestApplication, module
+from nestpy import BootstrapError, ModuleSpec, NestApplication, ValueProvider, module
 from nestpy_persistent_streams import (
     PersistentStreamsModule,
     PersistentStreamsOptions,
     PublisherRegistration,
+    StreamAdapterFactory,
     StreamBinding,
     StreamConfigurationError,
 )
-from nestpy_persistent_streams.testing import InMemoryPersistentStreamsModule
+from nestpy_persistent_streams.testing import (
+    InMemoryPersistentStreamsModule,
+    InMemoryStreamAdapterFactory,
+)
 from persistent_streams import StreamDefinition
 
 
@@ -51,7 +55,6 @@ def options() -> PersistentStreamsOptions:
 
 def test_root_facade_is_exact() -> None:
     assert set(nestpy_persistent_streams.__all__) == {
-        "ConfiguredStreamAdapter",
         "ConfiguredStreamPublisher",
         "NestpyPersistentStreamsError",
         "PartitionKeyResolver",
@@ -131,17 +134,68 @@ assert forbidden.isdisjoint(sys.modules)
     assert completed.returncode == 0, completed.stderr
 
 
-def test_root_is_global_and_internally_imports_adapter() -> None:
+def test_root_is_global_and_imports_adapter() -> None:
     adapter = InMemoryPersistentStreamsModule.for_root()
-    descriptor = PersistentStreamsModule.for_root(options(), adapter=adapter)
+    descriptor = PersistentStreamsModule.for_root(options(), imports=[adapter])
     spec = cast(ModuleSpec, descriptor.factory())
 
     assert spec.global_ is True
-    assert tuple(spec.imports) == (adapter.module,)
+    assert tuple(spec.imports) == (adapter,)
+    adapter_spec = cast(ModuleSpec, adapter.factory())
+    assert tuple(adapter_spec.exports) == (StreamAdapterFactory,)
     assert "key" not in inspect.signature(PersistentStreamsModule.for_root).parameters
     assert (
         "global_" not in inspect.signature(PersistentStreamsModule.for_root).parameters
     )
+
+
+@pytest.mark.asyncio
+async def test_root_compiles_with_one_adapter_import() -> None:
+    streams = PersistentStreamsModule.for_root(
+        options(), imports=[InMemoryPersistentStreamsModule.for_root()]
+    )
+
+    @module(imports=[streams])
+    class AppModule:
+        pass
+
+    application = await NestApplication.create(AppModule)
+    await application.start()
+    await application.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_root_without_adapter_reports_unresolved_factory() -> None:
+    @module(imports=[PersistentStreamsModule.for_root(options())])
+    class AppModule:
+        pass
+
+    with pytest.raises(BootstrapError) as failure:
+        await NestApplication.create(AppModule)
+    assert failure.value.diagnostic_code == "provider.unresolved"
+
+
+@pytest.mark.asyncio
+async def test_root_with_two_adapter_modules_reports_ambiguous_factory() -> None:
+    @module(
+        providers=[ValueProvider(StreamAdapterFactory, InMemoryStreamAdapterFactory())],
+        exports=[StreamAdapterFactory],
+    )
+    class OtherAdapterModule:
+        pass
+
+    streams = PersistentStreamsModule.for_root(
+        options(),
+        imports=[InMemoryPersistentStreamsModule.for_root(), OtherAdapterModule],
+    )
+
+    @module(imports=[streams])
+    class AppModule:
+        pass
+
+    with pytest.raises(BootstrapError) as failure:
+        await NestApplication.create(AppModule)
+    assert failure.value.diagnostic_code == "provider.ambiguous"
 
 
 def test_explicit_publisher_name_cannot_overwrite_implicit_binding_alias() -> None:
@@ -179,8 +233,8 @@ async def test_two_distinct_roots_are_rejected_before_adapter_creation() -> None
 
     @module(
         imports=[
-            PersistentStreamsModule.for_root(options(), adapter=adapter),
-            PersistentStreamsModule.for_root(options(), adapter=adapter),
+            PersistentStreamsModule.for_root(options(), imports=[adapter]),
+            PersistentStreamsModule.for_root(options(), imports=[adapter]),
         ]
     )
     class AppModule:
@@ -194,11 +248,11 @@ async def test_two_distinct_roots_are_rejected_before_adapter_creation() -> None
 async def test_transitively_imported_duplicate_roots_are_rejected() -> None:
     adapter = InMemoryPersistentStreamsModule.for_root()
 
-    @module(imports=[PersistentStreamsModule.for_root(options(), adapter=adapter)])
+    @module(imports=[PersistentStreamsModule.for_root(options(), imports=[adapter])])
     class FirstFeature:
         pass
 
-    @module(imports=[PersistentStreamsModule.for_root(options(), adapter=adapter)])
+    @module(imports=[PersistentStreamsModule.for_root(options(), imports=[adapter])])
     class SecondFeature:
         pass
 

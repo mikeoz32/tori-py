@@ -10,8 +10,9 @@ The currently required pinned-driver checks pass; RPS0 remains incomplete.
 
 - Immutable bounded redacted connection, TLS, reconnect, declaration, confirm,
   credit, queue, byte, timeout, router, and start-capability options.
-- Sync and annotation-driven async adapter references internally imported by the
-  single always-global Nestpy root.
+- Sync and annotation-driven async adapter modules exporting the canonical
+  `StreamAdapterFactory` token and explicitly imported by the single always-global
+  Nestpy root.
 - Owned locator, metadata, producer, consumer, callback, and recovery resources;
   reverse-order rollback and idempotent bounded close.
 - Explicit unnamed producer mode and optional named-producer coordinate provider.

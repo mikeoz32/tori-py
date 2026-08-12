@@ -10,15 +10,12 @@ from nestpy import (
     ModuleSpec,
     ValueProvider,
 )
-from nestpy_persistent_streams import ConfiguredStreamAdapter
+from nestpy_persistent_streams import StreamAdapterFactory
 from persistent_streams import PersistentStreamAdapter
 
 from persistent_streams_rabbitmq.log import RabbitMqPersistentLog
 from persistent_streams_rabbitmq.options import RabbitMqPersistentStreamsOptions
 
-RABBITMQ_STREAM_ADAPTER_FACTORY = (
-    "persistent-streams-rabbitmq:rabbitmq-stream-adapter-factory"
-)
 _RABBITMQ_OPTIONS = "persistent-streams-rabbitmq:options"
 
 
@@ -37,9 +34,7 @@ class RabbitMqStreamAdapterFactory:
 
 class RabbitMqPersistentStreamsModule:
     @classmethod
-    def for_root(
-        cls, options: RabbitMqPersistentStreamsOptions
-    ) -> ConfiguredStreamAdapter:
+    def for_root(cls, options: RabbitMqPersistentStreamsOptions) -> DeferredModule:
         if not isinstance(options, RabbitMqPersistentStreamsOptions):
             raise TypeError("options must be RabbitMqPersistentStreamsOptions")
 
@@ -48,16 +43,12 @@ class RabbitMqPersistentStreamsModule:
             return ModuleSpec(
                 providers=[
                     ValueProvider(_RABBITMQ_OPTIONS, options),
-                    ValueProvider(RABBITMQ_STREAM_ADAPTER_FACTORY, factory),
+                    ValueProvider(StreamAdapterFactory, factory),
                 ],
-                exports=[RABBITMQ_STREAM_ADAPTER_FACTORY],
+                exports=[StreamAdapterFactory],
             )
 
-        return ConfiguredStreamAdapter(
-            DeferredModule(cls, "root", materialize),
-            RABBITMQ_STREAM_ADAPTER_FACTORY,
-            "rabbitmq-stream",
-        )
+        return DeferredModule(cls, "root", materialize)
 
     @classmethod
     def for_root_async(
@@ -65,7 +56,7 @@ class RabbitMqPersistentStreamsModule:
         *,
         use_factory: Callable[..., object],
         imports: Iterable[ModuleImport] = (),
-    ) -> ConfiguredStreamAdapter:
+    ) -> DeferredModule:
         if not callable(use_factory):
             raise TypeError("use_factory must be callable")
 
@@ -84,20 +75,15 @@ class RabbitMqPersistentStreamsModule:
                 imports=tuple(imports),
                 providers=[
                     FactoryProvider(RabbitMqPersistentStreamsOptions, use_factory),
-                    FactoryProvider(RABBITMQ_STREAM_ADAPTER_FACTORY, create_factory),
+                    FactoryProvider(StreamAdapterFactory, create_factory),
                 ],
-                exports=[RABBITMQ_STREAM_ADAPTER_FACTORY],
+                exports=[StreamAdapterFactory],
             )
 
-        return ConfiguredStreamAdapter(
-            DeferredModule(cls, "root-async", materialize),
-            RABBITMQ_STREAM_ADAPTER_FACTORY,
-            "rabbitmq-stream",
-        )
+        return DeferredModule(cls, "root-async", materialize)
 
 
 __all__ = [
-    "RABBITMQ_STREAM_ADAPTER_FACTORY",
     "RabbitMqPersistentStreamsModule",
     "RabbitMqStreamAdapterFactory",
 ]
