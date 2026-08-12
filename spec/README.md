@@ -14,6 +14,9 @@ The implemented optional event-sourcing package has a separate phase map under
 the library without changing the first-slice contracts below.
 The planned Nestpy-native bridge between those two optional packages is governed
 by [`spec/nestpy-cqrs-event-sourcing/README.md`](nestpy-cqrs-event-sourcing/README.md).
+The planned framework-neutral append-only persistent log is governed separately
+by [`spec/persistent-streams/README.md`](persistent-streams/README.md); it has no
+CQRS, Nestpy, broker, database, or serializer dependency.
 
 These documents turn `CQRS_IMPLEMENTATION_PLAN.md` into executable implementation specifications. They are the source of truth for the first CQRS slice until code and tests establish a more precise behavior.
 

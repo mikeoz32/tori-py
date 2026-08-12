@@ -23,3 +23,8 @@ For a full event-sourced community project with three aggregates, schema
 upcasting, optimistic concurrency, request-scoped Unit of Work, checkpointed
 projections, privacy rules, moderation, and HTTP endpoints, see
 [`cqrs/event_sourcing`](cqrs/event_sourcing/README.md).
+
+For typed persistent stream publishing through raw, named, and Protocol
+publishers, plus codec, pipe, partition, checkpoint, and shutdown behavior using
+the in-memory adapter, see
+[`persistent_streams`](persistent_streams/README.md).

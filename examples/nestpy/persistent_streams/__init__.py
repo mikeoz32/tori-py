@@ -1,0 +1,1 @@
+"""Nestpy persistent streams example."""

@@ -1,0 +1,19 @@
+services:
+  rabbitmq-stream-spike:
+    image: rabbitmq:4.1-management-alpine
+    hostname: localhost
+    environment:
+      RABBITMQ_DEFAULT_USER: streams
+      RABBITMQ_DEFAULT_PASS: streams
+      RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS: '-rabbitmq_stream advertised_host "127.0.0.1"'
+    command: >-
+      sh -c "rabbitmq-plugins enable --offline rabbitmq_stream rabbitmq_stream_management
+      && rabbitmq-server"
+    ports:
+      - "5552:5552"
+      - "15672:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "check_running"]
+      interval: 2s
+      timeout: 5s
+      retries: 30

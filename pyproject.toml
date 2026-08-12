@@ -36,6 +36,9 @@ members = [
     "packages/nestpy-openapi",
     "packages/nestpy-sqlalchemy",
     "packages/nestpy-microservices",
+    "packages/persistent-streams",
+    "packages/nestpy-persistent-streams",
+    "packages/persistent-streams-rabbitmq",
 ]
 
 [tool.uv.sources]
@@ -48,6 +51,9 @@ cqrs-fastapi = { workspace = true }
 nestpy-cqrs-event-sourcing = { workspace = true }
 nestpy-openapi = { workspace = true }
 nestpy-microservices = { workspace = true }
+persistent-streams = { workspace = true }
+nestpy-persistent-streams = { workspace = true }
+persistent-streams-rabbitmq = { workspace = true }
 
 [dependency-groups]
 dev = [
@@ -58,6 +64,7 @@ dev = [
     "nestpy-cqrs-event-sourcing",
     "nestpy-microservices",
     "nestpy-openapi",
+    "nestpy-persistent-streams",
     "nestpy[testing]",
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",
