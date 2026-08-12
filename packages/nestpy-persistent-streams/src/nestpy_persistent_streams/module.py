@@ -232,7 +232,7 @@ def _bound_factory(stream: str) -> Callable[..., BoundStreamPublisher]:
             raise StreamConfigurationError(
                 f"publisher references unknown stream {stream!r}"
             )
-        return BoundStreamPublisher(runtime, stream, binding.payload_type)
+        return BoundStreamPublisher(runtime, stream)
 
     return create
 
@@ -253,7 +253,7 @@ def _protocol_factory(
             raise StreamConfigurationError("invalid Protocol publisher registration")
         return ProtocolStreamPublisher(
             registration.protocol,
-            BoundStreamPublisher(runtime, binding.alias, binding.payload_type),
+            BoundStreamPublisher(runtime, binding.alias),
             binding.payload_type,
         )
 

@@ -3,10 +3,18 @@ from __future__ import annotations
 import asyncio
 import json
 from dataclasses import dataclass
-from typing import Annotated, ClassVar, Protocol
+from typing import Annotated, ClassVar, Protocol, cast
 from uuid import UUID
 
-from nestpy import Inject, NestApplication, controller, injectable, module, use_pipe
+from nestpy import (
+    ArgumentMetadata,
+    Inject,
+    NestApplication,
+    controller,
+    injectable,
+    module,
+    use_pipe,
+)
 from nestpy_persistent_streams import (
     ConfiguredStreamPublisher,
     PersistentStreamsModule,
@@ -37,25 +45,20 @@ class MemberUpdated:
 
 
 class MemberUpdatedCodec:
-    def encode(self, payload: object) -> bytes:
-        if not isinstance(payload, MemberUpdated):
-            raise TypeError("expected MemberUpdated")
+    def encode(self, payload: MemberUpdated) -> bytes:
         return json.dumps(
             {"member_id": payload.member_id, "display_name": payload.display_name},
             separators=(",", ":"),
         ).encode()
 
-    def decode(self, payload: bytes, target: type[object]) -> object:
-        if target is not MemberUpdated:
-            raise TypeError("unsupported payload type")
+    def decode(self, payload: bytes, target: type[MemberUpdated]) -> MemberUpdated:
+        del target
         value = json.loads(payload)
         return MemberUpdated(value["member_id"], value["display_name"])
 
 
 class MemberPartitionKey:
-    def resolve(self, payload: object) -> bytes:
-        if not isinstance(payload, MemberUpdated):
-            raise TypeError("expected MemberUpdated")
+    def resolve(self, payload: MemberUpdated) -> bytes:
         return payload.member_id.encode()
 
 
@@ -70,10 +73,10 @@ class MemberActivityPublisher(Protocol):
 
 
 class NormalizeDisplayName:
-    async def transform(self, value: object, metadata: object) -> object:
-        del metadata
-        if not isinstance(value, MemberUpdated):
+    async def transform(self, value: object, metadata: ArgumentMetadata) -> object:
+        if metadata.binding_kind != "payload":
             return value
+        value = cast(MemberUpdated, value)
         return MemberUpdated(value.member_id, value.display_name.strip().title())
 
 
@@ -132,7 +135,7 @@ class DemoRunner:
                 await asyncio.sleep(0.005)
 
 
-binding = StreamBinding(
+binding = StreamBinding[MemberUpdated](
     alias=STREAM_ALIAS,
     definition=STREAM_DEFINITION,
     payload_type=MemberUpdated,

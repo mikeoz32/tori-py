@@ -25,14 +25,14 @@ from nestpy_persistent_streams.errors import StreamConfigurationError
 
 
 @dataclass(frozen=True, slots=True)
-class StreamBinding:
+class StreamBinding[PayloadT]:
     """One fixed logical stream compatibility contract."""
 
     alias: str
     definition: StreamDefinition
-    payload_type: type[object]
-    codec: StreamCodec | Token
-    partition_key_resolver: PartitionKeyResolver | Token
+    payload_type: type[PayloadT]
+    codec: StreamCodec[PayloadT] | Token
+    partition_key_resolver: PartitionKeyResolver[PayloadT] | Token
     producer_name: str | None = None
     publishing_id_source: PublishingIdSource | Token | None = None
     start: StartPosition = field(default_factory=Beginning)

@@ -25,12 +25,9 @@ def stream_publisher_token(name: str) -> str:
 class BoundStreamPublisher:
     """Narrow publisher whose stream and payload contract are fixed."""
 
-    def __init__(
-        self, runtime: object, stream: str, payload_type: type[object]
-    ) -> None:
+    def __init__(self, runtime: object, stream: str) -> None:
         self._runtime = runtime
         self._stream = stream
-        self._payload_type = payload_type
 
     async def publish(
         self,
@@ -39,8 +36,6 @@ class BoundStreamPublisher:
         record_id: UUID | None = None,
         headers: Mapping[str, bytes] | None = None,
     ) -> PublishReceipt:
-        if not isinstance(payload, self._payload_type):
-            raise TypeError("payload does not satisfy the configured stream contract")
         runtime = cast(StreamPublisher, self._runtime)
         return await runtime.publish(
             self._stream,

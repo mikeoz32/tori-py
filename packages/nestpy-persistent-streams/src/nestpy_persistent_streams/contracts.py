@@ -12,19 +12,19 @@ from persistent_streams import PersistentStreamAdapter, PublishReceipt, StoredRe
 
 
 @runtime_checkable
-class StreamCodec(Protocol):
+class StreamCodec[PayloadT](Protocol):
     """Encode typed values and decode bounded records to a declared DTO type."""
 
-    def encode(self, payload: object) -> bytes: ...
+    def encode(self, payload: PayloadT) -> bytes: ...
 
-    def decode(self, payload: bytes, target: type[object]) -> object: ...
+    def decode(self, payload: bytes, target: type[PayloadT]) -> PayloadT: ...
 
 
 @runtime_checkable
-class PartitionKeyResolver(Protocol):
+class PartitionKeyResolver[PayloadT](Protocol):
     """Derive a stable partition key from a typed payload."""
 
-    def resolve(self, payload: object) -> bytes: ...
+    def resolve(self, payload: PayloadT) -> bytes: ...
 
 
 @runtime_checkable
