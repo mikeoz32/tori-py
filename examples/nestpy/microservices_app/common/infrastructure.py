@@ -8,10 +8,6 @@ import signal
 from collections.abc import Awaitable, Callable, Iterable
 
 from nestpy import DeferredModule, ModuleImport, NestApplication
-from nestpy_sqlalchemy import SqlAlchemyModule, SqlAlchemyOptions
-from sqlalchemy import MetaData
-from sqlalchemy.ext.asyncio import create_async_engine
-
 from nestpy_microservices import (
     MicroservicesModule,
     MicroservicesOptions,
@@ -20,6 +16,9 @@ from nestpy_microservices import (
     RabbitMqTransport,
     ServiceIdentity,
 )
+from nestpy_sqlalchemy import SqlAlchemyModule, SqlAlchemyOptions
+from sqlalchemy import MetaData
+from sqlalchemy.ext.asyncio import create_async_engine
 
 
 def database_url(service: str) -> str:

@@ -5,7 +5,6 @@ from collections.abc import Sequence
 from uuid import uuid4
 
 import pytest
-
 from nestpy_microservices import (
     DuplicateSettlementError,
     EventIdentity,

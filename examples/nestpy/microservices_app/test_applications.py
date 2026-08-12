@@ -7,6 +7,11 @@ from typing import cast
 
 import pytest
 from nestpy.starlette import RequestContext
+from nestpy_microservices import (
+    RabbitMqConnectionError,
+    RemoteRpcError,
+    RpcProtocolError,
+)
 from nestpy_sqlalchemy import EntityManager
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from starlette.responses import Response
@@ -47,11 +52,6 @@ from examples.nestpy.microservices_app.orders.app import (
 )
 from examples.nestpy.microservices_app.orders.app import (
     create_application as create_orders_application,
-)
-from nestpy_microservices import (
-    RabbitMqConnectionError,
-    RemoteRpcError,
-    RpcProtocolError,
 )
 
 

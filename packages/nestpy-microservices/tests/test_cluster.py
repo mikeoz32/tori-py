@@ -8,7 +8,6 @@ from uuid import UUID, uuid4
 import msgspec
 import pytest
 from nestpy import NestApplication, ValueProvider, module
-
 from nestpy_microservices import (
     CallHeaders,
     CallTimeout,

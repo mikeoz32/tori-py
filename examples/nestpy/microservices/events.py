@@ -5,7 +5,6 @@ from __future__ import annotations
 from typing import Annotated
 
 from nestpy import DeferredModule, controller, module
-
 from nestpy_microservices import (
     Context as MessageContextMarker,
 )

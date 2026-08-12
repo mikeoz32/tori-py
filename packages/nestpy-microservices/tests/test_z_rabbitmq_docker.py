@@ -17,15 +17,6 @@ from nestpy.testing import TestingModule
 
 pytest.importorskip("pytest_docker")
 
-from nestpy_microservices.errors import (  # noqa: E402
-    RabbitMqConnectionError,
-    RpcOutcomeUnknownError,
-    RpcTimeoutError,
-    TransportIndeterminateError,
-)
-from nestpy_microservices.rabbitmq import compile_event_topology  # noqa: E402
-from nestpy_microservices.testing import assert_transport_conformance  # noqa: E402
-
 from nestpy_microservices import (  # noqa: E402
     Context,
     EncodedDelivery,
@@ -58,6 +49,14 @@ from nestpy_microservices import (  # noqa: E402
     event_handler,
     utc_now,
 )
+from nestpy_microservices.errors import (  # noqa: E402
+    RabbitMqConnectionError,
+    RpcOutcomeUnknownError,
+    RpcTimeoutError,
+    TransportIndeterminateError,
+)
+from nestpy_microservices.rabbitmq import compile_event_topology  # noqa: E402
+from nestpy_microservices.testing import assert_transport_conformance  # noqa: E402
 
 SERVICE = ServiceIdentity("integration", "worker", 1)
 EVENT = EventIdentity(

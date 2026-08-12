@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Protocol
 
 import msgspec
+from nestpy_microservices import ServiceIdentity, rpc_call, service_contract
 
 from examples.nestpy.microservices_app.common.contracts import (
     CatalogItem,
@@ -16,7 +17,6 @@ from examples.nestpy.microservices_app.common.contracts import (
     Notification,
     Order,
 )
-from nestpy_microservices import ServiceIdentity, rpc_call, service_contract
 
 CATALOG = ServiceIdentity("demo", "catalog", 1)
 ORDERS = ServiceIdentity("demo", "orders", 1)

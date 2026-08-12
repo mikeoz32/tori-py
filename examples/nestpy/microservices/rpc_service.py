@@ -6,7 +6,6 @@ from typing import Annotated
 
 from nestpy import NestApplication, controller, get, module
 from nestpy.starlette import StarletteAdapter
-
 from nestpy_microservices import (
     Context,
     MicroservicesModule,

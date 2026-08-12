@@ -20,20 +20,6 @@ from nestpy import (
 from nestpy.http import HttpException, MsgspecValidationPipe
 from nestpy.starlette import RequestContext, StarletteAdapter
 from nestpy.starlette.errors import problem_response
-
-from examples.nestpy.microservices_app.common.contracts import (
-    CatalogItem,
-    CreateCatalogItem,
-    CreateOrder,
-    Notification,
-    Order,
-)
-from examples.nestpy.microservices_app.common.infrastructure import rabbitmq_url
-from examples.nestpy.microservices_app.common.services import (
-    CatalogService,
-    NotificationsService,
-    OrdersService,
-)
 from nestpy_microservices import (
     ClientsModule,
     RabbitMqConnectionError,
@@ -48,6 +34,20 @@ from nestpy_microservices import (
     TransportIndeterminateError,
     TransportTimeoutError,
     UnknownServiceError,
+)
+
+from examples.nestpy.microservices_app.common.contracts import (
+    CatalogItem,
+    CreateCatalogItem,
+    CreateOrder,
+    Notification,
+    Order,
+)
+from examples.nestpy.microservices_app.common.infrastructure import rabbitmq_url
+from examples.nestpy.microservices_app.common.services import (
+    CatalogService,
+    NotificationsService,
+    OrdersService,
 )
 
 

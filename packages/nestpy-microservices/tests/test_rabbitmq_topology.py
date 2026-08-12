@@ -7,6 +7,19 @@ from typing import Any, cast
 from uuid import uuid4
 
 import pytest
+from nestpy_microservices import (
+    EventIdentity,
+    EventSubscription,
+    Publication,
+    RabbitMqConnectionError,
+    RpcTarget,
+    ServiceIdentity,
+    SettlementRecommendation,
+    TransportIndeterminateError,
+    TransportRejectedError,
+    TransportTimeoutError,
+    TransportUnroutableError,
+)
 from nestpy_microservices.rabbitmq import (
     QueueDeclaration,
     RabbitMqChannelRole,
@@ -28,20 +41,6 @@ from nestpy_microservices.rabbitmq import connection as rabbitmq_connection
 from nestpy_microservices.rabbitmq import publisher as rabbitmq_publisher
 from nestpy_microservices.rabbitmq.connection import RabbitMqChannels
 from nestpy_microservices.rabbitmq.topology import retry_exchange_name
-
-from nestpy_microservices import (
-    EventIdentity,
-    EventSubscription,
-    Publication,
-    RabbitMqConnectionError,
-    RpcTarget,
-    ServiceIdentity,
-    SettlementRecommendation,
-    TransportIndeterminateError,
-    TransportRejectedError,
-    TransportTimeoutError,
-    TransportUnroutableError,
-)
 
 SERVICE = ServiceIdentity("kinker", "members", 1)
 

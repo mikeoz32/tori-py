@@ -6,6 +6,14 @@ import asyncio
 from typing import Annotated
 
 from nestpy import NestApplication, controller, module
+from nestpy_microservices import (
+    EventDispatchMode,
+    Header,
+    Payload,
+    ServiceIdentity,
+    event_handler,
+    rpc,
+)
 from nestpy_sqlalchemy import EntityManager, Repository, SqlAlchemyModule, repository
 from sqlalchemy import String, Text, select
 from sqlalchemy.exc import IntegrityError
@@ -25,14 +33,6 @@ from examples.nestpy.microservices_app.common.infrastructure import (
 from examples.nestpy.microservices_app.common.services import (
     HealthCheck,
     NotificationsService,
-)
-from nestpy_microservices import (
-    EventDispatchMode,
-    Header,
-    Payload,
-    ServiceIdentity,
-    event_handler,
-    rpc,
 )
 
 SERVICE = ServiceIdentity("demo", "notifications", 1)

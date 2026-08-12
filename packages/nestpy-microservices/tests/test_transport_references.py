@@ -9,7 +9,6 @@ import nestpy_microservices.module as server_module
 import pytest
 from nestpy import ClassProvider, DeferredModule, ModuleSpec, ValueProvider, module
 from nestpy.testing import TestingModule
-
 from nestpy_microservices import (
     ClientsModule,
     EventDispatcher,

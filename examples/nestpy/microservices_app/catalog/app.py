@@ -9,6 +9,12 @@ from typing import Annotated
 from cqrs_core import Command, CommandBus, Query, QueryBus
 from nestpy import NestApplication, controller, module
 from nestpy_cqrs import CqrsModule, command_handler, query_handler
+from nestpy_microservices import (
+    Payload,
+    PublicRpcError,
+    ServiceIdentity,
+    rpc,
+)
 from nestpy_sqlalchemy import EntityManager, Repository, SqlAlchemyModule, repository
 from sqlalchemy import String, select
 from sqlalchemy.exc import IntegrityError
@@ -28,12 +34,6 @@ from examples.nestpy.microservices_app.common.infrastructure import (
 from examples.nestpy.microservices_app.common.services import (
     CatalogService,
     HealthCheck,
-)
-from nestpy_microservices import (
-    Payload,
-    PublicRpcError,
-    ServiceIdentity,
-    rpc,
 )
 
 SERVICE = ServiceIdentity("demo", "catalog", 1)

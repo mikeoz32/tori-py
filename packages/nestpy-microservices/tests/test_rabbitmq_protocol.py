@@ -6,7 +6,6 @@ from typing import Any, cast
 from uuid import UUID, uuid4
 
 import pytest
-
 from nestpy_microservices import (
     EventIdentity,
     EventSubscription,

@@ -22,8 +22,6 @@ from nestpy import (
     use_interceptor,
 )
 from nestpy.testing import TestingModule
-from nestpy_microservices.errors import PublicRpcError
-
 from nestpy_microservices import (
     EncodedDelivery,
     EventContext,
@@ -63,6 +61,7 @@ from nestpy_microservices import (
     rpc_call,
     service_contract,
 )
+from nestpy_microservices.errors import PublicRpcError
 
 SERVICE = ServiceIdentity("kinker", "members", 1)
 OTHER_SERVICE = ServiceIdentity("kinker", "groups", 1)

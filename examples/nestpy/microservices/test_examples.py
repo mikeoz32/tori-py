@@ -2,6 +2,11 @@ from __future__ import annotations
 
 import pytest
 from nestpy import DeferredModule, ModuleId, ModuleSpec, ValueProvider
+from nestpy_microservices import (
+    EventDispatchMode,
+    MicroservicesRoot,
+    compile_service_handler_registry,
+)
 
 from examples.nestpy.microservices.events import (
     RELIABLE_INSTANCE_OPTIONS,
@@ -20,11 +25,6 @@ from examples.nestpy.microservices.rpc_service import (
     HybridApplicationModule,
     HybridReportController,
     create_hybrid_application,
-)
-from nestpy_microservices import (
-    EventDispatchMode,
-    MicroservicesRoot,
-    compile_service_handler_registry,
 )
 
 

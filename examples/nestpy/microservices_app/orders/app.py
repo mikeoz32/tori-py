@@ -13,6 +13,16 @@ from uuid import uuid4
 from cqrs_core import Command, CommandBus, Query, QueryBus
 from nestpy import AliasProvider, NestApplication, controller, injectable, module
 from nestpy_cqrs import CqrsModule, command_handler, query_handler
+from nestpy_microservices import (
+    ClientsModule,
+    EventDispatcher,
+    Payload,
+    PublicRpcError,
+    RemoteRpcError,
+    ServiceIdentity,
+    rpc,
+    utc_now,
+)
 from nestpy_sqlalchemy import EntityManager, Repository, SqlAlchemyModule, repository
 from sqlalchemy import DateTime, Integer, String, Text, select
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
@@ -33,16 +43,6 @@ from examples.nestpy.microservices_app.common.services import (
     CatalogService,
     HealthCheck,
     OrdersService,
-)
-from nestpy_microservices import (
-    ClientsModule,
-    EventDispatcher,
-    Payload,
-    PublicRpcError,
-    RemoteRpcError,
-    ServiceIdentity,
-    rpc,
-    utc_now,
 )
 
 SERVICE = ServiceIdentity("demo", "orders", 1)

@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import pytest
-from nestpy_microservices.testing import assert_transport_conformance
-
 from nestpy_microservices import (
     EventIdentity,
     InMemoryBroker,
@@ -10,6 +8,7 @@ from nestpy_microservices import (
     InMemoryServerTransport,
     ServiceIdentity,
 )
+from nestpy_microservices.testing import assert_transport_conformance
 
 
 @pytest.mark.asyncio
