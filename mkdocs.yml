@@ -1,7 +1,7 @@
-site_name: Nestpy
+site_name: ToriPy
 site_description: Explicit modules, dependency injection, and ASGI applications for Python.
-site_url: https://example.invalid/nestpy/
-repo_name: kinker
+site_url: https://example.invalid/tori-py/
+repo_name: tori-py
 theme:
   name: material
   language: en
@@ -27,7 +27,7 @@ markdown_extensions:
   - pymdownx.superfences
 nav:
   - Home: index.md
-  - Why Nestpy: why-nestpy.md
+  - Why ToriPy: why-tori-py.md
   - Getting Started:
       - Installation: getting-started/installation.md
       - First Application: getting-started/first-application.md

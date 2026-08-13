@@ -1,22 +1,17 @@
-# CQRS Specifications
+# Tori Py Specifications
 
-The Kinker product has a separate domain vision, ubiquitous language, context
-map, cross-context policies, and bounded-context specifications under
-[`spec/kinker/README.md`](kinker/README.md). Those documents govern product
-business behavior and do not change the reusable CQRS package contracts below.
-
-Nestpy has a separate architecture and phase map under
-[`spec/nestpy/README.md`](nestpy/README.md). Its implemented N0-N8 phases do not
+ToriPy has a separate architecture and phase map under
+[`spec/tori-py/README.md`](tori-py/README.md). Its implemented N0-N8 phases do not
 create a CQRS dependency. The optional bridge has implemented C0-C3 under
-[`spec/nestpy-cqrs/README.md`](nestpy-cqrs/README.md).
+[`spec/tori-py-cqrs/README.md`](tori-py-cqrs/README.md).
 The implemented optional event-sourcing package has a separate phase map under
-[`spec/cqrs-event-sourcing/README.md`](cqrs-event-sourcing/README.md); it extends
+[`spec/tori-py-cqrs-event-sourcing-core/README.md`](tori-py-cqrs-event-sourcing-core/README.md); it extends
 the library without changing the first-slice contracts below.
-The planned Nestpy-native bridge between those two optional packages is governed
-by [`spec/nestpy-cqrs-event-sourcing/README.md`](nestpy-cqrs-event-sourcing/README.md).
+The planned ToriPy-native bridge between those two optional packages is governed
+by [`spec/tori-py-cqrs-event-sourcing/README.md`](tori-py-cqrs-event-sourcing/README.md).
 The planned framework-neutral append-only persistent log is governed separately
-by [`spec/persistent-streams/README.md`](persistent-streams/README.md); it has no
-CQRS, Nestpy, broker, database, or serializer dependency.
+by [`spec/tori-py-persistent-streams-core/README.md`](tori-py-persistent-streams-core/README.md); it has no
+CQRS, ToriPy, broker, database, or serializer dependency.
 
 These documents turn `CQRS_IMPLEMENTATION_PLAN.md` into executable implementation specifications. They are the source of truth for the first CQRS slice until code and tests establish a more precise behavior.
 
@@ -50,7 +45,7 @@ These constraints apply to every implementation phase:
 
 1. Python target is 3.14.
 2. All Python environments, dependency changes, commands, tests, and tooling use `uv` exclusively.
-3. `cqrs-core` MUST remain importable without FastAPI, Pydantic, SQLAlchemy, RabbitMQ, Redis, or a DI framework installed.
+3. `tori-py-cqrs-core` MUST remain importable without FastAPI, Pydantic, SQLAlchemy, RabbitMQ, Redis, or a DI framework installed.
 4. The core MUST be async-first. Public bus and transport operations are asynchronous.
 5. Commands and queries have exactly one handler. Events have zero or more handlers.
 6. Routing is explicit. Decorators do not mutate a global registry and packages are never scanned automatically.
@@ -74,9 +69,9 @@ Do not resolve an open design question by silently choosing behavior in code.
 
 The CQRS phases have no unresolved implementation decisions. The implemented
 framework-neutral event-sourcing slice is recorded in
-[`CQRS_EVENT_SOURCING_IMPLEMENTATION_PLAN.md`](../CQRS_EVENT_SOURCING_IMPLEMENTATION_PLAN.md).
+[`TORI_PY_CQRS_EVENT_SOURCING_CORE_IMPLEMENTATION_PLAN.md`](../TORI_PY_CQRS_EVENT_SOURCING_CORE_IMPLEMENTATION_PLAN.md).
 Its detailed phase specifications govern the completed implementation. Durable
 database adapters, transport retry, outbox delivery, and projection runners still
-require separate specifications. The planned Nestpy event-sourcing integration is
+require separate specifications. The planned ToriPy event-sourcing integration is
 recorded in
-[`NESTPY_CQRS_EVENT_SOURCING_ARCHITECTURE.md`](../NESTPY_CQRS_EVENT_SOURCING_ARCHITECTURE.md).
+[`TORI_PY_CQRS_EVENT_SOURCING_ARCHITECTURE.md`](../TORI_PY_CQRS_EVENT_SOURCING_ARCHITECTURE.md).

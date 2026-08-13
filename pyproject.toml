@@ -1,71 +1,44 @@
-[project]
-name = "kinker"
-version = "0.1.0"
-requires-python = ">=3.14,<3.15"
-dependencies = [
-    "cqrs-core==0.1.0",
-    "nestpy==0.1.0",
-    "nestpy-cqrs==0.1.0",
-    "nestpy-sqlalchemy==0.1.0",
-    "sqlalchemy[asyncio]>=2.0",
-    "psycopg[binary]>=3.2",
-    "msgspec>=0.19.0",
-    "alembic>=1.18.5",
-    "uvicorn>=0.36.0",
-    "pyjwt[crypto]>=2.13.0,<3",
-    "httpx>=0.28.0",
-    "nestpy-openapi==0.1.0",
-    "cryptography>=49.0.0,<50",
-]
-
-[project.scripts]
-kinker = "kinker.cli:main"
-
-[build-system]
-requires = ["uv_build>=0.11.28,<0.12.0"]
-build-backend = "uv_build"
-
 [tool.uv.workspace]
 members = [
-    "packages/cqrs-core",
-    "packages/cqrs-event-sourcing",
-    "packages/cqrs-fastapi",
-    "packages/nestpy",
-    "packages/nestpy-cqrs",
-    "packages/nestpy-cqrs-event-sourcing",
-    "packages/nestpy-openapi",
-    "packages/nestpy-sqlalchemy",
-    "packages/nestpy-microservices",
-    "packages/persistent-streams",
-    "packages/nestpy-persistent-streams",
-    "packages/persistent-streams-rabbitmq",
+    "packages/tori-py-cqrs-core",
+    "packages/tori-py-cqrs-event-sourcing-core",
+    "packages/tori-py-cqrs-fastapi",
+    "packages/tori-py",
+    "packages/tori-py-cqrs",
+    "packages/tori-py-cqrs-event-sourcing",
+    "packages/tori-py-openapi",
+    "packages/tori-py-sqlalchemy",
+    "packages/tori-py-microservices",
+    "packages/tori-py-persistent-streams-core",
+    "packages/tori-py-persistent-streams",
+    "packages/tori-py-persistent-streams-rabbitmq",
 ]
 
 [tool.uv.sources]
-cqrs-core = { workspace = true }
-nestpy-cqrs = { workspace = true }
-nestpy-sqlalchemy = { workspace = true }
-nestpy = { workspace = true }
-cqrs-event-sourcing = { workspace = true }
-cqrs-fastapi = { workspace = true }
-nestpy-cqrs-event-sourcing = { workspace = true }
-nestpy-openapi = { workspace = true }
-nestpy-microservices = { workspace = true }
-persistent-streams = { workspace = true }
-nestpy-persistent-streams = { workspace = true }
-persistent-streams-rabbitmq = { workspace = true }
+tori-py-cqrs-core = { workspace = true }
+tori-py-cqrs = { workspace = true }
+tori-py-sqlalchemy = { workspace = true }
+tori-py = { workspace = true }
+tori-py-cqrs-event-sourcing-core = { workspace = true }
+tori-py-cqrs-fastapi = { workspace = true }
+tori-py-cqrs-event-sourcing = { workspace = true }
+tori-py-openapi = { workspace = true }
+tori-py-microservices = { workspace = true }
+tori-py-persistent-streams-core = { workspace = true }
+tori-py-persistent-streams = { workspace = true }
+tori-py-persistent-streams-rabbitmq = { workspace = true }
 
 [dependency-groups]
 dev = [
     "aio-pika>=10,<11",
     "aiosqlite>=0.22.1",
-    "cqrs-event-sourcing",
-    "cqrs-fastapi",
-    "nestpy-cqrs-event-sourcing",
-    "nestpy-microservices",
-    "nestpy-openapi",
-    "nestpy-persistent-streams",
-    "nestpy[testing]",
+    "tori-py-cqrs-event-sourcing-core",
+    "tori-py-cqrs-fastapi",
+    "tori-py-cqrs-event-sourcing",
+    "tori-py-microservices",
+    "tori-py-openapi",
+    "tori-py-persistent-streams",
+    "tori-py[testing]",
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",
     "pytest-docker>=3.2.5",

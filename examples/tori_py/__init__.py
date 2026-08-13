@@ -1,0 +1,1 @@
+"""Documented ToriPy application example."""

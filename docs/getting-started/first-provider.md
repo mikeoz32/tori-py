@@ -6,13 +6,13 @@ requests the class as its provider token. Use an explicit `ClassProvider` when
 the token, implementation, scope, or resource ownership belongs in composition.
 
 ```python
---8<-- "examples/nestpy/getting_started/first_provider/app.py"
+--8<-- "examples/tori_py/getting_started/first_provider/app.py"
 ```
 
 Run it from this repository root:
 
 ```text
-uv run nestpy run examples.nestpy.getting_started.first_provider.app:create_application
+uv run tori-py run examples.tori_py.getting_started.first_provider.app:create_application
 ```
 
 `GET /greeting` returns:

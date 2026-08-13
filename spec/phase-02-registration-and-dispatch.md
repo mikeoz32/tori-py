@@ -165,13 +165,13 @@ Phase 2 is complete when a fake transport can exercise all bus facades and regis
 
 The current implementation is split into these core modules:
 
-- `cqrs_core.registrations`: handler kinds, styles, target modes, decorator metadata, `@CommandHandler`, `@QueryHandler`, `@EventsHandler`, and `@handles`;
-- `cqrs_core.registry`: immutable command/query/event handler mappings and duplicate validation;
-- `cqrs_core.provider`: explicit instance/class/function/factory materialization without constructor inspection;
-- `cqrs_core.context`: function-handler context and late-bound bus handles;
-- `cqrs_core.dispatch`: request reply creation, error conversion, class/function invocation, and event routing;
-- `cqrs_core.buses`: `CommandBus`, `QueryBus`, and `EventBus` facades;
-- `cqrs_core.builder`: mutable configure-then-build composition API and `CqrsBuses` result.
+- `tori_py_cqrs_core.registrations`: handler kinds, styles, target modes, decorator metadata, `@CommandHandler`, `@QueryHandler`, `@EventsHandler`, and `@handles`;
+- `tori_py_cqrs_core.registry`: immutable command/query/event handler mappings and duplicate validation;
+- `tori_py_cqrs_core.provider`: explicit instance/class/function/factory materialization without constructor inspection;
+- `tori_py_cqrs_core.context`: function-handler context and late-bound bus handles;
+- `tori_py_cqrs_core.dispatch`: request reply creation, error conversion, class/function invocation, and event routing;
+- `tori_py_cqrs_core.buses`: `CommandBus`, `QueryBus`, and `EventBus` facades;
+- `tori_py_cqrs_core.builder`: mutable configure-then-build composition API and `CqrsBuses` result.
 
 The builder supports:
 
@@ -192,7 +192,7 @@ Phase 2 was verified through the locked `uv` environment:
 ```text
 uv run ruff check .
 uv run ruff format --check .
-uv run ty check packages/cqrs-core/src packages/cqrs-core/tests packages/cqrs-fastapi/src packages/cqrs-fastapi/tests
+uv run ty check packages/tori-py-cqrs-core/src packages/tori-py-cqrs-core/tests packages/tori-py-cqrs-fastapi/src packages/tori-py-cqrs-fastapi/tests
 uv run pytest
 ```
 

@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Integrate the core buses with FastAPI without placing FastAPI types or dependency behavior into `cqrs-core`. The adapter is responsible for application lifecycle, app state access, and its own handler provider implementation.
+Integrate the core buses with FastAPI without placing FastAPI types or dependency behavior into `tori-py-cqrs-core`. The adapter is responsible for application lifecycle, app state access, and its own handler provider implementation.
 
 ## Entry Criteria
 

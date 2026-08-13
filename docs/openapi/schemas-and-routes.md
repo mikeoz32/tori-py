@@ -1,12 +1,12 @@
 # Schemas and Routes
 
-OpenAPI generation starts from Nestpy's compiled `RoutePlan` values. The same
+OpenAPI generation starts from ToriPy's compiled `RoutePlan` values. The same
 controller paths, binding sources, defaults, status metadata, and resolved type
 annotations used by runtime routing are the input to documentation generation.
 
 !!! warning "Schemas do not enable runtime validation"
-    Nestpy bindings initially provide raw path, query, header, cookie, and
-    decoded JSON values. `nestpy-openapi` documents annotations but does not
+    ToriPy bindings initially provide raw path, query, header, cookie, and
+    decoded JSON values. `tori-py-openapi` documents annotations but does not
     convert or validate requests. Register `MsgspecValidationPipe` when handlers
     need typed values matching the generated schemas.
 
@@ -15,7 +15,7 @@ annotations used by runtime routing are the input to documentation generation.
 ```python
 from typing import Annotated, Literal
 
-from nestpy import Header, Path, Query, controller, get
+from tori_py import Header, Path, Query, controller, get
 
 
 @controller("/members")
@@ -49,14 +49,14 @@ Duplicate `(source name, location)` pairs fail startup.
 
 ## JSON Request Bodies
 
-Nestpy currently supports one JSON body binding per route:
+ToriPy currently supports one JSON body binding per route:
 
 ```python
 from typing import Annotated
 
 import msgspec
-from nestpy import Body, post, use_pipe
-from nestpy.http import MsgspecValidationPipe
+from tori_py import Body, post, use_pipe
+from tori_py.http import MsgspecValidationPipe
 
 
 class CreateMember(msgspec.Struct):
@@ -74,7 +74,7 @@ async def create(
 ```
 
 The document uses `application/json` and marks the request body required,
-matching current Nestpy body-presence behavior. A Python body default does not
+matching current ToriPy body-presence behavior. A Python body default does not
 make the OpenAPI body optional and is not copied into its schema.
 
 Without the validation pipe, `body` would be the raw decoded dictionary despite
@@ -91,7 +91,7 @@ and return annotation:
 
 ```python
 import msgspec
-from nestpy import post, status
+from tori_py import post, status
 
 
 class MemberView(msgspec.Struct):
@@ -178,7 +178,7 @@ async def post(self) -> TextPost | PhotoPost:
 
 `Any`, unconstrained `object`, unresolved references or type variables,
 unsupported unions, empty schemas, and component-name collisions fail rather
-than degrading to an unconstrained schema. Nestpy can reject directly unresolved
+than degrading to an unconstrained schema. ToriPy can reject directly unresolved
 handler annotations during `NestApplication.create()`; references discovered
 inside schema models fail during OpenAPI startup generation.
 

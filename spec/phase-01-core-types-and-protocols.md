@@ -204,11 +204,11 @@ Phase 1 is complete when all public types and protocols are documented, imported
 
 The current implementation is split into these core modules:
 
-- `cqrs_core.messages`: `Message`, `Command`, `Query`, and `Event` markers;
-- `cqrs_core.identity`: fully qualified message type identity helper;
-- `cqrs_core.envelope`: delivery metadata, envelope, reply envelope, and delivery receipt;
-- `cqrs_core.errors`: validation, lifecycle, transport, registration, and reply errors;
-- `cqrs_core.protocols`: async handler, registration, dispatch context, provider, consumer, and transport protocols.
+- `tori_py_cqrs_core.messages`: `Message`, `Command`, `Query`, and `Event` markers;
+- `tori_py_cqrs_core.identity`: fully qualified message type identity helper;
+- `tori_py_cqrs_core.envelope`: delivery metadata, envelope, reply envelope, and delivery receipt;
+- `tori_py_cqrs_core.errors`: validation, lifecycle, transport, registration, and reply errors;
+- `tori_py_cqrs_core.protocols`: async handler, registration, dispatch context, provider, consumer, and transport protocols.
 
 The package root exports the deliberate public API through `__all__`. It does not import FastAPI, Pydantic, SQLAlchemy, or broker clients.
 
@@ -218,12 +218,12 @@ Phase 1 was verified through the locked `uv` environment:
 
 ```text
 uv lock --check
-uv run --locked pytest packages/cqrs-core/tests
+uv run --locked pytest packages/tori-py-cqrs-core/tests
 uv run --locked pytest
 uv run --locked ruff check .
 uv run --locked ruff format --check .
-uv run --locked ty check packages/cqrs-core/src packages/cqrs-core/tests packages/cqrs-fastapi/src packages/cqrs-fastapi/tests
-uv run --locked python -m compileall -q packages/cqrs-core/src/cqrs_core packages/cqrs-core/tests
+uv run --locked ty check packages/tori-py-cqrs-core/src packages/tori-py-cqrs-core/tests packages/tori-py-cqrs-fastapi/src packages/tori-py-cqrs-fastapi/tests
+uv run --locked python -m compileall -q packages/tori-py-cqrs-core/src/tori_py_cqrs_core packages/tori-py-cqrs-core/tests
 ```
 
 Observed results:
@@ -234,7 +234,7 @@ Observed results:
 - Ruff format check: successful;
 - ty type check: successful;
 - compile check: successful;
-- core runtime dependency tree: `cqrs-core` only;
+- core runtime dependency tree: `tori-py-cqrs-core` only;
 - public envelope and protocol type hints resolve successfully.
 
 The provider and function-handler protocols intentionally remain minimal. Phase 2 must define registration metadata, the concrete function context shape, and the explicit builder API before tightening those contracts.

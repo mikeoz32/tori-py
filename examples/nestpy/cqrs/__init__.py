@@ -1,1 +1,0 @@
-"""Nestpy CQRS examples."""

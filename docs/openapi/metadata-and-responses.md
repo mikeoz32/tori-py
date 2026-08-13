@@ -20,7 +20,7 @@ register controllers, install guards, or inspect handler bodies.
 ## Tags and Operations
 
 ```python
-from nestpy_openapi import api_operation, api_tags
+from tori_py_openapi import api_operation, api_tags
 
 
 @api_tags("members")
@@ -66,7 +66,7 @@ Add known alternative outcomes explicitly:
 
 ```python
 import msgspec
-from nestpy_openapi import api_response
+from tori_py_openapi import api_response
 
 
 class Problem(msgspec.Struct):
@@ -91,10 +91,10 @@ Omit `model=` for a bodyless documented response. Explicit models use
 
 ## Static Response Headers
 
-Use Nestpy's `@header()` for static headers on ordinary encoded responses:
+Use ToriPy's `@header()` for static headers on ordinary encoded responses:
 
 ```python
-from nestpy import get, header
+from tori_py import get, header
 
 
 @get("/profile")
@@ -106,7 +106,7 @@ async def profile(self) -> Profile:
 
 The decorator is stackable. Names are case-insensitively unique and values are
 static strings. `Content-Length` and `Transfer-Encoding` are transport-owned.
-Nestpy always overwrites `X-Request-ID` with the framework request ID.
+ToriPy always overwrites `X-Request-ID` with the framework request ID.
 
 For inferred responses, non-framework headers are documented as string headers
 with their static value as an example. A valid `Content-Type` header selects the
@@ -120,8 +120,8 @@ encoded:
 ```python
 from secrets import token_hex
 
-from nestpy import HttpResponse, get
-from nestpy_openapi import api_response
+from tori_py import HttpResponse, get
+from tori_py_openapi import api_response
 
 
 @get("/export")
@@ -138,7 +138,7 @@ async def export(self) -> HttpResponse:
 
 `HttpResponse` and `PipelineResult` are opaque to schema inference and require at
 least one explicit `api_response`. An explicit `HttpResponse` owns its headers;
-route `@header` metadata applies only to ordinary Nestpy-encoded values.
+route `@header` metadata applies only to ordinary ToriPy-encoded values.
 
 !!! warning "Opaque means the body is not described"
     The declaration above documents only status `200` and its description. The
@@ -152,8 +152,8 @@ For 204 and 304, use empty `HttpResponse` content and a model-free declaration:
 ```python
 from typing import Annotated
 
-from nestpy import HttpResponse, Path, delete, status
-from nestpy_openapi import api_response
+from tori_py import HttpResponse, Path, delete, status
+from tori_py_openapi import api_response
 
 
 @delete("/{member_id}")
@@ -172,7 +172,7 @@ Use `api_exclude()` for operational or native escape-hatch routes that should
 not be public documentation:
 
 ```python
-from nestpy_openapi import api_exclude
+from tori_py_openapi import api_exclude
 
 
 @api_exclude()

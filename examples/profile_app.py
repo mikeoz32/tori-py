@@ -5,14 +5,22 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from cqrs_core import Command, CommandBus, CqrsBuses, Event, EventBus, Query, QueryBus
-from cqrs_fastapi import (
+from fastapi import Depends, FastAPI, Request
+from tori_py_cqrs_core import (
+    Command,
+    CommandBus,
+    CqrsBuses,
+    Event,
+    EventBus,
+    Query,
+    QueryBus,
+)
+from tori_py_cqrs_fastapi import (
     FastAPIAdapter,
     FastAPIHandlerProvider,
     get_command_bus,
     get_query_bus,
 )
-from fastapi import Depends, FastAPI, Request
 
 
 @dataclass(frozen=True, slots=True)

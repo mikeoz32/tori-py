@@ -1,14 +1,14 @@
 # Project Structure
 
-Keep controllers, providers, and module composition in separate files. Nestpy
+Keep controllers, providers, and module composition in separate files. ToriPy
 does not scan packages: the root module lists every controller and provider
 declaration explicitly.
 
 The complete runnable layout is at
-`examples/nestpy/getting_started/project_structure/`.
+`examples/tori_py/getting_started/project_structure/`.
 
 ```text
-uv run nestpy run examples.nestpy.getting_started.project_structure.app:create_application
+uv run tori-py run examples.tori_py.getting_started.project_structure.app:create_application
 ```
 
 `GET /project/message` returns:

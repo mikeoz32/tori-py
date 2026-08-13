@@ -7,7 +7,7 @@ changed by later mutation.
 ## Core Options
 
 ```python
-from nestpy_openapi import (
+from tori_py_openapi import (
     OpenApiInfo,
     OpenApiModule,
     OpenApiOptions,
@@ -54,7 +54,7 @@ Documentation paths must:
 - contain no query, fragment, backslash, whitespace, or control characters;
 - differ from each other.
 
-Application route conflicts are handled by normal Nestpy route compilation. For
+Application route conflicts are handled by normal ToriPy route compilation. For
 example, an application controller cannot also own `GET /docs` while the default
 Swagger route is enabled.
 
@@ -90,7 +90,7 @@ Swagger UI uses pinned `swagger-ui-dist` 5.31.0 CDN assets by default. Customize
 only client behavior:
 
 ```python
-from nestpy_openapi import SwaggerUiOptions
+from tori_py_openapi import SwaggerUiOptions
 
 
 swagger_ui = SwaggerUiOptions(
@@ -136,8 +136,8 @@ nonces.
 
 Invalid options raise `OpenApiConfigurationError` immediately. Invalid metadata
 decorator arguments raise `OpenApiMetadataError` when declarations execute.
-Nestpy route signatures, unresolved handler annotations, and exact duplicate
+ToriPy route signatures, unresolved handler annotations, and exact duplicate
 routes can raise `BootstrapError` during `NestApplication.create()`. OpenAPI-only
 schema, normalized-path, component, operation-ID, and security checks raise
 `OpenApiSchemaError` during application startup. These errors expose the normal
-Nestpy diagnostic code and details contract.
+ToriPy diagnostic code and details contract.

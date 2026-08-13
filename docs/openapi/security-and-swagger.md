@@ -1,14 +1,14 @@
 # Security and Swagger UI
 
 OpenAPI security metadata is explicit documentation. It does not authenticate
-requests and is never inferred from Nestpy guards.
+requests and is never inferred from ToriPy guards.
 
 ## Bearer Security Scheme
 
 Configure named bearer components in `OpenApiOptions`:
 
 ```python
-from nestpy_openapi import (
+from tori_py_openapi import (
     BearerSecurityScheme,
     OpenApiInfo,
     OpenApiOptions,
@@ -36,7 +36,7 @@ Configuring a scheme creates a component but does not add root security.
 ## Secured Controllers
 
 ```python
-from nestpy_openapi import api_security, api_tags
+from tori_py_openapi import api_security, api_tags
 
 
 @api_tags("members")
@@ -65,7 +65,7 @@ Every referenced name must exist in `security_schemes`, otherwise startup fails.
 ## Public Override
 
 ```python
-from nestpy_openapi import api_public
+from tori_py_openapi import api_public
 
 
 @api_public()
@@ -86,7 +86,7 @@ On a controller with inherited security, this emits:
 Documentation metadata does not install or configure guards:
 
 ```python
-from nestpy import get, use_guard
+from tori_py import get, use_guard
 
 
 @get("/members")
@@ -116,7 +116,7 @@ generic value.
 For stricter deployments, host assets yourself:
 
 ```python
-from nestpy_openapi import SwaggerUiOptions
+from tori_py_openapi import SwaggerUiOptions
 
 
 swagger_ui = SwaggerUiOptions(
@@ -140,6 +140,6 @@ guard that denies a request also denies documentation requests. There is no
 special adapter bypass or separate native-route authorization hook.
 
 If documentation must use a different policy from product endpoints, model that
-policy in normal Nestpy middleware/guard behavior using the request context and
+policy in normal ToriPy middleware/guard behavior using the request context and
 route identity. Do not assume Swagger UI security metadata protects the route
 that serves Swagger itself.

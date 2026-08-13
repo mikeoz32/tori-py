@@ -1,0 +1,1 @@
+"""ToriPy CQRS examples."""

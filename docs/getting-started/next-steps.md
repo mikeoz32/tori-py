@@ -9,7 +9,7 @@ Choose a path based on the problem you are solving:
 - Configure environment sources, secrets, and logging in the Settings and
   Observability guides.
 - Use TestingModule overrides and ASGI lifecycle tests in the Testing guide.
-- Serve an application factory with `nestpy run` in the CLI guide.
+- Serve an application factory with `tori-py run` in the CLI guide.
 - Generate OpenAPI 3.1 and Swagger UI with the optional
   [OpenAPI integration](../openapi/index.md).
 

@@ -33,7 +33,7 @@ The following fail startup:
 - missing, extra, or duplicate path bindings.
 
 GET is treated as including HEAD for selected shadow checks. Exact route
-duplicates and documentation endpoint conflicts remain normal Nestpy bootstrap
+duplicates and documentation endpoint conflicts remain normal ToriPy bootstrap
 errors.
 
 ## Operation and Component Identity
@@ -73,7 +73,7 @@ Depending on the error, details may also include:
 - schema annotations and the underlying msgspec cause.
 
 Configuration and metadata errors can occur while options and decorators are
-constructed. Nestpy route signature, annotation-resolution, and exact duplicate
+constructed. ToriPy route signature, annotation-resolution, and exact duplicate
 errors can occur during `NestApplication.create()`. The OpenAPI diagnostics in
 this section occur during `application.start()`. Do not catch any of them to
 serve a partial schema.
@@ -86,7 +86,7 @@ internals:
 ```python
 import httpx
 import pytest
-from nestpy.starlette import StarletteAdapter
+from tori_py.starlette import StarletteAdapter
 
 from myapp import create_application
 
@@ -115,11 +115,11 @@ Useful assertions include operation IDs, public/security overrides, requiredness
 response models, static headers, and absence of excluded/internal docstring text.
 
 The runnable guide example has an integration test at
-`examples/nestpy/openapi/test_openapi_example.py`.
+`examples/tori_py/openapi/test_openapi_example.py`.
 
 ## Multiple Module Keys
 
-`OpenApiModule.for_root(options, key="default")` participates in normal Nestpy
+`OpenApiModule.for_root(options, key="default")` participates in normal ToriPy
 dynamic-module identity. Use distinct keys only when an application intentionally
 owns multiple independently configured module instances. Each instance performs
 its own discovery and owns its own generated routes, so paths must also be

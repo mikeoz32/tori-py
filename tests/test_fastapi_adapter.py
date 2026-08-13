@@ -4,14 +4,14 @@ from typing import Any
 
 import httpx
 import pytest
-from cqrs_core import Command, InMemoryTransport
-from cqrs_fastapi import (
+from fastapi import FastAPI
+from tori_py_cqrs_core import Command, InMemoryTransport
+from tori_py_cqrs_fastapi import (
     FastAPIAdapter,
     FastAPIConfigurationError,
     FastAPIHandlerProvider,
     get_command_bus,
 )
-from fastapi import FastAPI
 
 from examples.profile_app import create_profile_app
 

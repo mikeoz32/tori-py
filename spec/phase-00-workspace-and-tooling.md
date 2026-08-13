@@ -32,19 +32,19 @@ spec/
   phase-05-fastapi-adapter.md
   phase-06-review-and-hardening.md
 packages/
-  cqrs-core/
+  tori-py-cqrs-core/
     pyproject.toml
-    src/cqrs_core/
+    src/tori_py_cqrs_core/
     tests/
-  cqrs-fastapi/
+  tori-py-cqrs-fastapi/
     pyproject.toml
-    src/cqrs_fastapi/
+    src/tori_py_cqrs_fastapi/
     tests/
 tests/
   integration/
 ```
 
-The exact package directory names may change only if package metadata, imports, and this specification are updated together. The intended import names are `cqrs_core` and `cqrs_fastapi`.
+The exact package directory names may change only if package metadata, imports, and this specification are updated together. The intended import names are `tori_py_cqrs_core` and `tori_py_cqrs_fastapi`.
 
 ## Root Workspace Metadata
 
@@ -114,7 +114,7 @@ uv sync
 uv run pytest
 uv run ruff check .
 uv run ruff format --check .
-uv run ty check packages/cqrs-core/src packages/cqrs-core/tests packages/cqrs-fastapi/src packages/cqrs-fastapi/tests
+uv run ty check packages/tori-py-cqrs-core/src packages/tori-py-cqrs-core/tests packages/tori-py-cqrs-fastapi/src packages/tori-py-cqrs-fastapi/tests
 ```
 
 `uv lock --check` MUST be used when checking that the lockfile matches project metadata. `uv run --locked ...` MAY be used in CI to refuse an implicit lockfile update. `uv sync` performs exact synchronization by default; do not use `--inexact` unless the workflow explicitly needs to retain packages outside the lockfile.
@@ -122,16 +122,16 @@ uv run ty check packages/cqrs-core/src packages/cqrs-core/tests packages/cqrs-fa
 Focused commands SHOULD include:
 
 ```text
-uv run pytest packages/cqrs-core/tests
-uv run pytest packages/cqrs-fastapi/tests
+uv run pytest packages/tori-py-cqrs-core/tests
+uv run pytest packages/tori-py-cqrs-fastapi/tests
 uv run pytest tests/integration
 ```
 
 The `--package` option selects the workspace member's environment but does not change the shell working directory. When using it from the root, pass root-relative test paths, for example:
 
 ```text
-uv run --package cqrs-core pytest packages/cqrs-core/tests
-uv run --package cqrs-fastapi pytest packages/cqrs-fastapi/tests
+uv run --package tori-py-cqrs-core pytest packages/tori-py-cqrs-core/tests
+uv run --package tori-py-cqrs-fastapi pytest packages/tori-py-cqrs-fastapi/tests
 ```
 
 The exact paths must match the final layout. Never document a command that has not been run successfully once the workspace is available.
@@ -178,10 +178,10 @@ uv lock --check
 uv sync --locked
 uv run --locked python --version
 uv run --locked pytest
-uv run --package cqrs-core pytest packages/cqrs-core/tests
-uv run --package cqrs-fastapi pytest packages/cqrs-fastapi/tests
-uv tree --locked --package cqrs-core --no-dev --depth 1
-uv tree --locked --package cqrs-fastapi --no-dev --depth 1
+uv run --package tori-py-cqrs-core pytest packages/tori-py-cqrs-core/tests
+uv run --package tori-py-cqrs-fastapi pytest packages/tori-py-cqrs-fastapi/tests
+uv tree --locked --package tori-py-cqrs-core --no-dev --depth 1
+uv tree --locked --package tori-py-cqrs-fastapi --no-dev --depth 1
 ```
 
 Observed results:
@@ -191,8 +191,8 @@ Observed results:
 - root test suite: `2 passed`;
 - core focused suite: `1 passed`;
 - FastAPI focused suite: `1 passed`;
-- core runtime tree: `cqrs-core` only;
-- FastAPI runtime tree: `cqrs-fastapi` with `cqrs-core` and `fastapi`;
+- core runtime tree: `tori-py-cqrs-core` only;
+- FastAPI runtime tree: `tori-py-cqrs-fastapi` with `tori-py-cqrs-core` and `fastapi`;
 - lockfile check and locked sync: successful.
 
 The initial smoke tests intentionally verify only package importability and workspace dependency resolution. CQRS behavior begins in Phase 1.

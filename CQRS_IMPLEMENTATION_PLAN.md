@@ -20,10 +20,10 @@ The first application-facing demonstration is a FastAPI profile flow:
 
 The initial `uv` workspace should contain two packages:
 
-- `cqrs-core`: framework-agnostic messages, envelopes, buses, registries, transport protocols, builder, and in-memory transport.
-- `cqrs-fastapi`: FastAPI lifecycle, bus dependency helpers, and a FastAPI-specific handler provider implementation.
+- `tori-py-cqrs-core`: framework-agnostic messages, envelopes, buses, registries, transport protocols, builder, and in-memory transport.
+- `tori-py-cqrs-fastapi`: FastAPI lifecycle, bus dependency helpers, and a FastAPI-specific handler provider implementation.
 
-The core package must have Python standard library runtime dependencies only. The FastAPI package may depend on `cqrs-core` and FastAPI. SQLAlchemy, Pydantic, RabbitMQ, Redis/Dragonfly, PostgreSQL, Citus, retry systems, and outbox persistence are later adapters or application concerns.
+The core package must have Python standard library runtime dependencies only. The FastAPI package may depend on `tori-py-cqrs-core` and FastAPI. SQLAlchemy, Pydantic, RabbitMQ, Redis/Dragonfly, PostgreSQL, Citus, retry systems, and outbox persistence are later adapters or application concerns.
 
 The workspace targets Python 3.14. Every Python dependency, environment, command, test, and tool invocation must go through `uv`.
 
@@ -171,7 +171,7 @@ Detailed specification: [`spec/phase-00-workspace-and-tooling.md`](spec/phase-00
 
 1. Verify `uv` is installed and available.
 2. Create root workspace metadata targeting Python 3.14.
-3. Add `cqrs-core` and `cqrs-fastapi` package metadata.
+3. Add `tori-py-cqrs-core` and `tori-py-cqrs-fastapi` package metadata.
 4. Add test tooling and the repository's formatting/linting configuration.
 5. Run the first dependency sync through `uv`.
 
