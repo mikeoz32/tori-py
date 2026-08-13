@@ -80,7 +80,7 @@ ToriPy becomes a standalone workspace package:
 
 ```text
 packages/tori-py/
-  src/tori-py/
+  src/tori_py/
     application.py
     core/
     http/

@@ -233,7 +233,7 @@ async def test_checkpoint_cancellation_blocks_with_unknown_outcome(
     assert status.offset == 0
     assert (
         status.diagnostic_code
-        == "tori_py_persistent_streams_core.checkpoint_outcome_unknown"
+        == "tori_py_persistent_streams.checkpoint_outcome_unknown"
     )
 
 
@@ -465,7 +465,7 @@ async def test_partition_intake_failure_after_registration_degrades_readiness() 
     await wait_until(lambda: runtime.state.value == "degraded")
     assert (
         runtime.statuses[0].diagnostic_code
-        == "tori_py_persistent_streams_core.partition_failed"
+        == "tori_py_persistent_streams.partition_failed"
     )
     await application.close()
     assert closed
@@ -505,7 +505,7 @@ async def test_stopped_lease_after_registration_degrades_readiness() -> None:
     await wait_until(lambda: runtime.state.value == "degraded")
     assert (
         runtime.statuses[0].diagnostic_code
-        == "tori_py_persistent_streams_core.partition_stopped"
+        == "tori_py_persistent_streams.partition_stopped"
     )
     await application.close()
 
@@ -551,7 +551,7 @@ async def test_natural_consumer_exit_degrades_readiness() -> None:
     assert runtime.statuses[0].state == "blocked"
     assert (
         runtime.statuses[0].diagnostic_code
-        == "tori_py_persistent_streams_core.partition_stopped"
+        == "tori_py_persistent_streams.partition_stopped"
     )
     await application.close()
 

@@ -49,6 +49,6 @@ event rows and an outbox in one database transaction, then relay committed event
 separately. The package does not claim exactly-once command execution, durable
 projection checkpoints, automatic publication, or snapshot support.
 
-The complete architecture and phase contracts are recorded in
-`TORI_PY_CQRS_EVENT_SOURCING_CORE_IMPLEMENTATION_PLAN.md` and
-`spec/tori-py-cqrs-event-sourcing-core/README.md` at the workspace root.
+The complete architecture and phase contracts are available in the
+[implementation plan](https://github.com/mikeoz32/tori-py/blob/main/TORI_PY_CQRS_EVENT_SOURCING_CORE_IMPLEMENTATION_PLAN.md)
+and [specification](https://github.com/mikeoz32/tori-py/blob/main/spec/tori-py-cqrs-event-sourcing-core/README.md).

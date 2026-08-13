@@ -5,7 +5,7 @@ Status: implemented.
 ## Entry Criteria
 
 - `TORI_PY_PERSISTENT_STREAMS_CORE_ARCHITECTURE.md` is approved.
-- `PERSISTENT_STREAMS_IMPLEMENTATION_PLAN.md` and this phase map are approved.
+- `TORI_PY_PERSISTENT_STREAMS_CORE_IMPLEMENTATION_PLAN.md` and this phase map are approved.
 - No tori-py-persistent-streams-core package implementation exists in the workspace.
 
 ## Deliverables

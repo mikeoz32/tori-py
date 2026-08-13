@@ -1,17 +1,36 @@
 [project]
 name = "tori-py-persistent-streams-rabbitmq"
 version = "0.1.0"
-description = "RabbitMQ native Streams adapter for tori-py-persistent-streams-core and ToriPy"
+description = "Provisional RabbitMQ Streams adapter for Tori Py persistent streams"
 readme = "README.md"
 requires-python = ">=3.14,<3.15"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
+authors = [{ name = "Mykhailo Kozlovskyi" }]
+maintainers = [{ name = "Mykhailo Kozlovskyi" }]
+keywords = ["event-streaming", "rabbitmq", "streams", "typed"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.14",
+    "Typing :: Typed",
+]
 dependencies = [
-    "tori-py-persistent-streams",
-    "tori-py-persistent-streams-core",
+    "tori-py-persistent-streams>=0.1.0,<0.2.0",
+    "tori-py-persistent-streams-core>=0.1.0,<0.2.0",
     "rstream==1.0.1",
 ]
 
+[project.urls]
+Homepage = "https://github.com/mikeoz32/tori-py"
+Documentation = "https://github.com/mikeoz32/tori-py/tree/main/packages/tori-py-persistent-streams-rabbitmq#readme"
+Repository = "https://github.com/mikeoz32/tori-py"
+Issues = "https://github.com/mikeoz32/tori-py/issues"
+Changelog = "https://github.com/mikeoz32/tori-py/blob/main/CHANGELOG.md"
+
 [build-system]
-requires = ["uv_build>=0.11.28,<0.12.0"]
+requires = ["uv_build==0.11.28"]
 build-backend = "uv_build"
 
 [tool.uv.sources]

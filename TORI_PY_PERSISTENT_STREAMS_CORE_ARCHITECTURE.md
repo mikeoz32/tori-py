@@ -598,7 +598,7 @@ to the main facade.
 1. Update the owning PS phase file before changing an agreed behavior.
 2. Update this architecture when package boundaries or semantic guarantees
    change.
-3. Update `PERSISTENT_STREAMS_IMPLEMENTATION_PLAN.md` when phase order or scope
+3. Update `TORI_PY_PERSISTENT_STREAMS_CORE_IMPLEMENTATION_PLAN.md` when phase order or scope
    changes.
 4. Add or update conformance cases for every portable behavior change.
 5. Do not resolve missing broker or persistence behavior silently in code.

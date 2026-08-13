@@ -1,7 +1,9 @@
 # tori-py-persistent-streams-rabbitmq
 
-Conditional RabbitMQ native Streams adapter for `tori-py-persistent-streams-core` and
-`tori-py-persistent-streams`. It requires CPython 3.14, RabbitMQ 4.1, the
+Provisional and conditional RabbitMQ native Streams adapter for
+`tori-py-persistent-streams-core` and `tori-py-persistent-streams`. Release
+`0.1.0` does not indicate unconditional production readiness. The adapter
+requires CPython 3.14, RabbitMQ 4.1, the
 `rabbitmq_stream` plugin, and exactly `rstream==1.0.1`.
 
 ## Supported Contract
@@ -64,7 +66,7 @@ streams = PersistentStreamsModule.for_root(options, imports=[rabbit])
 Constructing options, the deferred module, factory, or log performs no I/O.
 `for_root_async()` resolves secrets/configuration through normal ToriPy injection.
 The broker-free
-[`examples/tori_py/persistent_streams`](../../examples/tori_py/persistent_streams/README.md)
+[persistent-streams example](https://github.com/mikeoz32/tori-py/tree/main/examples/tori_py/persistent_streams)
 application demonstrates the same inventory and publisher surfaces; its README
 includes the RabbitMQ adapter substitution.
 
@@ -95,7 +97,7 @@ after the old single-instance process is definitively stopped.
 See [OPERATIONS.md](OPERATIONS.md) for broker and security preflight and the
 remaining release gates.
 
-The final structural review findings are addressed, but release review remains
-pending. Focused suites, repository tests, Ruff, format, Ty, and artifact
-verification pass. Deferred RPS operational and cluster gates still block an
-unconditional release.
+The package participates in the coordinated `0.1.0` beta release train only on
+this provisional basis. Deployment remains conditional on the documented
+broker/security preflight and operational checks. Deferred RPS operational and
+cluster gates continue to block any unconditional production-readiness claim.

@@ -19,7 +19,7 @@ Create:
 ```text
 packages/tori-py/
   pyproject.toml
-  src/tori-py/
+  src/tori_py/
     __init__.py
     application.py
     py.typed

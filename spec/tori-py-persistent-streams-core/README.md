@@ -6,7 +6,7 @@ This directory governs the framework-neutral `tori-py-persistent-streams-core`
 distribution. Its architecture and delivery order are recorded in
 [`TORI_PY_PERSISTENT_STREAMS_CORE_ARCHITECTURE.md`](../../TORI_PY_PERSISTENT_STREAMS_CORE_ARCHITECTURE.md)
 and
-[`PERSISTENT_STREAMS_IMPLEMENTATION_PLAN.md`](../../PERSISTENT_STREAMS_IMPLEMENTATION_PLAN.md).
+[`TORI_PY_PERSISTENT_STREAMS_CORE_IMPLEMENTATION_PLAN.md`](../../TORI_PY_PERSISTENT_STREAMS_CORE_IMPLEMENTATION_PLAN.md).
 
 The first slice includes core contracts, an in-memory semantic reference, and a
 reusable conformance suite. It does not claim durable persistence.

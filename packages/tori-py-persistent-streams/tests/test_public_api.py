@@ -19,6 +19,13 @@ from tori_py_persistent_streams import (
     StreamBinding,
     StreamConfigurationError,
 )
+from tori_py_persistent_streams.errors import (
+    StreamHandlerCompilationError,
+    StreamInvocationError,
+    StreamPublicationSaturatedError,
+    StreamRuntimeError,
+    ToriPyPersistentStreamsError,
+)
 from tori_py_persistent_streams.testing import (
     InMemoryPersistentStreamsModule,
     InMemoryStreamAdapterFactory,
@@ -104,13 +111,36 @@ def test_root_facade_is_exact() -> None:
     )
 
 
+def test_public_integration_diagnostic_codes_are_exact() -> None:
+    assert (
+        ToriPyPersistentStreamsError.diagnostic_code
+        == "tori_py_persistent_streams.error"
+    )
+    assert StreamConfigurationError.diagnostic_code == (
+        "tori_py_persistent_streams.invalid_configuration"
+    )
+    assert StreamHandlerCompilationError.diagnostic_code == (
+        "tori_py_persistent_streams.invalid_handler"
+    )
+    assert StreamInvocationError.diagnostic_code == (
+        "tori_py_persistent_streams.invocation_failed"
+    )
+    assert (
+        StreamRuntimeError.diagnostic_code
+        == "tori_py_persistent_streams.runtime_failed"
+    )
+    assert StreamPublicationSaturatedError.diagnostic_code == (
+        "tori_py_persistent_streams.publication_saturated"
+    )
+
+
 def test_package_metadata_and_import_boundary_are_exact() -> None:
     root = Path(__file__).parents[1]
     project = tomllib.loads((root / "pyproject.toml").read_text())
     assert project["project"]["requires-python"] == ">=3.14,<3.15"
     assert project["project"]["dependencies"] == [
-        "tori-py",
-        "tori-py-persistent-streams-core",
+        "tori-py>=0.1.0,<0.2.0",
+        "tori-py-persistent-streams-core>=0.1.0,<0.2.0",
     ]
     assert (root / "README.md").is_file()
     assert (root / "scripts/verify_artifacts.py").is_file()

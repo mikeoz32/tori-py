@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@ae62891fec2bb8e7d6c99fc78c9fec3a63790f8d # v10.0.0
+        with:
+          version: "0.8.4"
+          enable-cache: true
+      - run: uv python install 3.14
+      - run: uv lock --check
+      - run: uv sync --locked --all-packages --all-groups
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      - run: uv run ty check packages tests examples
+      - run: uv run pytest -m "not rabbitmq"
+
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@ae62891fec2bb8e7d6c99fc78c9fec3a63790f8d # v10.0.0
+        with:
+          version: "0.8.4"
+      - run: uv python install 3.14
+      - run: uv sync --locked --group docs
+      - run: uv run mkdocs build --strict
+
+  artifacts:
+    runs-on: ubuntu-latest
+    services:
+      rabbitmq:
+        image: rabbitmq:4.1-alpine
+        env:
+          RABBITMQ_DEFAULT_USER: tori_py
+          RABBITMQ_DEFAULT_PASS: tori_py
+        ports:
+          - 5672:5672
+        options: >-
+          --health-cmd "rabbitmq-diagnostics -q ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@ae62891fec2bb8e7d6c99fc78c9fec3a63790f8d # v10.0.0
+        with:
+          version: "0.8.4"
+      - run: uv python install 3.14
+      - run: uv run scripts/build_release.py --dist-dir dist --rabbitmq-url amqp://tori_py:tori_py@localhost:5672/

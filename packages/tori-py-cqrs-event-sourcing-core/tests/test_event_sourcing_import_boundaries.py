@@ -34,7 +34,7 @@ def test_workspace_metadata_and_type_marker_exist() -> None:
         package_root / "src" / "tori_py_cqrs_event_sourcing_core" / "py.typed"
     ).is_file()
     assert 'name = "tori-py-cqrs-event-sourcing-core"' in package_metadata
-    assert '"tori-py-cqrs-core"' in package_metadata
+    assert '"tori-py-cqrs-core>=0.1.0,<0.2.0"' in package_metadata
     assert "packages/tori-py-cqrs-event-sourcing-core" in workspace_metadata
     assert (
         'name = "tori-py-cqrs-event-sourcing-core"'

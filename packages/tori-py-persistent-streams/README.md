@@ -125,7 +125,7 @@ I/O.
 A complete broker-free application using all three publisher surfaces, typed
 codec and pipe processing, partition metadata, checkpoints, and lifecycle
 shutdown is available in the
-[`examples/tori_py/persistent_streams`](../../examples/tori_py/persistent_streams/README.md)
+    [persistent-streams example](https://github.com/mikeoz32/tori-py/tree/main/examples/tori_py/persistent_streams)
 directory.
 
 ## Delivery Contract

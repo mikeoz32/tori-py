@@ -2,17 +2,17 @@
 
 Optional transport-neutral RPC and event delivery integration for ToriPy.
 
-## Implementation Status
+## Release Status
 
-The MS0-MS9 capability set is implemented in the repository worktree, including
+Version `0.1.0` is the initial beta release. The MS0-MS9 capability set includes
 the root-owned application-facing `EventDispatcher`, complete real-broker event
 cardinality, offline ephemeral behavior, and reliable-broadcast restart
 retention. MS10 failure hardening and MS11 acceptance are implemented;
 broker application restart, pending-RPC reconnect behavior, confirm/timeout
 classification, handler/reply blackholes, bounded retry/DLX, malformed schema
 dead-lettering, deleted reply routes, and active-RPC forced shutdown are
-covered by the current MS10 slice. Run the MS11 commands from
-`docs/OPERATIONS.md` before release.
+covered by the current MS10 slice. Operators must complete the checks in the
+[operations guide](docs/OPERATIONS.md) before deployment.
 
 The base package depends only on ToriPy and `msgspec`. RabbitMQ support is
 available through the optional `rabbitmq` extra and is deliberately lazy:
@@ -40,16 +40,16 @@ uv add tori-py-microservices
 uv add "tori-py-microservices[rabbitmq]"
 ```
 
-The package architecture and current phase status are documented in the
-repository-level `TORI_PY_MICROSERVICES_ARCHITECTURE.md`,
-`TORI_PY_MICROSERVICES_IMPLEMENTATION_PLAN.md`, and
-`spec/tori-py-microservices/README.md` files.
+The package architecture and phase status are documented in the
+[architecture](https://github.com/mikeoz32/tori-py/blob/main/TORI_PY_MICROSERVICES_ARCHITECTURE.md),
+[implementation plan](https://github.com/mikeoz32/tori-py/blob/main/TORI_PY_MICROSERVICES_IMPLEMENTATION_PLAN.md),
+and [specification](https://github.com/mikeoz32/tori-py/blob/main/spec/tori-py-microservices/README.md).
 
 ## MS11 Guides
 
 - [User guide](docs/USER_GUIDE.md)
 - [Operations and release guide](docs/OPERATIONS.md)
-- [Executable examples](../../examples/tori_py/microservices/README.md)
+- [Executable examples](https://github.com/mikeoz32/tori-py/tree/main/examples/tori_py/microservices)
 
 ## Event Publication
 

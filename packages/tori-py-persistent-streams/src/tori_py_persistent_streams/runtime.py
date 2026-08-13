@@ -417,7 +417,7 @@ class StreamRuntime:
                 diagnostic_code=getattr(
                     error,
                     "diagnostic_code",
-                    "tori_py_persistent_streams_core.partition_failed",
+                    "tori_py_persistent_streams.partition_failed",
                 ),
             )
             if self._state is not StreamRuntimeState.QUIESCING:
@@ -434,7 +434,7 @@ class StreamRuntime:
             *key,
             "blocked",
             offset=_record_offset(record),
-            diagnostic_code="tori_py_persistent_streams_core.partition_stopped",
+            diagnostic_code="tori_py_persistent_streams.partition_stopped",
         )
         if self._state is not StreamRuntimeState.QUIESCING:
             self._state = StreamRuntimeState.DEGRADED
@@ -449,7 +449,7 @@ class StreamRuntime:
             *key,
             "blocked",
             offset=_record_offset(record),
-            diagnostic_code="tori_py_persistent_streams_core.checkpoint_outcome_unknown",
+            diagnostic_code="tori_py_persistent_streams.checkpoint_outcome_unknown",
         )
         if self._state is not StreamRuntimeState.QUIESCING:
             self._state = StreamRuntimeState.DEGRADED

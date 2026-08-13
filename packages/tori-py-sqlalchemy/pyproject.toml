@@ -4,13 +4,32 @@ version = "0.1.0"
 description = "Async SQLAlchemy lifecycle and DI integration for ToriPy"
 readme = "README.md"
 requires-python = ">=3.14,<3.15"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
+authors = [{ name = "Mykhailo Kozlovskyi" }]
+maintainers = [{ name = "Mykhailo Kozlovskyi" }]
+keywords = ["asyncio", "dependency-injection", "sqlalchemy", "typed"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.14",
+    "Typing :: Typed",
+]
 dependencies = [
-    "tori-py",
+    "tori-py>=0.1.0,<0.2.0",
     "sqlalchemy[asyncio]>=2.0",
 ]
 
+[project.urls]
+Homepage = "https://github.com/mikeoz32/tori-py"
+Documentation = "https://github.com/mikeoz32/tori-py/tree/main/packages/tori-py-sqlalchemy#readme"
+Repository = "https://github.com/mikeoz32/tori-py"
+Issues = "https://github.com/mikeoz32/tori-py/issues"
+Changelog = "https://github.com/mikeoz32/tori-py/blob/main/CHANGELOG.md"
+
 [build-system]
-requires = ["uv_build>=0.11.28,<0.12.0"]
+requires = ["uv_build==0.11.28"]
 build-backend = "uv_build"
 
 [tool.uv.sources]

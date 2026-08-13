@@ -11,7 +11,7 @@ def test_package_metadata_and_artifacts_are_present() -> None:
     assert project["project"]["requires-python"] == ">=3.14,<3.15"
     assert set(project["project"]["dependencies"]) == {
         "msgspec>=0.19.0",
-        "tori-py",
+        "tori-py>=0.1.0,<0.2.0",
     }
     assert project["project"]["optional-dependencies"]["rabbitmq"] == [
         "aio-pika>=10,<11"

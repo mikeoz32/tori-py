@@ -14,8 +14,8 @@ def test_rps0_package_boundary_is_exact() -> None:
 
     assert project["project"]["requires-python"] == ">=3.14,<3.15"
     assert project["project"]["dependencies"] == [
-        "tori-py-persistent-streams",
-        "tori-py-persistent-streams-core",
+        "tori-py-persistent-streams>=0.1.0,<0.2.0",
+        "tori-py-persistent-streams-core>=0.1.0,<0.2.0",
         "rstream==1.0.1",
     ]
     assert (root / "README.md").is_file()
