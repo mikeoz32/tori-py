@@ -219,3 +219,14 @@ def test_release_workflow_compares_push_sha_to_peeled_tag_commit() -> None:
     assert 'release_sha="$(git rev-parse --verify "$release_tag^{commit}")"' in workflow
     assert '[[ "$release_sha" == "$PUSH_SHA" ]]' in workflow
     assert '[[ "$tag_object" == "$PUSH_SHA" ]]' not in workflow
+
+
+def test_workflows_pin_release_toolchain_and_reject_prerelease_python() -> None:
+    workflows = Path(__file__).parents[1] / ".github/workflows"
+    contents = [
+        (workflows / name).read_text(encoding="utf-8")
+        for name in ("ci.yml", "release.yml")
+    ]
+
+    assert sum(content.count('version: "0.11.28"') for content in contents) == 7
+    assert sum(content.count("releaselevel == 'final'") for content in contents) == 7

@@ -19,9 +19,10 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@ae62891fec2bb8e7d6c99fc78c9fec3a63790f8d # v10.0.0
         with:
-          version: "0.8.4"
+          version: "0.11.28"
           enable-cache: true
       - run: uv python install 3.14
+      - run: uv run --no-project --python 3.14 python -c "import sys; assert sys.version_info[:2] == (3, 14) and sys.version_info.releaselevel == 'final', sys.version"
       - run: uv lock --check
       - run: uv sync --locked --all-packages --all-groups
       - run: uv run ruff check .
@@ -35,8 +36,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@ae62891fec2bb8e7d6c99fc78c9fec3a63790f8d # v10.0.0
         with:
-          version: "0.8.4"
+          version: "0.11.28"
       - run: uv python install 3.14
+      - run: uv run --no-project --python 3.14 python -c "import sys; assert sys.version_info[:2] == (3, 14) and sys.version_info.releaselevel == 'final', sys.version"
       - run: uv sync --locked --group docs
       - run: uv run mkdocs build --strict
 
@@ -59,6 +61,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@ae62891fec2bb8e7d6c99fc78c9fec3a63790f8d # v10.0.0
         with:
-          version: "0.8.4"
+          version: "0.11.28"
       - run: uv python install 3.14
+      - run: uv run --no-project --python 3.14 python -c "import sys; assert sys.version_info[:2] == (3, 14) and sys.version_info.releaselevel == 'final', sys.version"
       - run: uv run scripts/build_release.py --dist-dir dist --rabbitmq-url amqp://tori_py:tori_py@localhost:5672/
