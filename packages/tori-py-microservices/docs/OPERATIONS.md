@@ -85,7 +85,7 @@ instead of claiming clean completion.
 Run all commands through `uv` from the repository root:
 
 ```text
-uv build --package tori-py --clear --out-dir DIST_DIR
+uv build --package tori-py-framework --clear --out-dir DIST_DIR
 uv build --package tori-py-microservices --out-dir DIST_DIR
 uv run pytest packages/tori-py-microservices/tests -q
 uv run pytest examples/tori_py/microservices packages/tori-py-microservices/tests/test_artifacts.py -q

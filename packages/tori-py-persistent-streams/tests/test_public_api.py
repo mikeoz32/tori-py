@@ -139,7 +139,7 @@ def test_package_metadata_and_import_boundary_are_exact() -> None:
     project = tomllib.loads((root / "pyproject.toml").read_text())
     assert project["project"]["requires-python"] == ">=3.14,<3.15"
     assert project["project"]["dependencies"] == [
-        "tori-py>=0.1.0,<0.2.0",
+        "tori-py-framework>=0.1.0,<0.2.0",
         "tori-py-persistent-streams-core>=0.1.0,<0.2.0",
     ]
     assert (root / "README.md").is_file()

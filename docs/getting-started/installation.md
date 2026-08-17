@@ -8,15 +8,15 @@ Create a project and install the base framework:
 ```text
 uv init my-tori_py-app
 cd my-tori_py-app
-uv add tori_py
+uv add tori-py-framework
 ```
 
 Install an optional extra only when the application needs it:
 
 ```text
-uv add 'tori_py[settings-yaml]'
-uv add 'tori_py[cli]'
-uv add --dev 'tori_py[testing]'
+uv add 'tori-py-framework[settings-yaml]'
+uv add 'tori-py-framework[cli]'
+uv add --dev 'tori-py-framework[testing]'
 ```
 
 `settings-yaml` enables YAML settings files. `cli` installs Uvicorn for the

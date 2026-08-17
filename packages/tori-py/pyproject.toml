@@ -1,5 +1,5 @@
 [project]
-name = "tori-py"
+name = "tori-py-framework"
 version = "0.1.0"
 description = "Python-native application framework with a Starlette driver"
 readme = "README.md"
@@ -40,3 +40,6 @@ Changelog = "https://github.com/mikeoz32/tori-py/blob/main/CHANGELOG.md"
 [build-system]
 requires = ["uv_build==0.11.28"]
 build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "tori_py"

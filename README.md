@@ -11,7 +11,7 @@ Tori Py requires Python 3.14.
 
 | Distribution | Import | Purpose |
 | --- | --- | --- |
-| `tori-py` | `tori_py` | Modular application framework, DI, lifecycle, and Starlette ASGI driver |
+| `tori-py-framework` | `tori_py` | Modular application framework, DI, lifecycle, and Starlette ASGI driver |
 | `tori-py-cqrs-core` | `tori_py_cqrs_core` | Framework-neutral CQRS primitives and transports |
 | `tori-py-cqrs-fastapi` | `tori_py_cqrs_fastapi` | FastAPI adapter for the CQRS core |
 | `tori-py-cqrs` | `tori_py_cqrs` | Tori Py CQRS module and handler discovery |
@@ -29,7 +29,7 @@ Tori Py requires Python 3.14.
 Install only the packages an application uses:
 
 ```bash
-uv add tori-py
+uv add tori-py-framework
 uv add tori-py-cqrs tori-py-cqrs-event-sourcing
 uv add tori-py-sqlalchemy tori-py-openapi
 uv add "tori-py-microservices[rabbitmq]"

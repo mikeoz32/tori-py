@@ -7,7 +7,7 @@ observable HTTP response.
 Install the optional HTTP testing client in an application project:
 
 ```text
-uv add --dev 'tori_py[testing]'
+uv add --dev 'tori-py-framework[testing]'
 ```
 
 `TestingApplication.http_client()` returns an async context manager that yields

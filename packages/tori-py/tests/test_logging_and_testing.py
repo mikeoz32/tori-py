@@ -165,7 +165,7 @@ async def test_http_client_reports_missing_optional_dependency(monkeypatch) -> N
     application = await TestingModule.create(Root).compile(adapter=StarletteAdapter())
     monkeypatch.setitem(sys.modules, "httpx", None)
     try:
-        with pytest.raises(BootstrapError, match=r"tori_py\[testing\]"):
+        with pytest.raises(BootstrapError, match=r"tori-py-framework\[testing\]"):
             async with application.http_client():
                 raise AssertionError("unreachable")
     finally:

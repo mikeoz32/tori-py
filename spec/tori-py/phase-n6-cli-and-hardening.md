@@ -29,7 +29,7 @@ without traceback:
 
 ```text
 The 'tori-py run' command requires the CLI extra.
-Install it with: uv add 'tori_py[cli]'
+Install it with: uv add 'tori-py-framework[cli]'
 ```
 
 Importing `tori_py`, `tori_py.core`, or `tori_py.cli` without executing `run` MUST
@@ -171,7 +171,7 @@ Run all repository gates plus:
 ```text
 uv lock --check
 uv sync --locked
-uv build --package tori-py
+uv build --package tori-py-framework
 ```
 
 Review public exports, dependency graph, license compatibility, package wheel,

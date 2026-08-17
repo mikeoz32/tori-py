@@ -1,17 +1,17 @@
-# tori-py
+# tori-py-framework
 
-`tori-py` is the core Tori Py application framework. It provides explicit
+`tori-py-framework` is the core Tori Py application framework. It provides explicit
 modules, dependency injection, lifecycle management, configuration, testing
 utilities, and a Starlette ASGI driver for Python 3.14 applications.
 
 ```bash
-uv add tori-py
+uv add tori-py-framework
 ```
 
 Optional extras provide CLI and testing dependencies:
 
 ```bash
-uv add "tori-py[cli,testing]"
+uv add "tori-py-framework[cli,testing]"
 ```
 
 The package is beta and follows independent Semantic Versioning. See the

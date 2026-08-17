@@ -23,6 +23,9 @@ from scripts.testpypi_smoke import build_testpypi_command
 def test_manifest_covers_family_in_topological_order() -> None:
     manifest = load_manifest()
     assert len(manifest) == 12
+    names = {item.normalized_name for item in manifest}
+    assert "tori-py-framework" in names
+    assert "tori-py" not in names
     positions = {item.normalized_name: index for index, item in enumerate(manifest)}
     for item in manifest:
         for dependency in item.internal_dependency_names:

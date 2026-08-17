@@ -191,7 +191,7 @@ Tests MUST cover:
 N0 also runs:
 
 ```text
-uv build --package tori-py
+uv build --package tori-py-framework
 ```
 
 ## Exit Criteria

@@ -95,7 +95,7 @@ def _serve(factory: Callable[[], object], context: BootstrapContext) -> None:
     except ImportError as error:
         raise CLIError(
             "The 'tori-py run' command requires the CLI extra.\n"
-            "Install it with: uv add 'tori_py[cli]'"
+            "Install it with: uv add 'tori-py-framework[cli]'"
         ) from error
 
     async def contextual_factory():
@@ -111,7 +111,7 @@ def _serve(factory: Callable[[], object], context: BootstrapContext) -> None:
     except ImportError as error:
         raise CLIError(
             "The 'tori-py run' command requires the CLI extra.\n"
-            "Install it with: uv add 'tori_py[cli]'"
+            "Install it with: uv add 'tori-py-framework[cli]'"
         ) from error
     uvicorn.run(application, lifespan="on")
 

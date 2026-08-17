@@ -18,7 +18,7 @@ classifiers = [
 ]
 dependencies = [
     "tori-py-cqrs-core>=0.1.0,<0.2.0",
-    "tori-py>=0.1.0,<0.2.0",
+    "tori-py-framework>=0.1.0,<0.2.0",
 ]
 
 [project.urls]
@@ -34,4 +34,4 @@ build-backend = "uv_build"
 
 [tool.uv.sources]
 tori-py-cqrs-core = { workspace = true }
-tori-py = { workspace = true }
+tori-py-framework = { workspace = true }

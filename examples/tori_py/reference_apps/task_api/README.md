@@ -13,7 +13,7 @@ This is a composed ToriPy v1 example, not a production task service. It shows:
 Run it with the optional CLI extra:
 
 ```text
-uv add 'tori_py[cli]'
+uv add 'tori-py-framework[cli]'
 tori-py run examples.tori_py.reference_apps.task_api.app:create_application
 ```
 

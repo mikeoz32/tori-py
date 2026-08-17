@@ -38,7 +38,7 @@ async def http_client(
         if error.name != "httpx":
             raise
         raise BootstrapError(
-            "HTTP testing requires the tori_py[testing] optional dependency",
+            "HTTP testing requires the tori-py-framework[testing] optional dependency",
             code="testing.httpx_unavailable",
         ) from error
 

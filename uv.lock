@@ -4,12 +4,12 @@ requires-python = "==3.14.*"
 
 [manifest]
 members = [
-    "tori-py",
     "tori-py-cqrs",
     "tori-py-cqrs-core",
     "tori-py-cqrs-event-sourcing",
     "tori-py-cqrs-event-sourcing-core",
     "tori-py-cqrs-fastapi",
+    "tori-py-framework",
     "tori-py-microservices",
     "tori-py-openapi",
     "tori-py-persistent-streams",
@@ -26,10 +26,10 @@ dev = [
     { name = "pytest-asyncio", specifier = ">=1.4.0" },
     { name = "pytest-docker", specifier = ">=3.2.5" },
     { name = "ruff", specifier = ">=0.15.21" },
-    { name = "tori-py", extras = ["testing"], editable = "packages/tori-py" },
     { name = "tori-py-cqrs-event-sourcing", editable = "packages/tori-py-cqrs-event-sourcing" },
     { name = "tori-py-cqrs-event-sourcing-core", editable = "packages/tori-py-cqrs-event-sourcing-core" },
     { name = "tori-py-cqrs-fastapi", editable = "packages/tori-py-cqrs-fastapi" },
+    { name = "tori-py-framework", extras = ["testing"], editable = "packages/tori-py" },
     { name = "tori-py-microservices", editable = "packages/tori-py-microservices" },
     { name = "tori-py-openapi", editable = "packages/tori-py-openapi" },
     { name = "tori-py-persistent-streams", editable = "packages/tori-py-persistent-streams" },
@@ -987,48 +987,18 @@ wheels = [
 ]
 
 [[package]]
-name = "tori-py"
-version = "0.1.0"
-source = { editable = "packages/tori-py" }
-dependencies = [
-    { name = "msgspec" },
-    { name = "starlette" },
-]
-
-[package.optional-dependencies]
-cli = [
-    { name = "uvicorn" },
-]
-settings-yaml = [
-    { name = "pyyaml" },
-]
-testing = [
-    { name = "httpx" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "httpx", marker = "extra == 'testing'", specifier = ">=0.28.0" },
-    { name = "msgspec", specifier = ">=0.19.0" },
-    { name = "pyyaml", marker = "extra == 'settings-yaml'", specifier = ">=6.0" },
-    { name = "starlette", specifier = ">=0.47.0" },
-    { name = "uvicorn", marker = "extra == 'cli'", specifier = ">=0.35.0" },
-]
-provides-extras = ["settings-yaml", "cli", "testing"]
-
-[[package]]
 name = "tori-py-cqrs"
 version = "0.1.0"
 source = { editable = "packages/tori-py-cqrs" }
 dependencies = [
-    { name = "tori-py" },
     { name = "tori-py-cqrs-core" },
+    { name = "tori-py-framework" },
 ]
 
 [package.metadata]
 requires-dist = [
-    { name = "tori-py", editable = "packages/tori-py" },
     { name = "tori-py-cqrs-core", editable = "packages/tori-py-cqrs-core" },
+    { name = "tori-py-framework", editable = "packages/tori-py" },
 ]
 
 [[package]]
@@ -1041,18 +1011,18 @@ name = "tori-py-cqrs-event-sourcing"
 version = "0.1.0"
 source = { editable = "packages/tori-py-cqrs-event-sourcing" }
 dependencies = [
-    { name = "tori-py" },
     { name = "tori-py-cqrs" },
     { name = "tori-py-cqrs-core" },
     { name = "tori-py-cqrs-event-sourcing-core" },
+    { name = "tori-py-framework" },
 ]
 
 [package.metadata]
 requires-dist = [
-    { name = "tori-py", editable = "packages/tori-py" },
     { name = "tori-py-cqrs", editable = "packages/tori-py-cqrs" },
     { name = "tori-py-cqrs-core", editable = "packages/tori-py-cqrs-core" },
     { name = "tori-py-cqrs-event-sourcing-core", editable = "packages/tori-py-cqrs-event-sourcing-core" },
+    { name = "tori-py-framework", editable = "packages/tori-py" },
 ]
 
 [[package]]
@@ -1082,12 +1052,42 @@ requires-dist = [
 ]
 
 [[package]]
+name = "tori-py-framework"
+version = "0.1.0"
+source = { editable = "packages/tori-py" }
+dependencies = [
+    { name = "msgspec" },
+    { name = "starlette" },
+]
+
+[package.optional-dependencies]
+cli = [
+    { name = "uvicorn" },
+]
+settings-yaml = [
+    { name = "pyyaml" },
+]
+testing = [
+    { name = "httpx" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "httpx", marker = "extra == 'testing'", specifier = ">=0.28.0" },
+    { name = "msgspec", specifier = ">=0.19.0" },
+    { name = "pyyaml", marker = "extra == 'settings-yaml'", specifier = ">=6.0" },
+    { name = "starlette", specifier = ">=0.47.0" },
+    { name = "uvicorn", marker = "extra == 'cli'", specifier = ">=0.35.0" },
+]
+provides-extras = ["settings-yaml", "cli", "testing"]
+
+[[package]]
 name = "tori-py-microservices"
 version = "0.1.0"
 source = { editable = "packages/tori-py-microservices" }
 dependencies = [
     { name = "msgspec" },
-    { name = "tori-py" },
+    { name = "tori-py-framework" },
 ]
 
 [package.optional-dependencies]
@@ -1099,7 +1099,7 @@ rabbitmq = [
 requires-dist = [
     { name = "aio-pika", marker = "extra == 'rabbitmq'", specifier = ">=10,<11" },
     { name = "msgspec", specifier = ">=0.19.0" },
-    { name = "tori-py", editable = "packages/tori-py" },
+    { name = "tori-py-framework", editable = "packages/tori-py" },
 ]
 provides-extras = ["rabbitmq"]
 
@@ -1110,14 +1110,14 @@ source = { editable = "packages/tori-py-openapi" }
 dependencies = [
     { name = "msgspec" },
     { name = "starlette" },
-    { name = "tori-py" },
+    { name = "tori-py-framework" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "msgspec", specifier = ">=0.19.0" },
     { name = "starlette", specifier = ">=0.47.0" },
-    { name = "tori-py", editable = "packages/tori-py" },
+    { name = "tori-py-framework", editable = "packages/tori-py" },
 ]
 
 [[package]]
@@ -1125,13 +1125,13 @@ name = "tori-py-persistent-streams"
 version = "0.1.0"
 source = { editable = "packages/tori-py-persistent-streams" }
 dependencies = [
-    { name = "tori-py" },
+    { name = "tori-py-framework" },
     { name = "tori-py-persistent-streams-core" },
 ]
 
 [package.metadata]
 requires-dist = [
-    { name = "tori-py", editable = "packages/tori-py" },
+    { name = "tori-py-framework", editable = "packages/tori-py" },
     { name = "tori-py-persistent-streams-core", editable = "packages/tori-py-persistent-streams-core" },
 ]
 
@@ -1163,13 +1163,13 @@ version = "0.1.0"
 source = { editable = "packages/tori-py-sqlalchemy" }
 dependencies = [
     { name = "sqlalchemy", extra = ["asyncio"] },
-    { name = "tori-py" },
+    { name = "tori-py-framework" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.0" },
-    { name = "tori-py", editable = "packages/tori-py" },
+    { name = "tori-py-framework", editable = "packages/tori-py" },
 ]
 
 [[package]]

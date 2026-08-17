@@ -207,7 +207,7 @@ pipeline exceptions into this N4 service.
 assembly and binder as production. High-level HTTP tests SHOULD use
 `TestingApplication.http_client()` or `tori_py.testing.http_client(application)`.
 The utility supplies `httpx.AsyncClient` over `ASGITransport` and requires the
-`tori_py[testing]` optional dependency. HTTPX does not own lifespan in this flow
+`tori-py-framework[testing]` optional dependency. HTTPX does not own lifespan in this flow
 because `TestingModule.compile()` or the caller has already started the
 application. Direct ASGI scope/message calls remain appropriate for low-level
 transport, disconnect, streaming, and lifespan protocol tests.

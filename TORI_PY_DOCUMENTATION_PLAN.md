@@ -1066,7 +1066,7 @@ uv run ruff check .
 uv run ruff format --check .
 uv run ty check packages/tori-py-cqrs-core/src packages/tori-py-cqrs-core/tests packages/tori-py-cqrs-fastapi/src packages/tori-py-cqrs-fastapi/tests packages/tori-py/src packages/tori-py/tests examples/tori_py packages/tori-py/scripts
 uv run --group docs mkdocs build --strict
-uv build --package tori-py
+uv build --package tori-py-framework
 uv run python packages/tori-py/scripts/verify_artifacts.py dist/
 uv run python packages/tori-py/scripts/verify_docs.py
 ```

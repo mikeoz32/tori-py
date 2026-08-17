@@ -3,7 +3,7 @@
 Install the CLI extra and serve the example with:
 
 ```text
-uv add 'tori_py[cli]'
+uv add 'tori-py-framework[cli]'
 tori-py run examples.tori_py.app:create_application --set greeting=hello
 ```
 

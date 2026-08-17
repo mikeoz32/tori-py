@@ -18,7 +18,7 @@ members = [
 tori-py-cqrs-core = { workspace = true }
 tori-py-cqrs = { workspace = true }
 tori-py-sqlalchemy = { workspace = true }
-tori-py = { workspace = true }
+tori-py-framework = { workspace = true }
 tori-py-cqrs-event-sourcing-core = { workspace = true }
 tori-py-cqrs-fastapi = { workspace = true }
 tori-py-cqrs-event-sourcing = { workspace = true }
@@ -38,7 +38,7 @@ dev = [
     "tori-py-microservices>=0.1.0,<0.2.0",
     "tori-py-openapi>=0.1.0,<0.2.0",
     "tori-py-persistent-streams>=0.1.0,<0.2.0",
-    "tori-py[testing]>=0.1.0,<0.2.0",
+    "tori-py-framework[testing]>=0.1.0,<0.2.0",
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",
     "pytest-docker>=3.2.5",

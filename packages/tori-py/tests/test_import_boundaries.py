@@ -75,11 +75,11 @@ def test_package_type_marker_and_workspace_metadata_exist() -> None:
     workspace_root = package_root.parents[1]
     assert (package_root / "src" / "tori_py" / "py.typed").is_file()
     pyproject = (package_root / "pyproject.toml").read_text()
-    assert 'name = "tori-py"' in pyproject
+    assert 'name = "tori-py-framework"' in pyproject
     assert "starlette" in pyproject
     assert "msgspec" in pyproject
     assert "packages/tori-py" in (workspace_root / "pyproject.toml").read_text()
-    assert 'name = "tori-py"' in (workspace_root / "uv.lock").read_text()
+    assert 'name = "tori-py-framework"' in (workspace_root / "uv.lock").read_text()
 
 
 def test_old_starlette_application_import_is_removed() -> None:

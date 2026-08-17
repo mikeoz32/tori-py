@@ -59,7 +59,7 @@ def test_package_artifacts_and_runtime_dependencies_are_exact() -> None:
     dependencies = {
         dependency.split(">", 1)[0] for dependency in project["project"]["dependencies"]
     }
-    assert dependencies == {"msgspec", "starlette", "tori-py"}
+    assert dependencies == {"msgspec", "starlette", "tori-py-framework"}
 
 
 def test_import_has_no_forbidden_dependency_or_registration_side_effects() -> None:

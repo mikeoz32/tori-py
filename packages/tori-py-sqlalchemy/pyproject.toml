@@ -17,7 +17,7 @@ classifiers = [
     "Typing :: Typed",
 ]
 dependencies = [
-    "tori-py>=0.1.0,<0.2.0",
+    "tori-py-framework>=0.1.0,<0.2.0",
     "sqlalchemy[asyncio]>=2.0",
 ]
 
@@ -33,4 +33,4 @@ requires = ["uv_build==0.11.28"]
 build-backend = "uv_build"
 
 [tool.uv.sources]
-tori-py = { workspace = true }
+tori-py-framework = { workspace = true }
