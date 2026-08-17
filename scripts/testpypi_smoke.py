@@ -1,4 +1,4 @@
-"""Install and smoke-test an exact Tori family release from TestPyPI."""
+"""Install and smoke-test an exact Tori family release from a package index."""
 
 from __future__ import annotations
 
@@ -17,16 +17,31 @@ if __package__ in {None, ""}:
 
 from scripts.release_manifest import family_version, load_manifest  # noqa: E402
 
+REGISTRIES = {
+    "testpypi": (
+        "TestPyPI",
+        "https://test.pypi.org/pypi",
+        "https://test-files.pythonhosted.org/",
+    ),
+    "pypi": (
+        "PyPI",
+        "https://pypi.org/pypi",
+        "https://files.pythonhosted.org/",
+    ),
+}
 
-def _published_files(name: str, version: str) -> list[dict[str, Any]] | None:
-    url = f"https://test.pypi.org/pypi/{name}/{version}/json"
+
+def _published_files(
+    name: str, version: str, api_url: str, registry_label: str
+) -> list[dict[str, Any]] | None:
+    url = f"{api_url}/{name}/{version}/json"
     try:
         with urllib.request.urlopen(url, timeout=30) as response:
             data = json.load(response)
     except urllib.error.HTTPError, urllib.error.URLError:
         return None
     if data["info"]["name"].lower().replace("_", "-") != name.lower().replace("_", "-"):
-        raise ValueError(f"TestPyPI returned the wrong project for {name}")
+        raise ValueError(f"{registry_label} returned the wrong project for {name}")
     files = data["urls"]
     if len(files) != 2:
         return None
@@ -45,12 +60,14 @@ def build_testpypi_command(
 
 def main() -> None:
     parser = argparse.ArgumentParser()
+    parser.add_argument("--registry", choices=REGISTRIES, default="testpypi")
     parser.add_argument("--attempts", type=int, default=10)
     parser.add_argument("--delay", type=int, default=30)
     parser.add_argument(
         "--digest-manifest", type=Path, default=Path("release-digests.json")
     )
     args = parser.parse_args()
+    registry_label, api_url, file_url_prefix = REGISTRIES[args.registry]
     manifest = load_manifest()
     version = family_version(manifest)
     digest_data = json.loads(args.digest_manifest.read_text(encoding="utf-8"))
@@ -63,7 +80,7 @@ def main() -> None:
     for attempt in range(1, args.attempts + 1):
         published: dict[str, list[dict[str, Any]]] = {}
         for item in manifest:
-            files = _published_files(item.name, version)
+            files = _published_files(item.name, version, api_url, registry_label)
             if files is not None:
                 published[item.name] = files
         wheels = {}
@@ -72,13 +89,15 @@ def main() -> None:
             for file in files:
                 filename = str(file["filename"])
                 url = str(file["url"])
-                if not url.startswith("https://test-files.pythonhosted.org/"):
-                    raise ValueError(f"{filename} is not sourced from TestPyPI")
+                if not url.startswith(file_url_prefix):
+                    raise ValueError(f"{filename} is not sourced from {registry_label}")
                 if filename not in expected_digests:
-                    raise ValueError(f"unexpected TestPyPI artifact: {filename}")
+                    raise ValueError(
+                        f"unexpected {registry_label} artifact: {filename}"
+                    )
                 digest = str(file["digests"]["sha256"])
                 if digest != expected_digests[filename]:
-                    raise ValueError(f"TestPyPI SHA256 mismatch for {filename}")
+                    raise ValueError(f"{registry_label} SHA256 mismatch for {filename}")
                 seen.add(filename)
                 if file["packagetype"] == "bdist_wheel":
                     wheels[name] = (url, digest)
@@ -91,10 +110,10 @@ def main() -> None:
             break
         if attempt == args.attempts:
             raise SystemExit(
-                "TestPyPI propagation incomplete: "
+                f"{registry_label} propagation incomplete: "
                 f"projects={missing}, files={missing_files}"
             )
-        print(f"TestPyPI attempt {attempt}: waiting for {missing}", flush=True)
+        print(f"{registry_label} attempt {attempt}: waiting for {missing}", flush=True)
         time.sleep(args.delay)
 
     expected = [

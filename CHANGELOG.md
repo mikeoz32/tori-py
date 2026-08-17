@@ -11,7 +11,7 @@ one package does not require the same change in every package.
 - Public package metadata, legal files, security policy, contribution guidance,
   and release documentation.
 
-## [0.1.0] - Unreleased
+## [0.1.0] - 2026-08-17
 
 Coordinated initial beta release train for all 12 distributions. This train
 establishes public package boundaries and compatibility ranges; subsequent

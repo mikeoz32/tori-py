@@ -16,6 +16,7 @@ from scripts.build_release import (
     verify_family,
     write_digest_manifest,
 )
+from scripts.publish_release import publish_commands, verify_uv_version
 from scripts.release_manifest import Distribution, load_manifest
 from scripts.testpypi_smoke import build_testpypi_command
 
@@ -214,22 +215,52 @@ def test_testpypi_command_uses_exact_direct_urls_without_test_index() -> None:
     assert not {"--index-url", "--extra-index-url", "--index"} & set(command)
 
 
-def test_release_workflow_compares_push_sha_to_peeled_tag_commit() -> None:
-    workflow = (Path(__file__).parents[1] / ".github/workflows/release.yml").read_text(
-        encoding="utf-8"
-    )
-
-    assert 'release_sha="$(git rev-parse --verify "$release_tag^{commit}")"' in workflow
-    assert '[[ "$release_sha" == "$PUSH_SHA" ]]' in workflow
-    assert '[[ "$tag_object" == "$PUSH_SHA" ]]' not in workflow
-
-
 def test_workflows_pin_release_toolchain_and_reject_prerelease_python() -> None:
     workflows = Path(__file__).parents[1] / ".github/workflows"
-    contents = [
-        (workflows / name).read_text(encoding="utf-8")
-        for name in ("ci.yml", "release.yml")
+    contents = [(workflows / "ci.yml").read_text(encoding="utf-8")]
+
+    assert sum(content.count('version: "0.11.28"') for content in contents) == 3
+    assert sum(content.count("releaselevel == 'final'") for content in contents) == 3
+
+
+def test_local_publish_uses_verified_pairs_and_idempotent_index_checks(
+    tmp_path: Path,
+) -> None:
+    item = _item(tmp_path)
+    wheel = tmp_path / "tori_example-2.3.4-py3-none-any.whl"
+    sdist = tmp_path / "tori_example-2.3.4.tar.gz"
+    wheel.touch()
+    sdist.touch()
+
+    [command] = publish_commands(tmp_path, (item,), "testpypi", execute=False)
+
+    assert command == [
+        "uvx",
+        "--from",
+        "uv==0.11.28",
+        "uv",
+        "publish",
+        "--trusted-publishing",
+        "never",
+        "--username",
+        "__token__",
+        "--publish-url",
+        "https://test.pypi.org/legacy/",
+        "--check-url",
+        "https://test.pypi.org/simple/",
+        "--dry-run",
+        str(wheel.resolve()),
+        str(sdist.resolve()),
     ]
 
-    assert sum(content.count('version: "0.11.28"') for content in contents) == 7
-    assert sum(content.count("releaselevel == 'final'") for content in contents) == 7
+
+def test_local_publish_rejects_unreviewed_uv_version(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "scripts.publish_release.subprocess.check_output",
+        lambda *args, **kwargs: "uv 0.12.0 (unreviewed)",
+    )
+
+    with pytest.raises(RuntimeError, match="requires uv 0.11.28"):
+        verify_uv_version()
