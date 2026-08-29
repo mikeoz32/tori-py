@@ -682,6 +682,11 @@ helper with `DiscoveryService` without depending on a transport adapter or
 copying private mapping logic. Return metadata is descriptive and MUST NOT change
 runtime response conversion, validation, status, or encoding.
 
+`@no_body` is direct, opt-in route metadata. Its trailing
+`RoutePlan.rejects_body` field defaults to `False` for construction
+compatibility. Compilation rejects combining it with `Body()` because the two
+contracts are contradictory.
+
 Exact duplicate normalization adds one leading slash and collapses only the
 single join boundary between controller prefix and route path. It preserves the
 trailing slash, parameter names, converter text, and segment spelling. Method
@@ -719,6 +724,13 @@ path/query/header/cookie text without converting to the declared target type.
 The driver requires JSON media type for `Body()` and enforces the configured
 body-size limit while receiving. One handler has at most one body marker.
 Repeated query/header values remain a raw sequence for a later pipe.
+
+For `@no_body` routes, the Starlette driver consumes the actual request stream
+after guards and before argument extraction, pipes, interceptors, or the
+handler. It reads through EOF or until cumulative content exceeds the configured
+limit, independent of ASGI chunk boundaries. Non-empty content at or below the
+limit returns 400; cumulative content above the limit returns 413. Content
+headers alone do not decide whether a body exists.
 
 ### 9.4 Response contract
 
@@ -762,7 +774,7 @@ After route matching and request-scope creation, the runtime executes:
 filter boundary(
   global middleware -> controller middleware -> route middleware ->
   global guards -> controller guards -> route guards ->
-  bind arguments ->
+  enforce no-body metadata -> bind arguments ->
   global pipes -> controller pipes -> route pipes ->
   global interceptors -> controller interceptors -> route interceptors ->
   handler -> response encoding

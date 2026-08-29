@@ -102,6 +102,12 @@ class _SchemaSlot:
 
 
 @dataclass(frozen=True, slots=True)
+class _SchemaOverlay:
+    slot: _SchemaSlot
+    values: tuple[tuple[str, object], ...]
+
+
+@dataclass(frozen=True, slots=True)
 class _PathPlan:
     normalized: str
     regex: re.Pattern[str]
@@ -449,6 +455,9 @@ def _compile_operation(
 
     parameters: list[dict[str, object]] = []
     parameter_identities: set[tuple[str, str]] = set()
+    parameter_overrides = {
+        (item.name, item.location): item for item in metadata.parameters
+    }
     body: ParameterPlan | None = None
     for parameter in plan.parameters:
         if parameter.kind in {"context", "inject"}:
@@ -487,16 +496,25 @@ def _compile_operation(
             f"parameter {parameter.name!r}",
             default=default,
         )
-        parameters.append(
-            {
-                "name": parameter.source,
-                "in": parameter.kind,
-                "required": parameter.kind == "path" or not parameter.has_default,
-                "schema": parameter_schema,
-            }
-        )
+        override = parameter_overrides.pop(identity, None)
+        if override is not None:
+            parameter_schema = _SchemaOverlay(parameter_schema, override.schema)
+        document: dict[str, object] = {
+            "name": parameter.source,
+            "in": parameter.kind,
+            "required": parameter.kind == "path" or not parameter.has_default,
+            "schema": parameter_schema,
+        }
+        if override is not None and override.description is not None:
+            document["description"] = override.description
+        parameters.append(document)
     if parameters:
         operation["parameters"] = parameters
+    if parameter_overrides:
+        raise OpenApiSchemaError(
+            "OpenAPI parameter metadata has no matching route binding",
+            details=context.details(parameters=tuple(parameter_overrides)),
+        )
     if body is not None:
         operation["requestBody"] = {
             "required": True,
@@ -588,7 +606,6 @@ def _compile_responses(
             explicit,
             context,
             collector,
-            media_type="application/json",
         )
     primary = responses.get(str(plan.status_code))
     if inferred_primary and primary is not None:
@@ -600,8 +617,6 @@ def _compile_explicit_response(
     response: ResponseMetadata,
     context: _RouteContext,
     collector: _SchemaCollector,
-    *,
-    media_type: str,
 ) -> dict[str, object]:
     if response.has_model and response.status_code in {204, 304}:
         raise OpenApiSchemaError(
@@ -617,7 +632,7 @@ def _compile_explicit_response(
     }
     if response.has_model:
         compiled["content"] = {
-            media_type: {
+            response.media_type: {
                 "schema": collector.add(
                     response.model,
                     context,
@@ -625,6 +640,7 @@ def _compile_explicit_response(
                 )
             }
         }
+    _apply_response_headers(compiled, response.headers)
     return compiled
 
 
@@ -917,6 +933,14 @@ def _copy_native_json(value: object, ancestors: set[int]) -> object:
 
 
 def _materialize(value: object, schemas: tuple[dict[str, Any], ...]) -> object:
+    if isinstance(value, _SchemaOverlay):
+        schema = _materialize(value.slot, schemas)
+        if not isinstance(schema, dict):  # pragma: no cover - internal invariant
+            raise TypeError("schema slot did not materialize to an object")
+        return {
+            **schema,
+            **{key: _materialize_frozen_json(item) for key, item in value.values},
+        }
     if isinstance(value, _SchemaSlot):
         schema = dict(schemas[value.index])
         if value.default is not _NO_DEFAULT:
@@ -926,6 +950,14 @@ def _materialize(value: object, schemas: tuple[dict[str, Any], ...]) -> object:
         return {key: _materialize(item, schemas) for key, item in value.items()}
     if isinstance(value, list):
         return [_materialize(item, schemas) for item in value]
+    return value
+
+
+def _materialize_frozen_json(value: object) -> object:
+    if isinstance(value, Mapping):
+        return {key: _materialize_frozen_json(item) for key, item in value.items()}
+    if isinstance(value, tuple):
+        return [_materialize_frozen_json(item) for item in value]
     return value
 
 

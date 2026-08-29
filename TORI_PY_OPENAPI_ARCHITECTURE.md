@@ -181,6 +181,7 @@ Metadata decorators attach immutable direct metadata without registration:
 
 - `api_tags(*tags)`;
 - `api_operation(...)`;
+- route-only `api_parameter(name, location=..., schema=..., description=...)`;
 - repeatable `api_response(status_code, ...)`;
 - repeatable `api_security(name, scopes=())`, represented as OR alternatives;
 - `api_public()` to clear inherited controller security;
@@ -188,6 +189,20 @@ Metadata decorators attach immutable direct metadata without registration:
 
 Guards and filters are opaque. Security and error responses are documented only
 when explicitly declared.
+
+`api_parameter` only overlays JSON Schema keywords and an optional description
+onto an existing Path/Query/Header/Cookie binding with the same source name and
+location. It never creates or changes runtime binding; an unmatched declaration
+fails document compilation. Schema input is normalized as native JSON and
+recursively frozen in metadata, then recursively materialized into native JSON
+when compiling the overlay. Cyclic, excessively nested, and otherwise
+non-encodable schemas fail eagerly with `OpenApiMetadataError`.
+
+Each `api_response` may declare validated static headers and a media type.
+`Content-Type` must use `media_type`; framework-owned `X-Request-ID` is
+prohibited. Media types are normalized to the OpenAPI content key by removing
+parameters and surrounding semicolon whitespace. Model-free 204/304 responses
+may document headers and always omit content.
 
 ## 10. Operation and Schema Compilation
 
@@ -203,6 +218,8 @@ It MUST:
   templated paths, duplicate operation IDs, and concrete paths shadowed by an
   earlier same-effective-method template;
 - document Path/Query/Header/Cookie requiredness from Python defaults;
+- overlay explicit route-only parameter schema constraints and descriptions
+  only on matched bindings;
 - document static response `@header` metadata on inferred encoded responses;
 - document one `Body` mapping as `application/json` using current ToriPy body
   presence semantics;
@@ -210,6 +227,8 @@ It MUST:
 - infer ordinary success responses from route status and return annotation;
 - require explicit responses for `HttpResponse`/`PipelineResult` annotations;
 - omit content for explicitly documented 204/304 and reject models on them.
+- document validated per-response headers and media types without inheriting
+  route static-header metadata into explicit responses.
 
 Schemas use one `msgspec.json.schema_components()` call with references under
 `#/components/schemas/`. `Any` is rejected recursively. The supported union

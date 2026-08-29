@@ -19,6 +19,8 @@ Architecture: [`TORI_PY_OPENAPI_ARCHITECTURE.md`](TORI_PY_OPENAPI_ARCHITECTURE.m
 ### OA1: Configuration and Metadata
 
 - Implement immutable options, errors, and direct metadata decorators.
+- Add route-only parameter refinement metadata and per-response validated
+  headers/media types.
 - Freeze the exact package facade and import boundaries.
 
 ### OA2: Discovery and Document Compiler
@@ -26,6 +28,8 @@ Architecture: [`TORI_PY_OPENAPI_ARCHITECTURE.md`](TORI_PY_OPENAPI_ARCHITECTURE.m
 - Inject `DiscoveryService` into a singleton document service.
 - Compile discovered controllers through `compile_controller_routes()`.
 - Generate and cache strict OpenAPI 3.1 JSON through msgspec.
+- Match parameter refinements to compiled bindings and compile response-specific
+  content keys and headers, including bodyless 204 responses.
 
 ### OA3: Dynamic Module and Controller
 

@@ -43,6 +43,34 @@ optional: Annotated[str | None, Query("q")] = None  # optional, nullable
 Path bindings must exactly match route variables and are always required.
 Duplicate `(source name, location)` pairs fail startup.
 
+Use `api_parameter` to add constraints that the Python annotation cannot express
+without changing runtime binding:
+
+```python
+from tori_py_openapi import api_parameter
+
+
+@api_parameter(
+    "cursor",
+    location="query",
+    schema={"maxLength": 512},
+    description="Opaque continuation token",
+)
+async def list_members(
+    self,
+    cursor: Annotated[str | None, Query("cursor")] = None,
+) -> list[str]:
+    ...
+```
+
+The schema object overlays the inferred schema. The source name and location
+must match an existing Path, Query, Header, or Cookie binding or OpenAPI startup
+compilation fails. Schema values are copied, normalized as JSON, and recursively
+frozen, so later mutation of the input cannot change metadata or the document.
+Cyclic, excessively nested, and non-JSON values fail at decoration with
+`OpenApiMetadataError`. The decorator does not create a parameter or validate
+input.
+
 !!! note
     `Header("X-Value")` is a request binding marker. Lowercase
     `@header("X-Value", "static")` declares a response header.

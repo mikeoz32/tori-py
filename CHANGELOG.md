@@ -10,6 +10,10 @@ one package does not require the same change in every package.
 
 - Public package metadata, legal files, security policy, contribution guidance,
   and release documentation.
+- Opt-in core `@no_body` route metadata with post-guard actual-stream enforcement
+  and compatible trailing route-plan metadata.
+- OpenAPI bound-parameter schema/description refinement plus explicit response
+  headers and per-response media types, including header-only 204 responses.
 
 ## [0.1.0] - Unreleased
 

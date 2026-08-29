@@ -27,7 +27,11 @@ from tori_py import (
     get,
     header,
     module,
+    no_body,
     post,
+    use_guard,
+    use_interceptor,
+    use_pipe,
 )
 from tori_py.core.runtime import ApplicationState, RequestScope
 from tori_py.http import HttpContext, HttpResponse, compile_controller_routes
@@ -43,6 +47,193 @@ from tori_py.testing import TestingModule
 
 def _asgi(application) -> ASGIApp:
     return application.get_adapter(StarletteAdapter).app
+
+
+@pytest.mark.asyncio
+async def test_no_body_enforces_actual_stream_after_guards_before_dispatch(
+    call_http,
+    message_body,
+) -> None:
+    calls: list[str] = []
+
+    class AllowGuard:
+        async def can_activate(self, context) -> bool:
+            calls.append("guard")
+            return True
+
+    class RecordingPipe:
+        async def transform(self, value, metadata):
+            calls.append("pipe")
+            return value
+
+    class RecordingInterceptor:
+        async def intercept(self, context, next):
+            calls.append("interceptor")
+            return await next()
+
+    @controller()
+    class Controller:
+        @post("/empty")
+        @no_body
+        @use_guard(AllowGuard())
+        @use_pipe(RecordingPipe())
+        @use_interceptor(RecordingInterceptor())
+        async def empty(
+            self,
+            value: Annotated[str, Query("value")],
+        ) -> HttpResponse:
+            calls.append("handler")
+            return HttpResponse(b"", status_code=204)
+
+    @module(controllers=[Controller])
+    class Root:
+        pass
+
+    application = await TestingModule.create(Root).compile(
+        adapter=StarletteAdapter(StarletteOptions(body_size_limit=4))
+    )
+    empty = await call_http(
+        _asgi(application),
+        method="POST",
+        path="/empty?value=x",
+        headers=[(b"content-length", b"10")],
+    )
+    assert empty[0]["status"] == 204
+    assert message_body(empty[1]) == b""
+    assert calls == ["guard", "pipe", "interceptor", "handler"]
+
+    calls.clear()
+    supplied = await call_http(
+        _asgi(application), method="POST", path="/empty?value=x", body=b"x"
+    )
+    assert supplied[0]["status"] == 400
+    assert b"Request body is not allowed." in message_body(supplied[1])
+    assert calls == ["guard"]
+
+    calls.clear()
+    oversized = await call_http(
+        _asgi(application), method="POST", path="/empty?value=x", body=b"12345"
+    )
+    assert oversized[0]["status"] == 413
+    assert b"Request body exceeds the configured limit." in message_body(oversized[1])
+    assert calls == ["guard"]
+    await application.close()
+
+
+@pytest.mark.asyncio
+async def test_no_body_does_not_read_stream_before_a_rejecting_guard(
+    call_http,
+    message_body,
+) -> None:
+    class DenyGuard:
+        async def can_activate(self, context) -> bool:
+            return False
+
+    @controller()
+    class Controller:
+        @post("/empty")
+        @no_body
+        @use_guard(DenyGuard())
+        async def empty(self) -> None:
+            raise AssertionError("handler must not run")
+
+    @module(controllers=[Controller])
+    class Root:
+        pass
+
+    application = await TestingModule.create(Root).compile(adapter=StarletteAdapter())
+    response = await call_http(
+        _asgi(application), method="POST", path="/empty", body=b"unexpected"
+    )
+    await application.close()
+
+    assert response[0]["status"] == 403
+    assert b"Forbidden." in message_body(response[1])
+
+
+@pytest.mark.asyncio
+async def test_no_body_size_classification_is_independent_of_asgi_chunks() -> None:
+    calls: list[str] = []
+
+    @controller()
+    class Controller:
+        @post("/empty")
+        @no_body
+        async def empty(self) -> None:
+            calls.append("handler")
+
+    @module(controllers=[Controller])
+    class Root:
+        pass
+
+    application = await TestingModule.create(Root).compile(
+        adapter=StarletteAdapter(StarletteOptions(body_size_limit=4))
+    )
+
+    async def request(chunks: list[bytes]) -> tuple[int, int]:
+        incoming = [
+            {
+                "type": "http.request",
+                "body": chunk,
+                "more_body": index < len(chunks) - 1,
+            }
+            for index, chunk in enumerate(chunks)
+        ]
+        receive_count = 0
+        sent: list[Message] = []
+
+        async def receive() -> Message:
+            nonlocal receive_count
+            message = incoming[receive_count]
+            receive_count += 1
+            return cast(Message, message)
+
+        async def send(message: Message) -> None:
+            sent.append(message)
+
+        scope = cast(
+            Any,
+            {
+                "type": "http",
+                "asgi": {"version": "3.0"},
+                "http_version": "1.1",
+                "method": "POST",
+                "scheme": "http",
+                "path": "/empty",
+                "raw_path": b"/empty",
+                "query_string": b"",
+                "headers": [],
+                "client": ("test", 1),
+                "server": ("test", 80),
+            },
+        )
+        await _asgi(application)(scope, receive, send)
+        start = next(
+            message for message in sent if message["type"] == "http.response.start"
+        )
+        return cast(int, start["status"]), receive_count
+
+    within_limit = await request([b"12", b"34"])
+    over_limit = await request([b"12", b"345"])
+    await application.close()
+
+    assert within_limit == (400, 2)
+    assert over_limit == (413, 2)
+    assert calls == []
+
+
+def test_no_body_route_cannot_also_bind_body() -> None:
+    @controller()
+    class Controller:
+        @post("/invalid")
+        @no_body
+        async def invalid(self, value: Annotated[object, Body()]) -> None:
+            pass
+
+    with pytest.raises(BootstrapError, match="cannot bind a request body") as raised:
+        compile_controller_routes(ModuleId(Controller), Controller)
+
+    assert raised.value.diagnostic_code == "route.invalid_binding"
 
 
 class _RouteReturnModel:

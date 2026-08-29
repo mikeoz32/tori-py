@@ -21,9 +21,11 @@ from tori_py import (
     get,
     get_controller_metadata,
     get_module_metadata,
+    get_no_body_metadata,
     get_route_metadata,
     injectable,
     module,
+    no_body,
 )
 from tori_py.starlette import StarletteOptions
 
@@ -177,6 +179,19 @@ def test_controller_and_route_decorators_preserve_identity() -> None:
     assert controller_metadata.prefix == "/users"
     assert route_metadata.method == "GET"
     assert UsersController.class_route.__name__ == "class_route"
+
+
+def test_no_body_metadata_is_direct_opt_in_and_rejects_duplicates() -> None:
+    async def empty() -> None:
+        pass
+
+    original = empty
+    empty = no_body(empty)
+
+    assert empty is original
+    assert get_no_body_metadata(empty) is not None
+    with pytest.raises(BootstrapError, match="already declared"):
+        no_body(empty)
 
 
 def test_module_spec_freezes_iterables_and_deferred_descriptor() -> None:

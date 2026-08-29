@@ -9,6 +9,7 @@ from tori_py_openapi.errors import (
 from tori_py_openapi.metadata import (
     api_exclude,
     api_operation,
+    api_parameter,
     api_public,
     api_response,
     api_security,
@@ -36,6 +37,7 @@ __all__ = [
     "SwaggerUiOptions",
     "api_exclude",
     "api_operation",
+    "api_parameter",
     "api_public",
     "api_response",
     "api_security",

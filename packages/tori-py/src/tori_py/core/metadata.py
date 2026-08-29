@@ -52,6 +52,11 @@ class StatusMetadata:
 
 
 @dataclass(frozen=True, slots=True)
+class NoBodyMetadata:
+    """Require an empty request body after guards complete."""
+
+
+@dataclass(frozen=True, slots=True)
 class Body:
     """Bind one JSON request body without applying type conversion."""
 
@@ -272,6 +277,17 @@ def status(status_code: int) -> Any:
     return decorate
 
 
+def no_body(target: Any) -> Any:
+    """Reject non-empty request content before route argument binding."""
+
+    return _attach(
+        target,
+        "__tori_py_no_body_metadata__",
+        NoBodyMetadata(),
+        "route.duplicate_metadata",
+    )
+
+
 def get(path: str = "") -> Any:
     return route("GET", path)
 
@@ -315,6 +331,11 @@ def get_status_metadata(target: Any) -> StatusMetadata | None:
     return metadata if isinstance(metadata, StatusMetadata) else None
 
 
+def get_no_body_metadata(target: Any) -> NoBodyMetadata | None:
+    metadata = getattr(target, "__tori_py_no_body_metadata__", None)
+    return metadata if isinstance(metadata, NoBodyMetadata) else None
+
+
 __all__ = [
     "Body",
     "Context",
@@ -326,6 +347,8 @@ __all__ = [
     "Header",
     "interceptors",
     "middleware",
+    "NoBodyMetadata",
+    "no_body",
     "Path",
     "pipes",
     "Query",
@@ -335,6 +358,7 @@ __all__ = [
     "delete",
     "get",
     "get_controller_metadata",
+    "get_no_body_metadata",
     "get_route_metadata",
     "get_status_metadata",
     "head",

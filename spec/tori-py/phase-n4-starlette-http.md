@@ -149,6 +149,13 @@ receives raw extracted values.
 ## Body Handling
 
 - one body marker maximum;
+- direct `@no_body` metadata sets a trailing, default-false route-plan flag and
+  cannot be combined with `Body()`;
+- no-body enforcement reads the actual stream after guards and before argument
+  extraction, pipes, interceptors, or handler dispatch;
+- enforcement reads through EOF or cumulative limit overflow, so non-empty
+  content at or below the limit returns 400 and content above it returns 413
+  regardless of ASGI chunking; request headers are not proof of content;
 - require JSON media type;
 - enforce `StarletteOptions.body_size_limit` while receiving chunks;
 - malformed JSON -> 400 Problem Details;
@@ -265,6 +272,9 @@ Tests MUST cover:
 28. return annotations distinguish absent metadata from explicit `None` without
     changing response execution;
 29. core import boundary remains intact.
+30. no-body metadata compatibility, invalid Body combinations, guard ordering,
+    empty and manually chunked streams, cumulative size classification, and
+    dispatch suppression.
 
 ## Exit Criteria
 

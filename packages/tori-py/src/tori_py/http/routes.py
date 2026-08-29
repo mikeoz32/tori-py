@@ -17,6 +17,7 @@ from tori_py.core.metadata import (
     Path,
     Query,
     get_controller_metadata,
+    get_no_body_metadata,
     get_pipeline_metadata,
     get_route_metadata,
     get_status_metadata,
@@ -54,6 +55,7 @@ class RoutePlan:
     route_pipeline: PipelineBindings
     return_annotation: object = inspect.Signature.empty
     response_headers: tuple[ResponseHeaderMetadata, ...] = ()
+    rejects_body: bool = False
 
 
 def compile_routes(graph: CompiledGraph) -> tuple[RoutePlan, ...]:
@@ -91,6 +93,12 @@ def compile_controller_routes(
         _reserve_route(route_metadata.method, path, reserved)
         parameters, return_annotation = _compile_signature(handler)
         status_metadata = get_status_metadata(handler)
+        rejects_body = get_no_body_metadata(handler) is not None
+        if rejects_body and any(parameter.kind == "body" for parameter in parameters):
+            raise BootstrapError(
+                "a no_body route cannot bind a request body",
+                code="route.invalid_binding",
+            )
         plans.append(
             RoutePlan(
                 module_id=module_id,
@@ -108,6 +116,7 @@ def compile_controller_routes(
                 route_pipeline=_pipeline_bindings(handler),
                 return_annotation=return_annotation,
                 response_headers=get_response_header_metadata(handler),
+                rejects_body=rejects_body,
             )
         )
     return tuple(plans)

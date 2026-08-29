@@ -27,4 +27,6 @@ Governing documents:
 6. Generation happens once during singleton startup and fails closed.
 7. Guards/errors are never inferred.
 8. Runtime binding/encoding behavior is not changed by this package.
-9. Every command uses uv.
+9. Parameter metadata only refines a matched compiled binding; response metadata
+   validates headers and owns its media type.
+10. Every command uses uv.

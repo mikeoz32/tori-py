@@ -9,6 +9,7 @@ be inferred safely from runtime code.
 | --- | --- | --- | --- |
 | `api_tags(*tags)` | Yes | Yes | Group operations |
 | `api_operation(...)` | No | Yes | Summary, description, ID, deprecation |
+| `api_parameter(...)` | No | Yes | Refine a bound parameter schema |
 | `api_response(status, ...)` | Yes | Yes | Explicit response |
 | `api_security(name, scopes=())` | Yes | Yes | Security alternative |
 | `api_public()` | No | Yes | Clear inherited security |
@@ -86,8 +87,25 @@ type, or static response headers.
 Controller response metadata acts as a default. A route declaration with the
 same status replaces it; route-only statuses are appended.
 
-Omit `model=` for a bodyless documented response. Explicit models use
-`application/json`. Models are prohibited for 204 and 304.
+Omit `model=` for a bodyless documented response. Explicit models default to
+`application/json`; set `media_type=` for another representation. Use
+`headers={"Name": "example"}` to document static response headers:
+
+```python
+@api_response(
+    422,
+    model=Problem,
+    media_type="application/problem+json; charset=utf-8",
+    headers={"Retry-After": "30"},
+)
+async def update(self) -> Profile:
+    ...
+```
+
+Media-type parameters are omitted from the OpenAPI content key. `Content-Type`
+must be expressed through `media_type`; `X-Request-ID` is framework-owned and
+cannot be declared. Models are prohibited for 204 and 304, but those responses
+may declare headers and still omit `content`.
 
 ## Static Response Headers
 
@@ -141,11 +159,9 @@ least one explicit `api_response`. An explicit `HttpResponse` owns its headers;
 route `@header` metadata applies only to ordinary ToriPy-encoded values.
 
 !!! warning "Opaque means the body is not described"
-    The declaration above documents only status `200` and its description. The
-    current explicit-response API cannot describe the `text/plain` body or
-    dynamic `X-Export-ID` header. Keep the route excluded when that incomplete
-    contract is unacceptable, or return a normal typed encoded value that can be
-    inferred.
+    Declare `model=`, `media_type=`, and static header examples when the opaque
+    response has a stable contract. Dynamic header values remain examples rather
+    than runtime validation.
 
 For 204 and 304, use empty `HttpResponse` content and a model-free declaration:
 

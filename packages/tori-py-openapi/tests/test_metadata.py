@@ -1,4 +1,5 @@
 from dataclasses import FrozenInstanceError
+from types import MappingProxyType
 from typing import Any, cast
 
 import pytest
@@ -6,6 +7,7 @@ from tori_py_openapi import (
     OpenApiMetadataError,
     api_exclude,
     api_operation,
+    api_parameter,
     api_public,
     api_response,
     api_security,
@@ -64,6 +66,126 @@ def test_response_stacking_preserves_visible_source_order() -> None:
     assert responses[0].has_model is False
     assert responses[1].has_model is True
     assert responses[1].model == dict[str, str]
+
+
+def test_parameter_and_explicit_response_metadata_are_frozen_and_normalized() -> None:
+    schema: dict[str, object] = {
+        "maxLength": 512,
+        "examples": [{"cursor": ["next"]}],
+    }
+
+    @api_parameter(
+        "cursor",
+        location="query",
+        schema=schema,
+        description="Opaque continuation token",
+    )
+    @api_response(
+        204,
+        headers={"Cache-Control": "private, no-store"},
+        media_type="application/problem+json ; charset=utf-8",
+    )
+    async def route() -> None:
+        pass
+
+    schema["examples"][0]["cursor"].append("changed")  # type: ignore[index]
+    metadata = get_direct_metadata(route)
+    parameter_schema = dict(metadata.parameters[0].schema)
+    examples = cast(tuple[object, ...], parameter_schema["examples"])
+    example = cast(MappingProxyType[str, object], examples[0])
+    assert isinstance(example, MappingProxyType)
+    assert example["cursor"] == ("next",)
+    with pytest.raises(TypeError):
+        cast(Any, example)["cursor"] = ("changed",)
+    assert metadata.parameters[0].description == "Opaque continuation token"
+    assert metadata.responses[0].headers[0].name == "Cache-Control"
+    assert metadata.responses[0].media_type == "application/problem+json"
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "message"),
+    [
+        ({"headers": {"Content-Type": "text/plain"}}, "media_type"),
+        ({"headers": {"X-Request-ID": "fixed"}}, "framework-owned"),
+        ({"headers": {"Content-Length": "1"}}, "invalid"),
+        ({"headers": {"X Value": "invalid"}}, "invalid"),
+        ({"headers": {"X-Value": "one", "x-value": "two"}}, "unique"),
+        ({"headers": []}, "dict or None"),
+        ({"media_type": "not a media type"}, "media type"),
+        ({"media_type": 1}, "media type"),
+    ],
+)
+def test_invalid_explicit_response_headers_and_media_types_are_rejected(
+    kwargs: dict[str, object], message: str
+) -> None:
+    with pytest.raises(OpenApiMetadataError, match=message):
+        api_response(200, **cast(Any, kwargs))
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "message"),
+    [
+        ({"name": "", "location": "query", "schema": {}}, "name"),
+        ({"name": "value", "location": "body", "schema": {}}, "location"),
+        ({"name": "value", "location": "query", "schema": []}, "dict"),
+        (
+            {"name": "value", "location": "query", "schema": {"value": object()}},
+            "JSON encodable",
+        ),
+        (
+            {"name": "value", "location": "query", "schema": {1: "value"}},
+            "JSON object",
+        ),
+        (
+            {
+                "name": "value",
+                "location": "query",
+                "schema": {"properties": {1: {"type": "string"}}},
+            },
+            "JSON object",
+        ),
+        (
+            {
+                "name": "value",
+                "location": "query",
+                "schema": {},
+                "description": " ",
+            },
+            "description",
+        ),
+    ],
+)
+def test_invalid_parameter_metadata_is_rejected(
+    kwargs: dict[str, object], message: str
+) -> None:
+    with pytest.raises(OpenApiMetadataError, match=message):
+        api_parameter(**cast(Any, kwargs))
+
+
+def test_duplicate_parameter_identity_is_rejected() -> None:
+    @api_parameter("value", location="query", schema={})
+    async def route() -> None:
+        pass
+
+    with pytest.raises(OpenApiMetadataError, match="already declared"):
+        api_parameter("value", location="query", schema={})(route)
+
+
+def test_cyclic_and_excessively_nested_parameter_schemas_are_metadata_errors() -> None:
+    cyclic: dict[str, object] = {}
+    cyclic["self"] = cyclic
+    with pytest.raises(OpenApiMetadataError, match="JSON encodable"):
+        api_parameter("value", location="query", schema=cyclic)
+
+    nested: object = "value"
+    for _ in range(2000):
+        nested = [nested]
+    with pytest.raises(OpenApiMetadataError, match="JSON encodable"):
+        api_parameter(
+            "value",
+            location="query",
+            schema={"examples": nested},
+        )
 
 
 def test_route_responses_override_controller_status_and_append_new_statuses() -> None:
@@ -157,6 +279,7 @@ def test_operation_values_and_route_precedence_are_exact() -> None:
     [
         api_tags("one"),
         api_operation(summary="one"),
+        api_parameter("value", location="query", schema={}),
         api_response(200),
         api_security("oidc"),
         api_public(),

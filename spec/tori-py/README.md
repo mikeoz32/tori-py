@@ -59,8 +59,10 @@ invariants, tests, and exit criteria.
 15. Secret settings values are never accepted through CLI `--set`.
 16. `X-Request-ID` is framework-owned and consistent across context, logs, and
     responses.
-17. Examples live under root `examples/`, not framework package source.
-18. A phase is complete only after its focused tests and the full workspace
+17. `@no_body` routes enforce the actual stream after guards and before binding
+    or dispatch, and cannot also declare `Body()`.
+18. Examples live under root `examples/`, not framework package source.
+19. A phase is complete only after its focused tests and the full workspace
     quality gates pass.
 
 ## Quality Gates

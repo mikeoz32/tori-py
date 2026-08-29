@@ -25,6 +25,7 @@ from tori_py_openapi import (
     OpenApiServer,
     api_exclude,
     api_operation,
+    api_parameter,
     api_public,
     api_response,
     api_security,
@@ -631,6 +632,140 @@ def test_explicit_response_does_not_inherit_static_header_metadata() -> None:
     response = document["paths"]["/items"]["get"]["responses"]["200"]
     assert set(response["content"]) == {"application/json"}
     assert "headers" not in response
+
+
+def test_parameter_metadata_overlays_bound_schema_and_description() -> None:
+    class Controller:
+        @api_parameter(
+            "cursor",
+            location="query",
+            schema={
+                "maxLength": 512,
+                "examples": [{"cursor": ["next"]}],
+            },
+            description="Opaque continuation token",
+        )
+        async def read(self) -> object:
+            raise NotImplementedError
+
+    document = _json(
+        compile_openapi_document(
+            (
+                _plan(
+                    Controller,
+                    "read",
+                    parameters=(
+                        _parameter(
+                            "cursor", str | None, "query", "cursor", default=None
+                        ),
+                    ),
+                ),
+            ),
+            OpenApiOptions(OpenApiInfo("Example", "1.0")),
+        )
+    )
+
+    assert document["paths"]["/items"]["get"]["parameters"] == [
+        {
+            "name": "cursor",
+            "in": "query",
+            "required": False,
+            "description": "Opaque continuation token",
+            "schema": {
+                "anyOf": [{"type": "string"}, {"type": "null"}],
+                "default": None,
+                "maxLength": 512,
+                "examples": [{"cursor": ["next"]}],
+            },
+        }
+    ]
+
+
+def test_parameter_metadata_requires_an_existing_matching_route_binding() -> None:
+    class Controller:
+        @api_parameter("missing", location="header", schema={"maxLength": 10})
+        async def read(self) -> object:
+            raise NotImplementedError
+
+    with pytest.raises(OpenApiSchemaError, match="no matching route binding") as raised:
+        compile_openapi_document(
+            (
+                _plan(
+                    Controller,
+                    "read",
+                    parameters=(_parameter("missing", str, "query", "missing"),),
+                ),
+            ),
+            OpenApiOptions(OpenApiInfo("Example", "1.0")),
+        )
+
+    assert raised.value.diagnostic.details["parameters"] == (("missing", "header"),)
+
+
+def test_explicit_response_supports_per_response_media_type_and_headers() -> None:
+    class Problem(msgspec.Struct):
+        detail: str
+
+    class Controller:
+        @api_response(
+            422,
+            model=Problem,
+            media_type="application/problem+json ; charset=utf-8",
+            headers={"Retry-After": "30"},
+        )
+        async def read(self) -> object:
+            raise NotImplementedError
+
+    document = _json(
+        compile_openapi_document(
+            (_plan(Controller, "read", return_annotation=dict[str, str]),),
+            OpenApiOptions(OpenApiInfo("Example", "1.0")),
+        )
+    )
+
+    assert document["paths"]["/items"]["get"]["responses"]["422"] == {
+        "description": "Unprocessable Content",
+        "content": {
+            "application/problem+json": {
+                "schema": {"$ref": "#/components/schemas/Problem"}
+            }
+        },
+        "headers": {"Retry-After": {"schema": {"type": "string"}, "example": "30"}},
+    }
+
+
+def test_bodyless_204_opaque_response_can_document_headers_without_content() -> None:
+    class Controller:
+        @api_response(204, headers={"Cache-Control": "no-store"})
+        async def delete(self) -> object:
+            raise NotImplementedError
+
+    document = _json(
+        compile_openapi_document(
+            (
+                _plan(
+                    Controller,
+                    "delete",
+                    method="DELETE",
+                    status_code=204,
+                    return_annotation=HttpResponse,
+                ),
+            ),
+            OpenApiOptions(OpenApiInfo("Example", "1.0")),
+        )
+    )
+
+    response = document["paths"]["/items"]["delete"]["responses"]["204"]
+    assert response == {
+        "description": "No Content",
+        "headers": {
+            "Cache-Control": {
+                "schema": {"type": "string"},
+                "example": "no-store",
+            }
+        },
+    }
+    assert "content" not in response
 
 
 @pytest.mark.parametrize("status_code", [204, 304])

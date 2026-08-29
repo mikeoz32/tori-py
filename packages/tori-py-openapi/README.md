@@ -14,6 +14,8 @@ from tori_py_openapi import (
     OpenApiModule,
     OpenApiOptions,
     api_operation,
+    api_parameter,
+    api_response,
     api_security,
     api_tags,
 )
@@ -24,6 +26,8 @@ from tori_py_openapi import (
 class MembersController:
     @get("/{member_id}")
     @api_operation(summary="Read a member profile")
+    @api_parameter("member_id", location="path", schema={"minLength": 1})
+    @api_response(404, headers={"Cache-Control": "no-store"})
     @api_security("oidc")
     async def get_profile(
         self,
@@ -57,6 +61,10 @@ request scope, and request-ID middleware apply normally.
 
 When `api_operation(description=...)` is omitted, the cleaned route docstring up
 to the first `\f` becomes the operation description. Summaries remain explicit.
+`api_parameter` overlays a matched runtime binding schema. `api_response`
+supports validated static headers and a response-specific `media_type`;
+`Content-Type` is represented by `media_type`, and `X-Request-ID` remains
+framework-owned.
 
 Swagger UI uses pinned CDN assets by default. Deployments must allow those asset
 origins in network and CSP policy or configure application-hosted root-relative

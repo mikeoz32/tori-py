@@ -15,6 +15,27 @@ Route decorators record metadata; Starlette remains responsible for route
 matching. Typed conversion is not automatic raw binding. Add a pipe when a
 handler needs conversion or validation.
 
+## Routes Without Bodies
+
+Use `@no_body` when a route contract requires an empty request stream:
+
+```python
+from tori_py import HttpResponse, no_body, post
+
+
+@post("/members/refresh")
+@no_body
+async def refresh(self) -> HttpResponse:
+    return HttpResponse(b"", status_code=204)
+```
+
+The check is opt-in and uses the actual stream, not `Content-Length`. Guards run
+first. A supplied body is rejected before pipes, interceptors, or the handler,
+and `@no_body` cannot be combined with a `Body()` binding. Tori Py reads through
+EOF or cumulative size-limit overflow: non-empty content within the limit is a
+400 response, while content above it is a 413 response regardless of ASGI
+chunking.
+
 ## Response Headers
 
 Use `@header()` for static headers on a normal ToriPy-encoded response. Return

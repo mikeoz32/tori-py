@@ -121,6 +121,8 @@ async def _bind_arguments(
     body_size_limit: int,
 ) -> dict[str, object]:
     arguments: dict[str, object] = {}
+    if plan.rejects_body:
+        await _reject_request_body(request, body_size_limit)
     body_loaded = False
     body_value: object = None
     for parameter in plan.parameters:
@@ -146,6 +148,16 @@ async def _bind_arguments(
                 )
         arguments[parameter.name] = value
     return arguments
+
+
+async def _reject_request_body(request: Request, limit: int) -> None:
+    size = 0
+    async for chunk in request.stream():
+        size += len(chunk)
+        if size > limit:
+            raise HttpException(413, "Request body exceeds the configured limit.")
+    if size:
+        raise HttpException(400, "Request body is not allowed.")
 
 
 def _read_http_value(request: Request, parameter: ParameterPlan) -> object:

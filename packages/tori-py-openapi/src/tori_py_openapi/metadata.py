@@ -5,6 +5,10 @@ from __future__ import annotations
 import inspect
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, replace
+from types import MappingProxyType
+
+import msgspec
+from tori_py.http import ResponseHeaderMetadata
 
 from tori_py_openapi.errors import OpenApiMetadataError
 
@@ -34,6 +38,8 @@ class ResponseMetadata:
     status_code: int
     description: str | None
     model: object = _MISSING_MODEL
+    headers: tuple[ResponseHeaderMetadata, ...] = ()
+    media_type: str = "application/json"
 
     @property
     def has_model(self) -> bool:
@@ -47,6 +53,14 @@ class SecurityMetadata:
 
 
 @dataclass(frozen=True, slots=True)
+class ParameterMetadata:
+    name: str
+    location: str
+    schema: tuple[tuple[str, object], ...]
+    description: str | None
+
+
+@dataclass(frozen=True, slots=True)
 class TargetMetadata:
     tags: tuple[str, ...] | None = None
     operation: OperationMetadata | None = None
@@ -54,6 +68,7 @@ class TargetMetadata:
     security: tuple[SecurityMetadata, ...] = ()
     public: bool = False
     excluded: bool = False
+    parameters: tuple[ParameterMetadata, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,6 +79,7 @@ class MergedMetadata:
     security: tuple[SecurityMetadata, ...]
     public: bool
     excluded: bool
+    parameters: tuple[ParameterMetadata, ...] = ()
 
 
 _EMPTY_METADATA = TargetMetadata()
@@ -173,6 +189,8 @@ def api_response[TargetT](
     *,
     description: str | None = None,
     model: object = _MISSING_MODEL,
+    headers: dict[str, str] | None = None,
+    media_type: str = "application/json",
 ) -> Callable[[TargetT], TargetT]:
     """Declare one explicit controller or route response."""
 
@@ -182,7 +200,13 @@ def api_response[TargetT](
         raise OpenApiMetadataError("response status_code must be from 100 through 599")
     if description is not None and not isinstance(description, str):
         raise OpenApiMetadataError("response description must be a string or None")
-    response = ResponseMetadata(status_code, description, model)
+    response = ResponseMetadata(
+        status_code,
+        description,
+        model,
+        _response_headers(headers),
+        _media_type(media_type),
+    )
 
     def decorate(target: TargetT) -> TargetT:
         def add(metadata: TargetMetadata) -> TargetMetadata:
@@ -197,6 +221,38 @@ def api_response[TargetT](
             return replace(metadata, responses=(response, *metadata.responses))
 
         return _write_metadata(target, add)
+
+    return decorate
+
+
+def api_parameter[TargetT](
+    name: str,
+    *,
+    location: str,
+    schema: dict[str, object],
+    description: str | None = None,
+) -> Callable[[TargetT], TargetT]:
+    """Refine one bound parameter without changing runtime binding."""
+
+    parameter = ParameterMetadata(
+        _require_non_empty_string(name, "parameter name"),
+        _parameter_location(location),
+        _parameter_schema(schema),
+        _parameter_description(description),
+    )
+
+    def decorate(target: TargetT) -> TargetT:
+        def add(metadata: TargetMetadata) -> TargetMetadata:
+            if any(
+                item.name == parameter.name and item.location == parameter.location
+                for item in metadata.parameters
+            ):
+                raise OpenApiMetadataError(
+                    f"parameter {parameter.name!r} is already declared"
+                )
+            return replace(metadata, parameters=(parameter, *metadata.parameters))
+
+        return _write_metadata(target, add, route_only=True)
 
     return decorate
 
@@ -273,6 +329,95 @@ def _deduplicate(values: Iterable[str]) -> tuple[str, ...]:
     return tuple(dict.fromkeys(values))
 
 
+def _response_headers(
+    headers: dict[str, str] | None,
+) -> tuple[ResponseHeaderMetadata, ...]:
+    if headers is None:
+        return ()
+    if type(headers) is not dict:
+        raise OpenApiMetadataError("response headers must be a dict or None")
+    for name in headers:
+        if isinstance(name, str) and name.casefold() == "content-type":
+            raise OpenApiMetadataError(
+                "response Content-Type must be declared with media_type"
+            )
+        if isinstance(name, str) and name.casefold() == "x-request-id":
+            raise OpenApiMetadataError(
+                "response X-Request-ID is framework-owned and cannot be declared"
+            )
+    try:
+        result = tuple(
+            ResponseHeaderMetadata(name, value) for name, value in headers.items()
+        )
+    except (TypeError, ValueError) as error:
+        raise OpenApiMetadataError("response headers are invalid") from error
+    if len({header.name.casefold() for header in result}) != len(result):
+        raise OpenApiMetadataError("response header names must be unique")
+    return result
+
+
+def _media_type(value: object) -> str:
+    if type(value) is not str:
+        raise OpenApiMetadataError("response media type is invalid")
+    try:
+        header = ResponseHeaderMetadata("Content-Type", value)
+    except (TypeError, ValueError) as error:
+        raise OpenApiMetadataError("response media type is invalid") from error
+    return header.value.partition(";")[0].strip()
+
+
+def _parameter_location(value: object) -> str:
+    if type(value) is not str or value not in {"path", "query", "header", "cookie"}:
+        raise OpenApiMetadataError("parameter location is not supported")
+    return value
+
+
+def _parameter_description(value: object) -> str | None:
+    if value is None:
+        return None
+    return _require_non_empty_string(value, "parameter description")
+
+
+def _parameter_schema(value: object) -> tuple[tuple[str, object], ...]:
+    if type(value) is not dict:
+        raise OpenApiMetadataError("parameter schema must be a dict")
+    try:
+        has_non_string_key = _has_non_string_json_key(value)
+    except RecursionError as error:
+        raise OpenApiMetadataError("parameter schema must be JSON encodable") from error
+    if has_non_string_key:
+        raise OpenApiMetadataError("parameter schema must be a JSON object")
+    try:
+        decoded = msgspec.json.decode(msgspec.json.encode(value))
+        if type(decoded) is not dict or any(type(key) is not str for key in decoded):
+            raise TypeError("parameter schema did not encode as a JSON object")
+        frozen = tuple((key, _freeze_json(item)) for key, item in decoded.items())
+    except (TypeError, ValueError, RecursionError) as error:
+        raise OpenApiMetadataError("parameter schema must be JSON encodable") from error
+    return frozen
+
+
+def _has_non_string_json_key(value: object) -> bool:
+    if isinstance(value, dict):
+        return any(
+            type(key) is not str or _has_non_string_json_key(item)
+            for key, item in value.items()
+        )
+    if isinstance(value, list | tuple):
+        return any(_has_non_string_json_key(item) for item in value)
+    return False
+
+
+def _freeze_json(value: object) -> object:
+    if isinstance(value, dict):
+        return MappingProxyType(
+            {key: _freeze_json(item) for key, item in value.items()}
+        )
+    if isinstance(value, list):
+        return tuple(_freeze_json(item) for item in value)
+    return value
+
+
 def _merge_responses(
     controller: tuple[ResponseMetadata, ...],
     route: tuple[ResponseMetadata, ...],
@@ -314,6 +459,7 @@ def merge_metadata(controller: object, route: object) -> MergedMetadata:
         security=security,
         public=route_metadata.public,
         excluded=controller_metadata.excluded or route_metadata.excluded,
+        parameters=route_metadata.parameters,
     )
 
 

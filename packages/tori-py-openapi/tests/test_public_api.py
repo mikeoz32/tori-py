@@ -25,6 +25,7 @@ PUBLIC_API = {
     "SwaggerUiOptions",
     "api_exclude",
     "api_operation",
+    "api_parameter",
     "api_public",
     "api_response",
     "api_security",
