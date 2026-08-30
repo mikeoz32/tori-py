@@ -12,6 +12,9 @@ one package does not require the same change in every package.
   and release documentation.
 - Opt-in core `@no_body` route metadata with post-guard actual-stream enforcement
   and compatible trailing route-plan metadata.
+- Typed request-lifetime raw HTTP body streaming with direct backpressured ASGI
+  receiving, incremental limits, complete-consumption enforcement, and
+  provenance-aware disconnect cancellation.
 - OpenAPI bound-parameter schema/description refinement plus explicit response
   headers and per-response media types, including header-only 204 responses.
 

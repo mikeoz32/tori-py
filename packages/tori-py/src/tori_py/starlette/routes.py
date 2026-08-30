@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
+from collections.abc import AsyncIterator, Callable
 from typing import cast
 
 import msgspec
-from starlette.requests import Request
+from starlette.requests import ClientDisconnect, Request
 from starlette.responses import Response
 from starlette.routing import Route
 
@@ -82,6 +84,12 @@ def _endpoint(
         )
         # RequestScopeMiddleware owns the final reset after response and cleanup.
         _set_context(context)
+        body_stream: _StarletteBodyStream | None = None
+
+        def bind_body_stream(max_bytes: int) -> _StarletteBodyStream:
+            nonlocal body_stream
+            body_stream = _StarletteBodyStream(request, max_bytes)
+            return body_stream
 
         async def bind_arguments() -> dict[str, object]:
             return await _bind_arguments(
@@ -89,7 +97,12 @@ def _endpoint(
                 request,
                 context,
                 body_size_limit=body_size_limit,
+                bind_body_stream=bind_body_stream,
             )
+
+        async def validate_result() -> None:
+            if body_stream is not None and not body_stream.complete:
+                raise HttpException(400, "Request body stream was not fully consumed.")
 
         async def encode_result(result: object) -> Response:
             return await _encode_pipeline_result(
@@ -99,16 +112,21 @@ def _endpoint(
                 plan.response_headers,
             )
 
-        result = await pipeline.run(
-            plan,
-            context,
-            request_scope,
-            bind_arguments=bind_arguments,
-            encode_result=encode_result,
-        )
-        if not isinstance(result, Response):
-            raise HttpException(500, "Pipeline did not produce a response.")
-        return result
+        try:
+            result = await pipeline.run(
+                plan,
+                context,
+                request_scope,
+                bind_arguments=bind_arguments,
+                encode_result=encode_result,
+                validate_result=validate_result,
+            )
+            if not isinstance(result, Response):
+                raise HttpException(500, "Pipeline did not produce a response.")
+            return result
+        finally:
+            if body_stream is not None:
+                await body_stream.aclose()
 
     return handle
 
@@ -119,6 +137,7 @@ async def _bind_arguments(
     context: RequestContext,
     *,
     body_size_limit: int,
+    bind_body_stream: Callable[[int], object],
 ) -> dict[str, object]:
     arguments: dict[str, object] = {}
     if plan.rejects_body:
@@ -136,6 +155,8 @@ async def _bind_arguments(
             body_value = await _read_json_body(request, body_size_limit)
             body_loaded = True
             value = body_value
+        elif parameter.kind == "body_stream":
+            value = bind_body_stream(cast(int, parameter.max_bytes))
         else:
             value = _read_http_value(request, parameter)
         if value is _MISSING:
@@ -193,6 +214,65 @@ async def _read_json_body(request: Request, limit: int) -> object:
         raise HttpException(400, "Request body contains malformed JSON.") from error
     request.scope["tori_py_body"] = value
     return value
+
+
+class _StarletteBodyStream:
+    def __init__(self, request: Request, max_bytes: int) -> None:
+        self._request = request
+        self._max_bytes = max_bytes
+        self._claimed = False
+        self._closed = False
+        self._complete = False
+        self._size = 0
+        self._active_task: asyncio.Task[object] | None = None
+
+    @property
+    def complete(self) -> bool:
+        return self._complete
+
+    def __aiter__(self) -> AsyncIterator[bytes]:
+        if self._closed:
+            raise RuntimeError("request body stream is closed")
+        if self._claimed:
+            raise RuntimeError("request body stream may only be consumed once")
+        self._claimed = True
+        return self._iterate()
+
+    async def _iterate(self) -> AsyncIterator[bytes]:
+        while not self._complete:
+            if self._closed:
+                raise RuntimeError("request body stream is closed")
+            active_task = asyncio.current_task()
+            if active_task is None:
+                raise RuntimeError("request body streaming requires an asyncio task")
+            self._active_task = active_task
+            try:
+                message = await self._request.receive()
+                if self._closed:
+                    raise RuntimeError("request body stream is closed")
+            finally:
+                if self._active_task is active_task:
+                    self._active_task = None
+            if message["type"] == "http.disconnect":
+                raise ClientDisconnect
+            if message["type"] != "http.request":
+                raise RuntimeError("unexpected ASGI request message")
+            chunk = message.get("body", b"")
+            self._size += len(chunk)
+            if self._size > self._max_bytes:
+                raise HttpException(413, "Request body exceeds the route limit.")
+            self._complete = not message.get("more_body", False)
+            if chunk:
+                yield chunk
+
+    async def aclose(self) -> None:
+        self._closed = True
+        active_task = self._active_task
+        if active_task is None or active_task is asyncio.current_task():
+            return
+        if not active_task.done() and active_task.cancelling() == 0:
+            active_task.cancel("request body stream closed")
+        await asyncio.gather(active_task, return_exceptions=True)
 
 
 async def _encode_result(

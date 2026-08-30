@@ -30,6 +30,7 @@ from tori_py.core.errors import (
 )
 from tori_py.core.metadata import (
     Body,
+    BodyStream,
     Context,
     ControllerMetadata,
     Cookie,
@@ -132,6 +133,7 @@ __all__ = [
     "ApplicationStateError",
     "ArgumentMetadata",
     "Body",
+    "BodyStream",
     "BootstrapError",
     "ClassProvider",
     "CompiledGraph",

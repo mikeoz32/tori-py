@@ -5,17 +5,19 @@ from datetime import timedelta
 from decimal import Decimal
 from enum import Enum
 from types import MappingProxyType
-from typing import Any, Literal, TypedDict, cast
+from typing import Annotated, Any, Literal, TypedDict, cast
 
 import msgspec
 import pytest
-from tori_py.core import ModuleId, PipelineResult
+from tori_py.core import BodyStream, ModuleId, PipelineResult, controller, post
 from tori_py.core.pipeline import PipelineBindings
 from tori_py.http import (
+    HttpBodyStream,
     HttpResponse,
     ParameterPlan,
     ResponseHeaderMetadata,
     RoutePlan,
+    compile_controller_routes,
 )
 from tori_py_openapi import (
     BearerSecurityScheme,
@@ -259,6 +261,34 @@ def test_body_uses_only_application_json_and_python_default_requiredness() -> No
         "required": True,
         "content": {
             "application/json": {"schema": {"$ref": "#/components/schemas/CreateItem"}}
+        },
+    }
+
+
+def test_body_stream_is_documented_as_binary_octet_stream() -> None:
+    @controller()
+    class Controller:
+        @post("/items")
+        async def upload(
+            self,
+            body: Annotated[HttpBodyStream, BodyStream(max_bytes=20 * 1024 * 1024)],
+        ) -> None:
+            async for _ in body:
+                pass
+
+    document = _json(
+        compile_openapi_document(
+            compile_controller_routes(ModuleId(Controller), Controller),
+            OpenApiOptions(OpenApiInfo("Example", "1.0")),
+        )
+    )
+
+    assert document["paths"]["/items"]["post"]["requestBody"] == {
+        "required": True,
+        "content": {
+            "application/octet-stream": {
+                "schema": {"type": "string", "format": "binary"}
+            }
         },
     }
 

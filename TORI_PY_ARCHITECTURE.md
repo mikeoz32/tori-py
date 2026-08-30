@@ -684,8 +684,9 @@ runtime response conversion, validation, status, or encoding.
 
 `@no_body` is direct, opt-in route metadata. Its trailing
 `RoutePlan.rejects_body` field defaults to `False` for construction
-compatibility. Compilation rejects combining it with `Body()` because the two
-contracts are contradictory.
+compatibility. Compilation rejects combining it with `Body()` or `BodyStream()`
+because the contracts are contradictory. A route has at most one body-consuming
+binding, so JSON and raw stream bindings cannot be combined.
 
 Exact duplicate normalization adds one leading slash and collapses only the
 single join boundary between controller prefix and route path. It preserves the
@@ -705,6 +706,7 @@ Except for `self`, every controller parameter MUST have exactly one binding
 marker or `Inject` marker:
 
 - `Annotated[T, Body()]`;
+- `Annotated[HttpBodyStream, BodyStream(max_bytes=...)]`;
 - `Annotated[T, Path("source_name")]`;
 - `Annotated[T, Query("source_name")]`;
 - `Annotated[T, Header("source-name")]`;
@@ -724,6 +726,44 @@ path/query/header/cookie text without converting to the declared target type.
 The driver requires JSON media type for `Body()` and enforces the configured
 body-size limit while receiving. One handler has at most one body marker.
 Repeated query/header values remain a raw sequence for a later pipe.
+
+`BodyStream(max_bytes=...)` opts one route into a driver-neutral,
+single-consumer async stream of raw byte chunks. Its exact non-boolean integer
+limit is validated at declaration and may be zero. Starlette binds the stream
+only after guards and starts ASGI receiving only when the stream is first
+consumed. Each consumer step directly awaits the next ASGI message with no
+framework producer queue or prefetched second message. After the final
+`http.request`, a dedicated task takes exclusive ownership of `receive` to
+monitor disconnects until response completion. An active body consumer observes
+`http.disconnect` itself. Monitor cancellation is identity-tagged so unrelated
+caller, timeout, or shutdown cancellation is never swallowed.
+
+ASGI provides one ordered `receive` channel. While `more_body` is true, ToriPy
+therefore cannot monitor disconnect concurrently without consuming and retaining
+the next body message. It deliberately preserves direct backpressure instead:
+if a handler pauses between non-final chunks, disconnect observation waits until
+the handler requests the next chunk. Asynchronous monitoring begins only after
+body EOF transfers exclusive `receive` ownership to the monitor.
+
+The stream neither parses nor spools content and raises 413 before yielding the
+ASGI message whose bytes make cumulative content exceed its route limit. The
+framework retains no additional request message, but the ASGI server controls
+individual message size; ToriPy cannot impose byte-level buffering beneath the
+ASGI boundary. The global parsed JSON body-size limit does not apply to this
+route-specific stream, and `Content-Length` does not determine actual stream
+content.
+
+`HttpBodyStream` has request lifetime and exposes `aclose()`. The Starlette
+endpoint closes it on every success, error, or cancellation before a response
+object can transmit bytes or run streaming/background work. Use after closure
+fails deterministically. Closure cancels and joins a different task blocked in
+an active body receive, and the receive path rechecks closure before yielding,
+so no detached consumer can remain blocked or emit bytes after endpoint cleanup.
+A successful pipeline result is accepted only after the final request-body
+message was consumed; otherwise ToriPy replaces it with
+HTTP 400 `Request body stream was not fully consumed.` before response headers.
+An exception that deliberately aborts body input remains the controlling error,
+with stream closure performed during endpoint cleanup.
 
 For `@no_body` routes, the Starlette driver consumes the actual request stream
 after guards and before argument extraction, pipes, interceptors, or the

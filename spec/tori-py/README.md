@@ -60,10 +60,18 @@ invariants, tests, and exit criteria.
 16. `X-Request-ID` is framework-owned and consistent across context, logs, and
     responses.
 17. `@no_body` routes enforce the actual stream after guards and before binding
-    or dispatch, and cannot also declare `Body()`.
+    or dispatch, and cannot also declare `Body()` or `BodyStream()`.
 18. Examples live under root `examples/`, not framework package source.
 19. A phase is complete only after its focused tests and the full workspace
     quality gates pass.
+20. `BodyStream(max_bytes=...)` binds one single-consumer raw byte stream after
+    guards and uses direct backpressured ASGI receiving with no framework
+    prefetch queue. It enforces its route limit without parsing, spooling, or
+    changing the global JSON body limit, has request lifetime, and must consume
+    the final request message before a successful response.
+21. While a body remains active, disconnect is observed by its next direct
+    receive. A separate disconnect monitor starts only after body EOF because
+    concurrent monitoring on ASGI's ordered channel would require prefetching.
 
 ## Quality Gates
 

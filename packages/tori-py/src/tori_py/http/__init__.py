@@ -1,5 +1,6 @@
 """Framework-owned HTTP execution contracts without a transport dependency."""
 
+from tori_py.http.body import HttpBodyStream
 from tori_py.http.context import HttpContext, current_http_context
 from tori_py.http.errors import HttpException
 from tori_py.http.pipeline import HttpPipelineAdapter, PipelineExecutor
@@ -20,6 +21,7 @@ from tori_py.http.validation import MsgspecValidationPipe
 
 __all__ = [
     "HttpContext",
+    "HttpBodyStream",
     "HttpException",
     "HttpPipelineAdapter",
     "HttpResponse",

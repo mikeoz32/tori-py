@@ -8,10 +8,12 @@ from typing import Annotated, Any, cast
 import pytest
 import tori_py.http.routes as routes_module
 from starlette.background import BackgroundTask
+from starlette.requests import ClientDisconnect
 from starlette.responses import Response
 from starlette.types import ASGIApp, Message
 from tori_py import (
     Body,
+    BodyStream,
     BootstrapError,
     Context,
     Cookie,
@@ -34,7 +36,13 @@ from tori_py import (
     use_pipe,
 )
 from tori_py.core.runtime import ApplicationState, RequestScope
-from tori_py.http import HttpContext, HttpResponse, compile_controller_routes
+from tori_py.http import (
+    HttpBodyStream,
+    HttpContext,
+    HttpException,
+    HttpResponse,
+    compile_controller_routes,
+)
 from tori_py.logging import current_log_context
 from tori_py.starlette import (
     StarletteAdapter,
@@ -47,6 +55,27 @@ from tori_py.testing import TestingModule
 
 def _asgi(application) -> ASGIApp:
     return application.get_adapter(StarletteAdapter).app
+
+
+def _http_scope(
+    path: str,
+    *,
+    method: str = "POST",
+    headers: list[tuple[bytes, bytes]] | None = None,
+) -> Any:
+    return {
+        "type": "http",
+        "asgi": {"version": "3.0"},
+        "http_version": "1.1",
+        "method": method,
+        "scheme": "http",
+        "path": path,
+        "raw_path": path.encode(),
+        "query_string": b"",
+        "headers": [] if headers is None else headers,
+        "client": ("test", 1),
+        "server": ("test", 80),
+    }
 
 
 @pytest.mark.asyncio
@@ -149,6 +178,499 @@ async def test_no_body_does_not_read_stream_before_a_rejecting_guard(
 
     assert response[0]["status"] == 403
     assert b"Forbidden." in message_body(response[1])
+
+
+@pytest.mark.asyncio
+async def test_rejecting_guard_does_not_start_asgi_receive_for_body_stream() -> None:
+    class DenyGuard:
+        async def can_activate(self, context) -> bool:
+            return False
+
+    @controller()
+    class Controller:
+        @post("/stream")
+        @use_guard(DenyGuard())
+        async def stream(
+            self,
+            body: Annotated[HttpBodyStream, BodyStream(max_bytes=1)],
+        ) -> None:
+            raise AssertionError("handler must not run")
+
+    @module(controllers=[Controller])
+    class Root:
+        pass
+
+    application = await TestingModule.create(Root).compile(adapter=StarletteAdapter())
+    sent: list[Message] = []
+
+    async def receive() -> Message:
+        raise AssertionError("ASGI receive must remain lazy before guard approval")
+
+    async def send(message: Message) -> None:
+        sent.append(message)
+
+    await _asgi(application)(_http_scope("/stream"), receive, send)
+    await application.close()
+
+    response_start = next(
+        message for message in sent if message["type"] == "http.response.start"
+    )
+    assert response_start["status"] == 403
+
+
+@pytest.mark.asyncio
+async def test_body_stream_preserves_chunks_and_is_single_consumer() -> None:
+    received: list[bytes] = []
+
+    @controller()
+    class Controller:
+        @post("/stream")
+        async def stream(
+            self,
+            body: Annotated[HttpBodyStream, BodyStream(max_bytes=6)],
+        ) -> list[str]:
+            async for chunk in body:
+                received.append(chunk)
+            with pytest.raises(RuntimeError, match="only be consumed once"):
+                async for _ in body:
+                    pass
+            return [chunk.decode() for chunk in received]
+
+    @module(controllers=[Controller])
+    class Root:
+        pass
+
+    application = await TestingModule.create(Root).compile(adapter=StarletteAdapter())
+    incoming = [
+        {"type": "http.request", "body": b"ab", "more_body": True},
+        {"type": "http.request", "body": b"c", "more_body": True},
+        {"type": "http.request", "body": b"def", "more_body": False},
+    ]
+    no_more_messages = asyncio.Event()
+    sent: list[Message] = []
+
+    async def receive() -> Message:
+        if incoming:
+            return cast(Message, incoming.pop(0))
+        await no_more_messages.wait()
+        raise AssertionError("unreachable")
+
+    async def send(message: Message) -> None:
+        sent.append(message)
+
+    await _asgi(application)(_http_scope("/stream"), receive, send)
+    await application.close()
+
+    assert received == [b"ab", b"c", b"def"]
+    response_body = b"".join(
+        cast(bytes, message.get("body", b""))
+        for message in sent
+        if message["type"] == "http.response.body"
+    )
+    assert json.loads(response_body) == ["ab", "c", "def"]
+
+
+@pytest.mark.asyncio
+async def test_route_stream_limit_is_independent_of_global_json_limit() -> None:
+    limit = 20 * 1024 * 1024
+
+    @controller()
+    class Controller:
+        @post("/stream")
+        async def stream(
+            self,
+            body: Annotated[HttpBodyStream, BodyStream(max_bytes=limit)],
+        ) -> int:
+            size = 0
+            async for chunk in body:
+                size += len(chunk)
+            return size
+
+    @module(controllers=[Controller])
+    class Root:
+        pass
+
+    application = await TestingModule.create(Root).compile(
+        adapter=StarletteAdapter(StarletteOptions(body_size_limit=64 * 1024))
+    )
+
+    async def request(chunks: list[bytes]) -> tuple[int, bytes]:
+        incoming = [
+            {
+                "type": "http.request",
+                "body": chunk,
+                "more_body": index < len(chunks) - 1,
+            }
+            for index, chunk in enumerate(chunks)
+        ]
+        no_more_messages = asyncio.Event()
+        sent: list[Message] = []
+
+        async def receive() -> Message:
+            if incoming:
+                return cast(Message, incoming.pop(0))
+            await no_more_messages.wait()
+            raise AssertionError("unreachable")
+
+        async def send(message: Message) -> None:
+            sent.append(message)
+
+        await _asgi(application)(_http_scope("/stream"), receive, send)
+        start = next(
+            message for message in sent if message["type"] == "http.response.start"
+        )
+        content = b"".join(
+            cast(bytes, message.get("body", b""))
+            for message in sent
+            if message["type"] == "http.response.body"
+        )
+        return cast(int, start["status"]), content
+
+    megabyte = b"x" * (1024 * 1024)
+    accepted = await request([megabyte] * 20)
+    rejected = await request([megabyte] * 20 + [b"x"])
+    await application.close()
+
+    assert accepted == (200, str(limit).encode())
+    assert rejected[0] == 413
+    assert b"Request body exceeds the route limit." in rejected[1]
+
+
+@pytest.mark.asyncio
+async def test_zero_body_stream_limit_accepts_empty_and_rejects_first_byte(
+    call_http,
+) -> None:
+    @controller()
+    class Controller:
+        @post("/stream")
+        async def stream(
+            self,
+            body: Annotated[HttpBodyStream, BodyStream(max_bytes=0)],
+        ) -> int:
+            size = 0
+            async for chunk in body:
+                size += len(chunk)
+            return size
+
+    @module(controllers=[Controller])
+    class Root:
+        pass
+
+    application = await TestingModule.create(Root).compile(adapter=StarletteAdapter())
+    empty = await call_http(_asgi(application), method="POST", path="/stream")
+    nonempty = await call_http(
+        _asgi(application), method="POST", path="/stream", body=b"x"
+    )
+    await application.close()
+
+    assert empty[0]["status"] == 200
+    assert nonempty[0]["status"] == 413
+
+
+@pytest.mark.asyncio
+async def test_body_stream_does_not_prefetch_while_consumption_is_paused() -> None:
+    paused = asyncio.Event()
+    resume = asyncio.Event()
+
+    @controller()
+    class Controller:
+        @post("/stream")
+        async def stream(
+            self,
+            body: Annotated[HttpBodyStream, BodyStream(max_bytes=2)],
+        ) -> None:
+            iterator = body.__aiter__()
+            assert await anext(iterator) == b"ab"
+            paused.set()
+            await resume.wait()
+            await anext(iterator)
+
+    @module(controllers=[Controller])
+    class Root:
+        pass
+
+    application = await TestingModule.create(Root).compile(adapter=StarletteAdapter())
+    incoming = [
+        {"type": "http.request", "body": b"ab", "more_body": True},
+        {"type": "http.request", "body": b"x", "more_body": False},
+    ]
+    blocked = asyncio.Event()
+    receive_count = 0
+    sent: list[Message] = []
+
+    async def receive() -> Message:
+        nonlocal receive_count
+        receive_count += 1
+        if incoming:
+            return cast(Message, incoming.pop(0))
+        await blocked.wait()
+        raise AssertionError("unreachable")
+
+    async def send(message: Message) -> None:
+        sent.append(message)
+
+    request = asyncio.ensure_future(
+        _asgi(application)(_http_scope("/stream"), receive, send)
+    )
+    await asyncio.wait_for(paused.wait(), timeout=1)
+    assert receive_count == 1
+    assert len(incoming) == 1
+
+    resume.set()
+    await asyncio.wait_for(request, timeout=1)
+    await application.close()
+
+    response_start = next(
+        message for message in sent if message["type"] == "http.response.start"
+    )
+    assert receive_count == 2
+    assert response_start["status"] == 413
+
+
+@pytest.mark.asyncio
+async def test_active_body_stream_observes_disconnect_on_next_receive() -> None:
+    disconnect_observed = asyncio.Event()
+
+    @controller()
+    class Controller:
+        @post("/stream")
+        async def stream(
+            self,
+            body: Annotated[HttpBodyStream, BodyStream(max_bytes=2)],
+        ) -> None:
+            iterator = body.__aiter__()
+            assert await anext(iterator) == b"a"
+            with pytest.raises(ClientDisconnect):
+                await anext(iterator)
+            disconnect_observed.set()
+            raise HttpException(422, "Upload disconnected.")
+
+    @module(controllers=[Controller])
+    class Root:
+        pass
+
+    application = await TestingModule.create(Root).compile(adapter=StarletteAdapter())
+    incoming = [
+        {"type": "http.request", "body": b"a", "more_body": True},
+        {"type": "http.disconnect"},
+    ]
+    sent: list[Message] = []
+
+    async def receive() -> Message:
+        return cast(Message, incoming.pop(0))
+
+    async def send(message: Message) -> None:
+        sent.append(message)
+
+    await _asgi(application)(_http_scope("/stream"), receive, send)
+    await application.close()
+
+    response_start = next(
+        message for message in sent if message["type"] == "http.response.start"
+    )
+    assert disconnect_observed.is_set()
+    assert response_start["status"] == 422
+
+
+@pytest.mark.asyncio
+async def test_partial_body_stream_fails_before_response_and_closes_late_access() -> (
+    None
+):
+    captured: HttpBodyStream | None = None
+    captured_iterator: AsyncIterator[bytes] | None = None
+    background_ran = asyncio.Event()
+
+    @controller()
+    class Controller:
+        @post("/stream")
+        async def stream(
+            self,
+            body: Annotated[HttpBodyStream, BodyStream(max_bytes=2)],
+        ) -> Response:
+            nonlocal captured, captured_iterator
+            captured = body
+            iterator = body.__aiter__()
+            captured_iterator = iterator
+            assert await anext(iterator) == b"a"
+            return Response("ignored", background=BackgroundTask(background_ran.set))
+
+    @module(controllers=[Controller])
+    class Root:
+        pass
+
+    application = await TestingModule.create(Root).compile(adapter=StarletteAdapter())
+    incoming = [{"type": "http.request", "body": b"a", "more_body": True}]
+    sent: list[Message] = []
+
+    async def receive() -> Message:
+        return cast(Message, incoming.pop(0))
+
+    async def send(message: Message) -> None:
+        sent.append(message)
+
+    await _asgi(application)(_http_scope("/stream"), receive, send)
+    await application.close()
+
+    response_start = next(
+        message for message in sent if message["type"] == "http.response.start"
+    )
+    response_body = b"".join(
+        cast(bytes, message.get("body", b""))
+        for message in sent
+        if message["type"] == "http.response.body"
+    )
+    assert response_start["status"] == 400
+    assert b"Request body stream was not fully consumed." in response_body
+    assert not background_ran.is_set()
+    assert captured is not None
+    with pytest.raises(RuntimeError, match="stream is closed"):
+        captured.__aiter__()
+    assert captured_iterator is not None
+    with pytest.raises(RuntimeError, match="stream is closed"):
+        await anext(captured_iterator)
+
+
+@pytest.mark.asyncio
+async def test_body_stream_close_wakes_blocked_detached_consumer() -> None:
+    receive_started = asyncio.Event()
+    receive_ended = asyncio.Event()
+    detached: asyncio.Future[bytes] | None = None
+
+    @controller()
+    class Controller:
+        @post("/stream")
+        async def stream(
+            self,
+            body: Annotated[HttpBodyStream, BodyStream(max_bytes=1)],
+        ) -> None:
+            nonlocal detached
+            detached = asyncio.ensure_future(anext(body.__aiter__()))
+            await receive_started.wait()
+
+    @module(controllers=[Controller])
+    class Root:
+        pass
+
+    application = await TestingModule.create(Root).compile(adapter=StarletteAdapter())
+    blocked = asyncio.Event()
+    sent: list[Message] = []
+
+    async def receive() -> Message:
+        receive_started.set()
+        try:
+            await blocked.wait()
+        except asyncio.CancelledError:
+            receive_ended.set()
+        return {"type": "http.request", "body": b"x", "more_body": True}
+
+    async def send(message: Message) -> None:
+        sent.append(message)
+
+    await _asgi(application)(_http_scope("/stream"), receive, send)
+    await application.close()
+
+    response_start = next(
+        message for message in sent if message["type"] == "http.response.start"
+    )
+    assert response_start["status"] == 400
+    assert receive_ended.is_set()
+    assert detached is not None
+    assert detached.done()
+    assert not detached.cancelled()
+    with pytest.raises(RuntimeError, match="stream is closed"):
+        await detached
+
+
+@pytest.mark.asyncio
+async def test_handler_error_aborts_partial_body_and_closes_stream() -> None:
+    captured: HttpBodyStream | None = None
+
+    @controller()
+    class Controller:
+        @post("/stream")
+        async def stream(
+            self,
+            body: Annotated[HttpBodyStream, BodyStream(max_bytes=2)],
+        ) -> None:
+            nonlocal captured
+            captured = body
+            assert await anext(body.__aiter__()) == b"a"
+            raise HttpException(422, "Upload was rejected.")
+
+    @module(controllers=[Controller])
+    class Root:
+        pass
+
+    application = await TestingModule.create(Root).compile(adapter=StarletteAdapter())
+    incoming = [{"type": "http.request", "body": b"a", "more_body": True}]
+    sent: list[Message] = []
+
+    async def receive() -> Message:
+        return cast(Message, incoming.pop(0))
+
+    async def send(message: Message) -> None:
+        sent.append(message)
+
+    await _asgi(application)(_http_scope("/stream"), receive, send)
+    await application.close()
+
+    response_start = next(
+        message for message in sent if message["type"] == "http.response.start"
+    )
+    assert response_start["status"] == 422
+    assert captured is not None
+    with pytest.raises(RuntimeError, match="stream is closed"):
+        captured.__aiter__()
+
+
+@pytest.mark.asyncio
+async def test_body_stream_uses_messages_not_content_length() -> None:
+    @controller()
+    class Controller:
+        @post("/stream")
+        async def stream(
+            self,
+            body: Annotated[HttpBodyStream, BodyStream(max_bytes=1)],
+        ) -> int:
+            size = 0
+            async for chunk in body:
+                size += len(chunk)
+            return size
+
+    @module(controllers=[Controller])
+    class Root:
+        pass
+
+    application = await TestingModule.create(Root).compile(adapter=StarletteAdapter())
+
+    async def request(body: bytes, headers: list[tuple[bytes, bytes]]) -> int:
+        incoming = [{"type": "http.request", "body": body, "more_body": False}]
+        blocked = asyncio.Event()
+        sent: list[Message] = []
+
+        async def receive() -> Message:
+            if incoming:
+                return cast(Message, incoming.pop(0))
+            await blocked.wait()
+            raise AssertionError("unreachable")
+
+        async def send(message: Message) -> None:
+            sent.append(message)
+
+        await _asgi(application)(_http_scope("/stream", headers=headers), receive, send)
+        response_start = next(
+            message for message in sent if message["type"] == "http.response.start"
+        )
+        return cast(int, response_start["status"])
+
+    missing = await request(b"x", [])
+    falsely_empty = await request(b"x", [(b"content-length", b"0")])
+    falsely_nonempty = await request(b"", [(b"content-length", b"999")])
+    await application.close()
+
+    assert missing == 200
+    assert falsely_empty == 200
+    assert falsely_nonempty == 200
 
 
 @pytest.mark.asyncio
@@ -895,6 +1417,7 @@ async def test_disconnect_after_final_body_does_not_cancel_background_work() -> 
     background_started = asyncio.Event()
     release_background = asyncio.Event()
     background_completed = asyncio.Event()
+    disconnect_received = asyncio.Event()
 
     async def background() -> None:
         background_started.set()
@@ -903,8 +1426,13 @@ async def test_disconnect_after_final_body_does_not_cancel_background_work() -> 
 
     @controller()
     class Controller:
-        @get("/background")
-        async def response(self) -> Response:
+        @post("/background")
+        async def response(
+            self,
+            body: Annotated[HttpBodyStream, BodyStream(max_bytes=1)],
+        ) -> Response:
+            async for _ in body:
+                pass
             return Response("ok", background=BackgroundTask(background))
 
     @module(controllers=[Controller])
@@ -916,7 +1444,10 @@ async def test_disconnect_after_final_body_does_not_cancel_background_work() -> 
     sent: list[Message] = []
 
     async def receive() -> Message:
-        return await incoming.get()
+        message = await incoming.get()
+        if message["type"] == "http.disconnect":
+            disconnect_received.set()
+        return message
 
     async def send(message: Message) -> None:
         sent.append(message)
@@ -927,7 +1458,7 @@ async def test_disconnect_after_final_body_does_not_cancel_background_work() -> 
             "type": "http",
             "asgi": {"version": "3.0"},
             "http_version": "1.1",
-            "method": "GET",
+            "method": "POST",
             "scheme": "http",
             "path": "/background",
             "raw_path": b"/background",
@@ -937,11 +1468,11 @@ async def test_disconnect_after_final_body_does_not_cancel_background_work() -> 
             "server": ("test", 80),
         },
     )
-    await incoming.put({"type": "http.request", "body": b"", "more_body": False})
+    await incoming.put({"type": "http.request", "body": b"x", "more_body": False})
     request = asyncio.ensure_future(_asgi(application)(scope, receive, send))
     await asyncio.wait_for(background_started.wait(), timeout=1)
     await incoming.put({"type": "http.disconnect"})
-    await asyncio.sleep(0)
+    await asyncio.wait_for(disconnect_received.wait(), timeout=1)
     assert not request.done()
 
     release_background.set()
@@ -964,12 +1495,15 @@ async def test_client_disconnect_cancels_handler_and_cleans_request_scope() -> N
 
     @controller()
     class Controller:
-        @get("/wait")
+        @post("/wait")
         async def wait(
             self,
             value: Annotated[str, Inject("resource")],
+            body: Annotated[HttpBodyStream, BodyStream(max_bytes=1)],
         ) -> None:
             del value
+            async for _ in body:
+                pass
             handler_started.set()
             try:
                 await asyncio.Event().wait()
@@ -999,7 +1533,7 @@ async def test_client_disconnect_cancels_handler_and_cleans_request_scope() -> N
             "type": "http",
             "asgi": {"version": "3.0"},
             "http_version": "1.1",
-            "method": "GET",
+            "method": "POST",
             "scheme": "http",
             "path": "/wait",
             "raw_path": b"/wait",
@@ -1009,13 +1543,105 @@ async def test_client_disconnect_cancels_handler_and_cleans_request_scope() -> N
             "server": ("test", 80),
         },
     )
-    await incoming.put({"type": "http.request", "body": b"", "more_body": False})
+    await incoming.put({"type": "http.request", "body": b"x", "more_body": False})
     request = asyncio.ensure_future(_asgi(application)(scope, receive, send))
     await asyncio.wait_for(handler_started.wait(), timeout=1)
     await incoming.put({"type": "http.disconnect"})
     await asyncio.wait_for(request, timeout=1)
 
     assert sent == []
-    assert events == ["cancelled", "GET /wait"]
+    assert events == ["cancelled", "POST /wait"]
     assert current_request_context() is None
     await application.close()
+
+
+@pytest.mark.asyncio
+async def test_external_cancellation_is_not_swallowed_after_body_completion() -> None:
+    handler_started = asyncio.Event()
+
+    @controller()
+    class Controller:
+        @post("/wait")
+        async def wait(
+            self,
+            body: Annotated[HttpBodyStream, BodyStream(max_bytes=1)],
+        ) -> None:
+            async for _ in body:
+                pass
+            handler_started.set()
+            await asyncio.Event().wait()
+
+    @module(controllers=[Controller])
+    class Root:
+        pass
+
+    application = await TestingModule.create(Root).compile(adapter=StarletteAdapter())
+    incoming: asyncio.Queue[Message] = asyncio.Queue()
+
+    async def receive() -> Message:
+        return await incoming.get()
+
+    async def send(message: Message) -> None:
+        raise AssertionError(f"cancelled request sent {message['type']}")
+
+    await incoming.put({"type": "http.request", "body": b"x", "more_body": False})
+    request = asyncio.ensure_future(
+        _asgi(application)(_http_scope("/wait"), receive, send)
+    )
+    await asyncio.wait_for(handler_started.wait(), timeout=1)
+    request.cancel("external cancellation")
+    with pytest.raises(asyncio.CancelledError) as raised:
+        await request
+    await application.close()
+
+    assert raised.value.args == ("external cancellation",)
+
+
+@pytest.mark.asyncio
+async def test_disconnect_monitor_does_not_replace_pending_external_cancellation() -> (
+    None
+):
+    handler_started = asyncio.Event()
+
+    @controller()
+    class Controller:
+        @post("/wait")
+        async def wait(
+            self,
+            body: Annotated[HttpBodyStream, BodyStream(max_bytes=0)],
+        ) -> None:
+            async for _ in body:
+                pass
+            handler_started.set()
+            await asyncio.Event().wait()
+
+    @module(controllers=[Controller])
+    class Root:
+        pass
+
+    application = await TestingModule.create(Root).compile(adapter=StarletteAdapter())
+    request: asyncio.Future[None] | None = None
+    receive_count = 0
+
+    async def receive() -> Message:
+        nonlocal receive_count
+        receive_count += 1
+        if receive_count == 1:
+            return {"type": "http.request", "body": b"", "more_body": False}
+        assert request is not None
+        request.cancel("external cancellation during disconnect")
+        return {"type": "http.disconnect"}
+
+    async def send(message: Message) -> None:
+        raise AssertionError(f"cancelled request sent {message['type']}")
+
+    request = asyncio.ensure_future(
+        _asgi(application)(_http_scope("/wait"), receive, send)
+    )
+    await asyncio.wait_for(handler_started.wait(), timeout=1)
+    with pytest.raises(asyncio.CancelledError) as raised:
+        await request
+    await application.close()
+
+    assert receive_count == 2
+    assert raised.value.args == ("external cancellation during disconnect",)

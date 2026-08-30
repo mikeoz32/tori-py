@@ -62,6 +62,20 @@ class Body:
 
 
 @dataclass(frozen=True, slots=True)
+class BodyStream:
+    """Bind one raw request-body byte stream with a route-specific limit."""
+
+    max_bytes: int
+
+    def __post_init__(self) -> None:
+        if type(self.max_bytes) is not int or self.max_bytes < 0:
+            raise BootstrapError(
+                "body stream max_bytes must be a non-negative integer",
+                code="route.invalid_binding",
+            )
+
+
+@dataclass(frozen=True, slots=True)
 class Path:
     """Bind one raw path value by its explicit source name."""
 
@@ -338,6 +352,7 @@ def get_no_body_metadata(target: Any) -> NoBodyMetadata | None:
 
 __all__ = [
     "Body",
+    "BodyStream",
     "Context",
     "Cookie",
     "ControllerMetadata",

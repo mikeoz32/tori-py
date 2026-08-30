@@ -181,27 +181,38 @@ class RequestScopeMiddleware:
         ):
             try:
                 async with request_scope:
-                    messages: asyncio.Queue[Message] = asyncio.Queue(maxsize=1)
-                    disconnected = asyncio.Event()
                     response_complete = asyncio.Event()
                     request_task = asyncio.current_task()
                     if request_task is None:
                         raise RuntimeError("HTTP handling requires an asyncio task")
+                    disconnect_cancellation = object()
+                    monitor: asyncio.Task[None] | None = None
 
-                    async def monitor_receive() -> None:
+                    async def monitor_disconnect() -> None:
                         while True:
                             message = await receive()
                             if message["type"] == "http.disconnect":
-                                disconnected.set()
-                                if not response_complete.is_set():
-                                    request_task.cancel()
+                                if (
+                                    not response_complete.is_set()
+                                    and request_task.cancelling() == 0
+                                ):
+                                    request_task.cancel(disconnect_cancellation)
                                 return
-                            await messages.put(message)
 
-                    async def monitored_receive() -> Message:
-                        return await messages.get()
+                    async def direct_receive() -> Message:
+                        nonlocal monitor
+                        message = await receive()
+                        if (
+                            message["type"] == "http.request"
+                            and not message.get("more_body", False)
+                            and monitor is None
+                        ):
+                            # The body consumer is finished, so monitoring can take
+                            # exclusive ownership of receive without prefetching.
+                            monitor = asyncio.create_task(monitor_disconnect())
+                        return message
 
-                    request = Request(scope, monitored_receive)
+                    request = Request(scope, direct_receive)
                     context_token = _set_context(
                         RequestContext(
                             request=request,
@@ -237,11 +248,16 @@ class RequestScopeMiddleware:
                             response_complete.set()
                         await send(message)
 
-                    monitor = asyncio.create_task(monitor_receive())
                     try:
-                        await self.app(scope, monitored_receive, tracked_send)
-                    except asyncio.CancelledError:
-                        if not disconnected.is_set():
+                        await self.app(scope, direct_receive, tracked_send)
+                    except asyncio.CancelledError as error:
+                        if (
+                            len(error.args) == 1
+                            and error.args[0] is disconnect_cancellation
+                            and request_task.cancelling() == 1
+                        ):
+                            request_task.uncancel()
+                        else:
                             raise
                     except Exception:
                         if response_started:
@@ -251,8 +267,9 @@ class RequestScopeMiddleware:
                             )
                         raise
                     finally:
-                        monitor.cancel()
-                        await asyncio.gather(monitor, return_exceptions=True)
+                        if monitor is not None:
+                            monitor.cancel()
+                            await asyncio.gather(monitor, return_exceptions=True)
             finally:
                 if context_token is not None:
                     _reset_context(context_token)

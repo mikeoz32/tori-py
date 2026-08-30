@@ -23,3 +23,18 @@ Routes that require an empty request stream can opt in with `@no_body`. Tori Py
 checks the actual stream after guards and rejects content before pipes,
 interceptors, or the handler. Cumulative content at or below the configured
 limit returns 400; content above it returns 413 regardless of stream chunking.
+
+Routes that need incremental raw bytes can bind
+`Annotated[HttpBodyStream, BodyStream(max_bytes=...)]`. The explicit route limit
+is independent of `StarletteOptions.body_size_limit`, which continues to bound
+parsed JSON bodies. The single-consumer stream starts ASGI receiving only after
+guards pass, preserves non-empty byte chunks, and returns 413 on the first chunk
+that makes cumulative content exceed the route limit. It is closed when endpoint
+processing ends and cannot escape into response streaming, background work, or
+detached tasks. Returning successfully before the final ASGI request-body
+message is consumed returns 400 before response headers.
+
+ASGI exposes one ordered receive channel, so Tori Py does not prefetch merely to
+watch for disconnect while a handler pauses between body chunks. Active-body
+disconnect is observed on the next stream receive; asynchronous disconnect
+monitoring begins after the final request-body message.

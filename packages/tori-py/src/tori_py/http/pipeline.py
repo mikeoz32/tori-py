@@ -110,6 +110,7 @@ class PipelineExecutor:
         *,
         bind_arguments: Callable[[], Awaitable[dict[str, object]]],
         encode_result: Callable[[object], Awaitable[object]],
+        validate_result: Callable[[], Awaitable[None]] | None = None,
     ) -> object:
         try:
             result = await self._run_middleware(
@@ -118,6 +119,8 @@ class PipelineExecutor:
                 scope,
                 bind_arguments=bind_arguments,
             )
+            if validate_result is not None:
+                await validate_result()
         except BaseException as error:
             if self.transport.is_abort_exception(error):
                 raise

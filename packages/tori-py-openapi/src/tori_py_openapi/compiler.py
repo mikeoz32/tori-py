@@ -462,10 +462,10 @@ def _compile_operation(
     for parameter in plan.parameters:
         if parameter.kind in {"context", "inject"}:
             continue
-        if parameter.kind == "body":
+        if parameter.kind in {"body", "body_stream"}:
             if body is not None:
                 raise OpenApiSchemaError(
-                    "an OpenAPI operation may have only one Body binding",
+                    "an OpenAPI operation may have only one body binding",
                     details=context.details(),
                 )
             body = parameter
@@ -516,15 +516,17 @@ def _compile_operation(
             details=context.details(parameters=tuple(parameter_overrides)),
         )
     if body is not None:
+        if body.kind == "body_stream":
+            media_type = "application/octet-stream"
+            schema: object = {"type": "string", "format": "binary"}
+        else:
+            media_type = "application/json"
+            schema = collector.add(
+                body.annotation, context, f"request body {body.name!r}"
+            )
         operation["requestBody"] = {
             "required": True,
-            "content": {
-                "application/json": {
-                    "schema": collector.add(
-                        body.annotation, context, f"request body {body.name!r}"
-                    )
-                }
-            },
+            "content": {media_type: {"schema": schema}},
         }
 
     operation["responses"] = _compile_responses(plan, context, metadata, collector)

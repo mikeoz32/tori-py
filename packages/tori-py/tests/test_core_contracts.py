@@ -5,12 +5,15 @@ import pytest
 from tori_py import (
     AliasProvider,
     ApplicationOptions,
+    Body,
+    BodyStream,
     BootstrapError,
     ClassProvider,
     DeferredModule,
     ExecutionContext,
     FactoryProvider,
     Inject,
+    ModuleId,
     ModuleSpec,
     PipelineOptions,
     ProviderDeclaration,
@@ -26,7 +29,9 @@ from tori_py import (
     injectable,
     module,
     no_body,
+    post,
 )
+from tori_py.http import HttpBodyStream, compile_controller_routes
 from tori_py.starlette import StarletteOptions
 
 
@@ -192,6 +197,51 @@ def test_no_body_metadata_is_direct_opt_in_and_rejects_duplicates() -> None:
     assert get_no_body_metadata(empty) is not None
     with pytest.raises(BootstrapError, match="already declared"):
         no_body(empty)
+
+
+def test_body_stream_limits_and_body_consuming_bindings_are_validated() -> None:
+    assert BodyStream(max_bytes=0).max_bytes == 0
+    for invalid in (-1, True, 1.5):
+        with pytest.raises(BootstrapError, match="non-negative integer"):
+            BodyStream(max_bytes=cast(int, invalid))
+
+    @controller()
+    class DuplicateController:
+        @post("/duplicate")
+        async def duplicate(
+            self,
+            body: Annotated[object, Body()],
+            stream: Annotated[HttpBodyStream, BodyStream(max_bytes=1)],
+        ) -> None:
+            pass
+
+    with pytest.raises(BootstrapError, match="at most one body binding"):
+        compile_controller_routes(ModuleId(DuplicateController), DuplicateController)
+
+    @controller()
+    class NoBodyController:
+        @post("/empty")
+        @no_body
+        async def empty(
+            self,
+            stream: Annotated[HttpBodyStream, BodyStream(max_bytes=1)],
+        ) -> None:
+            pass
+
+    with pytest.raises(BootstrapError, match="cannot bind a request body"):
+        compile_controller_routes(ModuleId(NoBodyController), NoBodyController)
+
+    @controller()
+    class WrongTypeController:
+        @post("/wrong")
+        async def wrong(
+            self,
+            stream: Annotated[object, BodyStream(max_bytes=1)],
+        ) -> None:
+            pass
+
+    with pytest.raises(BootstrapError, match="must use HttpBodyStream"):
+        compile_controller_routes(ModuleId(WrongTypeController), WrongTypeController)
 
 
 def test_module_spec_freezes_iterables_and_deferred_descriptor() -> None:

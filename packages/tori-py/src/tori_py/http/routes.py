@@ -11,6 +11,7 @@ from tori_py.core.compiler import CompiledGraph, ModuleId
 from tori_py.core.errors import BootstrapError
 from tori_py.core.metadata import (
     Body,
+    BodyStream,
     Context,
     Cookie,
     Header,
@@ -25,6 +26,7 @@ from tori_py.core.metadata import (
 from tori_py.core.pipeline import PipelineBindings
 from tori_py.core.protocols import ScopedResolver
 from tori_py.core.providers import Inject, Token
+from tori_py.http.body import HttpBodyStream
 from tori_py.http.context import HttpContext
 from tori_py.http.response import ResponseHeaderMetadata, get_response_header_metadata
 
@@ -38,6 +40,7 @@ class ParameterPlan:
     token: Token | None
     default: object
     has_default: bool
+    max_bytes: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -94,7 +97,9 @@ def compile_controller_routes(
         parameters, return_annotation = _compile_signature(handler)
         status_metadata = get_status_metadata(handler)
         rejects_body = get_no_body_metadata(handler) is not None
-        if rejects_body and any(parameter.kind == "body" for parameter in parameters):
+        if rejects_body and any(
+            parameter.kind in {"body", "body_stream"} for parameter in parameters
+        ):
             raise BootstrapError(
                 "a no_body route cannot bind a request body",
                 code="route.invalid_binding",
@@ -191,8 +196,8 @@ def _compile_signature(
                 code="route.invalid_binding",
             )
         marker = markers[0]
-        kind, source, token = _marker_details(marker)
-        if kind == "body":
+        kind, source, token, max_bytes = _marker_details(marker)
+        if kind in {"body", "body_stream"}:
             body_count += 1
         if kind in {"path", "query", "header", "cookie"} and source is None:
             raise BootstrapError(
@@ -206,6 +211,11 @@ def _compile_signature(
                 f"route context parameter {parameter.name} must use HttpContext",
                 code="route.invalid_binding",
             )
+        if kind == "body_stream" and base is not HttpBodyStream:
+            raise BootstrapError(
+                f"route body stream parameter {parameter.name} must use HttpBodyStream",
+                code="route.invalid_binding",
+            )
         plans.append(
             ParameterPlan(
                 name=parameter.name,
@@ -215,6 +225,7 @@ def _compile_signature(
                 token=token,
                 default=parameter.default,
                 has_default=parameter.default is not inspect.Parameter.empty,
+                max_bytes=max_bytes,
             )
         )
     if body_count > 1:
@@ -248,26 +259,32 @@ def _annotation_markers(annotation: object) -> tuple[object, list[object]]:
     return args[0], recognized
 
 
-def _marker_details(marker: object) -> tuple[str, str | None, Token | None]:
+def _marker_details(
+    marker: object,
+) -> tuple[str, str | None, Token | None, int | None]:
     if isinstance(marker, Body):
-        return "body", None, None
+        return "body", None, None, None
+    if isinstance(marker, BodyStream):
+        return "body_stream", None, None, marker.max_bytes
     if isinstance(marker, Path):
-        return "path", marker.name, None
+        return "path", marker.name, None, None
     if isinstance(marker, Query):
-        return "query", marker.name, None
+        return "query", marker.name, None, None
     if isinstance(marker, Header):
-        return "header", marker.name, None
+        return "header", marker.name, None, None
     if isinstance(marker, Cookie):
-        return "cookie", marker.name, None
+        return "cookie", marker.name, None, None
     if isinstance(marker, Context):
-        return "context", None, None
+        return "context", None, None, None
     if isinstance(marker, Inject):
-        return "inject", None, marker.token
+        return "inject", None, marker.token, None
     raise BootstrapError("unknown route binding marker", code="route.invalid_binding")
 
 
 def _is_marker(value: object) -> bool:
-    return isinstance(value, (Body, Path, Query, Header, Cookie, Context, Inject))
+    return isinstance(
+        value, (Body, BodyStream, Path, Query, Header, Cookie, Context, Inject)
+    )
 
 
 def _join_paths(prefix: str, path: str) -> str:
