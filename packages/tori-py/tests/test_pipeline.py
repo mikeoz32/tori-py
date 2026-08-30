@@ -1,10 +1,15 @@
+import asyncio
 import json
+import logging
+import uuid
 from typing import Annotated, Any, cast
 
 import msgspec
 import pytest
+import tori_py.starlette.routes as routes_module
+from starlette.requests import ClientDisconnect
 from starlette.responses import Response
-from starlette.types import ASGIApp
+from starlette.types import ASGIApp, Message
 from tori_py import (
     Body,
     BootstrapError,
@@ -15,6 +20,7 @@ from tori_py import (
     Inject,
     ModuleSpec,
     NestApplication,
+    Path,
     PipelineOptions,
     PipelineResult,
     Query,
@@ -35,15 +41,66 @@ from tori_py import (
     use_pipes,
 )
 from tori_py.http import HttpResponse
+from tori_py.logging import use_log_context
 from tori_py.starlette import (
     RequestContext,
     StarletteAdapter,
 )
 from tori_py.testing import TestingModule
 
+_SENSITIVE_HTTP_VALUES = (
+    "caller-request-id-sentinel",
+    "sentinel-handle",
+    "workflow-ref-RP7-secret",
+    "cursor-secret-42",
+    "duplicate key value violates unique constraint users_handle_key",
+    "https://internal.example/private?token=secret",
+)
+_SENSITIVE_EXCEPTION_TEXT = " | ".join(_SENSITIVE_HTTP_VALUES[2:])
+
 
 def _asgi(application) -> ASGIApp:
     return application.get_adapter(StarletteAdapter).app
+
+
+def _assert_sanitized_http_records(
+    records: list[logging.LogRecord],
+    expected_codes: list[str],
+) -> None:
+    assert [record.getMessage() for record in records] == expected_codes
+    standard_fields = logging.makeLogRecord({}).__dict__.keys() | {
+        "asctime",
+        "message",
+    }
+    formatter = logging.Formatter("%(message)s|%(event_id)s")
+    event_ids: set[str] = set()
+    for record in records:
+        extra = {
+            key: value
+            for key, value in record.__dict__.items()
+            if key not in standard_fields
+        }
+        assert set(extra) == {"event_id"}
+        event_id = cast(str, extra["event_id"])
+        assert str(uuid.UUID(event_id)) == event_id
+        assert event_id not in event_ids
+        event_ids.add(event_id)
+        assert record.args == ()
+        assert record.exc_info is None
+        assert record.exc_text is None
+        rendered = formatter.format(record)
+        inspected = " ".join(
+            (
+                record.getMessage(),
+                repr(record.args),
+                repr(extra),
+                repr(record.exc_info),
+                repr(record.exc_text),
+                rendered,
+            )
+        )
+        for value in _SENSITIVE_HTTP_VALUES:
+            assert value not in inspected
 
 
 class Payload(msgspec.Struct):
@@ -342,10 +399,12 @@ async def test_guard_false_and_filter_precedence(call_http) -> None:
 
 @pytest.mark.asyncio
 async def test_filter_resolution_failure_falls_through_to_later_filter(
+    caplog: pytest.LogCaptureFixture,
     call_http,
+    message_headers,
 ) -> None:
     def broken_filter() -> object:
-        raise RuntimeError("filter construction failed")
+        raise RuntimeError(_SENSITIVE_EXCEPTION_TEXT)
 
     class GlobalFilter:
         async def catch(self, error, context):
@@ -355,10 +414,14 @@ async def test_filter_resolution_failure_falls_through_to_later_filter(
 
     @controller()
     class Controller:
-        @get("/failure")
+        @get("/profiles/{handle}")
         @use_filter("broken-filter")
-        async def failure(self) -> str:
-            raise RuntimeError("handler failed")
+        async def failure(
+            self,
+            handle: Annotated[str, Path("handle")],
+            cursor: Annotated[str, Query("cursor")],
+        ) -> str:
+            raise RuntimeError(f"{handle} {cursor} {_SENSITIVE_EXCEPTION_TEXT}")
 
     @module(
         controllers=[Controller],
@@ -378,9 +441,299 @@ async def test_filter_resolution_failure_falls_through_to_later_filter(
         pipeline=PipelineOptions(filters=("global-filter",)),
         adapter=StarletteAdapter(),
     )
-    response = await call_http(_asgi(application), path="/failure")
-    assert response[0]["status"] == 419
+    with caplog.at_level(logging.ERROR):
+        response = await call_http(
+            _asgi(application),
+            path="/profiles/sentinel-handle?cursor=cursor-secret-42",
+            headers=[(b"x-request-id", b"caller-request-id-sentinel")],
+        )
     await application.close()
+
+    assert response[0]["status"] == 419
+    assert (b"x-request-id", b"caller-request-id-sentinel") in message_headers(
+        response[0]
+    )
+    records = [
+        record for record in caplog.records if record.name.startswith("tori_py.")
+    ]
+    _assert_sanitized_http_records(
+        records,
+        ["tori_py.http.exception_filter_resolution_failed"],
+    )
+
+
+@pytest.mark.asyncio
+async def test_http_fallback_logs_are_value_free_and_use_generated_event_ids(
+    caplog: pytest.LogCaptureFixture,
+    call_http,
+    message_headers,
+) -> None:
+    class FailingFilter:
+        async def catch(self, error, context):
+            del error, context
+            raise RuntimeError(_SENSITIVE_EXCEPTION_TEXT)
+
+    @controller()
+    class Controller:
+        @get("/profiles/{handle}")
+        @use_filter(FailingFilter())
+        async def failure(
+            self,
+            handle: Annotated[str, Path("handle")],
+            cursor: Annotated[str, Query("cursor")],
+        ) -> None:
+            raise RuntimeError(f"{handle} {cursor} {_SENSITIVE_EXCEPTION_TEXT}")
+
+    @module(controllers=[Controller])
+    class Root:
+        pass
+
+    application = await TestingModule.create(Root).compile(adapter=StarletteAdapter())
+    with caplog.at_level(logging.ERROR):
+        response = await call_http(
+            _asgi(application),
+            path="/profiles/sentinel-handle?cursor=cursor-secret-42",
+            headers=[(b"x-request-id", b"caller-request-id-sentinel")],
+        )
+    await application.close()
+
+    assert response[0]["status"] == 500
+    assert (b"x-request-id", b"caller-request-id-sentinel") in message_headers(
+        response[0]
+    )
+    records = [
+        record for record in caplog.records if record.name.startswith("tori_py.")
+    ]
+    _assert_sanitized_http_records(
+        records,
+        [
+            "tori_py.http.exception_filter_failed",
+            "tori_py.http.unhandled_exception",
+        ],
+    )
+
+
+@pytest.mark.asyncio
+async def test_exception_and_routing_render_fallback_logs_are_sanitized(
+    caplog: pytest.LogCaptureFixture,
+    call_http,
+    message_headers,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fail_encoding(*args, **kwargs):
+        del args, kwargs
+        raise RuntimeError(_SENSITIVE_EXCEPTION_TEXT)
+
+    monkeypatch.setattr(routes_module, "_encode_pipeline_result", fail_encoding)
+
+    @controller()
+    class Controller:
+        @get("/profiles/{handle}")
+        async def failure(
+            self,
+            handle: Annotated[str, Path("handle")],
+            cursor: Annotated[str, Query("cursor")],
+        ) -> None:
+            raise RuntimeError(f"{handle} {cursor} {_SENSITIVE_EXCEPTION_TEXT}")
+
+    @module(controllers=[Controller])
+    class Root:
+        pass
+
+    application = await TestingModule.create(Root).compile(adapter=StarletteAdapter())
+    headers = [(b"x-request-id", b"caller-request-id-sentinel")]
+    with caplog.at_level(logging.ERROR):
+        exception_response = await call_http(
+            _asgi(application),
+            path="/profiles/sentinel-handle?cursor=cursor-secret-42",
+            headers=headers,
+        )
+        routing_response = await call_http(
+            _asgi(application),
+            path="/sentinel-handle?cursor=cursor-secret-42",
+            headers=headers,
+        )
+    await application.close()
+
+    assert exception_response[0]["status"] == 500
+    assert routing_response[0]["status"] == 500
+    for response in (exception_response, routing_response):
+        assert (b"x-request-id", b"caller-request-id-sentinel") in message_headers(
+            response[0]
+        )
+    records = [
+        record for record in caplog.records if record.name.startswith("tori_py.")
+    ]
+    _assert_sanitized_http_records(
+        records,
+        [
+            "tori_py.http.unhandled_exception",
+            "tori_py.http.exception_response_failed",
+            "tori_py.http.routing_response_failed",
+        ],
+    )
+
+
+@pytest.mark.asyncio
+async def test_failure_after_response_start_logs_only_a_sanitized_event(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    class FailingResponse(Response):
+        async def __call__(self, scope, receive, send) -> None:
+            del scope, receive
+            await send(
+                {
+                    "type": "http.response.start",
+                    "status": 200,
+                    "headers": [],
+                }
+            )
+            raise RuntimeError(_SENSITIVE_EXCEPTION_TEXT)
+
+    @controller()
+    class Controller:
+        @get("/profiles/{handle}")
+        async def failure(
+            self,
+            handle: Annotated[str, Path("handle")],
+            cursor: Annotated[str, Query("cursor")],
+        ) -> Response:
+            del handle, cursor
+            return FailingResponse()
+
+    @module(controllers=[Controller])
+    class Root:
+        pass
+
+    application = await TestingModule.create(Root).compile(adapter=StarletteAdapter())
+    incoming = iter(
+        cast(
+            list[Message],
+            [
+                {
+                    "type": "http.request",
+                    "body": b"",
+                    "more_body": False,
+                }
+            ],
+        )
+    )
+    sent: list[Message] = []
+
+    async def receive() -> Message:
+        return next(incoming)
+
+    async def send(message: Message) -> None:
+        sent.append(message)
+
+    scope = cast(
+        Any,
+        {
+            "type": "http",
+            "asgi": {"version": "3.0"},
+            "http_version": "1.1",
+            "method": "GET",
+            "scheme": "http",
+            "path": "/profiles/sentinel-handle",
+            "raw_path": b"/profiles/sentinel-handle",
+            "query_string": b"cursor=cursor-secret-42",
+            "headers": [(b"x-request-id", b"caller-request-id-sentinel")],
+            "client": ("test", 1),
+            "server": ("test", 80),
+        },
+    )
+    with caplog.at_level(logging.ERROR):
+        with pytest.raises(RuntimeError, match="workflow-ref"):
+            await _asgi(application)(scope, receive, send)
+    await application.close()
+
+    assert sent[0]["type"] == "http.response.start"
+    assert (b"x-request-id", b"caller-request-id-sentinel") in cast(
+        list[tuple[bytes, bytes]], sent[0]["headers"]
+    )
+    records = [
+        record for record in caplog.records if record.name.startswith("tori_py.")
+    ]
+    _assert_sanitized_http_records(
+        records,
+        [
+            "tori_py.http.unhandled_exception",
+            "tori_py.http.response_transmission_failed",
+        ],
+    )
+
+
+@pytest.mark.asyncio
+async def test_emergency_renderer_failure_log_excludes_ambient_request_context(
+    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    @module()
+    class Root:
+        pass
+
+    application = await TestingModule.create(Root).compile(adapter=StarletteAdapter())
+    adapter = application.get_adapter(StarletteAdapter)
+    binder = cast(Any, adapter)._binder
+
+    def fail_emergency(context) -> object:
+        del context
+        raise RuntimeError(_SENSITIVE_EXCEPTION_TEXT)
+
+    monkeypatch.setattr(binder.pipeline.transport, "render_emergency", fail_emergency)
+    with caplog.at_level(logging.ERROR):
+        with use_log_context(request_id="caller-request-id-sentinel"):
+            with pytest.raises(RuntimeError, match="workflow-ref"):
+                binder.pipeline._render_emergency(cast(Any, object()))
+    await application.close()
+
+    records = [
+        record for record in caplog.records if record.name.startswith("tori_py.")
+    ]
+    _assert_sanitized_http_records(
+        records,
+        ["tori_py.http.emergency_response_failed"],
+    )
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        ClientDisconnect(),
+        asyncio.CancelledError(),
+        KeyboardInterrupt(),
+        SystemExit(),
+    ],
+)
+@pytest.mark.asyncio
+async def test_emergency_renderer_propagates_abort_and_process_control(
+    caplog: pytest.LogCaptureFixture,
+    error: BaseException,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    @module()
+    class Root:
+        pass
+
+    application = await TestingModule.create(Root).compile(adapter=StarletteAdapter())
+    adapter = application.get_adapter(StarletteAdapter)
+    binder = cast(Any, adapter)._binder
+
+    def fail_emergency(context) -> object:
+        del context
+        raise error
+
+    monkeypatch.setattr(binder.pipeline.transport, "render_emergency", fail_emergency)
+    with caplog.at_level(logging.ERROR):
+        with use_log_context(request_id="caller-request-id-sentinel"):
+            with pytest.raises(BaseException) as raised:
+                binder.pipeline._render_emergency(cast(Any, object()))
+    await application.close()
+
+    assert raised.value is error
+    assert [
+        record for record in caplog.records if record.name.startswith("tori_py.")
+    ] == []
 
 
 @pytest.mark.asyncio

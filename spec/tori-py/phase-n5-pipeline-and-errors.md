@@ -129,7 +129,8 @@ Global filters may receive routing 404/405 through partial context. Route and
 controller filters require a successful match.
 
 No replacement response is attempted after `http.response.start`; such errors
-are logged with request ID and propagated/observed according to ASGI behavior.
+are logged through the sanitized emergency boundary and propagated/observed
+according to ASGI behavior.
 
 ## Problem Details
 
@@ -152,8 +153,11 @@ Default mappings:
 - unsupported media type -> 415;
 - unexpected `Exception` -> 500 with generic detail.
 
-Unexpected exceptions are logged with traceback and request ID, never returned
-with source details.
+Unexpected exceptions are never returned with source details. Framework
+fallback logs emit only a fixed, value-free event code and a fresh
+framework-generated canonical UUID event ID. Caller correlation IDs, request
+paths and query values, exception messages and representations, tracebacks, and
+raw exception information are excluded.
 
 ## Explicit Responses
 

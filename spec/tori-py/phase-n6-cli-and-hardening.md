@@ -138,6 +138,9 @@ Verify:
 - body limits apply while streaming input;
 - request IDs reject unsafe and duplicate input;
 - Problem Details never expose tracebacks by default;
+- emergency/fallback logs contain only a fixed value-free code and a generated
+  canonical UUID event ID, never caller correlation IDs, request values, or
+  exception details;
 - filters cannot swallow cancellation/system exits;
 - stale request resolvers fail closed;
 - provider/module diagnostics do not render arbitrary secret object reprs;

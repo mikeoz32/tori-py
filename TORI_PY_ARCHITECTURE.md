@@ -874,8 +874,10 @@ class ExceptionFilter(Protocol):
 awaiting driver encoding or an explicit driver response held as opaque data.
 The Starlette driver maps it to ASGI output. A filter can return a replacement
 `PipelineResult` only before ASGI response transmission starts. Failures during
-or after ASGI response transmission are logged with request ID and cannot be
-re-rendered by filters.
+or after ASGI response transmission cannot be re-rendered by filters. Framework
+emergency diagnostics use a fixed, value-free event code and a fresh canonical
+UUID event ID; they never use the caller correlation ID or include request data,
+exception text, representations, or tracebacks.
 
 ## 11. Errors and Validation
 
@@ -894,7 +896,8 @@ ToriPy `HttpException` defaults to RFC 9457 `application/problem+json`:
 ```
 
 Validation failures add a structured `errors` extension. Unexpected exceptions
-log request ID and return 500 without source stack traces by default.
+return 500 without source stack traces. The framework fallback log is the
+sanitized emergency event described above rather than an exception log.
 
 ### 11.2 Msgspec validation
 
@@ -975,7 +978,9 @@ The Starlette driver uses `X-Request-ID`:
 - overwrite a conflicting `X-Request-ID` on an explicit Starlette response with
   the framework-owned request ID;
 - treat the ID as observability metadata only, never as an authentication or
-  authorization signal.
+  authorization signal;
+- keep caller-provided IDs out of framework emergency/fallback logs, which use
+  independently generated event IDs instead.
 
 ## 14. Testing
 

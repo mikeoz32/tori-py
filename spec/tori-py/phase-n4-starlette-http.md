@@ -119,6 +119,11 @@ Use `X-Request-ID`:
 
 Request IDs are observability metadata only.
 
+Framework emergency/fallback logs do not use these correlation IDs. They emit
+only a fixed, value-free event code and a fresh framework-generated canonical
+UUID event ID, without request paths or query values, exception text,
+representations, tracebacks, or raw exception information.
+
 ## Binding Markers
 
 Except `self`, every route parameter has exactly one marker:
@@ -192,7 +197,8 @@ including Starlette streaming/files/background tasks. Advanced response
 features are escape hatches without future-driver portability guarantees.
 
 Track `http.response.start`. Exceptions after transmission starts are logged
-and cannot be replaced with another response.
+through the sanitized emergency boundary and cannot be replaced with another
+response.
 
 ## Routing Errors
 

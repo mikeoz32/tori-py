@@ -28,6 +28,7 @@ from tori_py.core.errors import ApplicationStateError, BootstrapError
 from tori_py.core.modules import ModuleSpec
 from tori_py.core.options import PipelineOptions
 from tori_py.core.providers import ProviderDeclaration
+from tori_py.http._observability import log_http_emergency
 from tori_py.http.errors import HttpException
 from tori_py.http.pipeline import PipelineExecutor
 from tori_py.http.routes import bind_routes, compile_routes
@@ -244,9 +245,9 @@ class RequestScopeMiddleware:
                             raise
                     except Exception:
                         if response_started:
-                            logger.exception(
-                                "HTTP response failed after transmission started",
-                                extra={"request_id": request_id},
+                            log_http_emergency(
+                                logger,
+                                "tori_py.http.response_transmission_failed",
                             )
                         raise
                     finally:

@@ -22,6 +22,7 @@ from tori_py.core.protocols import (
     PipelineResult,
 )
 from tori_py.core.runtime import RequestScope
+from tori_py.http._observability import log_http_emergency
 from tori_py.http.context import HttpContext
 from tori_py.http.errors import HttpException
 from tori_py.http.routes import RoutePlan
@@ -154,16 +155,11 @@ class PipelineExecutor:
                 raise
             if not isinstance(render_error, Exception):
                 raise
-            logger.error(
-                "Routing error response could not be rendered",
-                extra={"request_id": context.request_id},
-                exc_info=(
-                    type(render_error),
-                    render_error,
-                    render_error.__traceback__,
-                ),
+            log_http_emergency(
+                logger,
+                "tori_py.http.routing_response_failed",
             )
-            return self.transport.render_emergency(context)
+            return self._render_emergency(context)
 
     async def _run_middleware(
         self,
@@ -334,9 +330,9 @@ class PipelineExecutor:
                         raise
                     if not isinstance(resolution_error, Exception):
                         raise
-                    logger.exception(
-                        "Exception filter could not be resolved",
-                        extra={"request_id": context.request_id},
+                    log_http_emergency(
+                        logger,
+                        "tori_py.http.exception_filter_resolution_failed",
                     )
                     continue
                 try:
@@ -352,9 +348,9 @@ class PipelineExecutor:
                         raise
                     if not isinstance(filter_error, Exception):
                         raise
-                    logger.exception(
-                        "Exception filter failed",
-                        extra={"request_id": context.request_id},
+                    log_http_emergency(
+                        logger,
+                        "tori_py.http.exception_filter_failed",
                     )
         return self.transport.render_exception(error, context)
 
@@ -374,16 +370,25 @@ class PipelineExecutor:
                 raise
             if not isinstance(render_error, Exception):
                 raise
-            logger.error(
-                "Exception response could not be rendered",
-                extra={"request_id": context.request_id},
-                exc_info=(
-                    type(render_error),
-                    render_error,
-                    render_error.__traceback__,
-                ),
+            log_http_emergency(
+                logger,
+                "tori_py.http.exception_response_failed",
             )
+            return self._render_emergency(context)
+
+    def _render_emergency(self, context: HttpContext) -> object:
+        try:
             return self.transport.render_emergency(context)
+        except BaseException as error:
+            if self.transport.is_abort_exception(error):
+                raise
+            if not isinstance(error, Exception):
+                raise
+            log_http_emergency(
+                logger,
+                "tori_py.http.emergency_response_failed",
+            )
+            raise
 
     async def _resolve_pipeline(
         self,

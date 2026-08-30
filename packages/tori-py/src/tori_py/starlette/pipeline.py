@@ -7,6 +7,7 @@ from starlette.requests import ClientDisconnect, Request
 from starlette.responses import Response
 
 from tori_py.core.protocols import PipelineResult
+from tori_py.http._observability import log_http_emergency
 from tori_py.http.context import HttpContext
 from tori_py.http.errors import HttpException
 from tori_py.starlette.errors import problem_response
@@ -48,10 +49,9 @@ class StarlettePipelineAdapter:
                 errors=error.errors,
             )
         else:
-            logger.error(
-                "Unhandled application exception",
-                extra={"request_id": context.request_id},
-                exc_info=(type(error), error, error.__traceback__),
+            log_http_emergency(
+                logger,
+                "tori_py.http.unhandled_exception",
             )
             response = problem_response(
                 500,
