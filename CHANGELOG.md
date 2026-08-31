@@ -18,6 +18,11 @@ one package does not require the same change in every package.
 - OpenAPI bound-parameter schema/description refinement plus explicit response
   headers and per-response media types, including header-only 204 responses.
 
+### Fixed
+
+- OpenAPI header parameter identities now follow case-insensitive HTTP semantics,
+  and excessively nested annotations fail with typed schema diagnostics.
+
 ## [0.1.0] - Unreleased
 
 Coordinated initial beta release train for all 12 distributions. This train

@@ -41,7 +41,12 @@ from tori_py.http import (
 )
 
 from tori_py_openapi.errors import OpenApiSchemaError
-from tori_py_openapi.metadata import MergedMetadata, ResponseMetadata, merge_metadata
+from tori_py_openapi.metadata import (
+    MergedMetadata,
+    ResponseMetadata,
+    _parameter_identity,
+    merge_metadata,
+)
 from tori_py_openapi.options import (
     BearerSecurityScheme,
     OpenApiOptions,
@@ -138,6 +143,26 @@ class _SchemaCollector:
                 annotations,
                 ref_template="#/components/schemas/{name}",
             )
+        except RecursionError as error:
+            if not self.uses:  # pragma: no cover - no annotations cannot recurse
+                raise OpenApiSchemaError(
+                    "OpenAPI schema generation exceeded annotation nesting limits"
+                ) from error
+            if len(self.uses) > 1:
+                raise OpenApiSchemaError(
+                    "OpenAPI schema generation exceeded annotation nesting limits",
+                    details={
+                        "uses": tuple(
+                            use.context.details(purpose=use.purpose)
+                            for use in self.uses
+                        )
+                    },
+                ) from error
+            first = self.uses[0]
+            raise OpenApiSchemaError(
+                f"{first.purpose} annotation is too deeply nested",
+                details=first.context.details(),
+            ) from error
         except KeyError as error:
             raise self._generation_error(
                 "OpenAPI component schema names collide", error
@@ -456,7 +481,8 @@ def _compile_operation(
     parameters: list[dict[str, object]] = []
     parameter_identities: set[tuple[str, str]] = set()
     parameter_overrides = {
-        (item.name, item.location): item for item in metadata.parameters
+        _parameter_identity(item.name, item.location): item
+        for item in metadata.parameters
     }
     body: ParameterPlan | None = None
     for parameter in plan.parameters:
@@ -480,7 +506,7 @@ def _compile_operation(
                 "documented route binding requires a source name",
                 details=context.details(parameter=parameter.name),
             )
-        identity = (parameter.source, parameter.kind)
+        identity = _parameter_identity(parameter.source, parameter.kind)
         if identity in parameter_identities:
             raise OpenApiSchemaError(
                 f"duplicate {parameter.kind.title()} binding for {parameter.source!r}",
@@ -701,13 +727,18 @@ def _validate_annotation(
     context: _RouteContext,
     purpose: str,
 ) -> None:
-    if _unwrap_annotation(annotation) is object:
-        raise OpenApiSchemaError(
-            f"{purpose} annotation produced an unconstrained schema",
-            details=context.details(annotation=_annotation_name(annotation)),
-        )
     try:
+        if _unwrap_annotation(annotation) is object:
+            raise OpenApiSchemaError(
+                f"{purpose} annotation produced an unconstrained schema",
+                details=context.details(annotation=_annotation_name(annotation)),
+            )
         _walk_annotation(annotation, set())
+    except RecursionError as error:
+        raise OpenApiSchemaError(
+            f"{purpose} annotation is too deeply nested",
+            details=context.details(),
+        ) from error
     except (NameError, TypeError) as error:
         raise OpenApiSchemaError(
             f"{purpose} annotation is unresolved or unsupported",

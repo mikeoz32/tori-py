@@ -2,7 +2,7 @@
 
 ## Status
 
-Implementation status: in progress on `feature/tori-py-openapi`.
+Implementation status: OA0-OA4 complete on `main`.
 
 Architecture: [`TORI_PY_OPENAPI_ARCHITECTURE.md`](TORI_PY_OPENAPI_ARCHITECTURE.md).
 

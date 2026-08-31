@@ -240,11 +240,12 @@ def api_parameter[TargetT](
         _parameter_schema(schema),
         _parameter_description(description),
     )
+    identity = _parameter_identity(parameter.name, parameter.location)
 
     def decorate(target: TargetT) -> TargetT:
         def add(metadata: TargetMetadata) -> TargetMetadata:
             if any(
-                item.name == parameter.name and item.location == parameter.location
+                _parameter_identity(item.name, item.location) == identity
                 for item in metadata.parameters
             ):
                 raise OpenApiMetadataError(
@@ -255,6 +256,12 @@ def api_parameter[TargetT](
         return _write_metadata(target, add, route_only=True)
 
     return decorate
+
+
+def _parameter_identity(name: str, location: str) -> tuple[str, str]:
+    if location == "header":
+        name = name.casefold()
+    return name, location
 
 
 def api_security[TargetT](

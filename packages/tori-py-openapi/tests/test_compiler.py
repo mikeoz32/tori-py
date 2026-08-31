@@ -732,6 +732,43 @@ def test_parameter_metadata_requires_an_existing_matching_route_binding() -> Non
     assert raised.value.diagnostic.details["parameters"] == (("missing", "header"),)
 
 
+def test_header_parameter_metadata_matches_route_bindings_case_insensitively() -> None:
+    class Controller:
+        @api_parameter(
+            "X-Request-ID",
+            location="header",
+            schema={"maxLength": 36},
+            description="Request correlation identifier",
+        )
+        async def read(self) -> object:
+            raise NotImplementedError
+
+    document = _json(
+        compile_openapi_document(
+            (
+                _plan(
+                    Controller,
+                    "read",
+                    parameters=(
+                        _parameter("request_id", str, "header", "x-request-id"),
+                    ),
+                ),
+            ),
+            OpenApiOptions(OpenApiInfo("Example", "1.0")),
+        )
+    )
+
+    assert document["paths"]["/items"]["get"]["parameters"] == [
+        {
+            "name": "x-request-id",
+            "in": "header",
+            "required": True,
+            "description": "Request correlation identifier",
+            "schema": {"type": "string", "maxLength": 36},
+        }
+    ]
+
+
 def test_explicit_response_supports_per_response_media_type_and_headers() -> None:
     class Problem(msgspec.Struct):
         detail: str
@@ -958,6 +995,22 @@ def test_duplicate_non_path_parameter_identity_fails() -> None:
         )
 
 
+def test_duplicate_header_parameter_identity_is_case_insensitive() -> None:
+    class Controller:
+        async def read(self) -> object:
+            raise NotImplementedError
+
+    parameters = (
+        _parameter("first", str, "header", "X-Request-ID"),
+        _parameter("second", str, "header", "x-request-id"),
+    )
+    with pytest.raises(OpenApiSchemaError, match="duplicate Header binding"):
+        compile_openapi_document(
+            (_plan(Controller, "read", parameters=parameters),),
+            OpenApiOptions(OpenApiInfo("Example", "1.0")),
+        )
+
+
 def test_tagged_struct_union_is_supported_and_untagged_object_union_fails() -> None:
     class Cat(msgspec.Struct, tag="cat"):
         lives: int
@@ -1067,6 +1120,66 @@ def test_any_is_rejected_at_root_and_recursively_in_models() -> None:
             compile_openapi_document(
                 (_plan(Controller, "read", return_annotation=annotation),), options
             )
+
+
+def test_excessively_nested_annotations_raise_a_typed_schema_error() -> None:
+    class Controller:
+        async def read(self) -> object:
+            raise NotImplementedError
+
+    annotation: Any = int
+    for _ in range(500):
+        annotation = list[annotation]
+
+    with pytest.raises(OpenApiSchemaError, match="too deeply nested") as raised:
+        compile_openapi_document(
+            (_plan(Controller, "read", return_annotation=annotation),),
+            OpenApiOptions(OpenApiInfo("Example", "1.0")),
+        )
+
+    assert raised.value.diagnostic.details == {
+        "method": "GET",
+        "path": "/items",
+        "handler": "Controller.read",
+    }
+
+
+def test_schema_generation_recursion_reports_all_possible_annotation_uses() -> None:
+    class Controller:
+        async def read(self) -> object:
+            raise NotImplementedError
+
+    annotation: Any = int
+    for _ in range(500):
+        annotation = list[annotation]
+
+    with pytest.raises(
+        OpenApiSchemaError,
+        match="schema generation exceeded annotation nesting limits",
+    ) as raised:
+        compile_openapi_document(
+            (
+                _plan(
+                    Controller,
+                    "read",
+                    return_annotation=annotation,
+                    parameters=(_parameter("value", int, "query", "value"),),
+                ),
+            ),
+            OpenApiOptions(OpenApiInfo("Example", "1.0")),
+        )
+
+    context = {
+        "method": "GET",
+        "path": "/items",
+        "handler": "Controller.read",
+    }
+    assert raised.value.diagnostic.details == {
+        "uses": (
+            {**context, "purpose": "parameter 'value'"},
+            {**context, "purpose": "return"},
+        )
+    }
 
 
 def test_unconstrained_root_schema_and_component_collision_are_typed() -> None:

@@ -171,6 +171,15 @@ def test_duplicate_parameter_identity_is_rejected() -> None:
         api_parameter("value", location="query", schema={})(route)
 
 
+def test_duplicate_header_parameter_identity_is_case_insensitive() -> None:
+    @api_parameter("X-Request-ID", location="header", schema={})
+    async def route() -> None:
+        pass
+
+    with pytest.raises(OpenApiMetadataError, match="already declared"):
+        api_parameter("x-request-id", location="header", schema={})(route)
+
+
 def test_cyclic_and_excessively_nested_parameter_schemas_are_metadata_errors() -> None:
     cyclic: dict[str, object] = {}
     cyclic["self"] = cyclic
