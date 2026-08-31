@@ -1,11 +1,13 @@
 # Tutorials
 
-These tutorials connect Tori Py's tested examples to the detailed guides. Start
-with the path that matches the application you want to build; use the linked
-guide hubs when you need the complete contract or API surface.
+These tutorials build applications step by step and connect each result to the
+detailed guides. Start with the path that matches the application you want to
+build; use the guide hubs when you need the complete contract or API surface.
 
-The example module paths work from a repository checkout. They are not installed
-as application templates by any Tori Py distribution.
+Tutorial code is maintained as tested source under `examples/tori_py/`, but the
+CQRS tutorial starts from an empty consumer project and includes every required
+file on the page. Repository module paths are verification artifacts, not
+installed application templates.
 
 ## Choose A Learning Path
 

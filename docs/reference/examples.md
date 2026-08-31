@@ -71,13 +71,15 @@ creation is deliberately example-owned; it is not a migration feature of
 
 | Example | Exact command | Demonstrates |
 | --- | --- | --- |
+| CQRS tutorial Task API | `uv run pytest examples/tori_py/tutorials/cqrs_task_api/task_app/test_app.py -q` | Complete copyable tutorial source: messages, state, discovered handlers, HTTP, modules, and direct-bus/HTTP tests |
 | Advanced CQRS Task API | `uv run tori-py run examples.tori_py.cqrs.advanced.app:create_application` | Automatic handler discovery, handler scopes, event fan-out, and an in-process read projection |
 | Event-sourced community tests | `uv run pytest examples/tori_py/cqrs/event_sourcing -q` | Three aggregates, explicit schemas/upcasting, automatic command transactions, synchronization, optimistic concurrency, projection checkpoints, privacy, and moderation |
 | Event-sourced community HTTP app | `uv run uvicorn examples.tori_py.cqrs.event_sourcing.app:application` | The same project through its production ASGI lifespan wrapper |
 
-The advanced CQRS projection is non-durable and its write plus event publication
-is not atomic. The event-sourcing project uses `InMemoryEventStore` and an
-in-memory projection; its tests prove semantics, not production durability.
+The tutorial and advanced CQRS projections are non-durable, and their writes plus
+event publication are not atomic. The event-sourcing project uses
+`InMemoryEventStore` and an in-memory projection; its tests prove semantics, not
+production durability.
 
 ### FastAPI CQRS
 

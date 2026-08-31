@@ -19,6 +19,9 @@ For a larger event-driven example using automatic `tori-py-cqrs` handler
 discovery, scoped command handling, event fan-out, and a read projection, see
 [`cqrs/advanced`](cqrs/advanced/README.md).
 
+For the smaller application built file by file in the documentation, see the
+executable [`tutorials/cqrs_task_api`](tutorials/cqrs_task_api/README.md) source.
+
 For a full event-sourced community project with three aggregates, schema
 upcasting, optimistic concurrency, request-scoped Unit of Work, checkpointed
 projections, privacy rules, moderation, and HTTP endpoints, see
