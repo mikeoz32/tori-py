@@ -15,7 +15,7 @@ uv add "tori-py-framework[cli,testing]"
 ```
 
 The package is beta and follows independent Semantic Versioning. See the
-[Tori Py documentation](https://github.com/mikeoz32/tori-py/tree/main/docs),
+[Tori Py documentation](https://mikeoz32.github.io/tori-py/),
 [repository](https://github.com/mikeoz32/tori-py), and
 [changelog](https://github.com/mikeoz32/tori-py/blob/main/CHANGELOG.md).
 

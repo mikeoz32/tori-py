@@ -48,7 +48,7 @@ claim unconditional production readiness.
 
 ## Project Links
 
-- [Documentation](https://github.com/mikeoz32/tori-py/tree/main/docs)
+- [Documentation](https://mikeoz32.github.io/tori-py/)
 - [Issue tracker](https://github.com/mikeoz32/tori-py/issues)
 - [Changelog](https://github.com/mikeoz32/tori-py/blob/main/CHANGELOG.md)
 - [Security policy](https://github.com/mikeoz32/tori-py/blob/main/SECURITY.md)

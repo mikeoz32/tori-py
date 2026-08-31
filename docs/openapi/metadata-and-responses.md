@@ -11,7 +11,7 @@ be inferred safely from runtime code.
 | `api_operation(...)` | No | Yes | Summary, description, ID, deprecation |
 | `api_parameter(...)` | No | Yes | Refine a bound parameter schema |
 | `api_response(status, ...)` | Yes | Yes | Explicit response |
-| `api_security(name, scopes=())` | Yes | Yes | Security alternative |
+| `api_security(name, scopes=())` | Yes | Yes | Bearer security alternative; keep `scopes=()` in this release |
 | `api_public()` | No | Yes | Clear inherited security |
 | `api_exclude()` | Yes | Yes | Omit from document |
 

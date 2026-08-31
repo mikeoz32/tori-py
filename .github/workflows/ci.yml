@@ -40,7 +40,9 @@ jobs:
       - run: uv python install 3.14
       - run: uv run --no-project --python 3.14 python -c "import sys; assert sys.version_info[:2] == (3, 14) and sys.version_info.releaselevel == 'final', sys.version"
       - run: uv sync --locked --group docs
-      - run: uv run mkdocs build --strict
+      - run: uv run python packages/tori-py/scripts/verify_docs.py
+      - run: uv run python packages/tori-py-microservices/scripts/verify_docs.py
+      - run: uv run --group docs mkdocs build --strict
 
   artifacts:
     runs-on: ubuntu-latest

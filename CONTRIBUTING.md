@@ -16,6 +16,18 @@ Run the repository's `ty` command from `AGENTS.md` when changing Python code.
 Broker integration tests additionally require the documented Docker and
 RabbitMQ setup.
 
+Build and verify the documentation with the isolated docs group:
+
+```bash
+uv sync --locked --group docs
+uv run python packages/tori-py/scripts/verify_docs.py
+uv run python packages/tori-py-microservices/scripts/verify_docs.py
+uv run --group docs mkdocs build --strict
+```
+
+Use `uv run --group docs mkdocs serve` for a local documentation server. Do not
+commit the generated `site/` directory.
+
 Keep packages independently installable and preserve framework-neutral package
 boundaries. Add or update tests for behavior changes. Update package READMEs and
 the root changelog when public APIs, guarantees, or operational constraints

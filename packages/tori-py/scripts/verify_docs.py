@@ -1,4 +1,4 @@
-"""Verify the D1/D2 documentation structure and public Python imports."""
+"""Verify the user documentation structure and public Python imports."""
 
 from __future__ import annotations
 
@@ -13,6 +13,8 @@ REQUIRED_FILES = (
     "index.md",
     "404.html",
     "why-tori-py.md",
+    "packages.md",
+    "concepts-map.md",
     "contributing/public-api-inventory.md",
     "contributing/traceability.md",
     "getting-started/installation.md",
@@ -24,6 +26,32 @@ REQUIRED_FILES = (
     "getting-started/testing.md",
     "getting-started/next-steps.md",
     "reference/task-api.md",
+    "tutorials/index.md",
+    "tutorials/task-api.md",
+    "tutorials/cqrs-application.md",
+    "tutorials/distributed-application.md",
+    "fundamentals/index.md",
+    "fundamentals/modules.md",
+    "fundamentals/providers-and-di.md",
+    "fundamentals/scopes-and-resources.md",
+    "fundamentals/lifecycle.md",
+    "fundamentals/discovery-and-reflection.md",
+    "http/index.md",
+    "pipeline/index.md",
+    "techniques/settings.md",
+    "techniques/testing.md",
+    "techniques/sqlalchemy/index.md",
+    "techniques/cqrs/index.md",
+    "techniques/event-sourcing/index.md",
+    "techniques/microservices/index.md",
+    "techniques/persistent-streams/index.md",
+    "operations/index.md",
+    "operations/security.md",
+    "operations/limitations.md",
+    "recipes/index.md",
+    "reference/api.md",
+    "reference/errors-and-diagnostics.md",
+    "reference/examples.md",
 )
 PYTHON_BLOCK = re.compile(r"```python\n(.*?)```", re.DOTALL)
 SNIPPET_DIRECTIVE = re.compile(r'^\s*--8<--\s+"([^"]+)"\s*$', re.MULTILINE)

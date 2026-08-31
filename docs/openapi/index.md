@@ -16,8 +16,14 @@ Add the package with `uv`:
 uv add tori-py-openapi
 ```
 
-The package requires Python 3.14 and uses ToriPy and msgspec. It does not add
-FastAPI or Pydantic.
+The package requires Python 3.14 and uses ToriPy, msgspec, and Starlette. It does
+not add FastAPI or Pydantic. OpenAPI generation itself does not require an ASGI
+server, but the `tori-py run` command used below requires the framework CLI
+extra in a consumer project:
+
+```text
+uv add "tori-py-framework[cli]"
+```
 
 ## Minimal Setup
 
@@ -78,7 +84,7 @@ route's status and description, not its text body or dynamic headers.
 Run it from the repository root:
 
 ```text
-uv run tori-py run examples.tori_py.openapi.app:create_application
+uv run --all-packages --all-groups --extra cli tori-py run examples.tori_py.openapi.app:create_application
 ```
 
 Then open `http://127.0.0.1:8000/docs` or request

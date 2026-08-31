@@ -109,8 +109,34 @@ Without the validation pipe, `body` would be the raw decoded dictionary despite
 its `CreateMember` annotation. The same distinction applies to numeric path
 values and structured query values.
 
-Multipart, forms, files, multiple bodies, and per-body media types are not in
-this release.
+## Raw Streaming Request Bodies
+
+`BodyStream` binds the raw request body without buffering it as JSON. OpenAPI
+documents this binding as a required `application/octet-stream` body with a
+binary string schema:
+
+```python
+from typing import Annotated
+
+from tori_py import BodyStream, post
+from tori_py.http import HttpBodyStream
+
+
+@post("/imports")
+async def import_data(
+    self,
+    body: Annotated[
+        HttpBodyStream,
+        BodyStream(max_bytes=20 * 1024 * 1024),
+    ],
+) -> None:
+    async for chunk in body:
+        consume(chunk)
+```
+
+The route-specific byte limit remains a runtime request-body rule; OpenAPI does
+not express it as a schema constraint. Multipart, forms, files, multiple bodies,
+and selectable per-body media types are not in this release.
 
 ## Response Inference
 

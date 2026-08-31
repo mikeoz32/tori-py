@@ -83,6 +83,17 @@ serve a partial schema.
 Test the generated endpoint through the application rather than calling compiler
 internals:
 
+In a consumer project, install the HTTP testing dependency and async test
+runner explicitly:
+
+```text
+uv add --dev "tori-py-framework[testing]" pytest pytest-asyncio
+```
+
+In a repository checkout, the workspace preparation command from the
+[Examples reference](../reference/examples.md#repository-commands) installs
+these dependencies.
+
 ```python
 import httpx
 import pytest
@@ -135,12 +146,15 @@ The current package deliberately does not provide:
 - package scanning or global registries;
 - guard, filter, or handler-body inference;
 - runtime response validation;
-- multipart, form, file, streaming, callback, webhook, or WebSocket schemas;
+- multipart, form, file, streaming-response, callback, webhook, or WebSocket
+  schemas; raw `BodyStream` request bodies are documented as binary content;
 - OAuth flow builders;
 - ReDoc, bundled assets, YAML output, or client generation;
-- parameter descriptions, examples, or styles;
+- parameter styles, explode controls, or parameter-level example APIs;
+  `api_parameter` supports descriptions and schema-level example overlays;
 - server variables;
-- per-response media types beyond inferred static `Content-Type` metadata;
+- multiple content representations for one response or dynamic media-type
+  inference; `api_response(media_type=...)` supports one explicit media type;
 - automatic documentation for native Starlette response behavior.
 
 Use `HttpResponse` plus explicit `api_response` metadata for portable opaque

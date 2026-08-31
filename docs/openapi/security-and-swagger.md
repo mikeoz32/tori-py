@@ -31,6 +31,11 @@ Names may contain letters, digits, `.`, `_`, and `-`, and must be unique. The
 current package models HTTP bearer schemes only; it does not build OAuth flow
 objects.
 
+Because HTTP bearer Security Requirement values must use an empty array in
+OpenAPI 3.1, call `api_security("name")` or pass `scopes=()`. Non-empty scopes
+are not an OpenAPI-compliant contract for the bearer-only schemes modeled in
+this release; they are reserved for a future OAuth2 or OpenID Connect surface.
+
 Configuring a scheme creates a component but does not add root security.
 
 ## Secured Controllers

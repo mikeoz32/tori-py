@@ -1,6 +1,9 @@
 # ToriPy Documentation and Examples Plan
 
-Status: proposed execution plan; implementation has not started.
+Status: in progress. The MkDocs site, Getting Started, task-oriented tutorials,
+core guides, package techniques, operations material, and generated facade
+reference are implemented. The complete atomic-example catalog and final release
+review remain open.
 
 ToriPy N0-N6 provide the initial framework implementation. This plan turns the
 architecture, executable specifications, public API, and tested examples into a
@@ -1226,17 +1229,17 @@ Update this table after every documentation phase:
 
 | Phase | Status | Primary output |
 | --- | --- | --- |
-| D0 | In progress | Inventory and traceability |
-| D1 | In progress | MkDocs and CI foundation |
-| D2 | In progress | Getting Started |
-| D3 | Pending | Fundamentals |
-| D4 | Pending | HTTP guide |
-| D5 | Pending | Pipeline guide |
-| D6 | Pending | Settings and observability |
-| D7 | Pending | Testing guide |
-| D8 | Pending | CLI, deployment, security |
-| D9 | In progress | Task API foundation reference application |
-| D10 | Pending | API reference and release review |
+| D0 | Complete | Inventory and traceability |
+| D1 | Complete | MkDocs and CI foundation |
+| D2 | Complete | Getting Started |
+| D3 | In progress | Fundamentals guides complete; atomic examples remain |
+| D4 | In progress | HTTP guides complete; atomic examples remain |
+| D5 | In progress | Pipeline guides complete; atomic examples remain |
+| D6 | In progress | Settings and observability guides complete; atomic examples remain |
+| D7 | In progress | Testing guide complete; atomic examples remain |
+| D8 | In progress | CLI, deployment, and security guides complete; operational examples remain |
+| D9 | In progress | Task API, CQRS, SQLAlchemy, microservices, and stream examples documented |
+| D10 | In progress | Generated facade reference added; final release review remains |
 
 Allowed status values:
 
@@ -1266,13 +1269,11 @@ Complete: <commit>
 
 Execute these actions in order:
 
-1. Approve MkDocs Material as the documentation generator.
-2. Start D0 and create the public API inventory.
-3. Create the architecture/spec-to-guide traceability table.
-4. Resolve any public facade inconsistencies discovered by the inventory.
-5. Implement D1 tooling in one commit.
-6. Implement D2 Getting Started with E001-E008.
-7. Run a clean-environment walkthrough before starting Fundamentals.
-
-Do not start bulk example generation before D0-D2 establish the content,
-testing, and navigation conventions all later examples must follow.
+1. Expand traceability from the core framework to every independently shipped
+   integration package.
+2. Deliver the remaining atomic examples in the waves defined by section 15.
+3. Add production-blueprint artifacts only after their commands and lifecycle
+   behavior are acceptance-tested.
+4. Run clean-environment consumer walkthroughs for the core, SQLAlchemy, CQRS,
+   RabbitMQ microservices, and persistent-stream installation paths.
+5. Complete the technical, security, writing, and release reviews in D10.

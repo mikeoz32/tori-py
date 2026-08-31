@@ -1,21 +1,38 @@
 site_name: ToriPy
-site_description: Explicit modules, dependency injection, and ASGI applications for Python.
-site_url: https://example.invalid/tori-py/
+site_description: Explicit Python modules, dependency injection, ASGI, CQRS, persistence, and messaging.
+site_url: https://mikeoz32.github.io/tori-py/
 repo_name: tori-py
+repo_url: https://github.com/mikeoz32/tori-py
+edit_uri: edit/main/docs/
 theme:
   name: material
   language: en
   features:
+    - navigation.tabs
+    - navigation.top
+    - navigation.indexes
     - navigation.footer
     - navigation.sections
+    - search.highlight
+    - search.suggest
     - content.code.copy
+    - content.tabs.link
 plugins:
   - search
   - mkdocstrings:
       handlers:
         python:
           options:
+            docstring_section_style: table
+            merge_init_into_class: true
+            members_order: source
+            separate_signature: true
+            show_root_heading: true
+            show_signature_annotations: true
             show_source: false
+            show_symbol_type_heading: true
+            show_symbol_type_toc: true
+            signature_crossrefs: true
 markdown_extensions:
   - admonition
   - pymdownx.details
@@ -28,24 +45,115 @@ markdown_extensions:
 nav:
   - Home: index.md
   - Why ToriPy: why-tori-py.md
-  - Getting Started:
-      - Installation: getting-started/installation.md
-      - First Application: getting-started/first-application.md
-      - Project Structure: getting-started/project-structure.md
-      - First Controller: getting-started/first-controller.md
-      - First Provider: getting-started/first-provider.md
-      - Configuration: getting-started/configuration.md
-      - Testing: getting-started/testing.md
-      - Next Steps: getting-started/next-steps.md
+  - Packages: packages.md
+  - Concepts Map: concepts-map.md
+  - Tutorials:
+      - Learning Paths: tutorials/index.md
+      - Getting Started:
+          - Installation: getting-started/installation.md
+          - First Application: getting-started/first-application.md
+          - Project Structure: getting-started/project-structure.md
+          - First Controller: getting-started/first-controller.md
+          - First Provider: getting-started/first-provider.md
+          - Configuration: getting-started/configuration.md
+          - Testing: getting-started/testing.md
+          - Next Steps: getting-started/next-steps.md
+      - Task API: tutorials/task-api.md
+      - CQRS Application: tutorials/cqrs-application.md
+      - Distributed Application: tutorials/distributed-application.md
+  - Fundamentals:
+      - Overview: fundamentals/index.md
+      - Modules: fundamentals/modules.md
+      - Providers and DI: fundamentals/providers-and-di.md
+      - Scopes and Resources: fundamentals/scopes-and-resources.md
+      - Lifecycle: fundamentals/lifecycle.md
+      - Discovery and Reflection: fundamentals/discovery-and-reflection.md
+  - HTTP:
+      - Overview: http/index.md
+      - Controllers and Routes: http/controllers-and-routes.md
+      - Request Binding: http/binding.md
+      - Bodies and Streaming: http/body-streaming.md
+      - Context and Injection: http/context-and-injection.md
+      - Responses and Errors: http/responses-and-errors.md
+  - Pipeline:
+      - Overview: pipeline/index.md
+      - Middleware and Guards: pipeline/middleware-and-guards.md
+      - Pipes and Validation: pipeline/pipes-and-validation.md
+      - Interceptors and Filters: pipeline/interceptors-and-filters.md
+      - Ordering and Cancellation: pipeline/ordering-and-cancellation.md
+  - Techniques:
+      - Settings: techniques/settings.md
+      - Logging: techniques/logging.md
+      - Testing: techniques/testing.md
+      - SQLAlchemy:
+          - Overview: techniques/sqlalchemy/index.md
+          - Configuration: techniques/sqlalchemy/configuration.md
+          - Repositories: techniques/sqlalchemy/repositories.md
+          - Transactions: techniques/sqlalchemy/transactions.md
+          - Testing and Migrations: techniques/sqlalchemy/testing-and-migrations.md
+      - OpenAPI:
+          - Overview: openapi/index.md
+          - Configuration: openapi/configuration.md
+          - Schemas and Routes: openapi/schemas-and-routes.md
+          - Metadata and Responses: openapi/metadata-and-responses.md
+          - Security and Swagger UI: openapi/security-and-swagger.md
+          - Advanced Usage: openapi/advanced.md
+      - CQRS:
+          - Overview: techniques/cqrs/index.md
+          - Framework-neutral Core: techniques/cqrs/core.md
+          - ToriPy Integration: techniques/cqrs/tori-py.md
+          - FastAPI Integration: techniques/cqrs/fastapi.md
+      - Event Sourcing:
+          - Overview: techniques/event-sourcing/index.md
+          - Aggregates and Schemas: techniques/event-sourcing/aggregates-and-schemas.md
+          - Stores, Repositories, and UoW: techniques/event-sourcing/stores-repositories-uow.md
+          - ToriPy Integration: techniques/event-sourcing/tori-py.md
+      - Microservices:
+          - Overview: techniques/microservices/index.md
+          - RPC: techniques/microservices/rpc.md
+          - Events: techniques/microservices/events.md
+          - Clients and Contracts: techniques/microservices/clients-and-contracts.md
+          - Transports: techniques/microservices/transports.md
+          - RabbitMQ: techniques/microservices/rabbitmq.md
+          - Operations: techniques/microservices/operations.md
+      - Persistent Streams:
+          - Overview: techniques/persistent-streams/index.md
+          - Core Contracts: techniques/persistent-streams/core.md
+          - Handlers and Publishers: techniques/persistent-streams/handlers-and-publishers.md
+          - Checkpoints and Retention: techniques/persistent-streams/checkpoints-and-retention.md
+          - Adapter Authors: techniques/persistent-streams/adapters.md
+          - RabbitMQ Streams: techniques/persistent-streams/rabbitmq.md
+          - Operations: techniques/persistent-streams/operations.md
+  - Operations:
+      - Overview: operations/index.md
+      - CLI and ASGI: operations/cli-and-asgi.md
+      - Deployment: operations/deployment.md
+      - Security: operations/security.md
+      - Limitations: operations/limitations.md
+  - Recipes:
+      - Overview: recipes/index.md
+      - Repository Provider: recipes/repository-provider.md
+      - Authorization and Errors: recipes/authorization-and-errors.md
+      - External Resources: recipes/external-resources.md
+      - Background Work: recipes/background-work.md
   - Reference:
-      - Task API: reference/task-api.md
-  - OpenAPI:
-      - Overview: openapi/index.md
-      - Configuration: openapi/configuration.md
-      - Schemas and Routes: openapi/schemas-and-routes.md
-      - Metadata and Responses: openapi/metadata-and-responses.md
-      - Security and Swagger UI: openapi/security-and-swagger.md
-      - Advanced Usage: openapi/advanced.md
+      - API Overview: reference/api.md
+      - Generated API:
+          - ToriPy Framework: reference/generated/framework.md
+          - CQRS Core: reference/generated/cqrs-core.md
+          - ToriPy CQRS: reference/generated/cqrs.md
+          - FastAPI CQRS: reference/generated/cqrs-fastapi.md
+          - Event Sourcing Core: reference/generated/event-sourcing-core.md
+          - ToriPy Event Sourcing: reference/generated/event-sourcing.md
+          - SQLAlchemy: reference/generated/sqlalchemy.md
+          - OpenAPI: reference/generated/openapi.md
+          - Microservices: reference/generated/microservices.md
+          - Persistent Streams Core: reference/generated/persistent-streams-core.md
+          - ToriPy Persistent Streams: reference/generated/persistent-streams.md
+          - RabbitMQ Streams: reference/generated/persistent-streams-rabbitmq.md
+      - Errors and Diagnostics: reference/errors-and-diagnostics.md
+      - Examples: reference/examples.md
+      - Task API Reference: reference/task-api.md
   - Contributing:
       - Public API Inventory: contributing/public-api-inventory.md
       - Documentation Traceability: contributing/traceability.md
