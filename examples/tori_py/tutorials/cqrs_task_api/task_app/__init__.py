@@ -1,1 +1,1 @@
-"""CQRS Task API built step by step in the documentation."""
+"""CQRS continuation of the ordinary Task API tutorial."""

@@ -1,220 +1,475 @@
-# In-Memory Task API
+# Build a Task API: Part 1
 
-This tutorial walks through the tested Task API in
-[`examples/tori_py/reference_apps/task_api/app.py`](https://github.com/mikeoz32/tori-py/blob/main/examples/tori_py/reference_apps/task_api/app.py).
-It is a compact example of one Tori Py HTTP application, not a production task
-service and not a generated project template.
+This tutorial builds a complete ToriPy HTTP application from an empty directory.
+It is Part 1 of a three-part series that evolves one Task API from an ordinary
+layered application, through CQRS, into a distributed system without changing
+the shared HTTP contract.
 
-## Prepare The Checkout
+Every Python file shown here is complete. The page includes those files from the
+tested source under `examples/tori_py/tutorials/task_api/task_app`, so the
+tutorial code and its executable tests stay aligned. You do not need an existing
+application or a generated project.
 
-Run commands from the repository root. Synchronize the workspace and the CLI
-extra without changing project dependencies:
+## What You Will Build
+
+The application exposes three endpoints:
+
+| Request | Input | Success response |
+| --- | --- | --- |
+| `POST /tasks` | JSON `{"title":"..."}` | `201` with `{"id":1,"title":"..."}` |
+| `GET /tasks` | None | `200` with a JSON list of tasks |
+| `GET /tasks/{task_id}` | Integer path value | `200` with one task or `404` |
+
+The successful HTTP representation is deliberately direct. A task is exactly
+`{"id": int, "title": str}`: there is no command status, projection status,
+request marker, actor, or other architecture metadata. The API requires no
+custom headers. A POST needs only the standard `Content-Type: application/json`
+header.
+
+The application has four boundaries:
 
 ```text
-uv sync --all-packages --all-groups --extra cli
+HTTP request
+  -> TaskController                     transport adapter
+  -> TaskService                        application behavior
+  -> TaskRepository                     in-memory infrastructure
+  -> Task                               response value
 ```
 
-The three useful source files are:
+The title is trimmed and must contain 1-120 characters. State remains in memory
+for the life of one application process.
 
-| File | Purpose |
-| --- | --- |
-| [`app.py`](https://github.com/mikeoz32/tori-py/blob/main/examples/tori_py/reference_apps/task_api/app.py) | Models, repository, service, HTTP pipeline, modules, and bootstrap |
-| [`README.md`](https://github.com/mikeoz32/tori-py/blob/main/examples/tori_py/reference_apps/task_api/README.md) | Short run instructions and declared boundaries |
-| [`test_task_api_reference.py`](https://github.com/mikeoz32/tori-py/blob/main/packages/tori-py/tests/docs/test_task_api_reference.py) | HTTP behavior, settings bootstrap, provider override, and lifecycle verification |
+## Prerequisites
 
-## Read The Architecture From The Inside Out
+You need Python `>=3.14,<3.15` and
+[`uv`](https://docs.astral.sh/uv/getting-started/installation/). Basic knowledge
+of Python packages and `async`/`await` is sufficient.
 
-Although the example is kept in one file for inspection, its responsibilities
-are separated by types and modules.
-
-| Layer | Source | Responsibility |
-| --- | --- | --- |
-| Contracts and configuration | [`TaskApiSettings`, `CreateTask`, and `Task`](https://github.com/mikeoz32/tori-py/blob/main/examples/tori_py/reference_apps/task_api/app.py#L40-L57) | Typed settings, incoming command shape, and outgoing task representation |
-| Infrastructure | [`TaskRepository`](https://github.com/mikeoz32/tori-py/blob/main/examples/tori_py/reference_apps/task_api/app.py#L67-L100) | In-memory task identity and storage plus lifecycle cleanup |
-| Application | [`TaskService`](https://github.com/mikeoz32/tori-py/blob/main/examples/tori_py/reference_apps/task_api/app.py#L102-L128) | Title normalization, business validation, repository calls, and logging |
-| HTTP policy | [`TaskWriteGuard` and `TaskErrorFilter`](https://github.com/mikeoz32/tori-py/blob/main/examples/tori_py/reference_apps/task_api/app.py#L137-L169) | Educational write policy and domain-error translation |
-| HTTP adapter | [`TaskController`](https://github.com/mikeoz32/tori-py/blob/main/examples/tori_py/reference_apps/task_api/app.py#L171-L203) | Route declarations, request bindings, and response shape |
-| Composition | [module declarations and factory](https://github.com/mikeoz32/tori-py/blob/main/examples/tori_py/reference_apps/task_api/app.py#L206-L263) | Provider ownership, visibility, pipeline registration, and ASGI export |
-
-The controller depends on `TaskService`, not on storage. `TaskService` depends on
-the repository, typed settings, and logger. The repository knows nothing about
-HTTP. This separation lets an adapter translate transport input and failures
-without putting request objects in the application layer.
-
-## Understand The Request Model
-
-The API exposes three routes:
-
-| Request | Input | Success |
-| --- | --- | --- |
-| `GET /tasks` | None | `200` with a JSON list of tasks |
-| `POST /tasks` | JSON `{"title":"..."}` and `X-Task-Write: allow` | `201` with the task, request marker, and request ID |
-| `GET /tasks/{task_id}` | Integer path value | `200` with one task |
-
-`Body()` and `Path()` initially bind transport values. An annotation alone does
-not convert them. The global `MsgspecValidationPipe` converts the body to
-`CreateTask` and the path segment to `int`. A body such as `{"title":3}` fails
-with `400` before the controller runs.
-
-Shape conversion is not the complete business rule. `TaskService.create()`
-strips surrounding whitespace, rejects an empty result, and enforces
-`TaskApiSettings.max_title_length`. The default is 120 characters. Keeping this
-rule in the service means direct service callers cannot bypass it by avoiding
-HTTP.
-
-`Task` is a frozen msgspec struct, so the repository and HTTP response share a
-small immutable application value rather than exposing a mutable storage row.
-
-## Follow A Create Request
-
-A successful `POST /tasks` crosses these boundaries:
+The initial `0.1.0` package train is not published on PyPI yet. Clone ToriPy and
+create the tutorial application beside the checkout so `uv` can install the
+framework from an explicit editable source:
 
 ```text
-open one Tori Py request scope and partial request context
-  -> Starlette route match
-  -> TaskWriteGuard checks X-Task-Write
-  -> bind the raw JSON body, RequestMarker, and RequestContext
-  -> MsgspecValidationPipe converts the body to CreateTask
-  -> TaskController calls TaskService
-  -> TaskService normalizes and validates the title
-  -> TaskRepository assigns the ID and stores the task
-  -> ordinary return value is encoded as JSON with status 201
+git clone https://github.com/mikeoz32/tori-py.git
+uv init --python 3.14 --bare task-api
+cd task-api
+uv python pin 3.14
+```
+
+`uv init --bare` creates `pyproject.toml`. `uv python pin` creates
+`.python-version` with the interpreter pin. Replace the generated project
+metadata with this exact supported range:
+
+```toml
+[project]
+name = "task-api"
+version = "0.1.0"
+requires-python = ">=3.14,<3.15"
+dependencies = []
+```
+
+Add the framework and test tools from the sibling checkout:
+
+```text
+uv add --editable "../tori-py/packages/tori-py[cli,testing]"
+uv add --dev pytest pytest-asyncio
+```
+
+The `cli` extra supplies Uvicorn and the `tori-py run` command. The `testing`
+extra supplies HTTPX for in-process ASGI requests. `uv add` records the editable
+framework dependency and creates `uv.lock`. After the package train is
+published, an application can replace the editable path with a normal registry
+requirement.
+
+## Create the Project Structure
+
+Create this package and these files inside `task-api`:
+
+```text
+task-api/
+  .python-version
+  pyproject.toml
+  uv.lock
+  task_app/
+    __init__.py
+    models.py
+    state.py
+    services.py
+    http.py
+    app.py
+    test_app.py
+```
+
+Add the package marker in `task_app/__init__.py`:
+
+```python
+--8<-- "examples/tori_py/tutorials/task_api/task_app/__init__.py"
+```
+
+The package uses relative imports, so the same source works as the top-level
+`task_app` package in this project and as the tested package in the ToriPy
+checkout. Each remaining file has one primary responsibility.
+
+## Step 1: Define the HTTP Values and Application Errors
+
+Create `task_app/models.py`:
+
+```python
+--8<-- "examples/tori_py/tutorials/task_api/task_app/models.py"
+```
+
+`CreateTaskBody` is the untrusted request-body shape. It requires a string
+`title` and rejects unknown fields instead of silently accepting transport data
+that the application does not understand.
+
+`Task` is the response value stored by the repository. It is frozen, so callers
+cannot mutate repository state through a returned task. Msgspec can encode both
+values directly, but only `Task` is returned by the HTTP contract.
+
+`TaskTitleInvalid` and `TaskNotFound` are application errors. They contain no
+HTTP status codes or Starlette objects; the HTTP adapter will decide how to
+represent them.
+
+## Step 2: Add In-Memory State
+
+Create `task_app/state.py`:
+
+```python
+--8<-- "examples/tori_py/tutorials/task_api/task_app/state.py"
+```
+
+`TaskRepository` owns task identity and storage. IDs start at 1, increase after
+each successful create, and the list is returned in ID order. `get()` translates
+the dictionary's `KeyError` into the application-level `TaskNotFound` error, so
+callers do not depend on the storage representation.
+
+This repository is intentionally synchronous because every operation is an
+immediate in-memory operation with no `await` point. A database repository would
+have a different resource and transaction boundary, but the service should not
+need to know its table layout or driver API.
+
+## Step 3: Implement Application Behavior
+
+Create `task_app/services.py`:
+
+```python
+--8<-- "examples/tori_py/tutorials/task_api/task_app/services.py"
+```
+
+`TaskService` is the application boundary used by HTTP. Its constructor asks for
+`TaskRepository`; module composition will supply the concrete provider.
+
+Creation strips surrounding whitespace and then enforces the 1-120 character
+rule. This validation belongs in the service rather than only in the controller
+or a pipe, so a direct service caller cannot bypass it. Shape conversion and
+business validity are separate concerns: msgspec proves that `title` is a
+string, while `TaskService` decides which normalized strings are accepted.
+
+Read methods delegate to the repository and return application values. The
+service knows nothing about request objects, JSON, status codes, or Problem
+Details.
+
+## Step 4: Adapt HTTP to the Service
+
+Create `task_app/http.py`:
+
+```python
+--8<-- "examples/tori_py/tutorials/task_api/task_app/http.py"
+```
+
+`@controller("/tasks")` provides the route prefix. `@post`, `@get`, and
+`@status(201)` declare the public method, path, and create status. The controller
+injects `TaskService`, not `TaskRepository`, and returns `Task` values directly.
+
+### Raw Binding and Validation
+
+`Body()` and `Path("task_id")` are binding metadata. They first select raw
+transport values: the decoded JSON body and the path string. Python annotations
+alone do not perform runtime conversion.
+
+The global `MsgspecValidationPipe` added in the next step uses the annotations to
+convert those values:
+
+- the body becomes `CreateTaskBody`;
+- `task_id` becomes `int`;
+- a missing `title`, a non-string title, or an unknown body field fails before
+  the controller runs;
+- a path such as `/tasks/not-an-integer` fails before `TaskService.get()` runs.
+
+Malformed JSON fails during body binding. Binding and conversion failures use
+the framework's standard `400` Problem Details response.
+
+### Application Error Filter
+
+`TaskErrorFilter` translates only the two expected application errors.
+`TaskTitleInvalid` becomes `400`; `TaskNotFound` becomes `404`. The response
+includes the request path as its Problem Details `instance`.
+
+The final `raise error` is important. Unknown failures are not mislabeled as
+client mistakes and are not exposed by this filter. Re-raising lets another
+filter or the framework's sanitized fallback handle them.
+
+## Step 5: Compose Modules and Bootstrap
+
+Create `task_app/app.py`:
+
+```python
+--8<-- "examples/tori_py/tutorials/task_api/task_app/app.py"
+```
+
+The modules make ownership and visibility explicit:
+
+| Module | Owns | Visibility |
+| --- | --- | --- |
+| `InfrastructureModule` | One singleton `TaskRepository` provider | Exports `TaskRepository` to importing modules |
+| `TasksModule` | `TaskService` and `TaskController` | Imports infrastructure; feature providers remain private |
+| `AppModule` | Validation-pipe and error-filter values | Imports the complete task feature |
+
+`InfrastructureModule` declares the repository exactly once. Exporting its token
+does not move ownership; it permits `TasksModule` to resolve the repository when
+constructing `TaskService`. `TasksModule` owns the service and controller because
+they implement the task feature. `AppModule` assembles that feature with
+application-wide HTTP policy.
+
+ToriPy compiles these declarations into one dependency graph. It does not scan
+the package or register classes merely because their constructors have type
+annotations. Invalid dependencies or module visibility fail during composition
+instead of on the first matching request.
+
+`ValueProvider` gives stable tokens to the pipe and filter. After compilation,
+`create_application()` installs those tokens globally, so every controller route
+uses the same conversion and error policy.
+
+The factory returns an unstarted `NestApplication`. The exported
+`application = asgi(create_application)` wrapper lets an ASGI server own exact
+startup and shutdown through lifespan. Do not call `start()` inside the factory:
+the host starts the compiled application once and shuts it down on normal server
+termination.
+
+## Step 6: Run the Application
+
+Start the convenience development server from the `task-api` project root:
+
+```text
+uv run tori-py run task_app.app:create_application
+```
+
+The CLI loads the async factory and drives application lifecycle. To use Uvicorn
+options directly, host the exported ASGI wrapper instead:
+
+```text
+uv run uvicorn task_app.app:application --lifespan on --reload
+```
+
+Keep either server running and use another terminal for the requests below. Stop
+it normally with `Ctrl+C` so lifespan shutdown runs.
+
+### Create and Read Tasks
+
+The following commands send only the standard JSON content type on POST. No
+application-specific header is required.
+
+=== "PowerShell"
+
+    ```powershell
+    curl.exe --silent --show-error "http://127.0.0.1:8000/tasks"
+    '{"title":"  Ship Part 1  "}' | curl.exe --silent --show-error -X POST "http://127.0.0.1:8000/tasks" -H "content-type: application/json" --data-binary '@-'
+    curl.exe --silent --show-error "http://127.0.0.1:8000/tasks"
+    curl.exe --silent --show-error "http://127.0.0.1:8000/tasks/1"
+    ```
+
+=== "Bash"
+
+    ```bash
+    curl --silent --show-error "http://127.0.0.1:8000/tasks"
+    curl --silent --show-error -X POST "http://127.0.0.1:8000/tasks" \
+      -H "content-type: application/json" \
+      --data '{"title":"  Ship Part 1  "}'
+    curl --silent --show-error "http://127.0.0.1:8000/tasks"
+    curl --silent --show-error "http://127.0.0.1:8000/tasks/1"
+    ```
+
+In command order, the exact JSON values are:
+
+```json
+[]
+```
+
+```json
+{"id":1,"title":"Ship Part 1"}
+```
+
+```json
+[{"id":1,"title":"Ship Part 1"}]
+```
+
+```json
+{"id":1,"title":"Ship Part 1"}
+```
+
+The POST status is `201`; every GET above is `200`. The response title is
+trimmed, and the POST response is the task itself rather than an envelope.
+
+### Inspect Problem Details
+
+Send an invalid title and request an absent task:
+
+=== "PowerShell"
+
+    ```powershell
+    '{"title":"   "}' | curl.exe --silent --show-error -X POST "http://127.0.0.1:8000/tasks" -H "content-type: application/json" --data-binary '@-'
+    curl.exe --silent --show-error "http://127.0.0.1:8000/tasks/999"
+    ```
+
+=== "Bash"
+
+    ```bash
+    curl --silent --show-error -X POST "http://127.0.0.1:8000/tasks" \
+      -H "content-type: application/json" \
+      --data '{"title":"   "}'
+    curl --silent --show-error "http://127.0.0.1:8000/tasks/999"
+    ```
+
+The invalid POST returns `400` with
+`Content-Type: application/problem+json` and this exact JSON value:
+
+```json
+{"type":"about:blank","title":"Bad Request","status":400,"detail":"After trimming, the task title must contain 1-120 characters.","instance":"/tasks"}
+```
+
+The absent GET returns `404` with
+`Content-Type: application/problem+json` and this exact JSON value:
+
+```json
+{"type":"about:blank","title":"Not Found","status":404,"detail":"Task was not found.","instance":"/tasks/999"}
+```
+
+JSON whitespace is insignificant; the keys and values above are the complete
+response bodies.
+
+## Step 7: Test the Service and HTTP Contract
+
+Create `task_app/test_app.py`:
+
+```python
+--8<-- "examples/tori_py/tutorials/task_api/task_app/test_app.py"
+```
+
+Run the complete file:
+
+```text
+uv run pytest task_app/test_app.py -q
+```
+
+Expected result:
+
+```text
+2 passed
+```
+
+The first test constructs `TaskService` and `TaskRepository` directly. It proves
+normalization, the title limits, identity allocation, ordered reads, and missing
+task behavior without involving HTTP or the dependency-injection container.
+
+The second test starts the production application, sends real ASGI requests
+through the controller and pipeline, and always calls shutdown in `finally`. It
+checks:
+
+- the empty, create, list, and get success contract;
+- the direct `201` task body with no architecture metadata;
+- title errors and missing-task Problem Details;
+- malformed JSON;
+- missing and unknown body fields;
+- invalid integer path conversion.
+
+`http_client()` uses HTTPX with an in-process ASGI transport. It exercises
+application routing, binding, validation, DI, filters, and lifecycle without a
+network socket. It does not test Uvicorn, TCP, TLS, reverse proxies, workers, or
+operating-system signal delivery.
+
+## Understand the Runtime Flow
+
+Application startup follows this shape:
+
+```text
+ASGI host begins lifespan startup
+  -> call create_application()
+  -> compile AppModule and its imports
+  -> register the InfrastructureModule repository provider
+  -> make the exported repository visible to TasksModule
+  -> validate and construct the application graph
+  -> install the global validation pipe and error filter
+  -> start the NestApplication
+  -> admit HTTP requests
+```
+
+A successful create request follows this shape:
+
+```text
+open one HTTP request scope
+  -> match POST /tasks
+  -> Body() binds the decoded raw JSON value
+  -> MsgspecValidationPipe converts it to CreateTaskBody
+  -> resolve TaskController with TaskService
+  -> TaskService trims and validates the title
+  -> TaskRepository assigns an ID and stores Task
+  -> encode Task directly as JSON with status 201
   -> close the request scope
 ```
 
-Guards run before body binding. A missing or different `X-Task-Write` value
-therefore produces the framework's `403` response without invoking the service.
-The guard is an authorization-shaped extension point, not authentication.
+For a business failure, the same pipeline raises `TaskTitleInvalid` or
+`TaskNotFound`; `TaskErrorFilter` converts it to Problem Details before the
+request scope closes. For conversion failures, the framework's validation error
+handling produces Problem Details before the controller is called.
 
-`RequestMarker` is supplied by a request-scoped `FactoryProvider`. It is created
-lazily for a `POST /tasks` request only when that request reaches argument
-binding and resolves the `Inject()` parameter. Each such create request gets a
-separate instance even though this demonstration gives every instance the same
-visible value, `request-scope`. Other routes and create requests rejected by the
-guard do not resolve it. `RequestContext` is supplied by the Starlette adapter
-and carries the accepted or generated request ID. `Context()` and `Inject()`
-parameters do not pass through pipes.
+On normal server termination, the ASGI wrapper stops request admission and
+shuts down the application. This Part 1 repository owns no external connection,
+but preserving the lifespan boundary matters when later versions add buses,
+brokers, database pools, or other managed resources.
 
-For domain failures, `TaskErrorFilter` maps `TaskNotFound` to `404` and
-`TaskTitleInvalid` to `400` Problem Details. It re-raises every unknown error so
-the framework can sanitize it. Msgspec conversion errors and guard denial use
-the framework's normal HTTP error rendering.
+## Guarantees and Limitations
 
-See [Request Pipeline](../pipeline/index.md) for the complete stage order and
-[Pipes and Validation](../pipeline/pipes-and-validation.md) for conversion
-semantics.
+While one application process remains running, this tutorial guarantees:
 
-## Compose The Modules
+- `POST /tasks` returns `201` with the created task directly;
+- surrounding title whitespace is removed and normalized length is 1-120;
+- successful creates receive increasing integer IDs beginning at 1;
+- `GET /tasks` returns tasks in ID order and `GET /tasks/{id}` returns one task;
+- body and path values are converted before the controller runs;
+- expected application failures use the documented Problem Details contract;
+- provider ownership and cross-module visibility are explicit;
+- tests exercise the service and the production HTTP composition.
 
-The composition section demonstrates all three explicit provider forms used by
-the application:
+It deliberately does not provide:
 
-| Module | Owns | Exports or visibility |
-| --- | --- | --- |
-| `SettingsModule.for_root(...)` | One `TaskApiSettings` value decoded from configured sources | Declared global for graph-wide settings injection |
-| `LoggingModule.for_root(...)` | The application logger integration | Imported by the root composition |
-| `InfrastructureModule` | Singleton `TaskRepository` class provider | Exports `TaskRepository` |
-| `TasksModule` | `TaskService`, guard value, request marker factory, and `TaskController` | Imports repository infrastructure; providers remain feature-local |
-| `AppModule` | Global validation pipe and task error filter | Imports the complete graph and re-exports `TaskRepository` |
+- durable storage, transactions, migrations, constraints, or backups;
+- shared state between processes or Uvicorn workers;
+- a concurrency strategy for threads or multiple writers;
+- update, completion, deletion, pagination, or search endpoints;
+- authentication, authorization, rate limiting, or audit history;
+- create idempotency or a way to resolve an indeterminate client timeout;
+- OpenAPI publication, deployment configuration, metrics, or tracing;
+- CQRS buses, domain-event delivery, RPC, or distributed consistency.
 
-The repository is declared once by `InfrastructureModule`. `TasksModule` imports
-that module to make the exported repository visible to `TaskService`.
-`AppModule` also imports the infrastructure module directly so the root can
-re-export the repository as an explicit testing boundary. Tori Py compiles these
-declarations into one graph; it does not scan the package or create providers
-from annotations automatically.
+Restarting the process loses all tasks and resets the next ID to 1. Running
+multiple workers creates multiple independent repositories, so requests can
+observe different task lists. The in-memory repository is a learning adapter,
+not a production persistence design.
 
-The settings descriptor uses the application file's directory as its base
-directory. The CLI can add a non-secret bootstrap override before that deferred
-module materializes. For example:
+## Part 1 Checkpoint
+
+You now have a complete layered application with a stable public contract:
 
 ```text
-uv run tori-py run examples.tori_py.reference_apps.task_api.app:create_application --set max_title_length=40
+models -> repository -> service -> HTTP adapter -> explicit modules -> ASGI
 ```
 
-For more detail on ownership and visibility, read [Modules](../fundamentals/modules.md)
-and [Providers and DI](../fundamentals/providers-and-di.md).
+The important boundary is not the number of files. HTTP owns binding and error
+representation, the service owns task rules, infrastructure owns state, and
+modules own providers and visibility. Tests pin the contract before the internal
+architecture evolves.
 
-## Bootstrap And Run
-
-`create_application()` compiles `AppModule` with a fresh `StarletteAdapter`, then
-adds the already-visible validation and error-filter tokens to the global
-pipeline. It returns an unstarted `NestApplication`.
-
-The final line exports `application = asgi(create_application)`. That wrapper
-lets an ASGI server own exact startup and shutdown through lifespan. Do not start
-the application inside the factory.
-
-Run the local convenience server:
-
-```text
-uv run tori-py run examples.tori_py.reference_apps.task_api.app:create_application
-```
-
-In another PowerShell session, exercise the routes:
-
-```powershell
-'{"title":"  Read Tori Py guides  "}' | curl.exe -X POST "http://127.0.0.1:8000/tasks" -H "content-type: application/json" -H "x-task-write: allow" -H "x-request-id: task-tutorial" --data-binary '@-'
-curl.exe "http://127.0.0.1:8000/tasks"
-curl.exe "http://127.0.0.1:8000/tasks/1"
-curl.exe "http://127.0.0.1:8000/tasks/999"
-```
-
-The first response includes the normalized title, `marker: "request-scope"`,
-and `request_id: "task-tutorial"`. Stop the server normally so ASGI lifespan can
-invoke application shutdown and `TaskRepository.on_module_destroy()`.
-
-The exported wrapper can also be hosted directly:
-
-```text
-uv run uvicorn examples.tori_py.reference_apps.task_api.app:application --lifespan on
-```
-
-Use direct Uvicorn when server host, port, proxy, worker, reload, or timeout
-options are required. See [CLI and ASGI Hosting](../operations/cli-and-asgi.md).
-
-## Run And Read The Tests
-
-Run the exact tested specification:
-
-```text
-uv run pytest packages/tori-py/tests/docs/test_task_api_reference.py -q
-```
-
-The [first test](https://github.com/mikeoz32/tori-py/blob/main/packages/tori-py/tests/docs/test_task_api_reference.py#L15-L57)
-starts a production application, checks guard denial, title normalization,
-request ID propagation, list/get behavior, Problem Details, and body validation,
-then shuts down in `finally`.
-
-The [settings test](https://github.com/mikeoz32/tori-py/blob/main/packages/tori-py/tests/docs/test_task_api_reference.py#L60-L74)
-establishes `BootstrapContext` before factory compilation and proves that a
-four-character maximum reaches `TaskService`.
-
-The [override test](https://github.com/mikeoz32/tori-py/blob/main/packages/tori-py/tests/docs/test_task_api_reference.py#L77-L97)
-targets the exported `TaskRepository` in its exact owner module. It compiles
-through `TestingModule`, uses the production pipeline and Starlette adapter, and
-closes the testing application. This verifies behavior without changing a
-private provider or maintaining a separate test container.
-
-## Production Limitations
-
-This example intentionally omits production concerns:
-
-- Tasks, IDs, and the next-ID counter live in one process and disappear on
-  shutdown. Every worker would have independent state.
-- The repository is a simple dictionary, not a durable, concurrent persistence
-  design. There are no transactions, migrations, constraints, backups, or
-  reconciliation.
-- `X-Task-Write: allow` is a fixed educational check. There is no identity,
-  credential verification, object authorization, rate limit, or audit policy.
-- There is no idempotency key. A repeated create request can create another
-  task, and caller timeout cannot establish whether a side effect occurred.
-- There is no pagination, deletion, update, readiness policy, metrics backend,
-  or production deployment configuration.
-- `CreateTask` demonstrates a minimal body model; a public contract would need
-  deliberate unknown-field and schema-evolution policy.
-
-To replace memory with application-owned persistence, continue with the
-[SQLAlchemy guide](../techniques/sqlalchemy/index.md) and its tested Task API
-listed in the [examples catalog](../reference/examples.md#http-reference-applications).
-To publish a documented contract, continue with [OpenAPI](../openapi/index.md).
+Continue to [Part 2: evolve the same Task API with CQRS](cqrs-application.md).
+Part 2 preserves `POST 201`, direct `{"id","title"}` responses, the GET routes,
+and the absence of special headers while replacing direct controller-to-service
+calls with commands and queries and adding asynchronous event observers.

@@ -1,353 +1,742 @@
-# Distributed Catalog And Orders Application
+# Part 3: Distribute the Task API
 
-This tutorial follows the four-process application under
-[`examples/tori_py/microservices_app`](https://github.com/mikeoz32/tori-py/tree/main/examples/tori_py/microservices_app).
-It demonstrates service-owned data, local CQRS, typed RabbitMQ RPC, an
-application-owned outbox relay, and idempotent notification handling.
+Part 2 put commands, queries, and events behind one Task API. In this part, you
+keep the HTTP contract and split its implementation into three independently
+composed ToriPy applications:
 
-It is an application architecture example, not a production deployment template.
+- `gateway` owns HTTP and calls the task service through typed RPC;
+- `tasks` owns task state, local CQRS, the task RPC contract, and integration
+  event publication;
+- `audit` consumes the integration event and records an idempotent local effect.
 
-## Reproducibility Status
+RabbitMQ connects those application roots. CQRS remains local to the task
+service. The split is an implementation and deployment change, not permission
+to send local `Command`, `Query`, or `Event` objects over the network.
 
-The broker-free tests and Docker Compose acceptance path are both declared by
-the repository. The frozen development dependency group contains `psycopg` and
-Uvicorn, while the example image installs the system `libpq` runtime required by
-the pure Python Psycopg package. [`compose.yaml`](https://github.com/mikeoz32/tori-py/blob/main/examples/tori_py/microservices_app/compose.yaml)
-uses `postgresql+psycopg` URLs consistently for schema-initialization jobs and
-service containers.
+Every Python file shown here is complete. The snippets come from the executable
+copy under `examples/tori_py/tutorials/distributed_task_api/task_app`, and the
+repository runs its system test to keep the tutorial aligned with the public
+APIs.
 
-The image intentionally synchronizes the repository development group because
-this is a source-checkout acceptance example, not a minimal production image.
-A production application should define a dedicated locked runtime group and use
-a multi-stage, non-root image.
+## What You Will Build
 
-The Compose images use mutable tags (`rabbitmq:4-management`, `postgres:17`, and
-the uv Python 3.14 base tag) rather than image digests. Byte-for-byte
-infrastructure reproducibility requires pinning resolved image digests outside
-this tutorial.
+The public gateway preserves the Task API:
 
-## Prerequisites
+| Request | Success | Remote work |
+| --- | --- | --- |
+| `POST /tasks` with `{"title":"..."}` | `201` with the created `Task` | Execute a local command, write the task, and publish a routed integration event |
+| `GET /tasks` | `200` with `list[Task]` | Execute a local list query in the task service |
+| `GET /tasks/{task_id}` | `200` with one `Task` | Execute a local get query in the task service |
 
-Use a repository checkout with:
+The gateway also preserves application error semantics: an invalid normalized
+title is `400`, and a missing task is `404`. Clients do not need RabbitMQ
+routing keys, RPC envelopes, CQRS types, or knowledge of the audit service.
 
-- Python `>=3.14,<3.15` and `uv` for local Python commands;
-- Docker Engine with the Docker Compose plugin for infrastructure;
-- network access to retrieve the configured container images and Python
-  artifacts during the image build;
-- free loopback ports `8000` for the gateway and `15672` for RabbitMQ management;
-- enough time for the first workspace image build and PostgreSQL/RabbitMQ health
-  checks.
-
-Prepare the local workspace and run the broker-free composition tests:
-
-```text
-uv sync --all-packages --all-groups
-uv run pytest examples/tori_py/microservices_app -q
-```
-
-These tests compile all four application roots without opening broker
-connections. Their SQLite repository tests do not prove PostgreSQL isolation,
-locking, constraints, pooling, or network behavior.
-
-## Map The Topology
-
-The system has four independent Tori Py applications, one RabbitMQ broker, and
-one PostgreSQL server containing three service-owned databases:
+The runtime flow is:
 
 ```text
 HTTP client
     |
     v
-api-gateway (HTTP, typed RPC clients, no database)
-    |                  |                    |
-    | RabbitMQ RPC     | RabbitMQ RPC       | RabbitMQ RPC
-    v                  v                    v
-catalog             orders             notifications
-    ^                  |                    |
-    | catalog RPC      | order-created      | service-pool consumer
-    +------------------+------ RabbitMQ ----+
-    |                  |                    |
-catalog database   orders database     notifications database
-                    + outbox
+gateway: HTTP controller + typed TaskService proxy
+    |
+    | RabbitMQ RPC, tutorial.tasks.v1, finite 2 second deadline
+    v
+task service: RPC controller -> TaskApplicationService
+    |                              |
+    | local CommandBus/QueryBus    | awaited EventDispatcher.publish()
+    v                              v
+TaskRepository + local metrics    task-created.v1 integration event
+                                       |
+                                       | RabbitMQ SERVICE_POOL subscription
+                                       v
+                                  audit service -> AuditLog
 ```
 
-[`postgres-init/001-create-databases.sql`](https://github.com/mikeoz32/tori-py/blob/main/examples/tori_py/microservices_app/postgres-init/001-create-databases.sql)
-creates separate login roles and databases. This script runs only when Docker
-initializes a new PostgreSQL data volume. Reusing an existing volume does not
-rerun initialization scripts.
+The three roots have explicit ownership:
 
-## Keep Ownership Explicit
-
-| Process | Owns | Does not own |
+| Root | Owns | Does not own |
 | --- | --- | --- |
-| [`catalog`](https://github.com/mikeoz32/tori-py/blob/main/examples/tori_py/microservices_app/catalog/app.py) | Catalog ORM metadata, repository, PostgreSQL data, local command/query handlers, and catalog RPC methods | Orders, notifications, HTTP gateway routes |
-| [`orders`](https://github.com/mikeoz32/tori-py/blob/main/examples/tori_py/microservices_app/orders/app.py) | Order and outbox tables, local CQRS, orders RPC methods, catalog client dependency, and `order-created` publication | Catalog rows or notification storage |
-| [`notifications`](https://github.com/mikeoz32/tori-py/blob/main/examples/tori_py/microservices_app/notifications/app.py) | Notification table, durable event subscription, event deduplication, list/health RPC | Order transaction or outbox state |
-| [`api-gateway`](https://github.com/mikeoz32/tori-py/blob/main/examples/tori_py/microservices_app/gateway/app.py) | HTTP routes, msgspec request validation, typed service proxies, readiness policy, and HTTP error translation | A database, local CQRS, or a logical service identity |
+| Gateway | HTTP routes, validation, typed RPC client, HTTP error mapping | Task storage, CQRS handlers, audit state, a service runtime |
+| Task service | In-memory task state, local CQRS messages and handlers, task RPC methods, integration publication | HTTP, audit entries |
+| Audit service | `task-created.v1` subscription and idempotent audit state | Task writes, task queries, HTTP |
 
-Catalog and orders use CQRS only inside their own processes. RabbitMQ carries
-integration DTOs, not CQRS `Command`, `Query`, or `Event` objects.
+There is no shared application container. In production these roots run in
+different processes and have separate lifecycle, memory, and broker connections.
 
-[`common/contracts.py`](https://github.com/mikeoz32/tori-py/blob/main/examples/tori_py/microservices_app/common/contracts.py)
-contains the narrow msgspec DTO contract shared across process boundaries.
-[`common/services.py`](https://github.com/mikeoz32/tori-py/blob/main/examples/tori_py/microservices_app/common/services.py)
-maps Protocol methods to stable `ServiceIdentity` and RPC aliases. ORM rows,
-repositories, local handlers, and database metadata remain service-private.
+## Prepare the Project
 
-## Follow Typed RPC
+Use Python `>=3.14,<3.15`, `uv`, and Docker. Run the commands from the same
+consumer project created in Part 2, with the ToriPy checkout still in the sibling
+`../tori-py` directory.
 
-The shared service identities are `demo.catalog.v1`, `demo.orders.v1`, and
-`demo.notifications.v1`. Each service owns one durable RPC queue and one
-`<namespace>.<service>.v<version>.*` topic binding. Methods use distinct routing
-keys on that service queue; they do not get per-method queues.
-
-The Protocol methods declare their payload DTO and result type. For example,
-`CatalogService.get_item()` maps arguments into `GetCatalogItem` and expects a
-`CatalogItem`. `@rpc(CatalogService.get_item)` on the server verifies that the
-handler belongs to the same service contract and binds one typed payload.
-
-`ClientsModule.register_cluster()` supplies generic dynamic proxies under the
-Protocol tokens. Gateway and orders code therefore call normal async methods:
+The dependency delta from Part 2 is one local editable distribution with its
+RabbitMQ extra:
 
 ```text
-await catalog.get_item(item_id)
-await orders.create_order(item_id, quantity)
-await notifications.list_notifications()
+uv add --editable "../tori-py/packages/tori-py-microservices[rabbitmq]"
 ```
 
-They do not construct routing keys, untyped dictionaries, reply queues, or
-response decoders at each call site.
+The initial `0.1.0` package train is not published yet, so the explicit local
+path matters. The `rabbitmq` extra adds `aio-pika`; the transport-neutral package
+also supplies typed contracts, RPC and event runtimes, and the in-memory test
+transport.
 
-### Create An Item
-
-The gateway validates `CreateCatalogItem`, calls the catalog proxy, and waits
-within the client's finite RPC deadline. RabbitMQ routes the request to the
-catalog service queue. `CatalogController` converts the integration payload into
-the local `CreateItemCommand`; the local command handler writes only the catalog
-database and returns a `CatalogItem` DTO.
-
-Expected application errors cross the wire as stable `PublicRpcError` codes such
-as `invalid_request`, `conflict`, or `not_found`. Unexpected server exceptions
-are sanitized rather than serializing Python types or tracebacks.
-
-### Create An Order
-
-The order path crosses an additional service boundary:
+If you are starting directly at Part 3, create the same consumer project and add
+the complete dependency set. First initialize and pin the project:
 
 ```text
-POST /orders
-  -> gateway OrdersService proxy
-  -> RabbitMQ orders RPC
-  -> OrdersController
-  -> local PlaceOrderCommand
-  -> CatalogItemLookup.get_item()
-  -> RabbitMQ catalog RPC
-  -> one orders database transaction:
-       insert order
-       insert outbox row
-  -> return Order through the RPC reply path
-  -> gateway returns HTTP 201
+git clone https://github.com/mikeoz32/tori-py.git
+uv init --python 3.14 --bare task-api
+cd task-api
+uv python pin 3.14
 ```
 
-[`AliasProvider(CatalogItemLookup, CatalogService)`](https://github.com/mikeoz32/tori-py/blob/main/examples/tori_py/microservices_app/orders/app.py#L275-L295)
-keeps the command handler dependent on the narrow lookup Protocol instead of the
-full service or RabbitMQ implementation.
+Replace the generated project metadata before adding dependencies:
 
-RPC is still at least once. A timeout or connection loss can leave the remote
-outcome unknown, and neither caller cancellation nor an HTTP error cancels work
-that already started. The example has no business-command idempotency key, so
-the gateway deliberately does not retry create requests automatically.
+```toml
+[project]
+name = "task-api"
+version = "0.1.0"
+requires-python = ">=3.14,<3.15"
+dependencies = []
+```
 
-[`GatewayErrorFilter`](https://github.com/mikeoz32/tori-py/blob/main/examples/tori_py/microservices_app/gateway/app.py#L117-L177)
-maps stable business codes and transport outcomes to HTTP. A `504` or `502`
-describes what the gateway observed; it is not proof that the remote transaction
-rolled back.
+Then install the complete source-checkout dependency set:
 
-## Follow The Outbox And Notification
+```text
+uv add --editable "../tori-py/packages/tori-py[cli,testing]"
+uv add --editable "../tori-py/packages/tori-py-cqrs-core"
+uv add --editable "../tori-py/packages/tori-py-cqrs"
+uv add --editable "../tori-py/packages/tori-py-microservices[rabbitmq]"
+uv add --dev pytest pytest-asyncio
+```
 
-`PlaceOrderHandler` writes the order and one outbox row in the same
-`EntityManager.transaction()`. An order cannot commit without its pending event
-record, and an outbox record cannot commit without the order.
+`uv add` updates both `pyproject.toml` and `uv.lock`. Do not install packages or
+run the application with a separate `pip` environment.
 
-[`OutboxRelay`](https://github.com/mikeoz32/tori-py/blob/main/examples/tori_py/microservices_app/orders/app.py#L161-L219)
-starts as an application lifecycle provider and polls pending rows:
+## Replace the Package Tree
 
-1. Select a pending row, copy its event identity and payload, increment attempts,
-   and commit that state.
-2. Publish `order-created` with `require_route=True` and carry the stable outbox
-   event ID in the `outbox_event_id` header.
-3. After a definitive publisher result, mark the outbox row published in another
-   transaction.
-4. Log failures and retry the pending row after a bounded sleep.
+Replace the complete Part 2 `task_app/` directory. The old root-level
+`models.py`, `state.py`, `handlers.py`, `http.py`, `app.py`, and `test_app.py`
+do not remain in this version.
 
-A crash after publication but before step 3 leaves the row pending and causes a
-later duplicate publication. This is expected at-least-once relay behavior.
-`require_route=True` proves that a matching route existed; it does not prove a
-consumer was online, ran, or committed.
+The complete project tree is:
 
-[`NotificationsController.order_created()`](https://github.com/mikeoz32/tori-py/blob/main/examples/tori_py/microservices_app/notifications/app.py#L69-L106)
-uses a durable `SERVICE_POOL` subscription named `notification-workers`. All
-notification replicas with the same service identity and subscription would
-compete on one queue, so scaling changes capacity rather than delivering one
+```text
+task-api/
+  .python-version
+  pyproject.toml
+  uv.lock
+  task_app/
+    __init__.py
+    contracts.py
+    infrastructure.py
+    testing.py
+    test_system.py
+    audit/
+      __init__.py
+      app.py
+    gateway/
+      __init__.py
+      app.py
+    tasks/
+      __init__.py
+      app.py
+      handlers.py
+      models.py
+      services.py
+      state.py
+```
+
+The four `__init__.py` files are empty package markers. The remaining files are
+defined below.
+
+## Step 1: Define the Wire Contract
+
+Create `task_app/contracts.py`:
+
+```python
+--8<-- "examples/tori_py/tutorials/distributed_task_api/task_app/contracts.py"
+```
+
+`TASKS` and `AUDIT` are stable logical identities. They normalize to
+`tutorial.tasks.v1` and `tutorial.audit.v1`; process names, hostnames, and replica
+IDs do not become service identities.
+
+The DTOs are explicit integration contracts:
+
+- `Task` is the value returned by both RPC and HTTP;
+- `CreateTaskV1`, `GetTaskV1`, and `ListTasksV1` are RPC payload schemas;
+- `TaskCreatedV1` is a versioned integration event with an application event ID.
+
+These DTOs are not the task service's local CQRS messages. Sharing the narrow
+contract file does not share a repository, handler, domain model, or dependency
+injection graph.
+
+`@service_contract(TASKS)` associates the `TaskService` Protocol with one
+service identity. Each `@rpc_call` declares a stable method alias, its payload
+type, result annotation, and a positive finite two-second timeout. The generated
+client proxy binds normal Python arguments into the declared DTO and decodes the
+typed result. On the server, `@rpc(TaskService.create_task)` and its peers verify
+that handler metadata matches the same contract.
+
+One deadline covers transport readiness, request publication, publisher
+confirmation, and reply waiting. A timeout stops the caller's wait; it does not
+cancel a remote handler or prove that the remote write did not happen.
+
+## Step 2: Add Shared Process Bootstrap
+
+Create `task_app/infrastructure.py`:
+
+```python
+--8<-- "examples/tori_py/tutorials/distributed_task_api/task_app/infrastructure.py"
+```
+
+`rabbitmq_url()` reads `RABBITMQ_URL` without opening a connection. Its fallback
+is useful only when a local broker permits `guest` from the host.
+
+`serve()` is for the two broker-only roots. It creates one unstarted
+`NestApplication`, starts its complete lifecycle, waits for process termination,
+and always requests application shutdown in `finally`. The gateway is different:
+its ASGI server drives startup and shutdown through lifespan.
+
+## Step 3: Define Task-Local CQRS Messages
+
+Create `task_app/tasks/models.py`:
+
+```python
+--8<-- "examples/tori_py/tutorials/distributed_task_api/task_app/tasks/models.py"
+```
+
+These dataclasses are process-local application messages. `CreateTask`,
+`ListTasks`, `GetTask`, and `TaskCreated` are routed only by the task service's
+in-memory CQRS buses. They are never encoded as RabbitMQ payloads.
+
+The boundary translation is deliberate:
+
+```text
+CreateTaskV1 RPC DTO -> CreateTask local command
+Task local result    -> Task RPC result
+TaskCreated local event -> local TaskMetrics only
+Task result          -> TaskCreatedV1 integration event
+```
+
+The local `TaskCreated` event and wire `TaskCreatedV1` event have different jobs.
+The first coordinates an in-process reaction; the second is a versioned fact for
+another service.
+
+## Step 4: Add Task-Owned State
+
+Create `task_app/tasks/state.py`:
+
+```python
+--8<-- "examples/tori_py/tutorials/distributed_task_api/task_app/tasks/state.py"
+```
+
+`TaskRepository` is the task service's write and query state. It assigns IDs and
+normalizes read order, but remains in memory and disappears when that process
+stops. The example demonstrates service ownership, not durable persistence or a
+separate CQRS projection.
+
+`TaskMetrics` is a process-local event reaction. Its condition gives the system
+test a bounded completion signal; it is not a public API, broker metric, or
+durable projection.
+
+## Step 5: Implement Local Handlers
+
+Create `task_app/tasks/handlers.py`:
+
+```python
+--8<-- "examples/tori_py/tutorials/distributed_task_api/task_app/tasks/handlers.py"
+```
+
+The command handler owns the task rule: trim the title, require 1-120 characters,
+write through `TaskRepository`, and publish the local `TaskCreated` event. The
+query handlers read only task-owned state. `CountTaskCreated` reacts through the
+local event bus.
+
+Decorators provide handler metadata and injectable provider metadata, but the
+classes still have to be listed in the task module. ToriPy compiles exact command
+and query mappings before this service accepts work.
+
+Awaiting the local `EventBus.publish()` accepts the event into the local event
+transport; it does not wait for `CountTaskCreated.handle()` to finish. The task
+write and local metric update are not one transaction.
+
+## Step 6: Coordinate CQRS and Integration Publication
+
+Create `task_app/tasks/services.py`:
+
+```python
+--8<-- "examples/tori_py/tutorials/distributed_task_api/task_app/tasks/services.py"
+```
+
+`TaskApplicationService` is the boundary between RPC handlers, local CQRS, and
+integration messaging. Reads execute local queries. A create executes the local
+command first, then directly awaits `EventDispatcher.publish()` with:
+
+- event alias `task-created`;
+- payload schema version `1`;
+- a fresh application `event_id`;
+- `require_route=True`.
+
+For RabbitMQ, a successful publish result means the broker confirmed the event
+publication and at least one matching binding routed it. It does not mean that
+the audit consumer was online, invoked, or committed an effect.
+
+This direct write-then-publish sequence is intentionally **not an outbox**. The
+task is already present if publication is rejected, times out, or has an
+indeterminate outcome. A crash between the write and publish leaves a task with
+no audit event. A crash after broker acceptance but before the service observes
+the result can leave publication uncertain. There is no persistent record from
+which this example can repair either gap.
+
+## Step 7: Compose the Task Service
+
+Create `task_app/tasks/app.py`:
+
+```python
+--8<-- "examples/tori_py/tutorials/distributed_task_api/task_app/tasks/app.py"
+```
+
+`TaskRpcController` translates wire DTOs into calls to
+`TaskApplicationService`. Expected local errors become stable
+`PublicRpcError` codes rather than serialized Python exceptions:
+
+- `TaskTitleInvalid` becomes `invalid_request`;
+- `TaskNotFound` becomes `not_found`.
+
+`CqrsModule.for_root(global_=True)` creates process-local command, query, and
+event buses. `MicroservicesModule.for_root(TASKS, ...)` gives this application
+one logical service identity, discovers its explicitly registered RPC
+controller, and supplies its source-bound `EventDispatcher`.
+
+RabbitMQ derives one durable RPC queue and one wildcard binding for all three
+methods:
+
+```text
+queue:   tori_py.rpc.tutorial.tasks.v1
+binding: tutorial.tasks.v1.*
+methods: tutorial.tasks.v1.create-task
+         tutorial.tasks.v1.list-tasks
+         tutorial.tasks.v1.get-task
+```
+
+Methods do not get separate queues. Replicas of the same task identity would be
+competing consumers of this one queue, so in-memory task state would immediately
+become inconsistent across replicas. Durable shared service-owned storage is
+required before scaling this task service.
+
+The create RPC returns only after this sequence completes:
+
+```text
+RPC request
+  -> local CreateTask command
+  -> in-memory task write
+  -> local TaskCreated event accepted
+  -> task-created.v1 integration publication confirmed and routed
+  -> RPC Task reply
+```
+
+The gateway can then return HTTP `201`. That status means the remote write and
+the directly awaited routed publication completed from the caller's observed
+path. It does **not** wait for audit handling or prove an audit entry exists.
+
+## Step 8: Build the Audit Service
+
+Create `task_app/audit/app.py`:
+
+```python
+--8<-- "examples/tori_py/tutorials/distributed_task_api/task_app/audit/app.py"
+```
+
+The audit root has no HTTP routes or task RPC methods. Its controller consumes
+the exact source identity, event alias, and payload schema from `contracts.py`.
+
+`EventDispatchMode.SERVICE_POOL` with subscription `task-audit` creates one
+durable queue for this destination service and logical effect. All replicas with
+identity `tutorial.audit.v1` and that subscription would compete on the same
+queue. Scaling replicas changes processing capacity; it does not broadcast one
 copy to every replica.
 
-The handler checks the stable outbox event ID and inserts a notification with a
-unique constraint in one local transaction. A duplicate becomes a successful
-no-op. The `IntegrityError` path also handles two concurrent deliveries racing
-for the same ID. This is the application-owned idempotent effect that makes
-outbox duplicates safe for this consumer.
-
-The example is intentionally minimal. It has no general outbox/inbox library,
-lease protocol, reconciliation UI, retention job, or multi-effect workflow.
-
-## Understand Composition And Startup
-
-[`common/infrastructure.py`](https://github.com/mikeoz32/tori-py/blob/main/examples/tori_py/microservices_app/common/infrastructure.py)
-contains explicit composition helpers, not a hidden service host:
-
-- `sql_module()` creates one SQLAlchemy root from the service's database URL.
-- `rabbit_modules()` creates a RabbitMQ root and one `MicroservicesModule` for an
-  explicit service identity.
-- `migrate()` runs the example's application-owned `metadata.create_all()` job.
-- `serve()` starts one compiled application, waits for `SIGINT` or `SIGTERM`, and
-  always calls shutdown.
-
-The Compose startup order is:
-
-1. Start PostgreSQL and RabbitMQ and wait for their container health checks.
-2. Run separate catalog, orders, and notifications schema-initialization jobs.
-3. Start each broker service after its schema-initialization job exits
-   successfully.
-4. Start the API gateway after service containers have started.
-5. Mark the gateway healthy only when `GET /ready` succeeds.
-
-`/health` checks only the gateway process. `/ready` performs three bounded
-health RPCs concurrently. Each service health method also runs `SELECT 1` on its
-own database. This is a dependency-aware readiness sample, not a guarantee that
-the next call succeeds or that every queue has a live consumer.
-
-The three `migrate.py` files call `metadata.create_all()`:
-
-- [`catalog/migrate.py`](https://github.com/mikeoz32/tori-py/blob/main/examples/tori_py/microservices_app/catalog/migrate.py)
-- [`orders/migrate.py`](https://github.com/mikeoz32/tori-py/blob/main/examples/tori_py/microservices_app/orders/migrate.py)
-- [`notifications/migrate.py`](https://github.com/mikeoz32/tori-py/blob/main/examples/tori_py/microservices_app/notifications/migrate.py)
-
-This is sufficient for a disposable example but is not migration history. A
-production deployment should use reviewed, versioned migrations before replicas
-or consumers become ready.
-
-## Start And Inspect Infrastructure
-
-Build and start the acceptance stack from the repository root:
+RabbitMQ derives the queue from stable contract values:
 
 ```text
-docker compose -f examples/tori_py/microservices_app/compose.yaml up --build
+tori_py.event.tutorial.tasks.v1.task-created.v1--pool.tutorial.audit.v1.task-audit
 ```
 
-In another terminal, inspect state and schema-initialization failures through
-Compose:
+`AuditLog.record()` counts every delivery but uses `setdefault(event.event_id,
+event)` for the effect. Delivering the same application event twice therefore
+leaves one entry. That demonstrates the required idempotency shape, but this
+in-memory dictionary is not a production inbox:
+
+- it is lost when the audit process restarts;
+- separate replicas would have separate dictionaries;
+- it is not committed atomically with a durable audit effect;
+- retention and replay policy are undefined.
+
+A production audit consumer needs a shared durable unique key such as
+`(subscription, event_id)` committed in the same local transaction as the audit
+effect.
+
+## Step 9: Build the HTTP Gateway
+
+Create `task_app/gateway/app.py`:
+
+```python
+--8<-- "examples/tori_py/tutorials/distributed_task_api/task_app/gateway/app.py"
+```
+
+The gateway preserves the HTTP routes while replacing direct bus access with an
+injected `TaskService` Protocol. `ClientsModule.register_cluster()` supplies one
+generic typed proxy under that Protocol token. The gateway is client-only: it
+does not import `MicroservicesModule`, claim a service identity, or consume a
+service queue.
+
+The controller awaits each remote call. For `POST /tasks`, `@status(201)` is
+applied only after `create_task()` returns its decoded `Task`. Msgspec validation
+still rejects malformed HTTP bodies and converts the path value to `int` before
+the proxy is called.
+
+`GatewayErrorFilter` keeps distributed failures behind a stable HTTP boundary:
+
+| RPC or transport outcome | HTTP status | Meaning at the gateway |
+| --- | --- | --- |
+| `invalid_request`, `not_found`, `conflict` | `400`, `404`, `409` | A correlated public application error arrived |
+| Unknown service or unavailable connection/transport | `503` | The dependency route or transport is unavailable |
+| RPC or transport timeout | `504` | The local finite wait expired |
+| Outcome unknown or indeterminate | `502` | Acceptance or completion cannot be established |
+| Protocol or other RPC client failure | `502` | The remote exchange did not produce a valid result |
+| Unexpected error | `500` | Sanitized gateway failure |
+
+A `502` or `504` does not prove that the task was not created. The framework does
+not automatically resend accepted or indeterminate RPC. This contract has no
+business idempotency key, so blindly retrying `POST /tasks` can create a second
+task. Reconcile by an application identity before deciding to retry an unknown
+outcome.
+
+The exported `application = asgi(create_application)` lets Uvicorn own exact
+startup and shutdown through ASGI lifespan. Startup opens the RabbitMQ client
+transport and reply consumer before the gateway admits requests; shutdown closes
+admission, pending client work, the reply route, channels, and connection under
+the application shutdown budget.
+
+## Step 10: Add the In-Memory Test Transport
+
+Create `task_app/testing.py`:
+
+```python
+--8<-- "examples/tori_py/tutorials/distributed_task_api/task_app/testing.py"
+```
+
+Production composition uses keyed `RabbitMqTransport` references. The test
+module provides in-memory server and client factories under the same public keyed
+factory tokens. It does not fake controllers, RPC proxies, CQRS buses, codecs,
+or application lifecycle.
+
+`InMemoryTransportModule.for_root()` returns a deferred module with the same key
+as the production transport reference. This makes it a valid explicit
+replacement for one `RabbitMqModule` descriptor during test graph compilation.
+
+## Step 11: Test All Three Roots
+
+Create `task_app/test_system.py`:
+
+```python
+--8<-- "examples/tori_py/tutorials/distributed_task_api/task_app/test_system.py"
+```
+
+The test creates one `InMemoryBroker`, but it still compiles and starts three
+independent ToriPy roots in dependency order:
+
+1. The audit root is compiled first so its event subscription exists.
+2. The task root is compiled next so its RPC service and publisher are ready.
+3. The gateway root is compiled last with the production HTTP pipeline.
+
+Each builder replaces only its exact production RabbitMQ descriptor:
 
 ```text
-docker compose -f examples/tori_py/microservices_app/compose.yaml ps
-docker compose -f examples/tori_py/microservices_app/compose.yaml logs catalog-migrate orders-migrate notifications-migrate
+audit_rabbit   -> in-memory factories keyed by audit_transport
+task_rabbit    -> in-memory factories keyed by task_transport
+gateway_rabbit -> in-memory factories keyed by gateway_transport
 ```
 
-The gateway binds only to `127.0.0.1:8000`. RabbitMQ management binds to
-`127.0.0.1:15672` with the educational credentials `demo` / `demo`.
+The production modules remain otherwise unchanged. This is module replacement,
+not a second application composition maintained only for tests.
 
-Do not start PostgreSQL or RabbitMQ through Python commands. Docker Compose owns
-the tutorial infrastructure; `uv` owns local Python commands.
+The test drives real in-process ASGI requests through the gateway, typed RPC,
+the task service, local CQRS, integration publication, and the audit handler. It
+then republishes the same `TaskCreatedV1` value and proves that two deliveries
+produce one audit entry. Finally, it closes applications in reverse order,
+closes the broker, and verifies all application and transport lifecycle states.
 
-## Run The End-To-End Smoke Flow
-
-Once the gateway readiness check passes, run:
+Run it from the consumer project root:
 
 ```text
-uv run python -m examples.tori_py.microservices_app.smoke
+uv run pytest task_app/test_system.py -q
 ```
 
-[`smoke.py`](https://github.com/mikeoz32/tori-py/blob/main/examples/tori_py/microservices_app/smoke.py)
-does the following through the public HTTP gateway:
+Expected result:
 
-1. Wait up to 60 seconds for dependency-aware `/ready`.
-2. Create a uniquely named catalog item.
-3. Create an order for that item.
-4. Read the item and order back and compare typed DTOs.
-5. Poll notifications for up to 10 seconds.
-6. Require exactly one matching notification and print the complete typed result
-   as JSON.
+```text
+1 passed
+```
 
-The unique item suffix lets the smoke command run against a retained example
-volume without colliding with the catalog name constraint. The notification
-assertion proves the normal outbox/event path once; it does not inject broker
-disconnects, force duplicate redelivery, or prove recovery behavior.
+The repository copy can be verified from a ToriPy checkout with:
+
+```text
+uv run pytest examples/tori_py/tutorials/distributed_task_api/task_app/test_system.py -q
+```
+
+This is a three-root in-memory system test, not broker proof. It does not open a
+socket, declare RabbitMQ quorum queues, exercise publisher confirms or mandatory
+returns, prove reconnect behavior, test process isolation, or validate broker
+redelivery and dead-letter topology. Keep real RabbitMQ acceptance tests as a
+separate layer.
+
+## Start RabbitMQ Locally
+
+Start RabbitMQ 4 with its management UI. These credentials and plain AMQP are
+for local development only:
+
+```text
+docker run --detach --rm --name tori-py-rabbitmq --hostname tori-py-rabbitmq --publish 5672:5672 --publish 15672:15672 --env RABBITMQ_DEFAULT_USER=tutorial --env RABBITMQ_DEFAULT_PASS=tutorial rabbitmq:4-management
+```
+
+Wait until the broker responds:
+
+```text
+docker exec tori-py-rabbitmq rabbitmq-diagnostics -q ping
+```
+
+The management UI is at `http://127.0.0.1:15672` with `tutorial` / `tutorial`.
+The Python processes use:
+
+```text
+amqp://tutorial:tutorial@localhost:5672/
+```
+
+The mutable `rabbitmq:4-management` tag is convenient locally. Pin an approved
+version or image digest in reproducible deployment configuration.
+
+## Run the Three Processes
+
+Open three terminals in the consumer project. Start them in this order so the
+audit binding exists before the task service can publish, and the task RPC queue
+exists before the gateway accepts HTTP traffic.
+
+### 1. Audit Service
+
+=== "PowerShell"
+
+    ```powershell
+    $env:RABBITMQ_URL = "amqp://tutorial:tutorial@localhost:5672/"
+    uv run python -m task_app.audit.app
+    ```
+
+=== "Bash"
+
+    ```bash
+    RABBITMQ_URL="amqp://tutorial:tutorial@localhost:5672/" \
+      uv run python -m task_app.audit.app
+    ```
+
+Wait for startup to complete before continuing. This declares and consumes the
+service-pool queue whose stable name ends in the `task-audit` subscription.
+
+### 2. Task Service
+
+=== "PowerShell"
+
+    ```powershell
+    $env:RABBITMQ_URL = "amqp://tutorial:tutorial@localhost:5672/"
+    uv run python -m task_app.tasks.app
+    ```
+
+=== "Bash"
+
+    ```bash
+    RABBITMQ_URL="amqp://tutorial:tutorial@localhost:5672/" \
+      uv run python -m task_app.tasks.app
+    ```
+
+This process starts its local CQRS buses, the task RPC consumer, and its
+integration event dispatcher.
+
+### 3. HTTP Gateway
+
+=== "PowerShell"
+
+    ```powershell
+    $env:RABBITMQ_URL = "amqp://tutorial:tutorial@localhost:5672/"
+    uv run uvicorn task_app.gateway.app:application --lifespan on --host 127.0.0.1 --port 8000
+    ```
+
+=== "Bash"
+
+    ```bash
+    RABBITMQ_URL="amqp://tutorial:tutorial@localhost:5672/" \
+      uv run uvicorn task_app.gateway.app:application \
+        --lifespan on --host 127.0.0.1 --port 8000
+    ```
+
+The gateway starts its typed client cluster and exclusive reply route before
+Uvicorn completes lifespan startup.
+
+You can inspect the two durable consumer queues from another terminal:
+
+```text
+docker exec tori-py-rabbitmq rabbitmqctl list_queues name consumers
+```
+
+## Exercise the HTTP Contract
+
+Create a task. In PowerShell, pipe the JSON body so `curl.exe` receives it
+without shell quote rewriting:
+
+```powershell
+'{"title":"  Ship the distributed tutorial  "}' |
+  curl.exe -i -X POST "http://127.0.0.1:8000/tasks" `
+    -H "content-type: application/json" `
+    --data-binary '@-'
+```
+
+The relevant response is:
+
+```text
+HTTP/1.1 201 Created
+content-type: application/json
+
+{"id":1,"title":"Ship the distributed tutorial"}
+```
+
+At this point the remote task write and routed event publication have completed.
+The audit handler may still be pending. The response does not wait for audit
+completion.
+
+Read through the same public API:
+
+```powershell
+curl.exe -i "http://127.0.0.1:8000/tasks"
+curl.exe -i "http://127.0.0.1:8000/tasks/1"
+curl.exe -i "http://127.0.0.1:8000/tasks/999"
+```
+
+The response bodies are:
+
+```text
+HTTP/1.1 200 OK
+[{"id":1,"title":"Ship the distributed tutorial"}]
+
+HTTP/1.1 200 OK
+{"id":1,"title":"Ship the distributed tutorial"}
+
+HTTP/1.1 404 Not Found
+{"type":"about:blank","title":"Not Found","status":404,"detail":"Task was not found.","instance":"/tasks/999"}
+```
+
+Exercise remote business validation:
+
+```powershell
+'{"title":"   "}' |
+  curl.exe -i -X POST "http://127.0.0.1:8000/tasks" `
+    -H "content-type: application/json" `
+    --data-binary '@-'
+```
+
+The task service raises its local error, the RPC boundary returns the public
+`invalid_request` code, and the gateway maps it to:
+
+```text
+HTTP/1.1 400 Bad Request
+content-type: application/problem+json
+
+{"type":"about:blank","title":"Bad Request","status":400,"detail":"After trimming, the task title must contain 1-120 characters.","instance":"/tasks"}
+```
+
+Bash users can run the equivalent create request with:
+
+```bash
+curl -i -X POST "http://127.0.0.1:8000/tasks" \
+  -H "content-type: application/json" \
+  -d '{"title":"Ship the distributed tutorial"}'
+```
+
+## Understand At-Least-Once Behavior
+
+Both durable RPC execution and reliable event consumption are at least once.
+They have different duplicate boundaries:
+
+- An RPC request can execute again after a connection failure leaves reply or
+  request settlement uncertain. This example has no create-operation
+  idempotency key, so a duplicate execution can create another task.
+- An event can be delivered again after `AuditLog.record()` succeeds but its ACK
+  is lost. The event's stable `event_id` lets the audit effect become a no-op for
+  that duplicate within this one process lifetime.
+- A client timeout or cancellation only stops local waiting. It does not cancel
+  a task handler that already started.
+- The RPC transport does not automatically resend an accepted or indeterminate
+  request. `RpcOutcomeUnknownError` requires reconciliation and an application
+  decision, not a blanket retry.
+- A publisher confirm and `routed=True` establish broker acceptance and a
+  matching binding, not consumer completion.
+
+Transport message and correlation IDs are not business idempotency keys. The
+`event_id` in `TaskCreatedV1` is application-owned specifically so a consumer can
+deduplicate publication/redelivery of the same fact.
 
 ## Shut Down Deliberately
 
-Stop applications and infrastructure while retaining volumes:
+Stop new HTTP admission first, then producers, then consumers:
+
+1. Press `Ctrl+C` in the gateway terminal and wait for Uvicorn lifespan shutdown.
+2. Press `Ctrl+C` in the task service terminal and wait for `serve()` to finish.
+3. Press `Ctrl+C` in the audit terminal and wait for `serve()` to finish.
+4. Stop the disposable broker:
 
 ```text
-docker compose -f examples/tori_py/microservices_app/compose.yaml down
+docker stop tori-py-rabbitmq
 ```
 
-Stop the stack and delete the disposable PostgreSQL and RabbitMQ data:
+Because the container was started with `--rm`, Docker removes it after stopping.
+The RabbitMQ queues and all in-memory task and audit state disappear.
+
+Normal application shutdown first closes admission, then drains accepted work
+within a bounded shared budget, stops consumers and CQRS buses, closes reply
+routes and transports, and finally closes broker connections. Forced process or
+container termination can interrupt those steps, so deployment grace periods
+must exceed the application shutdown and connection cleanup budgets.
+
+## Production Hardening and Next Techniques
+
+The smallest production correction for write/publication consistency is an
+application-owned transactional outbox:
 
 ```text
-docker compose -f examples/tori_py/microservices_app/compose.yaml down -v
+task row + outbox row with stable event_id (one database transaction)
+  -> at-least-once relay calls EventDispatcher.publish()
+  -> mark published only after a definitive publisher result
+  -> audit inbox/dedup row + durable audit effect (one local transaction)
+  -> successful handler return permits consumer ACK
 ```
 
-Compose sends termination signals and allows the configured 35-second container
-grace period. Broker services use `serve()` to call Tori Py shutdown; Uvicorn
-drives gateway ASGI lifespan shutdown. Forced container termination can still
-interrupt handlers, outbox publication, settlement, or cleanup, so at-least-once
-recovery assumptions remain necessary.
+An outbox closes the current write-before-publish loss window, but it still
+permits duplicate publication when a relay crashes after publish and before
+marking the row. The audit service therefore still needs durable idempotency.
+Indeterminate relay outcomes need reconciliation policy, not an assertion of
+success or an unbounded resend loop.
 
-## What The Tests Prove
-
-Run the application-root tests independently of Compose:
-
-```text
-uv run pytest examples/tori_py/microservices_app/test_applications.py -q
-```
-
-[`test_applications.py`](https://github.com/mikeoz32/tori-py/blob/main/examples/tori_py/microservices_app/test_applications.py)
-proves that all four roots compile, an order and outbox row commit together,
-duplicate notification events produce one stored effect, newest notifications
-sort first, and stable gateway errors map to expected status codes.
-
-These are composition and application-policy tests. They do not open RabbitMQ,
-drive the Compose stack, verify publisher confirms, test reconnection, or execute
-PostgreSQL-specific behavior. The real-infrastructure smoke path must remain a
-separate acceptance check once its locked dependency set is complete.
-
-## Production And Example Limitations
-
-- All package distributions are beta and require a pinned, tested application
-  lock before deployment.
-- Compose uses plaintext development credentials, plain AMQP, one RabbitMQ
-  container, one PostgreSQL container, and no TLS, least-privilege vhosts,
-  backup, replication, failover, or secret delivery.
-- The image installs development dependencies, copies the checkout, and does not
-  demonstrate a non-root or minimal production build.
-- `metadata.create_all()` is not a versioned or reversible migration strategy.
-- The gateway has no authentication, authorization, rate limiting, browser
-  policy, tracing backend, or production ingress configuration.
-- Create-item and create-order RPCs have no persisted business idempotency key.
-  Timeout and outcome-unknown failures must not be retried blindly.
-- The polling outbox relay has no multi-replica lease or row-claim strategy.
-  Duplicate publication is expected, and scaling it needs deliberate database
-  concurrency policy.
-- Notification deduplication covers only this one local effect and retains IDs
-  indefinitely. It is not a reusable inbox or global exactly-once guarantee.
-- Publisher confirmation, routing, consumer ACK, database commit, and caller
-  observation remain separate facts.
-- Gateway readiness consumes real RPC and database capacity and is only a
-  point-in-time signal. RabbitMQ has no framework-provided live membership
-  registry.
-- The smoke test exercises a happy path, not disconnect, retry, dead-letter,
-  backlog, clock, shutdown-race, or indeterminate-outcome fault matrices.
+Also add a stable business idempotency key and persisted result for effectful
+create RPC, durable task and audit stores, versioned migrations, authentication
+and authorization, TLS and least-privilege broker credentials, bounded capacity,
+readiness, metrics, tracing, dead-letter operations, retention, and real-broker
+failure tests.
 
 Continue with [Microservice Operations](../techniques/microservices/operations.md)
-for idempotency, outbox/inbox, monitoring, capacity, recovery, and shutdown
-policy. Read [RabbitMQ](../techniques/microservices/rabbitmq.md) before changing
-topology or treating this local Compose file as deployment guidance.
+for outbox/inbox, idempotency, monitoring, recovery, and shutdown policy. Read
+[RPC](../techniques/microservices/rpc.md) for deadline and unknown-outcome
+semantics, [Events](../techniques/microservices/events.md) for subscription and
+deduplication policy, [Clients and Contracts](../techniques/microservices/clients-and-contracts.md)
+for typed proxy evolution, and [RabbitMQ](../techniques/microservices/rabbitmq.md)
+before changing topology or production broker configuration.

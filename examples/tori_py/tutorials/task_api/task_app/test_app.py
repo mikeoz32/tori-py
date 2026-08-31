@@ -1,69 +1,35 @@
-"""Executable tests for Part 2 of the Task API tutorial."""
+"""Executable tests for Part 1 of the Task API tutorial."""
 
 import httpx
 import pytest
-from tori_py.starlette import StarletteAdapter
-from tori_py.testing import TestingModule, http_client
-from tori_py_cqrs_core import CommandBus, EventBus, QueryBus
+from tori_py.testing import http_client
 
-from .app import AppModule, TasksModule, create_application
-from .messages import CreateTask, GetTask, ListTasks
+from .app import create_application
 from .models import CreateTaskBody, Task, TaskNotFound, TaskTitleInvalid
-from .observers import TaskAuditLog, TaskMetrics
+from .services import TaskService
+from .state import TaskRepository
 
 
-@pytest.mark.asyncio
-async def test_commands_have_immediate_repository_backed_queries() -> None:
-    application = await TestingModule.create(AppModule).compile(
-        adapter=StarletteAdapter()
-    )
-    try:
-        commands = await application.resolve(CommandBus)
-        queries = await application.resolve(QueryBus)
-        assert isinstance(commands, CommandBus)
-        assert isinstance(queries, QueryBus)
+def test_task_service() -> None:
+    service = TaskService(TaskRepository())
 
-        assert await queries.execute(ListTasks()) == []
+    assert service.all() == []
 
-        task = await commands.execute(
-            CreateTask(CreateTaskBody("  Write the tutorial  "))
-        )
-        assert task == Task(1, "Write the tutorial")
-        assert await queries.execute(GetTask(task.id)) == task
-        assert await queries.execute(ListTasks()) == [task]
+    first = service.create(CreateTaskBody("  Write the tutorial  "))
+    assert first == Task(1, "Write the tutorial")
+    assert service.get(1) == first
 
-        with pytest.raises(TaskTitleInvalid):
-            await commands.execute(CreateTask(CreateTaskBody("   ")))
-        with pytest.raises(TaskNotFound):
-            await queries.execute(GetTask(999))
-    finally:
-        await application.close()
+    with pytest.raises(TaskTitleInvalid):
+        service.create(CreateTaskBody("   "))
+    with pytest.raises(TaskTitleInvalid):
+        service.create(CreateTaskBody("x" * 121))
 
+    second = service.create(CreateTaskBody("Run the tests"))
+    assert second == Task(2, "Run the tests")
+    assert service.all() == [first, second]
 
-@pytest.mark.asyncio
-async def test_task_created_fans_out_to_audit_and_metrics() -> None:
-    application = await TestingModule.create(AppModule).compile(
-        adapter=StarletteAdapter()
-    )
-    try:
-        commands = await application.resolve(CommandBus)
-        events = await application.resolve(EventBus)
-        audit = await application.resolve(TaskAuditLog, module=TasksModule)
-        metrics = await application.resolve(TaskMetrics, module=TasksModule)
-        assert isinstance(commands, CommandBus)
-        assert isinstance(events, EventBus)
-        assert isinstance(audit, TaskAuditLog)
-        assert isinstance(metrics, TaskMetrics)
-
-        task = await commands.execute(CreateTask(CreateTaskBody("Observe events")))
-        await audit.wait_for_count(1, timeout=1)
-        await metrics.wait_for_created(1, timeout=1)
-        await events.drain(timeout=1)
-
-        assert audit.entries == [task]
-        assert metrics.created == 1
-    finally:
-        await application.close()
+    with pytest.raises(TaskNotFound):
+        service.get(999)
 
 
 @pytest.mark.asyncio

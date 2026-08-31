@@ -1,178 +1,158 @@
-# Build a CQRS Task API
+# Task API, Part 2: Add CQRS
 
-This tutorial builds a complete ToriPy CQRS application from an empty directory.
-You will define commands, queries, events, handlers, an asynchronous read
-projection, an HTTP controller, module composition, application bootstrap, and
-tests. No existing example application is required.
+This tutorial continues [Part 1](task-api.md) in the same `task-api`
+project. Do not initialize another project, replace the existing package, or
+change the HTTP API. You will route the existing application service through
+command and query buses, then publish a task-created event to asynchronous audit
+and metrics observers.
 
-Every Python file shown here is complete and copyable. The documentation includes
-the files from an executable copy under `examples/tori_py/tutorials/cqrs_task_api`
-and CI runs its tests, so the tutorial and the public API cannot drift silently.
+The central continuity rule is:
 
-## What You Will Build
+- `task_app/models.py`, `task_app/state.py`, and `task_app/services.py` remain
+  byte-for-byte unchanged from Part 1;
+- `POST /tasks` still returns `201` with only the created task;
+- reads still use the same repository and are immediately consistent after a
+  successful create;
+- validation and Problem Details responses remain the same;
+- CQRS types and observer state do not appear in the HTTP contract.
 
-The application exposes three endpoints:
+CQRS changes how the application dispatches work. It does not require changing
+the business rules or public API.
 
-| Request | CQRS message | Result |
-| --- | --- | --- |
-| `POST /tasks` | `CreateTask` command | `202` with the created task |
-| `GET /tasks` | `ListTasks` query | Tasks currently in the read projection |
-| `GET /tasks/{task_id}` | `GetTask` query | One projected task or `404` |
+## Continue In The Part 1 Project
 
-The command side and query side use separate in-memory models:
-
-```text
-POST /tasks
-  -> CreateTask
-  -> CreateTaskHandler
-  -> TaskRepository                     write model
-  -> TaskCreated
-       -> ProjectTaskCreated
-       -> TaskProjection                read model
-       -> AuditTaskCreated
-       -> TaskAuditLog                  second event reaction
-
-GET /tasks
-  -> ListTasks
-  -> ListTasksHandler
-  -> TaskProjection
-```
-
-This separation demonstrates CQRS mechanics without pretending that in-memory
-state is production persistence. The write, event publication, projection, and
-audit update are not one transaction.
-
-## Prerequisites
-
-You need Python `>=3.14,<3.15` and
-[`uv`](https://docs.astral.sh/uv/getting-started/installation/).
-The tutorial assumes that you already understand basic Python packages,
-`async`/`await`, and the ToriPy
-[First Application](../getting-started/first-application.md).
-
-The initial `0.1.0` package train is not published on PyPI yet. Clone ToriPy and
-create the application as a sibling directory so `uv` can use explicit editable
-sources:
+Open the `task-api` directory that you completed in Part 1. Its existing
+framework, msgspec, CLI, HTTPX, pytest, and pytest-asyncio dependencies remain in
+place. Add only the two editable CQRS distributions:
 
 ```text
-git clone https://github.com/mikeoz32/tori-py.git
-uv init --python 3.14 --bare cqrs-task-api
-cd cqrs-task-api
-uv python pin 3.14
-```
-
-`uv init --bare` creates only `pyproject.toml`; `uv python pin` adds
-`.python-version`. Replace the generated project metadata with this exact
-supported Python range:
-
-```toml
-[project]
-name = "cqrs-task-api"
-version = "0.1.0"
-requires-python = ">=3.14,<3.15"
-dependencies = []
-```
-
-Now add the three local distributions and test dependencies:
-
-```text
-uv add --editable "../tori-py/packages/tori-py[cli,testing]"
 uv add --editable "../tori-py/packages/tori-py-cqrs-core"
 uv add --editable "../tori-py/packages/tori-py-cqrs"
-uv add --dev pytest pytest-asyncio
 ```
 
-Adding CQRS core explicitly lets `uv` satisfy the integration package's internal
-version constraint from the same checkout instead of querying an unpublished
-registry package. The framework extras supply Uvicorn, the `tori-py run`
-command, and HTTPX. After the release train is published, this section will use
-normal registry requirements instead of editable source paths.
+The explicit core dependency lets `uv` satisfy the integration package's local
+version constraint from the same checkout. Do not re-add the Part 1 dependencies.
 
-## Create the Project Structure
-
-Create this package and these files:
+When this part is complete, the package has this shape:
 
 ```text
-cqrs-task-api/
+task-api/
   .python-version
   pyproject.toml
   uv.lock
   task_app/
-    __init__.py
-    models.py
-    state.py
-    handlers.py
-    http.py
-    app.py
-    test_app.py
+    __init__.py       unchanged package marker
+    models.py         unchanged
+    state.py          unchanged
+    services.py       unchanged
+    messages.py       new
+    observers.py      new
+    handlers.py       new
+    http.py           replace
+    app.py            replace
+    test_app.py       replace
 ```
 
-Add the package marker:
+## Preserve The HTTP Contract
 
-```python
---8<-- "examples/tori_py/tutorials/cqrs_task_api/task_app/__init__.py"
+The same three routes retain the same inputs and outputs:
+
+| Request | Success | Application failure |
+| --- | --- | --- |
+| `POST /tasks` with `{"title":"..."}` | `201` with `{"id":1,"title":"..."}` | `400` for a normalized title outside 1-120 characters |
+| `GET /tasks` | `200` with tasks in ID order | None |
+| `GET /tasks/{task_id}` | `200` with one task | `404` when the ID is absent |
+
+The global msgspec pipe still rejects malformed JSON, a missing `title`, unknown
+body fields, and non-integer path values with `400` Problem Details. Titles are
+still trimmed by `TaskService`, IDs still start at 1, and no architecture
+metadata is added to a response.
+
+The only request-path change is internal:
+
+```text
+Part 1
+HTTP controller -> TaskService -> TaskRepository
+
+Part 2
+HTTP controller -> CommandBus -> CreateTaskHandler -> TaskService -> TaskRepository
+                -> QueryBus   -> query handler      -> TaskService -> TaskRepository
+
+CreateTaskHandler -> EventBus -> AuditTaskCreated -> TaskAuditLog
+                             +-> CountTaskCreated -> TaskMetrics
 ```
 
-The application is split by responsibility rather than by framework artifact:
+The query handlers deliberately call the unchanged `TaskService`, which reads
+the same singleton `TaskRepository` written by the command handler. Therefore,
+after `await commands.execute(...)` succeeds, a subsequent query in this process
+can observe the task immediately. The audit and metrics branches are separate,
+asynchronous reactions and are not part of the read path.
 
-| File | Responsibility |
-| --- | --- |
-| `models.py` | HTTP DTOs, CQRS messages, response values, application errors |
-| `state.py` | Write repository, query projection, audit sink |
-| `handlers.py` | Command, query, and event behavior |
-| `http.py` | HTTP-to-CQRS adapter and error mapping |
-| `app.py` | Modules, providers, pipeline, and ASGI bootstrap |
-| `test_app.py` | Direct-bus and HTTP acceptance tests |
+!!! note "A deliberately small CQRS design"
 
-## Step 1: Define Values and Messages
+    More advanced CQRS systems may introduce a separately persisted read model
+    with an explicit consistency policy. That is not necessary to teach message
+    routing, handler discovery, or event fan-out, and it would break Part 1's
+    immediate-read behavior. This tutorial keeps one repository on purpose.
 
-Create `task_app/models.py`:
+## Keep The Part 1 Application Code
+
+Do not edit the next three files. They are repeated here so the page remains
+self-contained and so the unchanged boundary is explicit.
+
+### `task_app/models.py`
 
 ```python
 --8<-- "examples/tori_py/tutorials/cqrs_task_api/task_app/models.py"
 ```
 
-`Task` and `CreateTaskBody` are msgspec models used at the HTTP boundary.
-The CQRS messages are ordinary frozen dataclasses:
-
-- `CreateTask(Command[Task])` declares that command execution returns `Task`.
-- `GetTask(Query[Task])` declares one task result.
-- `ListTasks(Query[list[Task]])` declares a collection result.
-- `TaskCreated(Event)` represents a fact with no request/reply result.
-
-The generic result type is for typing. Runtime routing uses the exact concrete
-message class. Commands and queries require exactly one matching handler; events
-may have zero or more handlers.
-
-The HTTP body and command are deliberately separate. `CreateTaskBody` describes
-untrusted transport input. `CreateTask` is the application message and includes
-the actor copied from the HTTP header. A command handler therefore does not need
-an HTTP request object.
-
-## Step 2: Add Write and Read State
-
-Create `task_app/state.py`:
+### `task_app/state.py`
 
 ```python
 --8<-- "examples/tori_py/tutorials/cqrs_task_api/task_app/state.py"
 ```
 
-`TaskRepository` is the write model. It owns IDs and stores accepted tasks, but
-it intentionally has no list or get methods.
+### `task_app/services.py`
 
-`TaskProjection` is the read model. Only the `TaskCreated` event handler updates
-it. Query handlers will use `get()` and `all()` instead of reading the write
-repository. The projection can therefore lag behind a successful command.
+```python
+--8<-- "examples/tori_py/tutorials/cqrs_task_api/task_app/services.py"
+```
 
-`TaskAuditLog` demonstrates event fan-out: the same event updates a projection
-and records an independent reaction. It is not security-grade auditing because
-it is neither durable nor atomic with the command.
+`TaskService` remains the owner of title normalization and validation. The
+handlers added below delegate to it instead of copying business behavior into
+CQRS classes.
 
-The two `wait_for_count()` methods are application-level completion signals for
-tests. They do not change CQRS delivery semantics and should not become HTTP
-polling APIs.
+## Add The Messages
 
-## Step 3: Implement the Handlers
+Create `task_app/messages.py`:
+
+```python
+--8<-- "examples/tori_py/tutorials/cqrs_task_api/task_app/messages.py"
+```
+
+The generic parameters describe command and query result types. Runtime routing
+uses the exact concrete message class: `CreateTask`, `GetTask`, or `ListTasks`.
+Each command or query has exactly one handler. An event can have zero or more
+handlers, which allows `TaskCreated` to fan out.
+
+`CreateTask` carries the already validated `CreateTaskBody` from the HTTP
+adapter. `TaskCreated` carries the immutable task returned by the unchanged
+service.
+
+## Add The Asynchronous Observers
+
+Create `task_app/observers.py`:
+
+```python
+--8<-- "examples/tori_py/tutorials/cqrs_task_api/task_app/observers.py"
+```
+
+These observers are singleton, process-local educational state. They do not
+participate in task reads and do not change the HTTP response. Their bounded
+condition waits let tests prove that each asynchronous handler reached its
+effect without using arbitrary sleeps.
+
+## Add The Handlers
 
 Create `task_app/handlers.py`:
 
@@ -180,346 +160,288 @@ Create `task_app/handlers.py`:
 --8<-- "examples/tori_py/tutorials/cqrs_task_api/task_app/handlers.py"
 ```
 
-The decorators serve two purposes:
+The command handler calls `TaskService.create()` first, publishes the resulting
+`TaskCreated`, and returns the same `Task`. The query handlers are equally thin:
+they delegate `get()` and `all()` to the unchanged service. CQRS routing has not
+moved domain behavior out of the service.
 
-1. They declare CQRS handler metadata for one message type.
-2. They make the class a ToriPy provider with the selected scope.
+`EventBus.publish()` waits for transport acceptance, not for either event
+handler to finish. The event worker schedules `AuditTaskCreated` and
+`CountTaskCreated` independently. Their start and completion order is not
+guaranteed, and one handler's failure does not roll back the repository write or
+an effect already completed by the other handler.
 
-The class still has to appear in a module's `providers` list. Decorators do not
-register modules, mutate a global registry, or scan packages.
+The three decorators attach both handler and injectable-provider metadata. They
+do not globally register the classes and do not scan the Python package. Every
+handler must still be listed in a compiled module's `providers`.
 
-### Command Handler
+## Replace The HTTP Adapter
 
-`CreateTaskHandler` is request-scoped. In CQRS, `Scope.REQUEST` means one fresh
-ToriPy work scope for one handler invocation. It does not reuse an ambient HTTP
-request scope. Direct bus execution receives the same CQRS scope behavior.
-
-The handler:
-
-1. Normalizes and validates the title.
-2. Writes the task through `TaskRepository`.
-3. Publishes `TaskCreated` through `EventBus`.
-4. Returns the task to the command caller.
-
-Publication waits for transport acceptance, not event-handler completion.
-The in-memory event worker can start before or after the command returns.
-
-### Event Handlers
-
-`ProjectTaskCreated` and `AuditTaskCreated` receive the same event independently.
-Each event handler runs in its own work scope. The request-scoped projection
-handler is constructed once for that delivery. The transient audit handler is
-constructed when resolved in its delivery scope.
-
-An event-handler failure is reported asynchronously. It does not roll back the
-repository write or another event handler that already completed.
-
-### Query Handlers
-
-Each query has one handler and reads only `TaskProjection`. The query bus does
-not know whether that projection is in memory, in SQL, or remote; it only routes
-the message and returns the handler result.
-
-## Step 4: Adapt HTTP to CQRS
-
-Create `task_app/http.py`:
+Replace all of `task_app/http.py` with:
 
 ```python
 --8<-- "examples/tori_py/tutorials/cqrs_task_api/task_app/http.py"
 ```
 
-The controller is deliberately thin:
+The controller diff is intentionally narrow. Its constructor changes from one
+`TaskService` dependency to `CommandBus` and `QueryBus`; each route wraps its
+validated input in a message and awaits the relevant bus. Route paths, body and
+path bindings, result annotations, create status, and the error filter preserve
+the Part 1 contract.
 
-- It binds and validates HTTP values.
-- It translates those values into commands and queries.
-- It returns application results to the HTTP adapter.
+The controller does not inject handlers, the repository, or observer state. HTTP
+is now an adapter around the two request/reply buses, while application failures
+still cross the adapter and reach the same filter.
 
-The controller does not inject `TaskRepository`, `TaskProjection`, or handler
-classes. `CommandBus` and `QueryBus` are the application boundary.
+## Replace The Composition Root
 
-`POST /tasks` returns `202` because the command result does not imply that the
-asynchronous projection or audit handler completed. Returning `201` could also
-be valid for an API whose contract says only that the write model accepted the
-resource, but that distinction must be explicit.
-
-`TaskErrorFilter` translates application failures into HTTP Problem Details.
-It re-raises unknown exceptions so ToriPy can apply the next filter or its
-sanitized fallback. CQRS core remains independent of HTTP status codes.
-
-!!! note "Why `from __future__ import annotations`?"
-
-    Under Python 3.14's deferred annotation evaluation, the class namespace can
-    resolve `list` to `TaskController.list` instead of the built-in when
-    `list[Task]` is inspected. Future annotations keep this controller signature
-    safely resolvable during ToriPy route compilation.
-
-## Step 5: Compose Modules and Bootstrap
-
-Create `task_app/app.py`:
+Replace all of `task_app/app.py` with:
 
 ```python
 --8<-- "examples/tori_py/tutorials/cqrs_task_api/task_app/app.py"
 ```
 
-The composition has three parts.
+`InfrastructureModule`, `TaskRepository`, `TaskService`, the validation pipe,
+the error filter, and the application factory preserve their Part 1 roles. The
+composition adds three things:
 
-### CQRS Root
+- `CqrsModule.for_root(global_=True)` creates and globally exports one
+  application CQRS graph containing `CommandBus`, `QueryBus`, and `EventBus`;
+- `TasksModule` owns the observer providers and all five handlers;
+- `AppModule` imports the CQRS root so its lifecycle is part of the application.
 
-`CqrsModule.for_root(global_=True)` creates the command, query, and event buses
-and exports them globally. The default uses three distinct process-local
-`InMemoryTransport` instances. The application lifecycle starts and stops the
-buses.
+The global CQRS root makes its exported buses visible to the controller and
+handlers without re-exporting them through each feature module. The state and
+handlers remain private to `TasksModule`; private providers are still eligible
+for CQRS discovery from the complete compiled graph.
 
-Global visibility is convenient for one application-wide CQRS graph. Keyed,
-non-global roots can disambiguate bus access, but they do not partition automatic
-discovery: each root can still see decorated handlers in the complete compiled
-graph. Multiple graphs therefore need explicit bindings or otherwise
-non-overlapping discovered registrations in addition to exact descriptor
-resolution.
+## Understand Discovery, Scopes, And Lifecycle
 
-### Feature Module
+All providers in this application use the default managed singleton scope.
+`TaskRepository`, `TaskService`, `TaskAuditLog`, and `TaskMetrics` each have one
+application instance. The handler decorators also default to managed singleton,
+so each handler instance is reused.
 
-`TasksModule` owns state, all five handlers, and the controller. The handlers do
-not need to be exported. CQRS discovery reads provider metadata from the complete
-compiled graph, including private feature providers.
+Bus invocation scopes still matter even with singleton handlers:
 
-State classes use explicit `ClassProvider` declarations. Handler classes can be
-listed directly because their CQRS decorators also carry injectable provider
-metadata.
+- every command and query dispatch opens its own CQRS work scope;
+- each event handler invocation opens a separate work scope, so the two
+  `TaskCreated` reactions can overlap;
+- a CQRS work scope is independent of the surrounding HTTP request scope;
+- ambient HTTP context and request-scoped resources are not propagated into a
+  handler invocation.
 
-At graph assembly, ToriPy CQRS verifies:
+If a handler is later declared with `scope=Scope.REQUEST`, "request" means one
+instance per CQRS invocation, not one instance per HTTP request. Safe application
+data needed by a handler must be carried explicitly in its message.
 
-- valid registered command, query, and event handler metadata;
-- no duplicate command or query handler for one registered message type;
-- constructor dependencies and module visibility;
-- valid singleton, request, and transient dependency paths.
+During graph assembly, CQRS discovery reads decorated providers from the
+compiled module graph. It validates metadata, dependency visibility, and scope
+paths. Duplicate command or query handlers for the same exact message type fail
+composition. A message with no registered request/reply handler fails when it is
+dispatched. Events retain registration scheduling order, but not start or
+completion order.
 
-Invalid or duplicate command/query registration fails before the server accepts
-traffic. A completely missing command or query handler is detected when that
-concrete message is dispatched, because an unregistered message type is not part
-of the compiled handler inventory.
-
-### HTTP Pipeline and Factory
-
-`AppModule` owns the validation pipe and error filter. `PipelineOptions` installs
-their tokens globally during compilation. `MsgspecValidationPipe` converts the
-raw JSON body and path segment according to annotations; annotations alone do
-not convert HTTP input.
-
-`create_application()` compiles the graph with `StarletteAdapter` and returns an
-unstarted application. The `asgi()` wrapper lets Uvicorn own startup and
-shutdown through ASGI lifespan.
-
-## Step 6: Run the Application
-
-Start the development server from the project root:
+Application lifecycle owns all three default in-memory transports:
 
 ```text
-uv run tori-py run task_app.app:create_application
+startup
+  -> build the registry and acquire transports
+  -> start event delivery
+  -> start query delivery
+  -> start command delivery
+  -> admit application requests
+
+graceful shutdown
+  -> stop and drain commands
+  -> stop and drain queries
+  -> stop and drain events and tracked event tasks
+  -> release managed resources
 ```
 
-The CLI convenience command uses Uvicorn defaults. For host, port, reload,
-workers, or proxy options, run the exported wrapper directly:
+`create_application()` returns an unstarted application. The CLI and exported
+`asgi()` wrapper let ASGI lifespan call startup and shutdown. Direct tests must
+start and shut down an application explicitly unless they use
+`TestingModule.compile()`, which starts lifecycle during compilation.
 
-```text
-uv run uvicorn task_app.app:application --lifespan on --reload
-```
+## Replace The Tests
 
-Create a task from another terminal:
-
-=== "PowerShell"
-
-    ```powershell
-    '{"title":"  Learn CQRS with ToriPy  "}' |
-      curl.exe -X POST "http://127.0.0.1:8000/tasks" `
-        -H "content-type: application/json" `
-        -H "x-actor: alice" `
-        --data-binary '@-'
-    ```
-
-=== "Bash"
-
-    ```bash
-    curl -X POST "http://127.0.0.1:8000/tasks" \
-      -H "content-type: application/json" \
-      -H "x-actor: alice" \
-      -d '{"title":"  Learn CQRS with ToriPy  "}'
-    ```
-
-The response is shaped like:
-
-```json
-{
-  "task": {
-    "id": 1,
-    "title": "Learn CQRS with ToriPy",
-    "created_by": "alice"
-  },
-  "projection": "asynchronous-in-process"
-}
-```
-
-Read the projection:
-
-```text
-curl http://127.0.0.1:8000/tasks
-curl http://127.0.0.1:8000/tasks/1
-```
-
-The first GET may race the event handler and temporarily return an empty list or
-`404`. Repeating the request will normally observe the in-process projection,
-but this demo provides no durable consistency deadline. A production API needs a
-defined consistency contract, such as read-your-write from the write store,
-bounded polling with an operation token, or a synchronous projection policy.
-
-Try an invalid command:
-
-```text
-curl -X POST http://127.0.0.1:8000/tasks -H "content-type: application/json" -H "x-actor: alice" -d '{"title":"   "}'
-```
-
-The command handler raises `TaskTitleInvalid`, and the HTTP filter returns a
-`400` Problem Details response. Stop the server normally so application
-lifespan can drain and close CQRS resources.
-
-## Step 7: Test Buses and HTTP
-
-Create `task_app/test_app.py`:
+Replace all of `task_app/test_app.py` with:
 
 ```python
 --8<-- "examples/tori_py/tutorials/cqrs_task_api/task_app/test_app.py"
 ```
 
-Run it:
+Run the complete Part 2 test file from the `task-api` project root:
 
 ```text
 uv run pytest task_app/test_app.py -q
 ```
 
-Expected result:
+The stable result is:
 
 ```text
-2 passed
+...                                                                      [100%]
+3 passed
 ```
 
-The first test bypasses HTTP and verifies the application boundary directly:
+Elapsed time varies. The three tests cover distinct boundaries:
 
-1. Compile the production module graph through `TestingModule`.
-2. Resolve the buses and feature-owned observer state.
-3. Execute a command.
-4. Wait for bounded projection and audit signals.
-5. Drain already tracked event-handler tasks.
-6. Execute queries and assert results.
-7. Close the application in `finally`.
+1. Direct command and query execution proves normalization, application errors,
+   and immediate repository-backed reads without HTTP.
+2. Direct event observation proves that one `TaskCreated` reaches both audit and
+   metrics handlers.
+3. In-process ASGI requests preserve the complete Part 1 HTTP contract,
+   including malformed JSON, body validation, path conversion, ordering, and
+   Problem Details.
 
-`EventBus.drain()` alone is not a queue barrier. Immediately after publication,
-an event may still be queued with no handler task tracked. Waiting for an
-application-level signal first proves that the expected handler reached its
-effect; `drain()` then waits for tracked work within its timeout.
+The HTTP test uses the production controller, pipeline, handlers, and lifecycle,
+but HTTPX's ASGI transport does not exercise sockets, TLS, proxies, workers, or
+operating-system signals.
 
-The second test sends real ASGI requests through the production controller,
-validation pipe, filter, CQRS handlers, and application lifecycle. HTTPX uses an
-in-process ASGI transport, so this test does not cover sockets, TLS, reverse
-proxies, workers, or signal delivery.
+## Use `EventBus.drain()` Correctly
 
-## Understand the Runtime Flow
+`EventBus.drain()` waits for event-handler and error-observer tasks that are
+already tracked when draining begins. It is not a transport-queue barrier.
+Immediately after `publish()` returns, an event can still be queued while no
+handler task has been created, so calling `drain()` alone can return before the
+expected effects occur.
 
-Application startup follows this shape:
+That is why the event test follows this order:
 
 ```text
-materialize CqrsModule
-  -> compile providers and handler metadata
-  -> build handler registry
-  -> acquire three in-memory transports
-  -> start event bus
-  -> start query bus
-  -> start command bus
-  -> admit HTTP requests
+execute CreateTask
+  -> wait up to one second for the audit effect
+  -> wait up to one second for the metrics effect
+  -> drain tracked event tasks within the remaining test step
+  -> assert observer state
 ```
 
-One successful create request follows this shape:
+The application-level conditions prove that the relevant handlers processed the
+event; `drain()` then waits for tracked work. If its timeout expires, drain
+requests cancellation and returns rather than raising `TimeoutError`. Code that
+resists cancellation may still be running. Graceful `EventBus.shutdown()` is a
+stronger boundary for the default in-memory transport because it first closes
+and drains transport admission before draining tracked handler tasks.
+
+## Run The Application
+
+Start the same project from its root:
 
 ```text
-open HTTP request scope
-  -> validate body and header
-  -> controller calls CommandBus.execute(CreateTask)
-  -> open independent CQRS command work scope
-  -> resolve CreateTaskHandler and dependencies
-  -> write TaskRepository
-  -> EventBus.publish(TaskCreated) accepts event
-  -> close command work scope
-  -> return 202 response
-
-event worker schedules both matching handlers
-  +-> projection branch: independent work scope -> update TaskProjection -> close
-  +-> audit branch: independent work scope -> append TaskAuditLog -> close
+uv run tori-py run task_app.app:create_application
 ```
 
-The event handlers may overlap. Registration determines scheduling order, not
-start order or completion order.
+The process ID in Uvicorn's other log lines varies. The readiness line identifies
+the default address:
 
-The HTTP and CQRS work scopes are intentionally independent. Context variables,
-request-scoped providers, and managed resources from the HTTP request do not
-leak into command or event handlers. Copy safe application data, such as the
-actor identifier, into the command explicitly.
+```text
+INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
+```
 
-During graceful shutdown, ToriPy closes normal request admission, then stops
-commands, queries, and events under one decreasing shutdown budget. Accepted
-commands can still query or publish while downstream buses remain available.
+In another PowerShell session, send the same HTTP requests used in Part 1. The
+`--write-out` suffix makes each status explicit:
 
-## What This Application Guarantees
+```powershell
+'{"title":"  Learn CQRS with Tori Py  "}' | curl.exe --silent --request POST "http://127.0.0.1:8000/tasks" --header "content-type: application/json" --data-binary '@-' --write-out "`nHTTP %{http_code}`n"
+```
 
-The tutorial demonstrates these application behaviors:
+Exact application output:
 
-- handlers are discovered only from explicitly compiled providers;
-- commands and queries have one exact handler;
-- one event fans out to both projection and audit effects;
-- command and query results are statically typed;
-- HTTP remains an adapter around buses;
-- lifecycle starts, drains, and closes the in-memory CQRS graph;
-- tests can exercise buses without HTTP and HTTP without a network socket.
+```text
+{"id":1,"title":"Learn CQRS with Tori Py"}
+HTTP 201
+```
 
-Independent CQRS invocation scopes are an integration contract covered by the
-`tori-py-cqrs` test suite. This compact tutorial configures request and transient
-handler scopes but does not instrument provider identities merely to re-prove
-the container contract.
+Read the collection and the new task:
 
-It deliberately does not provide:
+```powershell
+curl.exe --silent "http://127.0.0.1:8000/tasks" --write-out "`nHTTP %{http_code}`n"
+curl.exe --silent "http://127.0.0.1:8000/tasks/1" --write-out "`nHTTP %{http_code}`n"
+```
 
-- durable task storage or projection checkpoints;
-- atomic repository writes and event publication;
-- retries, acknowledgements, dead letters, or event replay;
-- command idempotency or exactly-once execution;
-- authentication or trustworthy actor identity;
-- cross-process messaging or distributed transactions;
-- a guarantee that a timed-out command did not complete.
+Exact application output, in command order:
 
-The included transport is process-local and at-most-once. Restarting the process
-loses tasks, projections, audit entries, and queued events. Do not replace it
-with a broker without first defining serialization, deadlines, settlement,
-idempotency, and failure reconciliation.
+```text
+[{"id":1,"title":"Learn CQRS with Tori Py"}]
+HTTP 200
+{"id":1,"title":"Learn CQRS with Tori Py"}
+HTTP 200
+```
 
-## Exercises
+An invalid normalized title retains the same `400` Problem Details response:
 
-Use these changes to verify your understanding:
+```powershell
+'{"title":"   "}' | curl.exe --silent --request POST "http://127.0.0.1:8000/tasks" --header "content-type: application/json" --data-binary '@-' --write-out "`nHTTP %{http_code}`n"
+```
 
-1. Add `CompleteTask(Command[Task])` and a matching command handler.
-2. Publish `TaskCompleted` and update the projection through a new event handler.
-3. Add a second audit handler and observe independent fan-out.
-4. Register two handlers for `CreateTask` and inspect the startup failure, then
-   remove the duplicate.
-5. Replace `TaskRepository` with an exported provider and override it through
-   `TestingModule`.
-6. Add OpenAPI metadata without changing command or query handlers.
+```text
+{"type":"about:blank","title":"Bad Request","status":400,"detail":"After trimming, the task title must contain 1-120 characters.","instance":"/tasks"}
+HTTP 400
+```
 
-## Next Steps
+An absent ID retains the same `404` Problem Details response:
 
-Read [CQRS Core](../techniques/cqrs/core.md) for envelopes, timeouts,
-capacity, transport lifecycle, event task tracking, and command reentrancy.
-Read [CQRS with ToriPy](../techniques/cqrs/tori-py.md) for explicit bindings,
-multiple keyed graphs, invocation interceptors, and completion mapping.
+```powershell
+curl.exe --silent "http://127.0.0.1:8000/tasks/999" --write-out "`nHTTP %{http_code}`n"
+```
 
-When task history itself should be the source of truth, continue with
-[Event Sourcing](../techniques/event-sourcing/index.md). Event sourcing is not a
-required next stage for every CQRS application; ordinary transactional
-persistence is often the smaller correct design.
+```text
+{"type":"about:blank","title":"Not Found","status":404,"detail":"Task was not found.","instance":"/tasks/999"}
+HTTP 404
+```
+
+Stop the server normally so ASGI lifespan can stop accepting work, drain the
+CQRS buses, and release managed resources. The exported wrapper remains
+available for direct Uvicorn hosting:
+
+```text
+uv run uvicorn task_app.app:application --lifespan on
+```
+
+## Guarantees And Limits
+
+This Part 2 application demonstrates and tests these guarantees:
+
+- the external HTTP contract is unchanged from Part 1;
+- exact command and query types route to one discovered handler each;
+- handlers preserve business behavior by delegating to `TaskService`;
+- a completed create command is immediately visible to subsequent queries in
+  the same application process;
+- one accepted `TaskCreated` is independently offered to both registered event
+  handlers;
+- only providers in the explicitly compiled module graph are discovered;
+- application lifecycle starts, quiesces, drains, and closes the CQRS graph;
+- tests can exercise buses directly or cross the complete HTTP adapter.
+
+It does not provide production durability or delivery guarantees:
+
+- tasks, IDs, audit entries, metrics, transports, and queued work exist only in
+  one process and are lost on restart;
+- separate workers have separate repositories and therefore do not share the
+  immediate-read behavior;
+- the default in-memory event transport is process-local and at-most-once;
+- the repository write and event publication are not atomic; publication can
+  fail after the task was stored;
+- event publication success does not mean either observer finished;
+- event-handler failures do not roll back a task and are not retried, requeued,
+  dead-lettered, or replayed by this application;
+- there is no outbox, event store, idempotency key, exactly-once execution,
+  cross-process messaging, or distributed transaction;
+- a timeout or cancellation does not prove that accepted work had no effect;
+- the educational application still has no authentication, authorization,
+  durable audit facility, persistence migration, or multi-worker coordination.
+
+These are application boundaries, not gaps hidden by CQRS. Durable persistence,
+event publication, retries, and reconciliation require explicit designs owned by
+the application.
+
+## Continue To Part 3: Distributed Decomposition
+
+Part 2 still has one application root, one repository, and process-local event
+delivery. [Part 3: Distributed Decomposition](distributed-application.md)
+preserves the same HTTP contract while separating an HTTP gateway, a task
+service that owns task state and local CQRS, and an audit service that consumes a
+versioned integration event. It introduces typed RPC, service ownership,
+at-least-once delivery, deduplication, and the failure boundary between storing a
+task and publishing an event.

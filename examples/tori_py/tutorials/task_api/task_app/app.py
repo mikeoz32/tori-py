@@ -1,28 +1,12 @@
-"""Module composition and ASGI bootstrap for the tutorial application."""
+"""Module composition and ASGI bootstrap for the ordinary Task API."""
 
-from tori_py import (
-    ClassProvider,
-    NestApplication,
-    ValueProvider,
-    module,
-)
+from tori_py import ClassProvider, NestApplication, ValueProvider, module
 from tori_py.http import MsgspecValidationPipe
 from tori_py.starlette import StarletteAdapter, asgi
-from tori_py_cqrs import CqrsModule
 
-from .handlers import (
-    AuditTaskCreated,
-    CountTaskCreated,
-    CreateTaskHandler,
-    GetTaskHandler,
-    ListTasksHandler,
-)
 from .http import TaskController, TaskErrorFilter
-from .observers import TaskAuditLog, TaskMetrics
 from .services import TaskService
 from .state import TaskRepository
-
-cqrs_module = CqrsModule.for_root(global_=True)
 
 
 @module(
@@ -35,16 +19,7 @@ class InfrastructureModule:
 
 @module(
     imports=[InfrastructureModule],
-    providers=[
-        ClassProvider(TaskService),
-        ClassProvider(TaskAuditLog),
-        ClassProvider(TaskMetrics),
-        CreateTaskHandler,
-        GetTaskHandler,
-        ListTasksHandler,
-        AuditTaskCreated,
-        CountTaskCreated,
-    ],
+    providers=[ClassProvider(TaskService)],
     controllers=[TaskController],
 )
 class TasksModule:
@@ -52,7 +27,7 @@ class TasksModule:
 
 
 @module(
-    imports=[cqrs_module, TasksModule],
+    imports=[TasksModule],
     providers=[
         ValueProvider("validation", MsgspecValidationPipe()),
         ValueProvider("task-errors", TaskErrorFilter()),

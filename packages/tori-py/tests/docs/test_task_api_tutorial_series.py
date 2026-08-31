@@ -5,13 +5,14 @@ import subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[4]
-TUTORIAL_SOURCE = (
-    ROOT / "examples" / "tori_py" / "tutorials" / "cqrs_task_api" / "task_app"
-)
+TUTORIALS = ROOT / "examples" / "tori_py" / "tutorials"
+PART_ONE = TUTORIALS / "task_api" / "task_app"
+PART_TWO = TUTORIALS / "cqrs_task_api" / "task_app"
+PART_THREE = TUTORIALS / "distributed_task_api" / "task_app"
 
 
-def test_cqrs_tutorial_runs_as_an_isolated_project(tmp_path: Path) -> None:
-    project = tmp_path / "cqrs-task-api"
+def test_task_tutorial_series_runs_as_an_isolated_project(tmp_path: Path) -> None:
+    project = tmp_path / "task-api"
     uv = shutil.which("uv")
     assert uv is not None
 
@@ -28,6 +29,19 @@ def test_cqrs_tutorial_runs_as_an_isolated_project(tmp_path: Path) -> None:
         f"{ROOT / 'packages' / 'tori-py'}[cli,testing]",
         cwd=project,
     )
+    _run(uv, "add", "--dev", "pytest", "pytest-asyncio", cwd=project)
+
+    _replace_application(PART_ONE, project)
+    part_one = _run(
+        uv,
+        "run",
+        "pytest",
+        "task_app/test_app.py",
+        "-q",
+        cwd=project,
+    )
+    assert "2 passed" in part_one.stdout
+
     _run(
         uv,
         "add",
@@ -42,15 +56,8 @@ def test_cqrs_tutorial_runs_as_an_isolated_project(tmp_path: Path) -> None:
         str(ROOT / "packages" / "tori-py-cqrs"),
         cwd=project,
     )
-    _run(uv, "add", "--dev", "pytest", "pytest-asyncio", cwd=project)
-
-    shutil.copytree(
-        TUTORIAL_SOURCE,
-        project / "task_app",
-        ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
-    )
-
-    result = _run(
+    _replace_application(PART_TWO, project)
+    part_two = _run(
         uv,
         "run",
         "pytest",
@@ -58,8 +65,26 @@ def test_cqrs_tutorial_runs_as_an_isolated_project(tmp_path: Path) -> None:
         "-q",
         cwd=project,
     )
+    assert "3 passed" in part_two.stdout
 
-    assert "2 passed" in result.stdout
+    _run(
+        uv,
+        "add",
+        "--editable",
+        f"{ROOT / 'packages' / 'tori-py-microservices'}[rabbitmq]",
+        cwd=project,
+    )
+    _replace_application(PART_THREE, project)
+    part_three = _run(
+        uv,
+        "run",
+        "pytest",
+        "task_app/test_system.py",
+        "-q",
+        cwd=project,
+    )
+
+    assert "1 passed" in part_three.stdout
     assert (project / ".python-version").read_text(encoding="utf-8") == "3.14\n"
     assert 'requires-python = ">=3.14,<3.15"' in (project / "pyproject.toml").read_text(
         encoding="utf-8"
@@ -68,11 +93,22 @@ def test_cqrs_tutorial_runs_as_an_isolated_project(tmp_path: Path) -> None:
 
 def _project_metadata() -> str:
     return """[project]
-name = "cqrs-task-api"
+name = "task-api"
 version = "0.1.0"
 requires-python = ">=3.14,<3.15"
 dependencies = []
 """
+
+
+def _replace_application(source: Path, project: Path) -> None:
+    destination = project / "task_app"
+    if destination.exists():
+        shutil.rmtree(destination)
+    shutil.copytree(
+        source,
+        destination,
+        ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
+    )
 
 
 def _run(

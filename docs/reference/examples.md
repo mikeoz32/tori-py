@@ -67,19 +67,35 @@ The SQLAlchemy example defaults to `sqlalchemy_tasks.db`. Its startup schema
 creation is deliberately example-owned; it is not a migration feature of
 `tori-py-sqlalchemy`.
 
+### Task API tutorial series
+
+The three tutorial snapshots preserve one external HTTP contract while evolving
+the implementation. The isolated-project smoke test applies them in order to the
+same temporary consumer project.
+
+| Part | Exact command | Demonstrates |
+| --- | --- | --- |
+| Ordinary Task API | `uv run pytest examples/tori_py/tutorials/task_api/task_app/test_app.py -q` | Controller, application service, singleton in-memory repository, filters, and lifespan |
+| CQRS Task API | `uv run pytest examples/tori_py/tutorials/cqrs_task_api/task_app/test_app.py -q` | The unchanged service behind command/query handlers plus asynchronous audit and metrics observers |
+| Distributed Task API | `uv run pytest examples/tori_py/tutorials/distributed_task_api/task_app/test_system.py -q` | Three application roots, typed RPC, local CQRS, integration events, and idempotent audit over an in-memory transport |
+
+Run the complete source-checkout evolution check with:
+
+```text
+uv run pytest packages/tori-py/tests/docs/test_task_api_tutorial_series.py -q
+```
+
 ### CQRS and event sourcing
 
 | Example | Exact command | Demonstrates |
 | --- | --- | --- |
-| CQRS tutorial Task API | `uv run pytest examples/tori_py/tutorials/cqrs_task_api/task_app/test_app.py -q` | Complete copyable tutorial source: messages, state, discovered handlers, HTTP, modules, and direct-bus/HTTP tests |
 | Advanced CQRS Task API | `uv run tori-py run examples.tori_py.cqrs.advanced.app:create_application` | Automatic handler discovery, handler scopes, event fan-out, and an in-process read projection |
 | Event-sourced community tests | `uv run pytest examples/tori_py/cqrs/event_sourcing -q` | Three aggregates, explicit schemas/upcasting, automatic command transactions, synchronization, optimistic concurrency, projection checkpoints, privacy, and moderation |
 | Event-sourced community HTTP app | `uv run uvicorn examples.tori_py.cqrs.event_sourcing.app:application` | The same project through its production ASGI lifespan wrapper |
 
-The tutorial and advanced CQRS projections are non-durable, and their writes plus
-event publication are not atomic. The event-sourcing project uses
-`InMemoryEventStore` and an in-memory projection; its tests prove semantics, not
-production durability.
+The advanced CQRS projection is non-durable, and its write plus event publication
+is not atomic. The event-sourcing project uses `InMemoryEventStore` and an
+in-memory projection; its tests prove semantics, not production durability.
 
 ### FastAPI CQRS
 

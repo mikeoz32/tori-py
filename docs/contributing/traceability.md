@@ -17,7 +17,9 @@ cover their underlying behavior. The D2 pages and their checks are listed below.
 | Async factory and ASGI wrapper | `getting_started/async_factory`, `getting_started/asgi_wrapper` | `packages/tori-py/tests/docs/test_getting_started_examples.py` |
 | CLI run | `getting_started/cli_run` | `packages/tori-py/tests/test_cli.py` |
 | OpenAPI guides | `openapi` | `examples/tori_py/openapi/test_openapi_example.py`, `packages/tori-py-openapi/tests/` |
-| CQRS application tutorial | `tutorials/cqrs_task_api/task_app` | `examples/tori_py/tutorials/cqrs_task_api/task_app/test_app.py`, `packages/tori-py/tests/docs/test_cqrs_tutorial_project.py` |
+| Task API tutorial, Part 1 | `tutorials/task_api/task_app` | `examples/tori_py/tutorials/task_api/task_app/test_app.py`, `packages/tori-py/tests/docs/test_task_api_tutorial_series.py` |
+| Task API tutorial, Part 2 | `tutorials/cqrs_task_api/task_app` | `examples/tori_py/tutorials/cqrs_task_api/task_app/test_app.py`, `packages/tori-py/tests/docs/test_task_api_tutorial_series.py` |
+| Task API tutorial, Part 3 | `tutorials/distributed_task_api/task_app` | `examples/tori_py/tutorials/distributed_task_api/task_app/test_system.py`, `packages/tori-py/tests/docs/test_task_api_tutorial_series.py` |
 
 `packages/tori-py/scripts/verify_docs.py` verifies the required D1/D2 files and
 public imports used by Python snippets. `mkdocs build --strict` validates the
