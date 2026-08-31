@@ -15,6 +15,7 @@ targets. Symbol groups map to the planned API-reference pages in
 | `ValueProvider`, `ClassProvider`, `FactoryProvider`, `AliasProvider`, `ProviderDeclaration`, `ProviderFactory`, `Token`, `Scope`, `Inject`, `injectable`, `get_injectable_metadata`, `provider_token`, `normalize_scope`, `validate_token` | `tori_py.core.providers` | Providers, Tokens, Dependency Injection, Scopes | N1-N2 |
 | `controller`, `get`, `post`, `put`, `patch`, `delete`, `head`, `options`, `route`, `status`, `get_controller_metadata`, `get_route_metadata`, `get_status_metadata` | `tori_py.core.metadata` | Controllers and Routes | N4 |
 | `Body`, `Path`, `Query`, `Header`, `Cookie`, `Context`, `RouteMetadata`, `ControllerMetadata`, `StatusMetadata` | `tori_py.core.metadata` | HTTP Binding | N4 |
+| `websocket_gateway`, `Socket`, `WebSocketGatewayMetadata`, `get_websocket_gateway_metadata`, `WebSocketContext`, `current_websocket_context` | `tori_py.core.metadata` and `tori_py.websocket.context` | WebSocket Gateways and Context | N9 |
 | `middleware`, `guards`, `pipes`, `interceptors`, `filters`, `use_middleware`, `use_guard`, `use_guards`, `use_pipe`, `use_pipes`, `use_interceptor`, `use_interceptors`, `use_filter`, `use_filters`, `get_pipeline_metadata` | `tori_py.core.metadata` | Pipeline | N5 |
 | `Guard`, `Pipe`, `Interceptor`, `ExceptionFilter`, `Middleware`, `ExecutionContext`, `ArgumentMetadata`, `PipelineResult`, `ScopedResolver`, `WorkScopeFactory`, `ShutdownContext`, `Logger`, `Codec`, `SettingsDecoder` | `tori_py.core.protocols` | Pipeline, Settings, Scopes, Lifecycle, Observability | N2-N5 |
 | `ApplicationOptions`, `PipelineOptions`, `ApplicationState`, `RequestScope` | `tori_py.core.options` and `tori_py.core.runtime` | Application Lifecycle and Global Pipeline | N2-N5 |
@@ -49,7 +50,16 @@ targets. Symbol groups map to the planned API-reference pages in
 | `StarletteAdapter`, `ASGIApplication`, `asgi` | `tori_py.starlette.application` | ASGI and Deployment | N4 |
 | `StarletteOptions` | `tori_py.starlette.options` | Starlette Transport Configuration | N4 |
 | `RequestContext`, `current_request_context` | `tori_py.starlette.context` | Native Starlette Context View | N4 |
+| `WebSocketRequestContext` | `tori_py.starlette.websockets` | Native Starlette WebSocket Context View | N9 |
 | `problem_response` | `tori_py.starlette.errors` | Problem Details Rendering | N4-N5 |
+
+## `tori_py.websocket`
+
+| Symbols | Owner | Planned location | Source contract |
+| --- | --- | --- | --- |
+| `WebSocketContext`, `current_websocket_context` | `tori_py.websocket.context` | WebSocket Connection Context | N9 |
+| `WebSocketParameterPlan`, `WebSocketPlan`, `compile_websocket_gateway`, `compile_websocket_routes`, `bind_websocket_routes` | `tori_py.websocket.routes` | WebSocket Adapter Extension Contracts | N9 |
+| `WebSocketPipelineAdapter`, `WebSocketPipelineExecutor`, `WebSocketForbidden` | `tori_py.websocket.pipeline` and `tori_py.websocket.errors` | WebSocket Execution Pipeline | N9 |
 
 ## `tori_py.testing` and CLI
 
@@ -59,9 +69,9 @@ targets. Symbol groups map to the planned API-reference pages in
 | `tori-py run` | `tori_py.cli:main` console command | CLI Run | N6 |
 
 `tori_py` re-exports framework-agnostic core declarations, the driver-neutral
-application facade, and the portable `HttpResponse`, `ResponseHeaderMetadata`,
-and `header` response API. Starlette, settings, and testing APIs require their
-named public subpackage.
+application facade, the portable HTTP response API, and the driver-neutral
+WebSocket declaration/context API. Starlette, settings, and testing APIs require
+their named public subpackage.
 `tori_py.cli` exposes the console entry point only; parser and loader helpers are
 internal despite being module-level implementation names.
 

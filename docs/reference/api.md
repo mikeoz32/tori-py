@@ -34,6 +34,8 @@ Principal groups are:
 - Controllers and binding: `controller`, `get`, `post`, `put`, `patch`,
   `delete`, `head`, `options`, `route`, `status`, `no_body`, `Body`,
   `BodyStream`, `Path`, `Query`, `Header`, `Cookie`, `Context`.
+- WebSockets: `websocket_gateway`, `Socket`, `WebSocketContext`, and
+  `current_websocket_context`.
 - Pipeline: `middleware`, `guards`, `pipes`, `interceptors`, `filters`, their
   singular and plural `use_*` decorators, `Guard`, `Pipe`, `Interceptor`,
   `ExceptionFilter`, `Middleware`, `ExecutionContext`, and `PipelineResult`.
@@ -49,8 +51,9 @@ Principal groups are:
 | Facade | Principal public API |
 | --- | --- |
 | `tori_py.http` | `HttpContext`, `HttpBodyStream`, `HttpException`, `HttpResponse`, `MsgspecValidationPipe`, `PipelineExecutor`, `RoutePlan`, `ParameterPlan`, `compile_controller_routes`, `compile_routes`, `bind_routes` |
+| `tori_py.websocket` | `WebSocketContext`, `WebSocketPlan`, `WebSocketParameterPlan`, `WebSocketPipelineExecutor`, `compile_websocket_gateway`, `compile_websocket_routes`, `bind_websocket_routes` |
 | `tori_py.settings` | `SettingsModule`, `SettingsOptions`, `SETTINGS_TOKEN`, `Secret`, `MsgspecCodec`, `MsgspecSettingsDecoder`, `BootstrapContext`, `load_settings`, `secret_paths` |
-| `tori_py.starlette` | `StarletteAdapter`, `StarletteOptions`, `ASGIApplication`, `asgi`, `RequestContext`, `current_request_context` |
+| `tori_py.starlette` | `StarletteAdapter`, `StarletteOptions`, `ASGIApplication`, `asgi`, `RequestContext`, `WebSocketRequestContext`, `current_request_context` |
 | `tori_py.testing` | `TestingModule`, `TestingApplication`, `ProviderOverride`, `http_client` |
 | `tori_py.logging` | `LoggingModule`, `PythonLogger`, `LogContext`, `current_log_context`, `use_log_context` |
 | `tori_py.starlette.errors` | Driver-specific `problem_response`; prefer `HttpException` or portable `HttpResponse` when native Starlette access is unnecessary |

@@ -1,4 +1,4 @@
-"""Starlette HTTP driver for ToriPy applications."""
+"""Starlette HTTP and WebSocket driver for ToriPy applications."""
 
 from typing import TYPE_CHECKING, Any
 
@@ -13,12 +13,14 @@ if TYPE_CHECKING:
         current_request_context,
     )
     from tori_py.starlette.options import StarletteOptions
+    from tori_py.starlette.websockets import WebSocketRequestContext
 
 __all__ = [
     "ASGIApplication",
     "RequestContext",
     "StarletteAdapter",
     "StarletteOptions",
+    "WebSocketRequestContext",
     "asgi",
     "current_request_context",
 ]
@@ -37,4 +39,8 @@ def __getattr__(name: str) -> Any:
         from tori_py.starlette import context
 
         return getattr(context, name)
+    if name == "WebSocketRequestContext":
+        from tori_py.starlette.websockets import WebSocketRequestContext
+
+        return WebSocketRequestContext
     raise AttributeError(name)

@@ -9,6 +9,7 @@ from types import MappingProxyType
 from typing import Annotated, cast, get_args, get_origin, get_type_hints
 
 from tori_py.core.errors import BootstrapError, SettingsError
+from tori_py.core.metadata import get_websocket_gateway_metadata
 from tori_py.core.modules import (
     DeferredModule,
     ModuleImport,
@@ -506,6 +507,11 @@ def _normalize_module_providers(spec: ModuleSpec, module_id: ModuleId) -> Module
     for provider in spec.providers:
         if isinstance(provider, type):
             declaration = _injectable_provider(provider)
+            if (
+                declaration is None
+                and get_websocket_gateway_metadata(provider) is not None
+            ):
+                declaration = ClassProvider(provider, provider)
             if declaration is None:
                 raise BootstrapError(
                     f"module provider {provider.__qualname__} must be decorated "

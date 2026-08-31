@@ -42,3 +42,9 @@ pipeline, discovery, and portable response contracts.
 ::: tori_py.starlette.errors
     options:
       members: true
+
+## WebSocket Facade
+
+::: tori_py.websocket
+    options:
+      members: true

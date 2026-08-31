@@ -25,7 +25,7 @@ remove their own documented limitations.
 
 | Area | Current boundary | Consequence or alternative |
 | --- | --- | --- |
-| Registration | Explicit modules/providers/controllers only | An annotation never auto-registers a class. Compile-time guard, pipe, interceptor, and filter class registrations can synthesize their own class provider; middleware still requires an explicit provider. There is no package scanning or process-global registry. |
+| Registration | Explicit modules/providers/controllers/gateways only | An annotation never globally registers a class. Gateway and injectable shorthand still require a module provider entry. Compile-time guard, pipe, interceptor, and filter class registrations can synthesize their own class provider; middleware still requires an explicit provider. There is no package scanning or process-global registry. |
 | Tokens | Class and string tokens | No arbitrary object-token model. |
 | Exports | Not automatically transitive | Re-export imported tokens explicitly. |
 | Visibility conflicts | Ambiguity is an error; registration order is not a fallback | Resolve module ownership instead of relying on last registration. |
@@ -56,7 +56,7 @@ remove their own documented limitations.
 
 | Area | Current boundary | Consequence or alternative |
 | --- | --- | --- |
-| Protocols | HTTP only | No first-class WebSocket API. |
+| Protocols | HTTP and native WebSocket connections | WebSockets expose native Starlette sockets; there is no portable frame protocol or alternate built-in driver. |
 | Templates/static files | No framework APIs | Serve at the edge or use an explicitly Starlette-specific integration. |
 | Parsed body | JSON media types only for `Body()` | No framework-managed form, multipart, or file-upload binding. |
 | Raw request streaming | One `BodyStream(max_bytes=...)`, single consumer, request lifetime | No parsing or spooling; it must consume through EOF before successful response and cannot escape into response/background work. |
@@ -72,6 +72,17 @@ remove their own documented limitations.
 | Runtime routes | No route mutation after compilation | Restart with a newly compiled graph. |
 | Portable responses | `HttpResponse` supports bytes, status, and headers | Advanced Starlette response behavior is driver-specific. |
 | Response schemas | Core runtime does not enforce response schemas | Validate in application code; OpenAPI is an independent optional package and documentation is not runtime enforcement. |
+
+## WebSockets
+
+| Area | Current boundary | Consequence or alternative |
+| --- | --- | --- |
+| Registration | Explicit singleton gateway providers | No package scanning, runtime registration, or request-scoped gateway instances. |
+| Handler model | One async `handle` method per gateway path | No per-message decorator discovery. Dispatch frames in application code. |
+| Socket API | Native Starlette `WebSocket` through `Socket()` | Driver-specific behavior is intentional and not portable to a future adapter. |
+| Scope | One request scope for the complete matched connection | Request resources can remain open for long-lived connections; budget capacity accordingly. |
+| Protocol | Handler-owned handshake, frames, subprotocols, and close | No automatic JSON envelope, validation, Socket.IO, rooms, presence, or reconnect semantics. |
+| Documentation | Not included in OpenAPI | Describe application frame protocols separately; AsyncAPI generation is not provided. |
 
 ## Security And Observability
 

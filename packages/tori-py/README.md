@@ -4,6 +4,12 @@
 modules, dependency injection, lifecycle management, configuration, testing
 utilities, and a Starlette ASGI driver for Python 3.14 applications.
 
+It also supports explicit singleton `@websocket_gateway` providers. Each
+matched native Starlette WebSocket connection owns one request scope, supports
+marker-only handshake and provider binding, and runs through the framework
+pipeline while the handler retains direct control of accept, frames,
+subprotocols, and close behavior.
+
 ```bash
 uv add tori-py-framework
 ```

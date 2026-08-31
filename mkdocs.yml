@@ -75,6 +75,7 @@ nav:
       - Bodies and Streaming: http/body-streaming.md
       - Context and Injection: http/context-and-injection.md
       - Responses and Errors: http/responses-and-errors.md
+  - WebSockets: websockets.md
   - Pipeline:
       - Overview: pipeline/index.md
       - Middleware and Guards: pipeline/middleware-and-guards.md

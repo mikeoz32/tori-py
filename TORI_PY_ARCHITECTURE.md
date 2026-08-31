@@ -57,7 +57,8 @@ ToriPy v1 MUST NOT provide:
 - FastAPI support or FastAPI runtime dependencies;
 - package scanning, provider auto-registration, or process-global registries;
 - automatic module re-exporting;
-- WebSocket, template, static-file, or framework-managed streaming APIs;
+- WebSocket, template, static-file, or framework-managed streaming APIs in the
+  v1 baseline; first-class WebSockets are a post-v1 N9 extension;
 - authentication, CORS, CSRF, rate-limiting, or security-header policies;
 - Pydantic dependency or integration requirement;
 - OpenTelemetry dependency;
@@ -1099,6 +1100,27 @@ The architecture, implementation order, and executable phases are maintained in
 and
 [`spec/tori-py-microservices/README.md`](spec/tori-py-microservices/README.md).
 
+### 16.5 First-class WebSockets
+
+The post-v1 N9 extension adds explicitly registered singleton WebSocket gateway
+providers, transport-neutral connection plans, and Starlette `WebSocketRoute`
+delivery. A matched connection owns one normal request scope for its complete
+ASGI connection lifetime. Gateway handlers receive the native driver socket
+through an explicit binding marker and retain direct control over handshake,
+frames, subprotocols, and closure.
+
+WebSocket compilation and execution do not reuse HTTP `RoutePlan` or the HTTP
+pipeline executor. They reuse the common provider graph, pipeline protocols,
+metadata decorators, application admission, scope ownership, and cancellation
+rules. WebSocket message dispatch, Socket.IO, broadcast infrastructure,
+automatic JSON envelopes, and AsyncAPI generation remain separate concerns.
+
+The architecture and implementation order are maintained in
+[`TORI_PY_WEBSOCKETS_ARCHITECTURE.md`](TORI_PY_WEBSOCKETS_ARCHITECTURE.md),
+[`TORI_PY_WEBSOCKETS_IMPLEMENTATION_PLAN.md`](TORI_PY_WEBSOCKETS_IMPLEMENTATION_PLAN.md),
+and
+[`spec/tori-py/phase-n9-websockets.md`](spec/tori-py/phase-n9-websockets.md).
+
 ## 17. Implementation Plan
 
 ### N0: Workspace and contracts
@@ -1134,6 +1156,14 @@ Detailed specification: [`spec/tori-py/phase-n6-cli-and-hardening.md`](spec/tori
 Detailed specification: [`spec/tori-py/phase-n7-reflection-and-discovery.md`](spec/tori-py/phase-n7-reflection-and-discovery.md)
 
 The optional `tori-py-cqrs` bridge consumes N7 through its separate C2 phase.
+
+### N8: Exception-aware resource unwinding
+
+Detailed specification: [`spec/tori-py/phase-n8-resource-unwinding.md`](spec/tori-py/phase-n8-resource-unwinding.md)
+
+### N9: First-class WebSockets
+
+Detailed specification: [`spec/tori-py/phase-n9-websockets.md`](spec/tori-py/phase-n9-websockets.md)
 
 ## 18. Exit Criteria
 

@@ -120,6 +120,23 @@ class Context:
     """Bind the driver-neutral request execution context."""
 
 
+@dataclass(frozen=True, slots=True)
+class Socket:
+    """Bind the adapter-native WebSocket connection."""
+
+
+@dataclass(frozen=True, slots=True)
+class WebSocketGatewayMetadata:
+    path: str
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.path, str):
+            raise BootstrapError(
+                "WebSocket gateway path must be a string",
+                code="gateway.invalid_declaration",
+            )
+
+
 _PIPELINE_ATTRIBUTES = {
     "middleware": "__tori_py_middleware_metadata__",
     "guards": "__tori_py_guards_metadata__",
@@ -259,6 +276,22 @@ def controller(prefix: str = "") -> Any:
     return decorate
 
 
+def websocket_gateway(path: str) -> Any:
+    """Attach one native WebSocket connection path to a provider class."""
+
+    metadata = WebSocketGatewayMetadata(path)
+
+    def decorate(target: type[object]) -> type[object]:
+        return _attach(
+            target,
+            "__tori_py_websocket_gateway_metadata__",
+            metadata,
+            "gateway.duplicate_metadata",
+        )
+
+    return decorate
+
+
 def route(method: str, path: str = "") -> Any:
     """Attach one route declaration to a method without creating a router."""
 
@@ -335,6 +368,13 @@ def get_controller_metadata(target: type[object]) -> ControllerMetadata | None:
     return metadata if isinstance(metadata, ControllerMetadata) else None
 
 
+def get_websocket_gateway_metadata(
+    target: type[object],
+) -> WebSocketGatewayMetadata | None:
+    metadata = target.__dict__.get("__tori_py_websocket_gateway_metadata__")
+    return metadata if isinstance(metadata, WebSocketGatewayMetadata) else None
+
+
 def get_route_metadata(target: Any) -> RouteMetadata | None:
     metadata = getattr(target, "__tori_py_route_metadata__", None)
     return metadata if isinstance(metadata, RouteMetadata) else None
@@ -367,8 +407,10 @@ __all__ = [
     "Path",
     "pipes",
     "Query",
+    "Socket",
     "RouteMetadata",
     "StatusMetadata",
+    "WebSocketGatewayMetadata",
     "controller",
     "delete",
     "get",
@@ -376,6 +418,7 @@ __all__ = [
     "get_no_body_metadata",
     "get_route_metadata",
     "get_status_metadata",
+    "get_websocket_gateway_metadata",
     "head",
     "options",
     "patch",
@@ -392,4 +435,5 @@ __all__ = [
     "use_middleware",
     "use_pipe",
     "use_pipes",
+    "websocket_gateway",
 ]

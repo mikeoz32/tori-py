@@ -26,6 +26,7 @@ invariants, tests, and exit criteria.
 | N6 | [CLI and hardening](phase-n6-cli-and-hardening.md) | N0-N5 | CLI, adversarial lifecycle and release gate |
 | N7 | [Reflection and discovery](phase-n7-reflection-and-discovery.md) | N0-N6 | Typed metadata and compiled-provider introspection |
 | N8 | [Exception-aware resource unwinding](phase-n8-resource-unwinding.md) | N0-N7 | Outcome-preserving request/work-scope cleanup |
+| N9 | [First-class WebSockets](phase-n9-websockets.md) | N0-N8 | Native gateway connections through Starlette |
 
 ## Cross-Phase Invariants
 
@@ -72,6 +73,10 @@ invariants, tests, and exit criteria.
 21. While a body remains active, disconnect is observed by its next direct
     receive. A separate disconnect monitor starts only after body EOF because
     concurrent monitoring on ASGI's ordered channel would require prefetching.
+22. A matched WebSocket connection owns one request scope from pre-handshake
+    pipeline execution through disconnect, cancellation, or handler return.
+23. WebSocket handlers receive native sockets explicitly and own handshake,
+    frame, subprotocol, and close policy; ToriPy does not add a message envelope.
 
 ## Quality Gates
 

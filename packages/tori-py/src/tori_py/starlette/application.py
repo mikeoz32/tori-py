@@ -13,6 +13,7 @@ from typing import Any
 
 from starlette.applications import Starlette
 from starlette.requests import Request
+from starlette.routing import BaseRoute
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from tori_py.application import (
@@ -43,6 +44,13 @@ from tori_py.starlette.errors import problem_response
 from tori_py.starlette.options import StarletteOptions
 from tori_py.starlette.pipeline import StarlettePipelineAdapter
 from tori_py.starlette.routes import build_starlette_routes, validate_context_bindings
+from tori_py.starlette.websockets import (
+    StarletteWebSocketPipelineAdapter,
+    build_starlette_websocket_routes,
+    validate_websocket_bindings,
+)
+from tori_py.websocket.pipeline import WebSocketPipelineExecutor
+from tori_py.websocket.routes import bind_websocket_routes, compile_websocket_routes
 
 logger = logging.getLogger("tori_py.starlette")
 
@@ -60,12 +68,20 @@ class _StarletteBinder:
         self.http_options = http_options
         self.plans = compile_routes(graph)
         validate_context_bindings(self.plans)
+        self.websocket_plans = compile_websocket_routes(graph)
+        validate_websocket_bindings(self.websocket_plans)
         self.pipeline = PipelineExecutor(
             graph,
             global_tokens=pipeline_options,
             transport=StarlettePipelineAdapter(),
         )
         self.plans = self.pipeline.qualify(self.plans)
+        self.websocket_pipeline = WebSocketPipelineExecutor(
+            graph,
+            global_tokens=pipeline_options,
+            transport=StarletteWebSocketPipelineAdapter(),
+        )
+        self.websocket_plans = self.websocket_pipeline.qualify(self.websocket_plans)
         self.app: ASGIApp | None = None
 
     def configure_pipeline(self, pipeline: PipelineOptions) -> None:
@@ -74,15 +90,30 @@ class _StarletteBinder:
                 "Starlette pipeline cannot be configured after binding"
             )
         self.pipeline.configure_global(pipeline)
+        self.websocket_pipeline.configure_global(pipeline)
 
     async def bind(self, runtime: ApplicationRuntime) -> None:
         application_id = graph_label(self.graph)
         plans = await bind_routes(self.plans, runtime.resolver)
-        routes = build_starlette_routes(
-            plans,
-            self.pipeline,
-            application_id=application_id,
-            body_size_limit=self.http_options.body_size_limit,
+        routes: list[BaseRoute] = list(
+            build_starlette_routes(
+                plans,
+                self.pipeline,
+                application_id=application_id,
+                body_size_limit=self.http_options.body_size_limit,
+            )
+        )
+        websocket_plans = await bind_websocket_routes(
+            self.websocket_plans,
+            runtime.resolver,
+        )
+        routes.extend(
+            build_starlette_websocket_routes(
+                websocket_plans,
+                self.websocket_pipeline,
+                runtime,
+                application_id=application_id,
+            )
         )
         starlette_app = Starlette(
             routes=routes,
@@ -105,7 +136,7 @@ class _StarletteBinder:
 
 
 class StarletteAdapter(ApplicationAdapter):
-    """Bind one driver-neutral NestApplication to Starlette HTTP delivery."""
+    """Bind one driver-neutral application to Starlette HTTP and WebSockets."""
 
     def __init__(self, options: StarletteOptions | None = None) -> None:
         self.options = StarletteOptions() if options is None else options
@@ -298,13 +329,16 @@ class ASGIApplication:
         if scope["type"] == "lifespan":
             await self._lifespan(receive, send)
             return
-        if scope["type"] == "http" and self.state is _ASGIState.STARTED:
+        if scope["type"] in {"http", "websocket"} and self.state is _ASGIState.STARTED:
             http_app = self._http_app
             if http_app is not None:
                 await http_app(scope, receive, send)
                 return
         if scope["type"] == "http":
             await _send_problem(send, 503, "Application is not ready.", scope)
+            return
+        if scope["type"] == "websocket":
+            await send({"type": "websocket.close", "code": 1013, "reason": ""})
             return
         await _send_empty(send, 204)
 

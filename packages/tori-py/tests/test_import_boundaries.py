@@ -37,6 +37,7 @@ import tori_py.cli
 import tori_py.settings
 import tori_py.starlette
 import tori_py.testing
+import tori_py.websocket
 import sys
 assert 'msgspec' in sys.modules
 assert 'starlette' not in sys.modules
@@ -60,6 +61,14 @@ assert {
     'get_response_header_metadata',
     'header',
 }.issubset(tori_py.http.__all__)
+assert {
+    'WebSocketContext',
+    'WebSocketPlan',
+    'WebSocketParameterPlan',
+    'compile_websocket_gateway',
+    'compile_websocket_routes',
+    'bind_websocket_routes',
+}.issubset(tori_py.websocket.__all__)
 """
     completed = subprocess.run(
         [sys.executable, "-c", script],
@@ -130,6 +139,8 @@ import sys
 import tori_py.core.pipeline
 import tori_py.http.pipeline
 import tori_py.http.routes
+import tori_py.websocket.pipeline
+import tori_py.websocket.routes
 assert 'starlette' not in sys.modules
 """
     completed = subprocess.run(

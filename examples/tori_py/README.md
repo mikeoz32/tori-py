@@ -11,6 +11,9 @@ The application uses public ToriPy imports, typed settings, a request-scoped
 provider, a guard, the opt-in msgspec validation pipe, a filter, and the
 production Starlette lifespan wrapper.
 
+For a native WebSocket gateway with path and request-scoped provider binding,
+see [`websocket`](websocket/README.md).
+
 For a persistence example using async SQLAlchemy sessions, default and custom
 repositories, explicit transactions, typed settings, and no CQRS dependency, see
 [`reference_apps/sqlalchemy_task_api`](reference_apps/sqlalchemy_task_api/README.md).

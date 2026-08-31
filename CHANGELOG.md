@@ -17,6 +17,9 @@ one package does not require the same change in every package.
   provenance-aware disconnect cancellation.
 - OpenAPI bound-parameter schema/description refinement plus explicit response
   headers and per-response media types, including header-only 204 responses.
+- Explicit singleton `@websocket_gateway` providers with native Starlette
+  sockets, marker-only handshake binding, connection-owned request scopes, and
+  the full middleware/guard/pipe/interceptor/filter pipeline.
 
 ### Fixed
 

@@ -4,7 +4,11 @@ from dataclasses import dataclass
 
 from tori_py.core.compiler import CompiledGraph
 from tori_py.core.errors import BootstrapError
-from tori_py.core.metadata import get_pipeline_metadata, get_route_metadata
+from tori_py.core.metadata import (
+    get_pipeline_metadata,
+    get_route_metadata,
+    get_websocket_gateway_metadata,
+)
 from tori_py.core.modules import ModuleSpec
 from tori_py.core.options import PipelineOptions
 from tori_py.core.providers import ClassProvider
@@ -50,6 +54,21 @@ def pipeline_class_provider_fallbacks(
             )
         for handler in route_handlers:
             for kind in _ENHANCER_METHODS:
+                bindings.extend(
+                    (kind, binding) for binding in get_pipeline_metadata(handler, kind)
+                )
+    for declaration in spec.providers:
+        if not isinstance(declaration, ClassProvider):
+            continue
+        gateway = declaration.use_class
+        if gateway is None or get_websocket_gateway_metadata(gateway) is None:
+            continue
+        handler = gateway.__dict__.get("handle")
+        for kind in _ENHANCER_METHODS:
+            bindings.extend(
+                (kind, binding) for binding in get_pipeline_metadata(gateway, kind)
+            )
+            if handler is not None:
                 bindings.extend(
                     (kind, binding) for binding in get_pipeline_metadata(handler, kind)
                 )

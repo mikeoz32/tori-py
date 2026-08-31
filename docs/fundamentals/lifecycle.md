@@ -35,7 +35,7 @@ It does not construct providers, enter provider resources, run hooks, bind the
 driver, or accept work.
 
 The ASGI wrapper awaits the factory once during lifespan startup, calls
-`start()`, and delegates HTTP only after startup succeeds. During lifespan
+`start()`, and delegates HTTP or WebSocket scopes only after startup succeeds. During lifespan
 shutdown it calls `shutdown()`. A stopped or failed application instance cannot
 restart; a server restart needs a newly created instance.
 
