@@ -42,6 +42,8 @@ markdown_extensions:
       base_path:
         - .
   - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
 nav:
   - Home: index.md
   - Why ToriPy: why-tori-py.md
