@@ -9,7 +9,6 @@ from typing import cast
 from uuid import UUID, uuid4
 
 import pytest
-from tori_py_cqrs_event_sourcing import CommandSynchronization
 from tori_py_cqrs_event_sourcing_core import (
     AppendEvent,
     CommitResult,
@@ -34,13 +33,9 @@ from .tasks.domain import (
     TaskTitleInvalid,
     normalize_title,
 )
-from .tasks.handlers import CreateTaskHandler, RenameTaskHandler
-from .tasks.messages import CreateTask, RenameTask
-from .tasks.relay import (
-    RelayGate,
-    RelayPublicationError,
-    RelayUnavailable,
-    TaskEventRelay,
+from .tasks.publisher import (
+    TaskEventPublicationError,
+    TaskEventPublisher,
 )
 from .tasks.repository import TaskRepository
 from .tasks.schemas import (
@@ -48,7 +43,6 @@ from .tasks.schemas import (
     TASK_RENAMED_ALIAS,
     TASK_SCHEMAS,
 )
-from .tasks.state import TaskIdSequence
 
 
 def test_task_aggregate_normalizes_titles_and_same_rename_is_a_noop() -> None:
@@ -154,7 +148,6 @@ async def test_projection_is_duplicate_safe_and_rejects_version_gaps() -> None:
         1,
         "First title",
         1,
-        1,
         occurred_at,
     )
     await state.apply(created)
@@ -170,7 +163,6 @@ async def test_projection_is_duplicate_safe_and_rejects_version_gaps() -> None:
         1,
         "Skipped version",
         3,
-        2,
         occurred_at,
     )
     with pytest.raises(ProjectionCorruption):
@@ -191,7 +183,6 @@ async def test_audit_accepts_exact_duplicates_and_rejects_conflicting_ids() -> N
         event.task_id,
         "Conflicting title",
         event.aggregate_version,
-        event.source_global_position,
         event.occurred_at,
     )
     with pytest.raises(AuditEventConflict):
@@ -201,64 +192,52 @@ async def test_audit_accepts_exact_duplicates_and_rejects_conflicting_ids() -> N
     assert audit.entries == (event,)
 
 
+@pytest.mark.parametrize(
+    "outcome",
+    (PublishOutcome.CONFIRMED, PublishOutcome.DEDUPLICATED),
+)
 @pytest.mark.asyncio
-async def test_indeterminate_relay_publication_degrades_without_resend() -> None:
-    store = InMemoryEventStore()
-    async with EventSourcingUnitOfWork(store) as unit_of_work:
-        repository = _repository(unit_of_work)
-        aggregate = TaskAggregate(1)
-        aggregate.create("Relay failure")
-        repository.save(aggregate)
-        await unit_of_work.commit()
+async def test_committed_event_is_published_directly(outcome: PublishOutcome) -> None:
+    stored = _stored(b'{"task_id":1,"title":"Published"}')
+    stream = _RecordingPublisher(outcome)
+    events = TaskEventPublisher(TASK_SCHEMAS, cast(StreamPublisher, stream))
 
-    publisher = _IndeterminatePublisher()
-    relay = TaskEventRelay(
-        store,
-        TASK_SCHEMAS,
-        cast(StreamPublisher, publisher),
-        RelayGate(),
-    )
-    await relay.on_application_bootstrap()
-    try:
-        with pytest.raises(RelayPublicationError):
-            await relay.wait_for_checkpoint(1, timeout=1)
-        with pytest.raises(RelayUnavailable):
-            relay.require_available()
+    await events.publish_committed(CommitResult((stored,)))
 
-        relay.after_commit(CommitResult(()))
-        with pytest.raises(RelayPublicationError):
-            await relay.wait_for_checkpoint(1, timeout=1)
-        assert publisher.calls == 1
-    finally:
-        await relay.close()
+    assert len(stream.calls) == 1
+    alias, payload, record_id = stream.calls[0]
+    assert alias == "task-events"
+    assert record_id == stored.event_id
+    assert isinstance(payload, TaskEventRecordV1)
+    assert payload.event_id == stored.event_id
+    assert payload.kind == "task-created"
+    assert payload.task_id == 1
+    assert payload.title == "Published"
+    assert payload.aggregate_version == 1
 
 
+@pytest.mark.parametrize(
+    "outcome",
+    (
+        PublishOutcome.REJECTED,
+        PublishOutcome.TIMED_OUT,
+        PublishOutcome.CLOSED,
+        PublishOutcome.BACKPRESSURED,
+        PublishOutcome.INDETERMINATE,
+    ),
+)
 @pytest.mark.asyncio
-async def test_degraded_relay_rejects_commands_before_state_access() -> None:
-    relay = cast(TaskEventRelay, _UnavailableRelay())
-    repository = _UnusedRepository()
-    synchronization = cast(CommandSynchronization, _UnusedSynchronization())
-    ids = TaskIdSequence()
-    create = CreateTaskHandler(
-        cast(TaskRepository, repository),
-        ids,
-        synchronization,
-        relay,
-    )
-    rename = RenameTaskHandler(
-        cast(TaskRepository, repository),
-        synchronization,
-        relay,
-    )
+async def test_unconfirmed_direct_publication_is_reported(
+    outcome: PublishOutcome,
+) -> None:
+    stored = _stored(b'{"task_id":1,"title":"Not confirmed"}')
+    stream = _RecordingPublisher(outcome)
+    events = TaskEventPublisher(TASK_SCHEMAS, cast(StreamPublisher, stream))
 
-    with pytest.raises(RelayUnavailable):
-        await create.handle(CreateTask("Not allocated"))
-    with pytest.raises(RelayUnavailable):
-        await rename.handle(RenameTask(99, "Not loaded"))
+    with pytest.raises(TaskEventPublicationError, match=outcome.value):
+        await events.publish_committed(CommitResult((stored,)))
 
-    assert ids.next() == 1
-    assert repository.loads == 0
-    assert repository.saves == 0
+    assert len(stream.calls) == 1
 
 
 def _repository(unit_of_work: EventSourcingUnitOfWork) -> TaskRepository:
@@ -291,14 +270,14 @@ def _task_record() -> TaskEventRecordV1:
         1,
         "Title",
         1,
-        1,
         datetime.now(UTC),
     )
 
 
-class _IndeterminatePublisher:
-    def __init__(self) -> None:
-        self.calls = 0
+class _RecordingPublisher:
+    def __init__(self, outcome: PublishOutcome) -> None:
+        self._outcome = outcome
+        self.calls: list[tuple[str, object, UUID | None]] = []
 
     async def publish(
         self,
@@ -308,40 +287,7 @@ class _IndeterminatePublisher:
         record_id: UUID | None = None,
         headers: Mapping[str, bytes] | None = None,
     ) -> PublishReceipt:
-        del stream, payload, headers
+        del headers
+        self.calls.append((stream, payload, record_id))
         assert record_id is not None
-        self.calls += 1
-        return PublishReceipt(record_id, 0, PublishOutcome.INDETERMINATE)
-
-
-class _UnavailableRelay:
-    def require_available(self) -> None:
-        raise RelayUnavailable("relay unavailable")
-
-    def after_commit(self, result: CommitResult) -> None:
-        del result
-
-
-class _UnusedRepository:
-    def __init__(self) -> None:
-        self.loads = 0
-        self.saves = 0
-
-    async def get(self, task_id: int) -> TaskAggregate:
-        self.loads += 1
-        return TaskAggregate(task_id)
-
-    def save(self, aggregate: TaskAggregate) -> None:
-        del aggregate
-        self.saves += 1
-
-
-class _UnusedSynchronization:
-    def after_commit(self, callback: object) -> None:
-        del callback
-
-    def after_confirmed_non_commit(self, callback: object) -> None:
-        del callback
-
-    def after_indeterminate(self, callback: object) -> None:
-        del callback
+        return PublishReceipt(record_id, 0, self._outcome)

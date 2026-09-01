@@ -12,15 +12,15 @@ The public contract is now:
 
 | Request | Success | Consistency boundary |
 | --- | --- | --- |
-| `POST /tasks` with `{"title":"..."}` | `201` with the created `Task` | Confirms the observed event-store command outcome, not projection convergence |
-| `PATCH /tasks/{task_id}` with `{"title":"..."}` | `200` with the renamed `Task` | Confirms the observed event-store command outcome, not projection convergence |
+| `POST /tasks` with `{"title":"..."}` | `201` with the created `Task` | Confirms the event-store commit and stream publication, not projection convergence |
+| `PATCH /tasks/{task_id}` with `{"title":"..."}` | `200` with the renamed `Task` | Confirms the event-store commit and stream publication, not projection convergence |
 | `GET /tasks` | `200` with `list[Task]` | Reads the projection as it exists when the query runs |
 | `GET /tasks/{task_id}` | `200` with one `Task`, or `404` | Reads only the current projection view |
 
 `Task` is still exactly `{"id": int, "title": str}`. Title normalization,
 strict request validation, and Problem Details remain at the same HTTP boundary.
 A successful command can be followed briefly by an empty list, a stale title, or
-a `404` until the relay and projection consumer catch up.
+a `404` until the projection consumer catches up.
 
 Every non-marker file below is complete. The snippets are the canonical,
 executable snapshot under
@@ -34,7 +34,7 @@ roots:
 | Root | Owns | Does not own |
 | --- | --- | --- |
 | `gateway` | HTTP, validation, two typed RPC clients, HTTP error mapping | Task decisions, event storage, projection state, stream consumption |
-| `tasks` | Create and rename commands, local CQRS command dispatch, the task aggregate, event store, ID allocation, and event relay | HTTP, query RPC, projection and audit effects |
+| `tasks` | Create and rename commands, local CQRS command dispatch, the task aggregate, event store, ID allocation, and direct stream publication | HTTP, query RPC, projection and audit effects |
 | `projection` | Persistent-stream projection consumer, task read state, list/get RPC | Task commands, aggregate writes, HTTP |
 | `audit` | An independent persistent-stream consumer group and idempotent audit effect | Task commands, task reads, HTTP, RPC |
 
@@ -53,9 +53,9 @@ gateway
     |                         v
     |                    aggregate + EventStore
     |                         |
-    |                         | after_commit wakes relay
+    |                         | commit
     |                         v
-    |                    committed read_all pages
+    |                    after_commit publisher
     |                         |
     |                         | native RabbitMQ Streams
     |                         v
@@ -73,7 +73,7 @@ transport:
 | Boundary | Protocol and port | Purpose |
 | --- | --- | --- |
 | Gateway to command/projection services | AMQP 0-9-1 on `5672` | Finite-deadline typed request/reply RPC |
-| Relay and projection/audit consumers | Native RabbitMQ Streams on `5552` | Retained, partitioned, independently checkpointed records |
+| Task publisher and projection/audit consumers | Native RabbitMQ Streams on `5552` | Retained, partitioned, independently checkpointed records |
 | Task command transaction | `EventStore` API inside the task root | Aggregate history, optimistic versions, and a committed global read sequence |
 
 The event store is not RabbitMQ. Native Persistent Streams are not the
@@ -90,13 +90,13 @@ not treat them as interchangeable:
 | Local CQRS messages | `CreateTask`, `RenameTask` | In-process command routing inside the task root only |
 | Domain events | `TaskCreated`, `TaskRenamed` | Aggregate facts raised and replayed by the event-sourcing model |
 | Stored event records | `StoredEvent` containing an encoded event and metadata | Immutable event-store representation with stream and global positions |
-| Persistent-stream DTO | `TaskEventRecordV1` | Versioned integration payload created by the application relay |
+| Persistent-stream DTO | `TaskEventRecordV1` | Versioned integration payload published after the command commit |
 | Persistent-stream envelope | Canonical PSRM v2 bytes around the DTO | Adapter transport record containing record ID, partition key, headers, and payload |
 | RPC DTOs | `CreateTaskV1`, `RenameTaskV1`, `GetTaskV1`, `ListTasksV1`, `Task` | Versioned request/reply contracts shared by RPC clients and servers |
 
-The relay decodes a stored domain event and deliberately translates it into a
-stream DTO. The RabbitMQ Streams adapter then wraps the encoded DTO in its
-canonical envelope. Neither translation turns a domain event into a CQRS
+The command's after-commit publisher decodes a stored domain event and translates
+it into a stream DTO. The RabbitMQ Streams adapter then wraps the encoded DTO in
+its canonical envelope. Neither translation turns a domain event into a CQRS
 message, an RPC request, or the original stored record.
 
 ## Continue In The Same Project
@@ -166,7 +166,7 @@ task-api/
       domain.py
       handlers.py
       messages.py
-      relay.py
+      publisher.py
       repository.py
       schemas.py
       services.py
@@ -226,25 +226,24 @@ meaningful within a partition; no consumer should infer one cross-partition
 delivery order.
 
 `TaskEventRecordV1` is the explicit integration schema. Its fields retain the
-source domain event ID, aggregate version, event-store global position, and
-occurrence time, but the DTO is not a `StoredEvent`. The RabbitMQ adapter encodes
-the DTO again inside canonical PSRM v2, whose binary envelope carries the record
-UUID, partition key, headers, and payload. Application headers remain in that
-envelope rather than becoming arbitrary flat AMQP headers.
+source domain event ID, aggregate version, and occurrence time, but the DTO is
+not a `StoredEvent`. The RabbitMQ adapter encodes the DTO again inside canonical
+PSRM v2, whose binary envelope carries the record UUID, partition key, headers,
+and payload. Application headers remain in that envelope rather than becoming
+arbitrary flat AMQP headers.
 
-The four positions and identities have different jobs:
+The three positions and identities have different jobs:
 
 | Value | Scope | Use |
 | --- | --- | --- |
-| `event_id` | One immutable fact | Deduplicate the same fact across relay publication and consumer redelivery |
+| `event_id` | One immutable fact | Use the same identity for direct publication and consumer deduplication |
 | `stream_version` / `aggregate_version` | One aggregate stream such as `task-1` | Enforce create at version 1 and gap-free renames for that task |
-| `global_position` / `source_global_position` | One event store | Let the relay scan committed records in source order and retain source provenance |
 | Persistent-stream partition offset | One physical partition | Let each consumer group resume delivery through its checkpoint |
 
-A global position is not a partition offset. Aggregate version 2 can have any
-store-global position and any broker partition offset. The stable UUID is copied
-into the stream DTO and passed as the persistent-stream `record_id`; positions
-must never be substituted for that identity.
+An aggregate version is not a partition offset. Aggregate version 2 can have any
+broker partition offset. The stable UUID is copied into the stream DTO and passed
+as the persistent-stream `record_id`; positions must never be substituted for
+that identity.
 
 When an `InMemoryCheckpointStore` is supplied, `task_event_binding()` selects an
 external checkpoint strategy with a stable identity. Without one, it selects the
@@ -355,47 +354,33 @@ singleton counter in one task process:
 
 It is an educational allocator, not a production identity boundary.
 
-## Step 6: Relay Committed Records
+## Step 6: Publish Committed Events Directly
 
-Create `task_app/tasks/relay.py`:
+Create `task_app/tasks/publisher.py`:
 
 ```python
---8<-- "examples/tori_py/tutorials/event_sourced_task_api/task_app/tasks/relay.py"
+--8<-- "examples/tori_py/tutorials/event_sourced_task_api/task_app/tasks/publisher.py"
 ```
 
-`TaskEventRelay` is application code. Tori Py does not automatically bridge an
-event store to Persistent Streams, and this snapshot does not add a separate
-outbox. The relay uses the event store's committed global log as its source:
+There is no background worker. `TaskEventPublisher.publish_committed()` receives
+the `CommitResult` from command synchronization and handles it immediately:
 
-1. Start at the process-local global checkpoint, initially 0.
-2. Read committed `read_all()` pages after that position, bounded to 100 records.
-3. Decode each stored event through the stable event-store schema registry.
-4. Translate it to `TaskEventRecordV1`.
-5. Publish with the event UUID as `record_id`.
-6. Advance the relay checkpoint only for `CONFIRMED` or `DEDUPLICATED` receipts.
+1. Decode each committed `StoredEvent` through the stable schema registry.
+2. Translate it to `TaskEventRecordV1`.
+3. Publish it with the domain event UUID as `record_id`.
+4. Accept only `CONFIRMED` or `DEDUPLICATED` publication outcomes.
 
-The command synchronization callback registered with `after_commit` only sets a
-wake event. It does not publish, carry the committed event as an in-memory
-message, wait for a consumer, or make the command and broker publication one
-transaction. On startup, the relay also wakes itself so it can scan committed
-history even when no new callback occurs.
+The callback is awaited before the command finishes. If publication raises or is
+not confirmed, the event-store commit remains valid and command finalization
+fails. The RPC controller reports that distinction as
+`command_committed_finalization_failed`.
 
-Backpressure is retried at most three times because it is a proven local no-send
-outcome. A timed-out, indeterminate, rejected, closed, or otherwise unsafe
-publication fails closed: the relay records its failure, does not automatically
-resend, and stops advancing. A confirm can be followed by a crash before relay
-checkpoint advancement, so replay can still publish the same event again.
-Consumers must remain duplicate-safe.
-
-Once degradation is visible, `require_available()` rejects new create and rename
-commands before ID allocation or repository access. A command already in flight
-can race the degradation transition. There is no automatic restart, outbox,
-exactly-once bridge, or reconciliation worker.
-
-Shutdown also has a deliberate caveat. The relay's lifecycle hook cancels its
-task, but this snapshot does not prove cross-provider ordering that publishes
-every committed event before the Persistent Streams runtime closes. Stop command
-admission first, observe convergence, and only then stop the task process.
+This is deliberately a simple dual write. It has no scan, wake loop, publication
+checkpoint, retry worker, or automatic reconciliation. A crash or publication
+failure after the event-store commit can leave the stored event absent from the
+stream. A production system that must close that gap needs a durable outbox or
+another explicitly reliable bridge; this tutorial keeps that machinery out of
+the main event-sourcing flow.
 
 ## Step 7: Run Each Command In A Unit Of Work
 
@@ -429,10 +414,10 @@ is leased to the exact command-handler task and transaction boundary; it cannot
 escape into child tasks, callbacks, query handlers, or later use.
 
 Create validates before allocating an ID, creates the aggregate, saves it, and
-registers the relay wake for a confirmed commit. Rename replays the aggregate
-from its event stream, applies the decision, and saves/registers a wake only when
-an effective rename produced a pending event. A no-op rename still completes its
-managed command lifecycle but appends no stored event.
+registers direct publication for a confirmed commit. Rename replays the aggregate
+from its event stream, applies the decision, and saves/registers publication only
+when an effective rename produced a pending event. A no-op rename still completes
+its managed command lifecycle but appends and publishes no event.
 
 Create `task_app/tasks/services.py`:
 
@@ -459,16 +444,15 @@ The root composes five explicit boundaries:
 - the feature module supplies the request-scoped `TaskRepository`;
 - local CQRS discovers the two command handlers;
 - microservices serves the command RPC identity over AMQP while Persistent
-  Streams supplies the relay publisher over the native Streams adapter.
+  Streams supplies the direct publisher over the native Streams adapter.
 
 The RPC controller converts expected outcomes to stable public codes. It does
 not serialize internal exceptions. Optimistic concurrency becomes `conflict`;
-missing rename aggregates become `not_found`; relay degradation becomes
-`relay_unavailable`; and commit/finalization uncertainty remains explicit rather
-than being reported as a normal failure.
+missing rename aggregates become `not_found`; and commit/finalization uncertainty
+remains explicit rather than being reported as a normal failure.
 
 The command response is released only after the event-sourcing interceptor has
-classified commit and finalization. It does **not** wait for relay publication,
+classified commit and awaited direct publication. It does **not** wait for
 projection handling, audit handling, or either consumer checkpoint.
 
 ## Step 9: Build The Projection Root
@@ -583,7 +567,7 @@ The error filter applies this exact boundary mapping:
 | `invalid_request` | `400` | The command rejected the normalized title |
 | `not_found` | `404` | Rename aggregate missing, or task absent from the current projection |
 | `conflict` | `409` | Optimistic command conflict |
-| `projection_unavailable`, `relay_unavailable` | `503` | The owning service is degraded |
+| `projection_unavailable` | `503` | The read model is degraded |
 | `command_committed_finalization_failed` | `502` | Commit is confirmed but command finalization failed |
 | `command_finalization_failed` | `502` | Non-commit is confirmed but finalization failed |
 | `command_outcome_unknown` or unknown remote code | `502` | The exchange cannot establish a normal command result |
@@ -600,8 +584,8 @@ have committed before its reply or finalization outcome was lost. This API still
 has no business idempotency key or persisted command result, so blindly retrying
 `POST` can allocate a second task and blindly retrying `PATCH` can race another
 write. Reconcile through an application-owned identity before retrying an
-unknown command outcome. Publisher confirmation later in the relay likewise
-means broker acceptance, not projection or audit completion.
+unknown command outcome. The publisher confirmation awaited during command
+finalization means broker acceptance, not projection or audit completion.
 
 ## Step 12: Add Deterministic Test Adapters
 
@@ -619,10 +603,9 @@ all four applications stop.
 
 The replacements preserve all four production composition roots. They replace
 only each production RabbitMQ adapter descriptor with a keyed in-memory module;
-controllers, contracts, codecs, handlers, repositories, modules, CQRS,
-event-sourcing integration, pipelines, and lifecycle remain the production
-definitions. `RelayGate` is the one explicit provider override used to pause
-publication deterministically.
+controllers, contracts, codecs, publishers, handlers, repositories, modules,
+CQRS, event-sourcing integration, pipelines, and lifecycle remain the production
+definitions.
 
 ## Step 13: Test Domain And Failure Rules
 
@@ -634,8 +617,8 @@ Create `task_app/test_domain.py`:
 
 These tests pin title invariants, exact stored JSON, stable aliases and schema
 versions, replayed aggregate versions, no-op rename behavior, projection gaps,
-audit conflicts, indeterminate relay fail-stop behavior, and command rejection
-after degradation.
+audit conflicts, direct committed-event publication, and unconfirmed publication
+outcomes.
 
 Create `task_app/test_gateway_errors.py`:
 
@@ -643,9 +626,9 @@ Create `task_app/test_gateway_errors.py`:
 --8<-- "examples/tori_py/tutorials/event_sourced_task_api/task_app/test_gateway_errors.py"
 ```
 
-These focused assertions keep command finalization and relay failures behind
-stable RPC codes, then verify standard Problem Details titles and the command
-timeout warning.
+These focused assertions keep command finalization failures behind stable RPC
+codes, then verify standard Problem Details titles and the command timeout
+warning.
 
 Create `task_app/test_system.py`:
 
@@ -654,18 +637,18 @@ Create `task_app/test_system.py`:
 ```
 
 The system test starts the unchanged production roots in dependency order:
-audit, projection, tasks, then gateway. The closed relay gate makes three
-successful creates remain absent from the projection, proving both stale list
-and current-view `404` behavior without sleeps. Releasing it proves bounded
-convergence; pausing it around rename proves that a command response can contain
-the new title while `GET` still returns the old title.
+audit, projection, tasks, then gateway. Commands commit and publish directly;
+condition-based waits then prove projection and audit convergence without timing
+sleeps. The API contract still permits stale reads because consumers execute
+independently, but the test does not add a fake production gate solely to force
+one scheduling outcome.
 
 The test then verifies:
 
 - created records occupy both physical partitions;
 - the event store retains stable aliases, schema versions, aggregate versions,
   and source ordering;
-- stream DTOs retain event IDs, aggregate versions, and source global positions;
+- stream DTOs retain event IDs and aggregate versions;
 - projection and audit use separate consumer groups;
 - republishing an exact record creates another delivery but no duplicate effect;
 - a conflicting projection duplicate fails closed;
@@ -681,8 +664,8 @@ uv run pytest task_app -q
 Expected result:
 
 ```text
-............................                                             [100%]
-28 passed
+...............................                                          [100%]
+31 passed
 ```
 
 !!! warning "This is not RabbitMQ or process proof"
@@ -756,7 +739,7 @@ next one.
     uv run python -m task_app.projection.app
     ```
 
-#### 3. Task Commands And Relay
+#### 3. Task Commands And Publisher
 
 === "PowerShell"
 
@@ -844,7 +827,7 @@ Rename the task:
 === "PowerShell"
 
     ```powershell
-    '{"title":"  Publish through the relay  "}' |
+    '{"title":"  Publish directly to the stream  "}' |
       curl.exe --silent --request PATCH "http://127.0.0.1:8000/tasks/1" `
         --header "content-type: application/json" `
         --data-binary '@-' `
@@ -857,15 +840,15 @@ Rename the task:
     ```bash
     curl --silent --request PATCH "http://127.0.0.1:8000/tasks/1" \
       --header "content-type: application/json" \
-      --data '{"title":"  Publish through the relay  "}' \
+      --data '{"title":"  Publish directly to the stream  "}' \
       --write-out '\nHTTP %{http_code}\n'
     curl --silent "http://127.0.0.1:8000/tasks/1" \
       --write-out '\nHTTP %{http_code}\n'
     ```
 
-The `PATCH` response can show `Publish through the relay` while the following
-`GET` still shows the previous title. Once the projection consumes aggregate
-version 2 and checkpoints it, the read returns the renamed `Task`.
+The `PATCH` response can show `Publish directly to the stream` while the
+following `GET` still shows the previous title. Once the projection consumes
+aggregate version 2 and checkpoints it, the read returns the renamed `Task`.
 
 ### Shut Down In Reverse Order
 
@@ -882,10 +865,10 @@ Stop admission and producers before consumers:
 docker compose down -v
 ```
 
-The order matters because forced or early task shutdown can leave a committed
-event behind the in-memory relay checkpoint and unpublished to the stream. The
-example has no operational drain endpoint, so convergence is an observation and
-procedure rather than a guaranteed shutdown barrier.
+There is no background publication task to drain. Direct publication is awaited
+during command finalization, but an abrupt process failure can still occur after
+the event-store commit and before stream confirmation. Stop command admission
+first and allow in-flight commands to finish before stopping consumers.
 
 To reset the tutorial, stop all four Python processes, remove broker data, start
 a fresh broker, and restart the applications in audit/projection/tasks/gateway
@@ -899,8 +882,8 @@ docker compose up --wait
 Do not reset only the task process while retaining
 `tutorial-task-events-v1`. Its empty event store and reset ID allocator can emit
 new task IDs and aggregate versions that conflict semantically with retained
-records. A coherent reset includes the command event store, ID allocator, relay
-checkpoint, physical stream, both consumer checkpoints, projection, and audit.
+records. A coherent reset includes the command event store, ID allocator,
+physical stream, both consumer checkpoints, projection, and audit.
 
 ## Understand The Deliberate Limitations
 
@@ -908,11 +891,9 @@ This application demonstrates boundaries and failure policy, not production
 durability:
 
 - `InMemoryEventStore` loses aggregate history, event IDs, versions, and global
-  relay source data when the task process stops.
+  source positions when the task process stops.
 - `TaskIdSequence` resets and cannot coordinate process replicas or unknown
   command retries.
-- the relay checkpoint is one integer in task-process memory and has no durable
-  ownership, fencing, or restart reconciliation.
 - projection rows, projection event IDs/versions, audit entries, and both
   `InMemoryCheckpointStore` instances are process-local memory.
 - retaining the RabbitMQ stream while restarting an empty writer is incompatible
@@ -921,8 +902,7 @@ durability:
 - the RabbitMQ Persistent Streams adapter is a provisional conditional beta, not
   an unconditional production-readiness claim.
 - this tutorial supplies no production-qualified durable event-store adapter, ID
-  allocator, relay checkpoint, projection store, audit inbox, or external
-  checkpoint adapter.
+  allocator, projection store, audit inbox, or external checkpoint adapter.
 - there is no transactional outbox, automatic event-store bridge, distributed
   transaction, or exactly-once publication/processing guarantee.
 - reads are eventual and provide no read-your-writes or monotonic-read guarantee.
@@ -936,23 +916,23 @@ durability:
   execution, handler success, checkpoint completion, exactly-once effect, append
   offset, or per-message disk synchronization.
 
-At-least-once windows remain on both sides. The relay can republish after a
-confirm/checkpoint crash window, and a consumer can repeat an effect after an
-effect/checkpoint crash window. Stable event IDs and aggregate versions let this
-example detect duplicates and gaps, but in-memory detection disappears on
-restart.
+Stream consumption remains at least once: a consumer can repeat an effect after
+an effect/checkpoint crash window. Stable event IDs and aggregate versions let
+this example detect duplicates and gaps, but in-memory detection disappears on
+restart. Direct publication has the opposite failure mode: without an outbox, a
+committed event can be missing from the stream rather than recovered by replay.
 
 ## Production Next Steps
 
-1. Replace the command state with a durable event store, durable conflict-safe ID
-   allocator, and durable fenced relay checkpoint that can reconcile uncertain
-   publication outcomes.
+1. Replace the command state with a durable event store and durable conflict-safe
+   ID allocator. If every committed event must reach the stream, add a
+   transactional outbox and a separately operated publisher.
 2. Store each projection or audit effect with a durable inbox identity and its
    consumer checkpoint in one local transaction, including a clear poison-record
    policy.
 3. Rebuild into a new governed consumer group and versioned projection, validate
    it against retained source history, then perform an explicit read-identity
    cutover with rollback criteria.
-4. Operate reconciliation for event-store versus stream progress, consumer lag,
+4. Operate reconciliation for event-store versus stream gaps, consumer lag,
    duplicate/conflict evidence, retention low watermarks, blocked partitions,
    and indeterminate command or publication outcomes.

@@ -111,7 +111,7 @@ def test_task_tutorial_series_runs_as_an_isolated_project(tmp_path: Path) -> Non
         cwd=project,
     )
 
-    assert "28 passed" in part_four.stdout
+    assert "31 passed" in part_four.stdout
     assert (project / ".python-version").read_text(encoding="utf-8") == "3.14\n"
     assert 'requires-python = ">=3.14,<3.15"' in (project / "pyproject.toml").read_text(
         encoding="utf-8"

@@ -58,7 +58,6 @@ from .tasks.app import (
     task_stream_adapter,
     task_transport,
 )
-from .tasks.relay import RelayGate, TaskEventRelay
 from .tasks.schemas import TASK_CREATED_ALIAS, TASK_RENAMED_ALIAS
 from .testing import (
     InMemoryTransportModule,
@@ -75,8 +74,6 @@ async def test_event_sourced_task_system_is_eventually_consistent() -> None:
     service_runtimes: list[ServiceRuntime] = []
     stream_runtimes: list[StreamRuntime] = []
     gateway_cluster: ServiceCluster | None = None
-    relay_gate = RelayGate(open_=False)
-
     try:
         audit_builder = TestingModule.create(AuditAppModule)
         audit_builder.replace_module(
@@ -116,10 +113,6 @@ async def test_event_sourced_task_system_is_eventually_consistent() -> None:
                 key="tasks",
             ),
         )
-        task_builder.override_provider(
-            RelayGate,
-            module=TaskAppModule,
-        ).use_value(relay_gate)
         tasks = await task_builder.compile()
         applications.append(tasks)
 
@@ -146,7 +139,6 @@ async def test_event_sourced_task_system_is_eventually_consistent() -> None:
                 module=TaskPersistenceModule,
             ),
         )
-        relay = cast(TaskEventRelay, await tasks.resolve(TaskEventRelay))
         publisher = cast(StreamPublisher, await tasks.resolve(StreamPublisher))
 
         task_service_runtime = cast(
@@ -253,19 +245,6 @@ async def test_event_sourced_task_system_is_eventually_consistent() -> None:
                 "title": "Cross the physical partition",
             }
 
-            stale_list = await client.get("/tasks")
-            assert stale_list.status_code == 200
-            assert stale_list.json() == []
-            _assert_problem(
-                await client.get("/tasks/1"),
-                status_code=404,
-                title="Not Found",
-                detail="Task was not found.",
-                instance="/tasks/1",
-            )
-
-            relay_gate.release()
-            await relay.wait_for_checkpoint(3, timeout=1)
             await projection_state.wait_for_version(1, 1, timeout=1)
             await projection_state.wait_for_version(2, 1, timeout=1)
             await projection_state.wait_for_version(3, 1, timeout=1)
@@ -285,7 +264,6 @@ async def test_event_sourced_task_system_is_eventually_consistent() -> None:
                 instance="/tasks/999",
             )
 
-            relay_gate.pause()
             invalid_patch = await client.patch(
                 "/tasks/1",
                 json={"title": "   "},
@@ -329,17 +307,14 @@ async def test_event_sourced_task_system_is_eventually_consistent() -> None:
 
             renamed = await client.patch(
                 "/tasks/1",
-                json={"title": "  Publish through the relay  "},
+                json={"title": "  Publish directly to the stream  "},
             )
             assert renamed.status_code == 200
             assert renamed.json() == {
                 "id": 1,
-                "title": "Publish through the relay",
+                "title": "Publish directly to the stream",
             }
-            assert (await client.get("/tasks/1")).json() == created.json()
 
-            relay_gate.release()
-            await relay.wait_for_checkpoint(4, timeout=1)
             await projection_state.wait_for_version(1, 2, timeout=1)
             await audit_log.wait_for_deliveries(4, timeout=1)
             assert (await client.get("/tasks/1")).json() == renamed.json()
@@ -370,26 +345,21 @@ async def test_event_sourced_task_system_is_eventually_consistent() -> None:
                 TaskEventCodec().decode(record.payload, TaskEventRecordV1)
                 for record in stream_records
             ]
-            decoded.sort(key=lambda record: record.source_global_position)
+            decoded.sort(key=lambda record: (record.task_id, record.aggregate_version))
             assert [record.kind for record in decoded] == [
                 "task-created",
-                "task-created",
-                "task-created",
                 "task-renamed",
+                "task-created",
+                "task-created",
             ]
-            assert [record.task_id for record in decoded] == [1, 2, 3, 1]
-            assert [record.aggregate_version for record in decoded] == [1, 1, 1, 2]
-            assert [record.source_global_position for record in decoded] == [1, 2, 3, 4]
-            assert [record.event_id for record in decoded] == [
+            assert [record.task_id for record in decoded] == [1, 1, 2, 3]
+            assert [record.aggregate_version for record in decoded] == [1, 2, 1, 1]
+            assert {record.event_id for record in decoded} == {
                 event.event_id for event in stored_events
-            ]
-            assert [record.record_id for record in stream_records] == [
-                payload.event_id
-                for payload in sorted(
-                    decoded,
-                    key=lambda record: record.source_global_position,
-                )
-            ]
+            }
+            assert {record.record_id for record in stream_records} == {
+                payload.event_id for payload in decoded
+            }
 
             first = decoded[0]
             duplicate = await publisher.publish(
@@ -401,7 +371,7 @@ async def test_event_sourced_task_system_is_eventually_consistent() -> None:
             await projection_state.wait_for_deliveries(5, timeout=1)
             await audit_log.wait_for_deliveries(5, timeout=1)
             assert projection_state.event_count == 4
-            assert projection_state.get(1).title == "Publish through the relay"
+            assert projection_state.get(1).title == "Publish directly to the stream"
             assert len(audit_log.entries) == 4
             assert audit_log.deliveries == 5
 
@@ -420,7 +390,6 @@ async def test_event_sourced_task_system_is_eventually_consistent() -> None:
                 first.task_id,
                 "Conflicting duplicate",
                 first.aggregate_version,
-                first.source_global_position,
                 first.occurred_at,
             )
             with pytest.raises(ProjectionCorruption):
@@ -464,13 +433,6 @@ async def _all_stream_records(
             100,
         )
         records.extend(page.records)
-    records.sort(
-        key=lambda record: (
-            TaskEventCodec()
-            .decode(record.payload, TaskEventRecordV1)
-            .source_global_position
-        )
-    )
     return records
 
 

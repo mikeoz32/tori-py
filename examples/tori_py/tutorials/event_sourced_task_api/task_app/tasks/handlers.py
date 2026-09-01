@@ -16,30 +16,14 @@ from tori_py_cqrs_event_sourcing import (
 from ..contracts import Task
 from .domain import TaskAggregate, normalize_title
 from .messages import CreateTask, RenameTask
-from .relay import EVENT_SOURCING_KEY, TaskEventRelay
+from .publisher import EVENT_SOURCING_KEY, TaskEventPublisher
 from .repository import TaskRepository
 from .state import TaskIdSequence
 
 
-class _HandlerBase:
-    def __init__(
-        self,
-        synchronization: Annotated[
-            CommandSynchronization,
-            Inject(get_command_synchronization_token(key=EVENT_SOURCING_KEY)),
-        ],
-        relay: TaskEventRelay,
-    ) -> None:
-        self._synchronization = synchronization
-        self._relay = relay
-
-    def _wake_relay_after_commit(self) -> None:
-        self._synchronization.after_commit(self._relay.after_commit)
-
-
 @use_event_sourcing(key=EVENT_SOURCING_KEY)
 @command_handler(CreateTask, scope=Scope.REQUEST)
-class CreateTaskHandler(_HandlerBase):
+class CreateTaskHandler:
     def __init__(
         self,
         repository: Annotated[
@@ -51,25 +35,25 @@ class CreateTaskHandler(_HandlerBase):
             CommandSynchronization,
             Inject(get_command_synchronization_token(key=EVENT_SOURCING_KEY)),
         ],
-        relay: TaskEventRelay,
+        events: TaskEventPublisher,
     ) -> None:
-        super().__init__(synchronization, relay)
         self._repository = repository
         self._ids = ids
+        self._synchronization = synchronization
+        self._events = events
 
     async def handle(self, command: CreateTask) -> Task:
-        self._relay.require_available()
         title = normalize_title(command.title)
         aggregate = TaskAggregate(self._ids.next())
         aggregate.create(title)
         self._repository.save(aggregate)
-        self._wake_relay_after_commit()
+        self._synchronization.after_commit(self._events.publish_committed)
         return Task(aggregate.id, aggregate.title)
 
 
 @use_event_sourcing(key=EVENT_SOURCING_KEY)
 @command_handler(RenameTask, scope=Scope.REQUEST)
-class RenameTaskHandler(_HandlerBase):
+class RenameTaskHandler:
     def __init__(
         self,
         repository: Annotated[
@@ -80,19 +64,19 @@ class RenameTaskHandler(_HandlerBase):
             CommandSynchronization,
             Inject(get_command_synchronization_token(key=EVENT_SOURCING_KEY)),
         ],
-        relay: TaskEventRelay,
+        events: TaskEventPublisher,
     ) -> None:
-        super().__init__(synchronization, relay)
         self._repository = repository
+        self._synchronization = synchronization
+        self._events = events
 
     async def handle(self, command: RenameTask) -> Task:
-        self._relay.require_available()
         title = normalize_title(command.title)
         aggregate = await self._repository.get(command.task_id)
         aggregate.rename(title)
         if aggregate.pending_events:
             self._repository.save(aggregate)
-            self._wake_relay_after_commit()
+            self._synchronization.after_commit(self._events.publish_committed)
         return Task(aggregate.id, aggregate.title)
 
 
