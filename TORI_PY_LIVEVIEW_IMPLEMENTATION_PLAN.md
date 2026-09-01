@@ -52,6 +52,8 @@
   retain `rendered` as the lower-level constructor.
 - Compose finite template iterables into escaped positional fragments while
   retaining streams for browser-owned collections.
+- Compose normalized unconditional and boolean conditional class names without
+  bypassing quoted-attribute escaping.
 
 ## Deferred
 

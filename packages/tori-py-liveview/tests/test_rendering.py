@@ -9,6 +9,7 @@ from tori_py_liveview import (
     LiveComponent,
     LiveView,
     Rendered,
+    classes,
     fragment,
     html,
     raw,
@@ -136,6 +137,38 @@ def test_fragment_accepts_an_empty_iterable() -> None:
     result = fragment([])
 
     assert result == Rendered(("",), ())
+
+
+def test_classes_combines_names_and_enabled_conditions_in_order() -> None:
+    result = classes(
+        "button button-primary",
+        "  rounded   shadow  ",
+        "",
+        active=True,
+        disabled=False,
+        **{"is-selected": True},
+    )
+
+    assert result == "button button-primary rounded shadow active is-selected"
+    assert classes() == ""
+
+
+def test_classes_remains_escaped_when_interpolated() -> None:
+    unsafe_name = 'admin" onclick="alert(1)'
+    class_name = classes("button", unsafe_name)
+
+    result = html(t'<button class="{class_name}">Save</button>')
+
+    assert result.to_html() == (
+        '<button class="button admin&quot; onclick=&quot;alert(1)">Save</button>'
+    )
+
+
+def test_classes_requires_string_names_and_boolean_conditions() -> None:
+    with pytest.raises(TypeError, match="class names must be strings"):
+        classes(cast(str, 1))
+    with pytest.raises(TypeError, match="conditional class flags must be booleans"):
+        classes(active=cast(bool, 1))
 
 
 @pytest.mark.asyncio

@@ -82,8 +82,22 @@ def fragment(values: Iterable[object], /) -> Rendered:
     return Rendered(("",) * (len(dynamics) + 1), dynamics)
 
 
+def classes(*names: str, **conditional: bool) -> str:
+    tokens: list[str] = []
+    for name in names:
+        if not isinstance(name, str):
+            raise TypeError("class names must be strings")
+        tokens.extend(name.split())
+    for name, enabled in conditional.items():
+        if type(enabled) is not bool:
+            raise TypeError("conditional class flags must be booleans")
+        if enabled:
+            tokens.extend(name.split())
+    return " ".join(tokens)
+
+
 def rendered(statics: tuple[str, ...], *values: object) -> Rendered:
     return Rendered(tuple(statics), tuple(_dynamic(value) for value in values))
 
 
-__all__ = ["Rendered", "SafeHtml", "fragment", "html", "raw", "rendered"]
+__all__ = ["Rendered", "SafeHtml", "classes", "fragment", "html", "raw", "rendered"]

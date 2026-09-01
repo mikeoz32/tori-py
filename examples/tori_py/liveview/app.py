@@ -10,6 +10,7 @@ from tori_py_liveview import (
     LiveViewOptions,
     MountContext,
     UnknownEventError,
+    classes,
     live_view,
 )
 
@@ -34,10 +35,13 @@ class CounterComponent(LiveComponent):
         self.count += 1
 
     def render(self) -> Template:
+        button_class = classes("counter-button", incremented=self.count > 0)
         return t"""
             <section id="component-{self.id}" data-opal-target="{self.myself}">
                 <h2>{self.label}</h2>
-                <button data-opal-click="increment">Increment {self.label}</button>
+                <button class="{button_class}" data-opal-click="increment">
+                    Increment {self.label}
+                </button>
                 <output data-component-id="{self.id}">{self.count}</output>
             </section>
         """

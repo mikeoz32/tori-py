@@ -213,6 +213,11 @@ flattened, and an empty iterable produces empty markup. Equal item counts share
 a structural fingerprint and therefore support positional diffs. Streams remain
 the required mechanism for browser-owned collection mutation and retention.
 
+`classes(*names, **conditional)` splits and normalizes positional class strings,
+then appends keyword class names whose strictly boolean flags are true. It
+returns an ordinary string, not trusted markup, so interpolation into a quoted
+attribute retains normal HTML escaping.
+
 `stream_contents` is the corresponding trusted boundary for markup already
 queued through stream operations. Connected renders normally produce an empty
 stream-container dynamic after the previous batch is consumed; the browser

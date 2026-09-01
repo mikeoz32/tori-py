@@ -19,7 +19,7 @@ This directory records the executable contract for `tori-py-liveview`.
 9. Python 3.14 templates map their strings and escaped interpolations to the
    structural render contract. Nested templates and explicitly marked markup are
    trusted composition boundaries; finite iterables compose as positional
-   fragments.
+   fragments, and conditional class strings remain escaped dynamic values.
 10. Stateful components use `(concrete type, id)` identity, stable
     connection-local targets, update-before-render, targeted events, and cleanup
     on removal or disconnect.

@@ -112,6 +112,31 @@ number of items, changes are reported as positional dynamics. Use streams
 instead when the browser should own insertion, deletion, ordering, or retention
 of a changing collection.
 
+## Conditional classes
+
+Use `classes()` to normalize unconditional class names and append classes whose
+keyword flags are enabled:
+
+```python
+from tori_py_liveview import classes
+
+
+def render(self) -> Template:
+    button_class = classes(
+        "button button-primary",
+        active=self.active,
+        disabled=self.disabled,
+        **{"is-loading": self.loading},
+    )
+
+    return t'<button class="{button_class}">Save</button>'
+```
+
+Positional names must be strings, conditional flags must be booleans, false
+conditions are omitted, and whitespace is normalized. `classes()` returns an
+ordinary string rather than trusted markup; interpolate it only into a quoted
+attribute so the template processor still escapes untrusted class names.
+
 ## Stateful components
 
 Subclass `LiveComponent` for independently stateful pieces sharing one page
