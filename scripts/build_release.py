@@ -21,7 +21,9 @@ if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from scripts.release_manifest import (  # noqa: E402
+    EXPECTED_ARTIFACTS,
     Distribution,
+    dependency_closure,
     family_version,
     load_manifest,
     normalize_name,
@@ -196,7 +198,11 @@ def _internal_bound(requirement: str, version: str) -> bool:
     specifier = specifier.split(";", 1)[0]
     if specifier.startswith("=="):
         return specifier[2:] == version
-    return f">={version}" in specifier and "<" in specifier
+    release = version.split(".")
+    if len(release) < 2 or not all(part.isdigit() for part in release):
+        return False
+    upper_bound = f"{release[0]}.{int(release[1]) + 1}.0"
+    return set(specifier.split(",")) == {f">={version}", f"<{upper_bound}"}
 
 
 def _verify_metadata(
@@ -287,9 +293,10 @@ def write_digest_manifest(dist: Path, output: Path) -> None:
                     "size": artifact.stat().st_size,
                 }
             )
-    if len(artifacts) != 24:
+    if len(artifacts) != EXPECTED_ARTIFACTS:
         raise ValueError(
-            f"digest manifest requires 24 artifacts, found {len(artifacts)}"
+            f"digest manifest requires {EXPECTED_ARTIFACTS} artifacts, "
+            f"found {len(artifacts)}"
         )
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(
@@ -298,13 +305,17 @@ def write_digest_manifest(dist: Path, output: Path) -> None:
     )
 
 
-def verify_digest_manifest(dist: Path, manifest_path: Path) -> None:
+def verify_digest_manifest(
+    dist: Path, manifest_path: Path, expected_filenames: set[str] | None = None
+) -> None:
     data = json.loads(manifest_path.read_text(encoding="utf-8"))
     if set(data) != {"schema_version", "artifacts"} or data["schema_version"] != 1:
         raise ValueError("unsupported digest manifest")
     entries = data["artifacts"]
-    if not isinstance(entries, list) or len(entries) != 24:
-        raise ValueError("digest manifest must contain exactly 24 artifacts")
+    if not isinstance(entries, list) or len(entries) != EXPECTED_ARTIFACTS:
+        raise ValueError(
+            f"digest manifest must contain exactly {EXPECTED_ARTIFACTS} artifacts"
+        )
     expected: dict[str, tuple[str, int]] = {}
     for entry in entries:
         if not isinstance(entry, dict) or set(entry) != {"filename", "sha256", "size"}:
@@ -323,7 +334,9 @@ def verify_digest_manifest(dist: Path, manifest_path: Path) -> None:
             raise ValueError("invalid digest manifest entry")
         expected[filename] = (entry["sha256"], entry["size"])
     actual = {path.name for path in dist.iterdir() if path.is_file()}
-    if actual != set(expected):
+    if actual != set(expected) or (
+        expected_filenames is not None and actual != expected_filenames
+    ):
         raise ValueError("artifact set differs from digest manifest")
     for filename, (digest, size) in expected.items():
         artifact = dist / filename
@@ -333,10 +346,27 @@ def verify_digest_manifest(dist: Path, manifest_path: Path) -> None:
             raise ValueError(f"SHA256 mismatch for {filename}")
 
 
+def distribution_smoke_command(
+    item: Distribution,
+    pairs: dict[str, tuple[Path, Path]],
+    manifest: tuple[Distribution, ...],
+    *,
+    artifact_index: int,
+) -> list[str]:
+    command = ["uv", "run", "--isolated", "--no-project", "--no-sources"]
+    for dependency in dependency_closure(item, manifest):
+        artifact = pairs[dependency.normalized_name][artifact_index].resolve()
+        command.extend(("--with", str(artifact)))
+    return command
+
+
 def smoke_family(
     pairs: dict[str, tuple[Path, Path]], manifest: tuple[Distribution, ...]
 ) -> None:
-    smoke = """
+    for index in (0, 1):
+        for item in manifest:
+            selected = dependency_closure(item, manifest)
+            smoke = """
 import importlib
 import importlib.metadata
 from pathlib import Path
@@ -347,22 +377,13 @@ for distribution, version, imports in expected:
     for name in imports:
         module = importlib.import_module(name)
         assert Path(module.__file__).with_name("py.typed").is_file()
-""" % [(item.name, item.version, item.import_names) for item in manifest]
-    cli = next((item for item in manifest if item.scripts), None)
-    for index in (0, 1):
-        command = ["uv", "run", "--isolated", "--no-project", "--no-sources"]
-        for item in manifest:
-            artifact = pairs[item.normalized_name][index].resolve()
-            command.extend(("--with", str(artifact)))
-        command.extend(("python", "-c", smoke))
-        _run(command)
-        if cli is not None:
-            command = ["uv", "run", "--isolated", "--no-project", "--no-sources"]
-            for item in manifest:
-                artifact = pairs[item.normalized_name][index].resolve()
-                command.extend(("--with", str(artifact)))
-            command.extend((next(iter(cli.scripts)), "--help"))
-            _run(command)
+""" % [(entry.name, entry.version, entry.import_names) for entry in selected]
+            command = distribution_smoke_command(
+                item, pairs, manifest, artifact_index=index
+            )
+            _run([*command, "python", "-c", smoke])
+            if item.scripts:
+                _run([*command, next(iter(item.scripts)), "--help"])
 
 
 def rabbitmq_smoke_command(
@@ -408,10 +429,11 @@ def main(argv: list[str] | None = None) -> None:
     if not args.verify_only:
         build_family(dist, manifest)
     pairs = verify_family(dist, manifest)
+    expected_filenames = {artifact.name for pair in pairs.values() for artifact in pair}
     digest_manifest = args.digest_manifest.resolve()
     if not args.verify_only:
         write_digest_manifest(dist, digest_manifest)
-    verify_digest_manifest(dist, digest_manifest)
+    verify_digest_manifest(dist, digest_manifest, expected_filenames)
     if not args.skip_smoke:
         smoke_family(pairs, manifest)
     if args.rabbitmq_url:

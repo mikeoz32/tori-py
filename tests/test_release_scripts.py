@@ -11,19 +11,27 @@ import pytest
 from scripts.build_release import (
     _internal_bound,
     artifact_pairs,
+    distribution_smoke_command,
     rabbitmq_smoke_command,
     verify_digest_manifest,
     verify_family,
     write_digest_manifest,
 )
 from scripts.publish_release import publish_commands, verify_uv_version
-from scripts.release_manifest import Distribution, load_manifest
+from scripts.release_manifest import (
+    EXPECTED_ARTIFACTS,
+    Distribution,
+    dependency_closure,
+    load_manifest,
+)
 from scripts.testpypi_smoke import build_testpypi_command
+from scripts.testpypi_smoke import main as run_testpypi_smoke
 
 
 def test_manifest_covers_family_in_topological_order() -> None:
     manifest = load_manifest()
-    assert len(manifest) == 12
+    assert len(manifest) == 13
+    assert EXPECTED_ARTIFACTS == len(manifest) * 2
     names = {item.normalized_name for item in manifest}
     assert "tori-py-framework" in names
     assert "tori-py" not in names
@@ -68,9 +76,12 @@ def test_artifact_pairs_rejects_extra_files(tmp_path: Path) -> None:
     ("requirement", "valid"),
     [
         ("tori-example>=2.3.4,<2.4.0", True),
+        ("tori-example<2.4.0,>=2.3.4", True),
         ("tori-example == 2.3.4", True),
         ("tori-example", False),
         ("tori-example>=2.3.4", False),
+        ("tori-example>=2.3.4,<2.5.0", False),
+        ("tori-example>=2.3.4,<3", False),
         ("tori-example==2.3.5", False),
     ],
 )
@@ -107,7 +118,7 @@ def test_verifier_rejects_missing_license_metadata(tmp_path: Path) -> None:
 def _digest_fixture(tmp_path: Path) -> tuple[Path, Path]:
     dist = tmp_path / "dist"
     dist.mkdir()
-    for index in range(24):
+    for index in range(EXPECTED_ARTIFACTS):
         (dist / f"artifact-{index:02}.whl").write_bytes(f"content-{index}".encode())
     manifest = tmp_path / "release-digests.json"
     write_digest_manifest(dist, manifest)
@@ -138,6 +149,41 @@ def test_digest_manifest_rejects_missing_or_extra(tmp_path: Path, change: str) -
         (dist / "extra.whl").touch()
     with pytest.raises(ValueError, match="artifact set differs"):
         verify_digest_manifest(dist, manifest)
+
+
+def test_digest_manifest_rejects_unexpected_artifact_names(tmp_path: Path) -> None:
+    dist, manifest = _digest_fixture(tmp_path)
+
+    with pytest.raises(ValueError, match="artifact set differs"):
+        verify_digest_manifest(dist, manifest, {"unexpected.whl"})
+
+
+def test_distribution_smoke_uses_only_declared_dependency_closure(
+    tmp_path: Path,
+) -> None:
+    manifest = load_manifest()
+    liveview = next(item for item in manifest if item.name == "tori-py-liveview")
+    closure = dependency_closure(liveview, manifest)
+    pairs = {
+        item.normalized_name: (
+            tmp_path / f"{item.artifact_stem}-{item.version}-py3-none-any.whl",
+            tmp_path / f"{item.artifact_stem}-{item.version}.tar.gz",
+        )
+        for item in manifest
+    }
+
+    command = distribution_smoke_command(liveview, pairs, manifest, artifact_index=0)
+
+    selected = [
+        Path(command[index + 1]).name
+        for index, value in enumerate(command)
+        if value == "--with"
+    ]
+    assert [item.name for item in closure] == [
+        "tori-py-framework",
+        "tori-py-liveview",
+    ]
+    assert selected == [pairs[item.normalized_name][0].name for item in closure]
 
 
 def test_rabbitmq_smoke_installs_local_family_wheels_with_extra(tmp_path: Path) -> None:
@@ -213,6 +259,21 @@ def test_testpypi_command_uses_exact_direct_urls_without_test_index() -> None:
         for argument in ("--with", f"{wheels[name][0]}#sha256={wheels[name][1]}")
     ]
     assert not {"--index-url", "--extra-index-url", "--index"} & set(command)
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        ["--attempts", "0"],
+        ["--attempts", "-1"],
+        ["--delay", "-1"],
+    ],
+)
+def test_testpypi_smoke_rejects_invalid_retry_arguments(
+    arguments: list[str],
+) -> None:
+    with pytest.raises(SystemExit, match="2"):
+        run_testpypi_smoke(arguments)
 
 
 def test_workflows_pin_release_toolchain_and_reject_prerelease_python() -> None:

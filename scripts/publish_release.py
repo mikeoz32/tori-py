@@ -80,7 +80,12 @@ def main(argv: list[str] | None = None) -> None:
 
     verify_uv_version()
     manifest = load_manifest()
-    verify_digest_manifest(args.dist_dir, args.digest_manifest)
+    pairs = artifact_pairs(args.dist_dir, manifest)
+    verify_digest_manifest(
+        args.dist_dir,
+        args.digest_manifest,
+        {artifact.name for pair in pairs.values() for artifact in pair},
+    )
     for command in publish_commands(
         args.dist_dir, manifest, args.registry, execute=args.execute
     ):

@@ -20,6 +20,9 @@ one package does not require the same change in every package.
 - Explicit singleton `@websocket_gateway` providers with native Starlette
   sockets, marker-only handshake binding, connection-owned request scopes, and
   the full middleware/guard/pipe/interceptor/filter pipeline.
+- Separately installable `tori-py-liveview` integration with explicit
+  request-scoped pages, signed mounts, Opal protocol-v2 structural diffs, and a
+  checksum-pinned common browser client.
 
 ### Fixed
 
@@ -28,7 +31,7 @@ one package does not require the same change in every package.
 
 ## [0.1.0] - Unreleased
 
-Coordinated initial beta release train for all 12 distributions. This train
+Coordinated initial beta release train for all 13 distributions. This train
 establishes public package boundaries and compatibility ranges; subsequent
 releases are versioned independently.
 

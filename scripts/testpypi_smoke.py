@@ -15,7 +15,12 @@ from typing import Any
 if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from scripts.release_manifest import family_version, load_manifest  # noqa: E402
+from scripts.release_manifest import (  # noqa: E402
+    EXPECTED_ARTIFACTS,
+    dependency_closure,
+    family_version,
+    load_manifest,
+)
 
 REGISTRIES = {
     "testpypi": (
@@ -58,7 +63,7 @@ def build_testpypi_command(
     return command
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--registry", choices=REGISTRIES, default="testpypi")
     parser.add_argument("--attempts", type=int, default=10)
@@ -66,7 +71,11 @@ def main() -> None:
     parser.add_argument(
         "--digest-manifest", type=Path, default=Path("release-digests.json")
     )
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
+    if args.attempts <= 0:
+        parser.error("--attempts must be positive")
+    if args.delay < 0:
+        parser.error("--delay must be non-negative")
     registry_label, api_url, file_url_prefix = REGISTRIES[args.registry]
     manifest = load_manifest()
     version = family_version(manifest)
@@ -74,8 +83,10 @@ def main() -> None:
     expected_digests = {
         item["filename"]: item["sha256"] for item in digest_data["artifacts"]
     }
-    if len(expected_digests) != 24:
-        raise ValueError("digest manifest must contain exactly 24 artifacts")
+    if len(expected_digests) != EXPECTED_ARTIFACTS:
+        raise ValueError(
+            f"digest manifest must contain exactly {EXPECTED_ARTIFACTS} artifacts"
+        )
     wheels: dict[str, tuple[str, str]] = {}
     for attempt in range(1, args.attempts + 1):
         published: dict[str, list[dict[str, Any]]] = {}
@@ -116,11 +127,13 @@ def main() -> None:
         print(f"{registry_label} attempt {attempt}: waiting for {missing}", flush=True)
         time.sleep(args.delay)
 
-    expected = [
-        (item.name, item.version, item.import_names, *wheels[item.name])
-        for item in manifest
-    ]
-    smoke = f"""
+    for item in manifest:
+        selected = dependency_closure(item, manifest)
+        expected = [
+            (entry.name, entry.version, entry.import_names, *wheels[entry.name])
+            for entry in selected
+        ]
+        smoke = f"""
 import importlib
 import importlib.metadata
 import json
@@ -137,10 +150,10 @@ for distribution, version, imports, artifact_url, artifact_digest in {expected!r
         module = importlib.import_module(name)
         assert Path(module.__file__).with_name("py.typed").is_file()
 """
-    command = build_testpypi_command(wheels, [item.name for item in manifest])
-    subprocess.run([*command, "python", "-c", smoke], check=True)
-    cli = next(item for item in manifest if item.scripts)
-    subprocess.run([*command, next(iter(cli.scripts)), "--help"], check=True)
+        command = build_testpypi_command(wheels, [entry.name for entry in selected])
+        subprocess.run([*command, "python", "-c", smoke], check=True)
+        if item.scripts:
+            subprocess.run([*command, next(iter(item.scripts)), "--help"], check=True)
 
 
 if __name__ == "__main__":

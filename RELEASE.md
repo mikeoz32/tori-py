@@ -1,6 +1,6 @@
 # Release Process
 
-The initial `0.1.0` train publishes all 12 distributions together. Every
+The initial `0.1.0` train publishes all 13 distributions together. Every
 distribution must be version `0.1.0`, and internal requirements must use
 `>=0.1.0,<0.2.0`. Releases become independently versioned after this train.
 The local publisher invokes exact `uv 0.11.28` through `uvx` and exits before
@@ -17,12 +17,12 @@ publication if that isolated command resolves another version.
    uv run scripts/build_release.py --dist-dir dist --digest-manifest release-digests.json
    ```
 
-4. Confirm exactly 24 artifacts pass metadata, dependency, README, legal-file,
+4. Confirm exactly 26 artifacts pass metadata, dependency, README, legal-file,
    isolated wheel/sdist install, CLI, digest, and package-family checks.
 5. Run the RabbitMQ artifact smoke through the green GitHub CI artifact job.
 
 Never rebuild after uploading any artifact. PyPI filenames and release contents
-are immutable. Retry with the exact same 24 files and digest manifest.
+are immutable. Retry with the exact same 26 files and digest manifest.
 
 ## Local Initial Release
 
@@ -68,7 +68,7 @@ in the registry account pages immediately after publication.
    uv run scripts/publish_release.py pypi --dist-dir dist --digest-manifest release-digests.json --execute
    ```
 
-6. Verify all 24 PyPI hashes against `release-digests.json`, perform a clean
+6. Verify all 26 PyPI hashes against `release-digests.json`, perform a clean
    PyPI-only consumer install, push the tag, and remove local credentials:
 
    ```text

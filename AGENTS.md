@@ -7,7 +7,7 @@
 ## Development
 - ALWAYS use `uv` exclusively for Python environments, dependencies, commands, tests, builds, and services.
 - Add dependencies with `uv`; run tests and services with `uv`.
-- Run quality checks through `uv`: `uv run ruff check .`, `uv run ruff format --check .`, and `uv run ty check tests packages/tori-py-cqrs-core/src packages/tori-py-cqrs-core/tests packages/tori-py-cqrs-event-sourcing-core/src packages/tori-py-cqrs-event-sourcing-core/tests packages/tori-py-cqrs-fastapi/src packages/tori-py-cqrs-fastapi/tests packages/tori-py/src packages/tori-py/tests packages/tori-py-cqrs/src packages/tori-py-cqrs/tests packages/tori-py-cqrs-event-sourcing/src packages/tori-py-cqrs-event-sourcing/tests packages/tori-py-openapi/src packages/tori-py-openapi/tests packages/tori-py-sqlalchemy/src packages/tori-py-sqlalchemy/tests packages/tori-py-microservices/src packages/tori-py-microservices/tests packages/tori-py-persistent-streams-core/src packages/tori-py-persistent-streams-core/tests packages/tori-py-persistent-streams/src packages/tori-py-persistent-streams/tests packages/tori-py-persistent-streams-rabbitmq/src packages/tori-py-persistent-streams-rabbitmq/tests examples/tori_py`.
+- Run quality checks through `uv`: `uv run ruff check .`, `uv run ruff format --check .`, and `uv run ty check tests packages/tori-py-cqrs-core/src packages/tori-py-cqrs-core/tests packages/tori-py-cqrs-event-sourcing-core/src packages/tori-py-cqrs-event-sourcing-core/tests packages/tori-py-cqrs-fastapi/src packages/tori-py-cqrs-fastapi/tests packages/tori-py/src packages/tori-py/tests packages/tori-py-cqrs/src packages/tori-py-cqrs/tests packages/tori-py-cqrs-event-sourcing/src packages/tori-py-cqrs-event-sourcing/tests packages/tori-py-openapi/src packages/tori-py-openapi/tests packages/tori-py-sqlalchemy/src packages/tori-py-sqlalchemy/tests packages/tori-py-microservices/src packages/tori-py-microservices/tests packages/tori-py-persistent-streams-core/src packages/tori-py-persistent-streams-core/tests packages/tori-py-persistent-streams/src packages/tori-py-persistent-streams/tests packages/tori-py-persistent-streams-rabbitmq/src packages/tori-py-persistent-streams-rabbitmq/tests packages/tori-py-liveview/src packages/tori-py-liveview/tests examples/tori_py`.
 
 ## CQRS
 - Keep the core package framework-neutral; it must not depend on FastAPI, Pydantic, SQLAlchemy, or a DI framework.
@@ -31,3 +31,8 @@
 ## Persistent Streams
 - Keep `tori-py-persistent-streams-core` framework-neutral and standard-library-only. Broker drivers and the Tori Py integration remain separate packages.
 - Preserve explicit at-least-once, checkpoint, retention, reconnect, and broker safety semantics; do not overstate durability, failover, or exactly-once guarantees.
+
+## Tori Py LiveView
+- The optional LiveView package is governed by `TORI_PY_LIVEVIEW_ARCHITECTURE.md`, `TORI_PY_LIVEVIEW_IMPLEMENTATION_PLAN.md`, and `spec/tori-py-liveview/README.md`.
+- Keep LiveView outside ToriPy core. Pages are explicit request-scoped providers, the server implements Opal protocol v2, and the unchanged pinned Opal JavaScript remains the common browser client.
+- Preserve `data-opal-*`, `opal:*`, protocol fields, stale-event resynchronization, finite deadlines, Origin validation, and signed mount-token semantics. Components, streams, uploads, and `send_info` remain deferred until their existing protocol contracts are implemented end to end.

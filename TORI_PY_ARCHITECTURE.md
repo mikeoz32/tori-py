@@ -1121,6 +1121,24 @@ The architecture and implementation order are maintained in
 and
 [`spec/tori-py/phase-n9-websockets.md`](spec/tori-py/phase-n9-websockets.md).
 
+### 16.6 Optional LiveView Integration
+
+`tori-py-liveview` composes ordinary generated HTTP controllers with one native
+WebSocket gateway. Explicitly declared page classes are request-scoped providers;
+the disconnected HTTP mount and connected socket mount resolve through their
+normal owning scopes. ToriPy core contains no LiveView metadata or protocol code.
+
+The package implements Opal protocol version 2 and serves the unchanged pinned
+Opal JavaScript client. It preserves `data-opal-*`, `opal:*`, structural render
+fingerprints, event refs, versions, stale resynchronization, and heartbeats.
+Components, streams, uploads, and server-initiated messages remain outside the
+initial package contract.
+
+The architecture and implementation order are maintained in
+[`TORI_PY_LIVEVIEW_ARCHITECTURE.md`](TORI_PY_LIVEVIEW_ARCHITECTURE.md),
+[`TORI_PY_LIVEVIEW_IMPLEMENTATION_PLAN.md`](TORI_PY_LIVEVIEW_IMPLEMENTATION_PLAN.md),
+and [`spec/tori-py-liveview/README.md`](spec/tori-py-liveview/README.md).
+
 ## 17. Implementation Plan
 
 ### N0: Workspace and contracts

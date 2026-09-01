@@ -12,6 +12,7 @@ members = [
     "packages/tori-py-persistent-streams-core",
     "packages/tori-py-persistent-streams",
     "packages/tori-py-persistent-streams-rabbitmq",
+    "packages/tori-py-liveview",
 ]
 
 [tool.uv.sources]
@@ -27,6 +28,7 @@ tori-py-microservices = { workspace = true }
 tori-py-persistent-streams-core = { workspace = true }
 tori-py-persistent-streams = { workspace = true }
 tori-py-persistent-streams-rabbitmq = { workspace = true }
+tori-py-liveview = { workspace = true }
 
 [dependency-groups]
 dev = [
@@ -38,15 +40,18 @@ dev = [
     "tori-py-microservices>=0.1.0,<0.2.0",
     "tori-py-openapi>=0.1.0,<0.2.0",
     "tori-py-persistent-streams>=0.1.0,<0.2.0",
+    "tori-py-liveview>=0.1.0,<0.2.0",
     "tori-py-framework[testing]>=0.1.0,<0.2.0",
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",
     "pytest-docker>=3.2.5",
     "ruff>=0.15.21",
     "ty>=0.0.59",
-    "uvicorn>=0.41,<1",
     "psycopg>=3.2,<4 ; sys_platform == 'linux'",
     "pyjwt[crypto]>=2.13,<3",
+    "pytest-playwright>=0.7,<1",
+    "websockets>=17,<18",
+    "uvicorn>=0.41,<1",
 ]
 docs = [
     "mkdocs>=1.6.1,<2",

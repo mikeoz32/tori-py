@@ -308,6 +308,22 @@ The lazy root facade provides:
 The lazy facade performs no broker I/O on import. Its public surface does not
 remove the adapter's provisional deployment restrictions.
 
+## `tori-py-liveview`
+
+### `tori_py_liveview`
+
+Principal public API:
+
+- Composition: `LiveViewModule`, `LiveViewOptions`.
+- Page lifecycle: `LiveView`, `MountContext`, `live_view`.
+- Rendering: `Rendered`, `SafeHtml`, `rendered`, `raw`.
+- Errors: `LiveViewError`, `LiveViewConfigurationError`, `UnknownEventError`.
+
+The package implements Opal protocol-v2 page snapshots, structural diffs,
+events, stale resynchronization, heartbeats, title updates, and reconnect joins.
+Components, streams, uploads, and `send_info` are not part of the current server
+surface.
+
 ## Reading generated reference
 
 When a generated symbol page is available, read it together with the owning

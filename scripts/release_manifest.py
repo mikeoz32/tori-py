@@ -7,7 +7,8 @@ import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
-EXPECTED_DISTRIBUTIONS = 12
+EXPECTED_DISTRIBUTIONS = 13
+EXPECTED_ARTIFACTS = EXPECTED_DISTRIBUTIONS * 2
 
 
 def normalize_name(value: str) -> str:
@@ -43,6 +44,26 @@ class Distribution:
     @property
     def internal_dependency_names(self) -> tuple[str, ...]:
         return tuple(requirement_name(value) for value in self.dependencies)
+
+
+def dependency_closure(
+    item: Distribution, manifest: tuple[Distribution, ...]
+) -> tuple[Distribution, ...]:
+    by_name = {candidate.normalized_name: candidate for candidate in manifest}
+    if item.normalized_name not in by_name:
+        raise ValueError(f"{item.name} is not in the release manifest")
+    selected = {item.normalized_name}
+    pending = list(item.internal_dependency_names)
+    while pending:
+        name = pending.pop()
+        dependency = by_name.get(name)
+        if dependency is None or name in selected:
+            continue
+        selected.add(name)
+        pending.extend(dependency.internal_dependency_names)
+    return tuple(
+        candidate for candidate in manifest if candidate.normalized_name in selected
+    )
 
 
 def _paths(value: object, base: Path) -> tuple[Path, ...]:

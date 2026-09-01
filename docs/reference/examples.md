@@ -27,6 +27,12 @@ run an existing example.
 
 Request `GET /example/health?count=2` while it is running.
 
+### LiveView
+
+| Example | Exact command | Demonstrates |
+| --- | --- | --- |
+| Counter | `uv run tori-py run examples.tori_py.liveview.app:create_application` | HTTP disconnected mount, signed WebSocket join, Opal event delegation, and a structural dynamic-fragment diff |
+
 ### Getting started
 
 | Example | Exact command | Demonstrates |
