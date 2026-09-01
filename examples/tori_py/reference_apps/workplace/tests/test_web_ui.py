@@ -23,6 +23,7 @@ def test_admin_calendar_and_retry_idempotency_are_responsive(page: Page) -> None
         hours=23
     )
     booking_attempts: list[str] = []
+    cleanup_requests: list[dict[str, str]] = []
 
     page.route(
         "**/assets/keycloak.js",
@@ -136,16 +137,34 @@ def test_admin_calendar_and_retry_idempotency_are_responsive(page: Page) -> None
                     }
                 ]
             )
+        elif path == "outbox/cleanup" and request.method == "POST":
+            payload = request.post_data_json
+            assert isinstance(payload, dict)
+            cleanup_requests.append(payload)
+            route.fulfill(json=2)
         else:
             route.fulfill(json=[])
 
     page.route("**/api/**", api)
     page.goto(f"{base_url}/web/")
 
+    expect(page.locator("workplace-app")).to_have_count(1)
+    assert (
+        page.locator("workplace-app").evaluate("element => element.constructor.name")
+        == "WorkplaceApp"
+    )
     expect(page.locator("#identity-text")).to_contain_text("north.admin")
     expect(page.locator("#admin-panel")).to_be_visible()
     expect(page.locator("#dashboard-metrics")).to_contain_text("Active")
     expect(page.locator("#audit-log")).to_contain_text("booking-created")
+    cleanup_before = "2026-08-01T12:30"
+    page.on("dialog", lambda dialog: dialog.accept())
+    page.locator("#outbox-cleanup-before").fill(cleanup_before)
+    page.get_by_role("button", name="Clean delivered outbox records").click()
+    expect(page.locator("#outbox-response")).to_contain_text("Removed 2")
+    assert datetime.fromisoformat(
+        cleanup_requests[0]["before"].replace("Z", "+00:00")
+    ) == (datetime.fromisoformat(cleanup_before).astimezone(UTC))
     page.locator("#timezone").select_option("UTC")
     expect(page.locator(".calendar-entry")).to_have_count(2)
 

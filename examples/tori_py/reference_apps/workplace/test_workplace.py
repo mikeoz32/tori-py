@@ -57,6 +57,7 @@ from examples.tori_py.reference_apps.workplace.common.contracts import (
 )
 from examples.tori_py.reference_apps.workplace.gateway.app import (
     GatewayController,
+    StaticController,
     _principal_from_claims,
 )
 from examples.tori_py.reference_apps.workplace.gateway.app import (
@@ -596,6 +597,35 @@ async def test_gateway_rejects_naive_outbox_cleanup_timestamp() -> None:
         await controller.cleanup_outbox(
             CleanupOutboxRequest(datetime(2026, 9, 1)), context
         )
+
+
+@pytest.mark.asyncio
+async def test_static_controller_allows_only_declared_component_assets() -> None:
+    controller = StaticController()
+
+    for asset in (
+        "admin-panel.js",
+        "api-client.js",
+        "app.js",
+        "auth.js",
+        "booking-calendar.js",
+        "booking-list.js",
+        "calendar.js",
+        "floor-plan.js",
+        "styles.css",
+        "workplace-app.js",
+    ):
+        response = await controller.web_asset(asset)
+        assert response.path.name == asset
+
+    for asset in ("keycloak.js", "lit-core.min.js"):
+        response = await controller.vendor_asset(asset)
+        assert response.path.name == asset
+
+    with pytest.raises(HttpException, match="not found"):
+        await controller.web_asset("secrets.txt")
+    with pytest.raises(HttpException, match="not found"):
+        await controller.vendor_asset("other.js")
 
 
 @pytest.mark.asyncio

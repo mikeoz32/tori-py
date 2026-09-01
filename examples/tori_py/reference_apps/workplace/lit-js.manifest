@@ -1,0 +1,4 @@
+# Pinned no-build Lit module downloaded by Dockerfile from the official distribution.
+version=3.3.1
+url=https://cdn.jsdelivr.net/gh/lit/dist@3.3.1/core/lit-core.min.js
+sha256=a511976d328c8565dd9afb7ced1bbece82b2b40078c6e2fa69967aefade265f5
