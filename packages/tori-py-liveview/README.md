@@ -155,6 +155,37 @@ Normal structural morphing preserves its children, and only the ordered stream
 batch may mutate them. Operations are delivered once, rejected event queues are
 discarded, and reconnect mount should reset and rebuild canonical state.
 
+## Server-initiated updates
+
+Timers and subscriptions must not mutate page state from their own tasks. Use
+`send_info()` to enqueue a connection-local message, then update state from the
+serialized `handle_info()` callback:
+
+```python
+import asyncio
+
+
+async def mount(self, context: MountContext) -> None:
+    if context.connected:
+        self.timer = asyncio.create_task(self._tick_later())
+
+async def _tick_later(self) -> None:
+    await asyncio.sleep(1)
+    self.send_info("tick")
+
+async def handle_info(self, name: str, value: object) -> None:
+    if name != "tick":
+        await super().handle_info(name, value)
+        return
+    self.count += 1
+```
+
+`send_info()` returns `False` before connection, after disconnect, or when the
+bounded 32-message queue is full. Events, info callbacks, renders, and outbound
+writes run serially on the connection task. Stop and await page-owned background
+tasks from `disconnect()`; reconnect mounts a fresh page and queue. Server
+updates do not extend the browser's inbound idle deadline.
+
 ## Configuration
 
 `LiveViewOptions` controls the root-relative socket and client paths, explicit
@@ -170,15 +201,17 @@ authorization. Use TLS and a strong deployment secret shared by all replicas.
 ## Compatibility
 
 The package vendors the unchanged Opal protocol-v2 browser client from commit
-`e492477d62bbe578eb6a7b132db60e5b845ceb35`. Its source and checksum are recorded
+`48dc24f31fb64ddd602175a8fcba13fd84f3c72a`. Its source and checksum are recorded
 in `static/opal_live_view.lock.json`; `scripts/sync_opal_client.py` verifies the
 checksum before replacing the vendored file.
 
 This release implements page snapshots, structural diffs, stateful components,
 targeted events, event correlation, stale-version resynchronization, heartbeats,
 reconnect-compatible joins, title updates, and browser-owned bounded streams.
-Nested components, uploads, and `send_info` are reserved for later releases.
-Their existing browser protocol must not be reinterpreted.
+It also serializes server-initiated `send_info` updates through ordinary render
+messages. Nested components, uploads, navigation, and server hook/reply APIs are
+reserved for later releases; their existing browser protocol must not be
+reinterpreted.
 
 See the runnable example in `examples/tori_py/liveview` and the normative
 architecture in `TORI_PY_LIVEVIEW_ARCHITECTURE.md`.

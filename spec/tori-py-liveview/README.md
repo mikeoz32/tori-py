@@ -23,8 +23,12 @@ This directory records the executable contract for `tori-py-liveview`.
 11. Streams preserve Opal's ordered insert/update/delete/reset message shapes,
     browser-owned containers, item-ID validation, insertion and limit semantics,
     disconnected contents, one-shot delivery, and reconnect reset behavior.
-12. Nested components, uploads, and server-initiated `send_info` remain outside
-    the server surface. Reserved protocol fields retain their Opal meaning.
+12. `send_info` uses a bounded connection-local queue. Info callbacks, browser
+    events, renders, and outbound writes are serialized on the WebSocket task;
+    disconnect detaches the queue and rejects later sends.
+13. Nested components, uploads, navigation, and server hook/reply APIs remain
+    outside the server surface. Reserved protocol fields retain their Opal
+    meaning.
 
 The complete architectural and wire contract is maintained in
 `TORI_PY_LIVEVIEW_ARCHITECTURE.md`.

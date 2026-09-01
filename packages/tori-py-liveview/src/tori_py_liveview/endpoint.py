@@ -20,7 +20,7 @@ from tori_py_liveview.errors import (
     UnknownEventError,
 )
 from tori_py_liveview.options import LiveViewOptions, normalize_origin
-from tori_py_liveview.page import LiveView, MountContext, _UnknownComponentError
+from tori_py_liveview.page import LiveView, MountContext, _Info, _UnknownComponentError
 from tori_py_liveview.rendering import Rendered
 from tori_py_liveview.tokens import InvalidMountTokenError, MountTokenCodec
 
@@ -236,6 +236,8 @@ def gateway_type(options: LiveViewOptions, registry: _Registry) -> type[object]:
                 return
             await socket.accept()
             page: LiveView | None = None
+            incoming_task: asyncio.Task[dict[str, object]] | None = None
+            info_task: asyncio.Task[_Info] | None = None
             try:
                 join = await _message(
                     socket,
@@ -260,6 +262,7 @@ def gateway_type(options: LiveViewOptions, registry: _Registry) -> type[object]:
                     raise _CloseConnection(1008) from error
 
                 page = cast(LiveView, await context.resolver.resolve(page_type))
+                page._connect_liveview()
                 await page._mount_liveview(
                     MountContext(
                         socket,
@@ -280,61 +283,102 @@ def gateway_type(options: LiveViewOptions, registry: _Registry) -> type[object]:
                     )
                 )
 
-                while True:
-                    message = await _message(
+                incoming_task = asyncio.create_task(
+                    _message(
                         socket,
                         timeout=options.idle_timeout_seconds,
                         timeout_code=1001,
                         max_message_bytes=options.max_message_bytes,
                     )
-                    kind = message.get("type")
-                    if kind == "heartbeat":
-                        ref = _positive_int(message.get("ref"))
-                        await socket.send_json({"type": "heartbeat", "ref": ref})
-                        continue
-                    if kind != "event":
-                        raise _CloseConnection(1002)
-
-                    event = message.get("event")
-                    if not isinstance(event, str) or not event:
-                        raise _CloseConnection(1002)
-                    event_version = _non_negative_int(message.get("version"))
-                    ref = _positive_int(message.get("ref"))
-                    target = message.get("target")
-                    if target is not None:
-                        _positive_int(target)
-
-                    if event_version != version:
-                        await socket.send_json(
-                            _render_message(
-                                current,
-                                version,
-                                title=page.title(),
-                                previous=current,
-                                ref=ref,
-                                status="stale",
-                                streams=page._take_liveview_stream_operations(),
+                )
+                info_task = asyncio.create_task(page._receive_liveview_info())
+                while True:
+                    render_ref: int | None = None
+                    render_status: str | None = None
+                    done, _ = await asyncio.wait(
+                        (incoming_task, info_task),
+                        return_when=asyncio.FIRST_COMPLETED,
+                    )
+                    if incoming_task in done:
+                        message = incoming_task.result()
+                        incoming_task = asyncio.create_task(
+                            _message(
+                                socket,
+                                timeout=options.idle_timeout_seconds,
+                                timeout_code=1001,
+                                max_message_bytes=options.max_message_bytes,
                             )
                         )
-                        continue
-                    try:
-                        await page._handle_liveview_event(
-                            cast(int | None, target),
-                            event,
-                            message.get("value"),
-                        )
-                    except _UnknownComponentError:
-                        page._clear_liveview_stream_operations()
-                        await socket.send_json(
-                            {"type": "error", "reason": "unknown_target", "ref": ref}
-                        )
-                        continue
-                    except UnknownEventError:
-                        page._clear_liveview_stream_operations()
-                        await socket.send_json(
-                            {"type": "error", "reason": "unknown_event", "ref": ref}
-                        )
-                        continue
+                        kind = message.get("type")
+                        if kind == "heartbeat":
+                            ref = _positive_int(message.get("ref"))
+                            await socket.send_json({"type": "heartbeat", "ref": ref})
+                            continue
+                        if kind != "event":
+                            raise _CloseConnection(1002)
+
+                        event = message.get("event")
+                        if not isinstance(event, str) or not event:
+                            raise _CloseConnection(1002)
+                        event_version = _non_negative_int(message.get("version"))
+                        ref = _positive_int(message.get("ref"))
+                        target = message.get("target")
+                        if target is not None:
+                            _positive_int(target)
+
+                        if event_version != version:
+                            await socket.send_json(
+                                _render_message(
+                                    current,
+                                    version,
+                                    title=page.title(),
+                                    previous=current,
+                                    ref=ref,
+                                    status="stale",
+                                    streams=page._take_liveview_stream_operations(),
+                                )
+                            )
+                            continue
+                        try:
+                            await page._handle_liveview_event(
+                                cast(int | None, target),
+                                event,
+                                message.get("value"),
+                            )
+                        except _UnknownComponentError:
+                            page._clear_liveview_stream_operations()
+                            await socket.send_json(
+                                {
+                                    "type": "error",
+                                    "reason": "unknown_target",
+                                    "ref": ref,
+                                }
+                            )
+                            continue
+                        except UnknownEventError:
+                            page._clear_liveview_stream_operations()
+                            await socket.send_json(
+                                {
+                                    "type": "error",
+                                    "reason": "unknown_event",
+                                    "ref": ref,
+                                }
+                            )
+                            continue
+                        render_ref = ref
+                        render_status = "ok"
+                    else:
+                        info = info_task.result()
+                        info_task = asyncio.create_task(page._receive_liveview_info())
+                        try:
+                            await page.handle_info(info.name, info.value)
+                        except Exception as error:
+                            _LOGGER.exception(
+                                "LiveView info failed: page=%s info=%s",
+                                type(page).__qualname__,
+                                info.name,
+                            )
+                            raise _CloseConnection(1011) from error
 
                     updated = await _render(page)
                     version += 1
@@ -344,8 +388,8 @@ def gateway_type(options: LiveViewOptions, registry: _Registry) -> type[object]:
                             version,
                             title=page.title(),
                             previous=current,
-                            ref=ref,
-                            status="ok",
+                            ref=render_ref,
+                            status=render_status,
                             streams=page._take_liveview_stream_operations(),
                         )
                     )
@@ -360,6 +404,16 @@ def gateway_type(options: LiveViewOptions, registry: _Registry) -> type[object]:
                 _LOGGER.exception("Unhandled LiveView WebSocket session failure")
                 await _close(socket, 1011)
             finally:
+                if page is not None:
+                    page._detach_liveview()
+                tasks = [
+                    task for task in (incoming_task, info_task) if task is not None
+                ]
+                for task in tasks:
+                    if not task.done():
+                        task.cancel()
+                if tasks:
+                    await asyncio.gather(*tasks, return_exceptions=True)
                 if page is not None:
                     try:
                         await page._disconnect_liveview()

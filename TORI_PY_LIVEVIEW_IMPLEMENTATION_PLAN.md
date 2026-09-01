@@ -37,7 +37,14 @@
 - Exercise retained DOM identity, atomic batch validation, reconnect reset, and
   operation cleanup through the exact pinned browser client.
 
+## LV6: Server-Initiated Updates
+
+- Add a bounded connection-local `send_info` queue and an asynchronous
+  `handle_info` callback for timer and subscription messages.
+- Serialize info callbacks with browser events, renders, versions, stream
+  batches, and outbound writes; reject sends outside the connected lifecycle.
+
 ## Deferred
 
-- Evaluate nested components, uploads, hooks, and server-initiated messages as
+- Evaluate nested components, uploads, navigation, and server hook/reply APIs as
   separate contracts.

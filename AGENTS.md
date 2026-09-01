@@ -35,4 +35,4 @@
 ## Tori Py LiveView
 - The optional LiveView package is governed by `TORI_PY_LIVEVIEW_ARCHITECTURE.md`, `TORI_PY_LIVEVIEW_IMPLEMENTATION_PLAN.md`, and `spec/tori-py-liveview/README.md`.
 - Keep LiveView outside ToriPy core. Pages are explicit request-scoped providers, the server implements Opal protocol v2, and the unchanged pinned Opal JavaScript remains the common browser client.
-- Preserve `data-opal-*`, `opal:*`, protocol fields, stale-event resynchronization, finite deadlines, Origin validation, signed mount-token semantics, component identity/target lifecycle, and browser-owned stream operations. Nested components, uploads, and `send_info` remain deferred until their existing protocol contracts are implemented end to end.
+- Preserve `data-opal-*`, `opal:*`, protocol fields, stale-event resynchronization, finite deadlines, Origin validation, signed mount-token semantics, component identity/target lifecycle, browser-owned stream operations, and serialized connection-local `send_info`. Nested components, uploads, navigation, and server hook/reply APIs remain deferred until their existing protocol contracts are implemented end to end.

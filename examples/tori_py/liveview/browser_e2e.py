@@ -66,6 +66,7 @@ def test_counter_updates_and_recovers_after_reconnect(
     root = page.locator("[data-opal-live-root]")
     output = page.locator("output[data-page-counter]")
     increment = page.get_by_role("button", name="Increment page")
+    increment_later = page.get_by_role("button", name="Increment later")
     left_output = page.locator('output[data-component-id="left"]')
     right_output = page.locator('output[data-component-id="right"]')
     increment_left = page.get_by_role("button", name="Increment Left")
@@ -83,6 +84,8 @@ def test_counter_updates_and_recovers_after_reconnect(
 
     increment.click()
     expect(output).to_have_text("3")
+    increment_later.click()
+    expect(output).to_have_text("4")
 
     prepend = page.get_by_role("button", name="Prepend activity")
     prepend.click()
@@ -121,12 +124,12 @@ def test_counter_updates_and_recovers_after_reconnect(
     expect(page.locator("#activity-stream > li span")).to_have_text(
         ["Activity 4", "Activity 1"]
     )
-    expect(page).to_have_title("Counter: 3")
+    expect(page).to_have_title("Counter: 4")
 
     increment_left.click()
     expect(left_output).to_have_text("1")
     expect(right_output).to_have_text("0")
-    expect(output).to_have_text("3")
+    expect(output).to_have_text("4")
 
     root.evaluate("root => root.__opalLiveView.socket.close(4000, 'test reconnect')")
     expect(output).to_have_text("2")

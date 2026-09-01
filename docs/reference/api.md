@@ -316,14 +316,17 @@ Principal public API:
 
 - Composition: `LiveViewModule`, `LiveViewOptions`.
 - Page and component lifecycle: `LiveView`, `LiveComponent`, `MountContext`,
-  `live_view`.
+  `live_view`, `LiveView.send_info`, `LiveView.handle_info`.
 - Rendering: `Rendered`, `SafeHtml`, `rendered`, `raw`.
-- Errors: `LiveViewError`, `LiveViewConfigurationError`, `UnknownEventError`.
+- Errors: `LiveViewError`, `LiveViewConfigurationError`, `UnknownEventError`,
+  `UnknownInfoError`.
 
 The package implements Opal protocol-v2 page snapshots, structural diffs,
 stateful components, targeted events, stale resynchronization, heartbeats, title
 updates, browser-owned streams, and reconnect joins. Nested components, uploads,
-and `send_info` are not part of the current server surface.
+navigation, and server hook/reply APIs are not part of the current server
+surface. Server-initiated updates use the bounded connection-local `send_info`
+queue and serialized `handle_info` callback.
 
 ## Reading generated reference
 

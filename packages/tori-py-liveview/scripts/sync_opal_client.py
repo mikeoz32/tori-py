@@ -4,9 +4,9 @@ import hashlib
 from pathlib import Path
 from urllib.request import urlopen
 
-OPAL_COMMIT = "e492477d62bbe578eb6a7b132db60e5b845ceb35"
+OPAL_COMMIT = "48dc24f31fb64ddd602175a8fcba13fd84f3c72a"
 OPAL_PATH = "assets/opal_live_view.js"
-EXPECTED_SHA256 = "abd50912b09bbfdfc849462d66559de57a706eb63651b08e3d412738becd5653"
+EXPECTED_SHA256 = "9409ee1863ebec7e18f4804097994a0b6a40a01ea85f7ccda92aafddde561e26"
 URL = f"https://raw.githubusercontent.com/mikeoz32/opal/{OPAL_COMMIT}/{OPAL_PATH}"
 TARGET = (
     Path(__file__).parents[1]

@@ -1,7 +1,7 @@
 {
   "repository": "https://github.com/mikeoz32/opal",
-  "commit": "e492477d62bbe578eb6a7b132db60e5b845ceb35",
+  "commit": "48dc24f31fb64ddd602175a8fcba13fd84f3c72a",
   "path": "assets/opal_live_view.js",
   "protocol": 2,
-  "sha256": "abd50912b09bbfdfc849462d66559de57a706eb63651b08e3d412738becd5653"
+  "sha256": "9409ee1863ebec7e18f4804097994a0b6a40a01ea85f7ccda92aafddde561e26"
 }

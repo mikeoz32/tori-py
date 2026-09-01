@@ -5,6 +5,7 @@ from tori_py_liveview.errors import (
     LiveViewConfigurationError,
     LiveViewError,
     UnknownEventError,
+    UnknownInfoError,
 )
 from tori_py_liveview.metadata import live_view
 from tori_py_liveview.module import LiveViewModule
@@ -23,6 +24,7 @@ __all__ = [
     "Rendered",
     "SafeHtml",
     "UnknownEventError",
+    "UnknownInfoError",
     "live_view",
     "raw",
     "rendered",

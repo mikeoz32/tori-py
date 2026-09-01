@@ -1,3 +1,5 @@
+import asyncio
+
 from tori_py import NestApplication, module
 from tori_py.starlette import StarletteAdapter, asgi
 from tori_py_liveview import (
@@ -57,6 +59,7 @@ class CounterLive(LiveView):
     def __init__(self) -> None:
         self.count = 0
         self.next_activity = 3
+        self.tasks: set[asyncio.Task[None]] = set()
 
     async def mount(self, context: MountContext) -> None:
         self.count = int(context.query_params.get("start", "0"))
@@ -67,6 +70,10 @@ class CounterLive(LiveView):
     async def handle_event(self, event: str, value: object) -> None:
         if event == "increment":
             self.count += 1
+        elif event == "increment_later":
+            task = asyncio.create_task(self._increment_later())
+            self.tasks.add(task)
+            task.add_done_callback(self.tasks.discard)
         elif event == "prepend_activity":
             sequence = self.next_activity
             self.next_activity += 1
@@ -87,6 +94,20 @@ class CounterLive(LiveView):
         else:
             raise UnknownEventError(event)
 
+    async def handle_info(self, name: str, value: object) -> None:
+        if name != "increment":
+            await super().handle_info(name, value)
+            return
+        self.count += 1
+
+    async def disconnect(self) -> None:
+        tasks = list(self.tasks)
+        self.tasks.clear()
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+
     def render(self) -> Rendered:
         left = self.live_component(
             CounterComponent,
@@ -102,7 +123,8 @@ class CounterLive(LiveView):
         return rendered(
             (
                 '<main><h1>ToriPy LiveView</h1><button data-opal-click="increment">'
-                "Increment page</button><output data-page-counter>",
+                'Increment page</button><button data-opal-click="increment_later">'
+                "Increment later</button><output data-page-counter>",
                 '</output><div class="components">',
                 "",
                 "</div><section><h2>Activity stream</h2><button "
@@ -118,6 +140,10 @@ class CounterLive(LiveView):
 
     def title(self) -> str:
         return f"Counter: {self.count}"
+
+    async def _increment_later(self) -> None:
+        await asyncio.sleep(0.1)
+        _ = self.send_info("increment")
 
     @staticmethod
     def _activity_item(sequence: int) -> Rendered:

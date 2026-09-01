@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import html
 import logging
 from abc import ABC, abstractmethod
@@ -11,13 +12,14 @@ from typing import TypeVar, cast
 from starlette.datastructures import QueryParams
 
 from tori_py_liveview.component import LiveComponent
-from tori_py_liveview.errors import LiveViewError, UnknownEventError
+from tori_py_liveview.errors import LiveViewError, UnknownEventError, UnknownInfoError
 from tori_py_liveview.rendering import Rendered, SafeHtml, raw
 
 _LOGGER = logging.getLogger(__name__)
 _ComponentT = TypeVar("_ComponentT", bound=LiveComponent)
 _ComponentIdentity = tuple[type[LiveComponent], str]
 _MAX_SAFE_INTEGER = 2**53 - 1
+_INFO_QUEUE_CAPACITY = 32
 
 
 class _UnknownComponentError(LiveViewError):
@@ -61,6 +63,12 @@ class _StreamOperation:
         return result
 
 
+@dataclass(frozen=True, slots=True)
+class _Info:
+    name: str
+    value: object
+
+
 class LiveView(ABC):
     async def mount(self, context: MountContext) -> None:
         del context
@@ -68,6 +76,10 @@ class LiveView(ABC):
     async def handle_event(self, event: str, value: object) -> None:
         del value
         raise UnknownEventError(event)
+
+    async def handle_info(self, name: str, value: object) -> None:
+        del value
+        raise UnknownInfoError(name)
 
     async def disconnect(self) -> None:
         return None
@@ -241,6 +253,30 @@ class LiveView(ABC):
 
         return raw("".join(item[1] for item in items))
 
+    def send_info(self, name: str, value: object = None) -> bool:
+        queue = getattr(self, "_liveview_info_queue", None)
+        if queue is None:
+            return False
+        try:
+            queue.put_nowait(_Info(name, value))
+        except asyncio.QueueFull:
+            return False
+        return True
+
+    def _connect_liveview(self) -> None:
+        self._liveview_info_queue: asyncio.Queue[_Info] | None = asyncio.Queue(
+            maxsize=_INFO_QUEUE_CAPACITY
+        )
+
+    async def _receive_liveview_info(self) -> _Info:
+        queue = getattr(self, "_liveview_info_queue", None)
+        if queue is None:
+            raise LiveViewError("LiveView is not connected")
+        return await queue.get()
+
+    def _detach_liveview(self) -> None:
+        self._liveview_info_queue = None
+
     async def _mount_liveview(self, context: MountContext) -> None:
         self._initialize_liveview_components()
         self._initialize_liveview_streams()
@@ -302,6 +338,7 @@ class LiveView(ABC):
             await self._disconnect_liveview_component(component)
 
     async def _disconnect_liveview(self) -> None:
+        self._detach_liveview()
         await self._disconnect_liveview_components()
         await self.disconnect()
 

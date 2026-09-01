@@ -39,6 +39,8 @@ root-relative URL paths without authority, query, or fragment components.
 
 - `mount(context)` for disconnected and connected initialization;
 - `handle_event(event, value)` for connected browser events;
+- `handle_info(name, value)` for serialized timer and subscription messages;
+- `send_info(name, value=None)` for connection-local message delivery;
 - `render()` returning `Rendered` or trusted static HTML as `str`;
 - `title()` returning an optional document title;
 - `disconnect()` for connected-session cleanup;
@@ -103,7 +105,22 @@ positive limit retains the first N children and a negative limit retains the
 last N. Operations are connection-local, consumed once by the next render
 message, cleared after rejected events, and cleared on disconnect.
 
-### 3.5 Dynamic module
+### 3.5 Server-initiated updates
+
+Timers, subscriptions, and other page-owned background tasks call `send_info`
+instead of mutating connected page state directly. The method immediately
+returns `False` before connection, after disconnect, or when its bounded
+32-message queue is full. Accepted messages execute `handle_info` on the same
+connection task that processes browser events, renders, versions, stream
+operations, and outbound WebSocket writes.
+
+The default `handle_info` raises `UnknownInfoError`. Any unhandled info failure
+is a server failure and closes the connection with code `1011`. The page must
+stop and await its background tasks from `disconnect`; reconnect creates a fresh
+page instance and queue. Info traffic does not extend the browser's inbound idle
+deadline.
+
+### 3.6 Dynamic module
 
 `LiveViewModule.for_root(options, pages, imports=(), key="default")` returns a
 ToriPy `DeferredModule`. Materialization creates:
@@ -127,9 +144,9 @@ The client is vendored unchanged from:
 
 ```text
 repository: https://github.com/mikeoz32/opal
-commit: e492477d62bbe578eb6a7b132db60e5b845ceb35
+commit: 48dc24f31fb64ddd602175a8fcba13fd84f3c72a
 path: assets/opal_live_view.js
-SHA-256: abd50912b09bbfdfc849462d66559de57a706eb63651b08e3d412738becd5653
+SHA-256: 9409ee1863ebec7e18f4804097994a0b6a40a01ea85f7ccda92aafddde561e26
 ```
 
 `static/opal_live_view.lock.json` is the machine-readable pin. The sync script
@@ -202,10 +219,12 @@ Before acceptance, the gateway validates Origin. It then:
 3. Verifies the mount token and resolves the registered page provider.
 4. Calls `mount` with `connected=True`.
 5. Sends version `0` as a full render snapshot plus any queued stream operations.
-6. Processes one inbound event or heartbeat at a time.
-7. Disconnects removed components after each successful render.
-8. Disconnects all remaining components and calls page `disconnect` exactly
-   once when a connected page session ends.
+6. Waits concurrently for inbound frames and accepted info messages.
+7. Processes one event, heartbeat, or info callback at a time; info callbacks
+   increment the version and emit an ordinary unreferenced render.
+8. Disconnects removed components after each successful render.
+9. Detaches the info queue, disconnects all remaining components, and calls page
+   `disconnect` exactly once when a connected page session ends.
 
 Reconnect creates a new connection scope and page instance and repeats a full
 snapshot join. The server does not retain disconnected page instances.
@@ -262,6 +281,11 @@ A known non-null component target dispatches to that component. An unknown
 target returns `reason="unknown_target"`; unsupported page or component events
 return `reason="unknown_event"`. Neither error advances the version.
 
+An accepted info message executes without a browser `ref`, increments the same
+connection version, and emits the same full-or-diff render shape. If an info
+update wins the serialization order ahead of an already-sent browser event, the
+event's older version is stale and the normal client retry contract applies.
+
 ## 10. Limits and Close Codes
 
 Inbound byte length is checked before JSON decoding. Binary frames are not
@@ -292,9 +316,9 @@ expiry are abuse controls, not substitutes for rate limiting or authorization.
 
 ## 12. Deliberate Non-Goals
 
-The package does not implement nested components, upload transport,
-server-initiated `send_info`, durable sessions, cross-replica session migration,
-background event delivery, or JavaScript hooks.
+The package does not implement nested components, upload transport, navigation,
+durable sessions, cross-replica session migration, background event delivery,
+or server hook/reply APIs.
 
 ## 13. Acceptance
 
@@ -302,5 +326,6 @@ Acceptance requires package tests for rendering, token integrity/expiry,
 declaration validation, HTTP output, exact client bytes, joins, diffs, stale
 resynchronization, component identity/state/target routing, errors, origins, size
 limits, stream ordering/bounds/reset/delete semantics, atomic browser validation,
-deadlines, close codes, and cleanup. Ruff, formatting, ty, wheel/sdist build,
+serialized server updates, queue bounds, deadlines, close codes, and cleanup.
+Ruff, formatting, ty, wheel/sdist build,
 artifact content verification, and isolated import smoke must pass through `uv`.

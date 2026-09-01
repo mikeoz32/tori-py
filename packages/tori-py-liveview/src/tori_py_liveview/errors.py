@@ -24,4 +24,18 @@ class UnknownEventError(LiveViewError):
         super().__init__(f"Unknown LiveView event: {event}")
 
 
-__all__ = ["LiveViewConfigurationError", "LiveViewError", "UnknownEventError"]
+class UnknownInfoError(LiveViewError):
+    """Raised by a page for an info message it does not handle."""
+
+    code = "liveview.unknown_info"
+
+    def __init__(self, info: str) -> None:
+        super().__init__(f"Unknown LiveView info: {info}")
+
+
+__all__ = [
+    "LiveViewConfigurationError",
+    "LiveViewError",
+    "UnknownEventError",
+    "UnknownInfoError",
+]
