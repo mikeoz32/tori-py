@@ -3,9 +3,10 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import logging
 import re
 from importlib.resources import files
-from typing import Any, cast
+from typing import Any, ClassVar, cast
 
 import httpx
 import pytest
@@ -31,6 +32,7 @@ from tori_py_liveview import (
     LiveViewOptions,
     MountContext,
     UnknownEventError,
+    UnknownInfoError,
     live_view,
     rendered,
 )
@@ -264,6 +266,45 @@ class FormLive(LiveView):
         )
 
 
+@live_view("/server-updates")
+class ServerUpdatesLive(LiveView):
+    connected_page: ClassVar[ServerUpdatesLive | None] = None
+    disconnect_send_results: ClassVar[list[bool]] = []
+    mounted: ClassVar[asyncio.Event]
+
+    def __init__(self) -> None:
+        self.value = 0
+
+    @classmethod
+    def reset(cls) -> None:
+        cls.connected_page = None
+        cls.disconnect_send_results = []
+        cls.mounted = asyncio.Event()
+
+    async def mount(self, context: MountContext) -> None:
+        if context.connected:
+            type(self).connected_page = self
+            type(self).mounted.set()
+
+    async def handle_info(self, name: str, value: object) -> None:
+        if name != "set" or type(value) is not int:
+            await super().handle_info(name, value)
+            return
+        self.value = value
+
+    async def handle_event(self, event: str, value: object) -> None:
+        del value
+        if event != "increment":
+            raise UnknownEventError(event)
+        self.value += 1
+
+    async def disconnect(self) -> None:
+        type(self).disconnect_send_results.append(self.send_info("set", 9))
+
+    def render(self):
+        return rendered(("<output>", "</output>"), self.value)
+
+
 def _asgi(application: NestApplication) -> ASGIApp:
     return application.get_adapter(StarletteAdapter).app
 
@@ -393,6 +434,25 @@ def _reply_payload(frame: list[object]) -> dict[str, object]:
 def _response(frame: list[object]) -> dict[str, object]:
     payload = _reply_payload(frame)
     return cast(dict[str, object], payload["response"])
+
+
+@pytest.mark.asyncio
+async def test_unknown_info_raises_the_public_error() -> None:
+    with pytest.raises(UnknownInfoError, match="Unknown LiveView info: tick"):
+        await UntitledLive().handle_info("tick", None)
+
+
+@pytest.mark.asyncio
+async def test_send_info_requires_a_connection_and_rejects_a_full_queue() -> None:
+    page = UntitledLive()
+    assert not page.send_info("tick")
+
+    page._connect_liveview()
+    assert all(page.send_info("tick", value) for value in range(32))
+    assert not page.send_info("tick", 32)
+
+    await page._disconnect_liveview()
+    assert not page.send_info("tick", 33)
 
 
 @pytest.mark.asyncio
@@ -577,6 +637,18 @@ def test_stream_operations_validate_and_render_disconnected_contents() -> None:
             "activity-1",
             '<li id="different" id="activity-1">Different</li>',
         )
+
+    unsafe_label = "<unsafe>"
+    page.stream_insert(
+        "activity-stream",
+        "activity-template",
+        t'<li id="activity-template">{unsafe_label}</li>',
+    )
+    assert (
+        '<li id="activity-template">&lt;unsafe&gt;</li>'
+        in page.stream_contents("activity-stream").value
+    )
+    page.stream_reset("activity-stream")
 
     page.stream_insert("activity-stream", "activity-1", page._item(1, "First"))
     page.stream_insert("activity-stream", "activity-2", page._item(2, "Second"))
@@ -868,6 +940,106 @@ async def test_phoenix_form_event_decodes_values_and_target_metadata() -> None:
     ]
     diff = cast(dict[str, object], _response(_decode_sent(sent)[1])["diff"])
     assert diff["0"] == "1"
+    await application.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_send_info_serializes_with_events_and_closes_on_handler_failure(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    ServerUpdatesLive.reset()
+    liveview_module = LiveViewModule.for_root(
+        LiveViewOptions(secret="s" * 32),
+        pages=[ServerUpdatesLive],
+        key="server-updates",
+    )
+
+    @module(imports=[liveview_module])
+    class Root:
+        pass
+
+    application = await NestApplication.create(Root, adapter=StarletteAdapter())
+    await application.start()
+    page = await _request(application, "/server-updates")
+    token = _token(page.text)
+
+    incoming: asyncio.Queue[Message] = asyncio.Queue()
+    await incoming.put({"type": "websocket.connect"})
+    await incoming.put(_join(token))
+    await incoming.put(_event("2", "increment"))
+    sent: list[Message] = []
+    server_update_sent = asyncio.Event()
+    send_results: list[bool] = []
+
+    async def receive() -> Message:
+        return await incoming.get()
+
+    async def send(message: Message) -> None:
+        sent.append(message)
+        render_messages = _decode_sent(sent)
+        if len(render_messages) == 1:
+            connected_page = ServerUpdatesLive.connected_page
+            assert connected_page is not None
+            send_results.append(connected_page.send_info("set", 7))
+        elif len(render_messages) == 3:
+            server_update_sent.set()
+
+    session = asyncio.ensure_future(
+        _asgi(application)(
+            _websocket_scope("/_tori/live/websocket"),
+            receive,
+            send,
+        )
+    )
+    await asyncio.wait_for(ServerUpdatesLive.mounted.wait(), timeout=1)
+    connected_page = ServerUpdatesLive.connected_page
+    assert connected_page is not None
+    await asyncio.wait_for(server_update_sent.wait(), timeout=1)
+
+    messages = _decode_sent(sent)
+    snapshot = cast(dict[str, object], _response(messages[0])["rendered"])
+    assert send_results == [True]
+    assert snapshot == {
+        "s": ["<output>", "</output>"],
+        "0": "0",
+        "t": "",
+    }
+    assert messages[1] == [
+        "1",
+        "2",
+        _TOPIC,
+        "phx_reply",
+        {
+            "status": "ok",
+            "response": {
+                "diff": {
+                    "s": snapshot["s"],
+                    "0": "1",
+                    "t": "",
+                }
+            },
+        },
+    ]
+    assert messages[2] == [
+        "1",
+        None,
+        _TOPIC,
+        "diff",
+        {
+            "s": snapshot["s"],
+            "0": "7",
+            "t": "",
+        },
+    ]
+
+    with caplog.at_level(logging.ERROR, logger="tori_py_liveview.endpoint"):
+        assert connected_page.send_info("unknown", "application-secret")
+        await asyncio.wait_for(session, timeout=1)
+    assert sent[-1] == {"type": "websocket.close", "code": 1011, "reason": ""}
+    assert "info=unknown" in caplog.text
+    assert "application-secret" not in caplog.text
+    assert not connected_page.send_info("set", 8)
+    assert ServerUpdatesLive.disconnect_send_results == [False]
     await application.shutdown()
 
 
@@ -1194,9 +1366,39 @@ async def test_phoenix_channel_uses_policy_and_going_away_timeout_closes() -> No
     assert join_timeout[-1]["code"] == 1008
     await join_application.shutdown()
 
+    @live_view("/idle-info")
+    class IdleInfoLive(LiveView):
+        def __init__(self) -> None:
+            self.count = 0
+            self.task: asyncio.Task[None] | None = None
+
+        async def mount(self, context: MountContext) -> None:
+            if context.connected:
+                self.task = asyncio.create_task(self._push_updates())
+
+        async def handle_info(self, name: str, value: object) -> None:
+            del value
+            if name != "tick":
+                await super().handle_info(name, None)
+                return
+            self.count += 1
+
+        async def disconnect(self) -> None:
+            if self.task is None:
+                return
+            self.task.cancel()
+            await asyncio.gather(self.task, return_exceptions=True)
+
+        def render(self):
+            return rendered(("<output>", "</output>"), self.count)
+
+        async def _push_updates(self) -> None:
+            while self.send_info("tick"):
+                await asyncio.sleep(0.001)
+
     idle_timeout_module = LiveViewModule.for_root(
-        LiveViewOptions(secret="s" * 32, idle_timeout_seconds=0.01),
-        pages=[CounterLive],
+        LiveViewOptions(secret="s" * 32, idle_timeout_seconds=0.03),
+        pages=[IdleInfoLive],
         key="idle-timeout",
     )
 
@@ -1209,7 +1411,7 @@ async def test_phoenix_channel_uses_policy_and_going_away_timeout_closes() -> No
         adapter=StarletteAdapter(),
     )
     await idle_application.start()
-    page = await _request(idle_application, "/counter")
+    page = await _request(idle_application, "/idle-info")
     token = _token(page.text)
     idle_timeout = await _call_websocket(
         idle_application,
@@ -1218,6 +1420,7 @@ async def test_phoenix_channel_uses_policy_and_going_away_timeout_closes() -> No
     )
     assert idle_timeout[-1]["type"] == "websocket.close"
     assert idle_timeout[-1]["code"] == 1001
+    assert len(_decode_sent(idle_timeout)) > 1
     await idle_application.shutdown()
 
 

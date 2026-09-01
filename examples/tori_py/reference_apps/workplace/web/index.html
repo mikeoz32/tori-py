@@ -8,43 +8,7 @@
     <link rel="stylesheet" href="/web/styles.css">
   </head>
   <body>
-    <a class="skip-link" href="#resource-list">Skip map and go to resource list</a>
-    <header class="masthead">
-      <div class="wordmark"><span aria-hidden="true">⌑</span> TORI / SPACE</div>
-      <p class="desk-label">Workplace control desk <span>·</span> live reference</p>
-      <div class="identity"><span class="signal" aria-hidden="true"></span><span id="identity-text">Securing desk…</span><button class="quiet-button" id="logout" hidden>Sign out</button></div>
-    </header>
-
-    <main>
-      <section class="intro" aria-labelledby="page-title">
-        <p class="eyebrow">Building N / level 03</p>
-        <h1 id="page-title">Find your working ground.</h1>
-        <p>Reserve a desk, room, or focus booth from the floor plan. The gateway receives UTC; the desk displays your chosen browser timezone.</p>
-      </section>
-
-      <section class="control-desk" aria-label="Floor plan and selected resource">
-        <div class="map-panel">
-          <div class="map-tools" aria-label="Floor plan controls"><span class="floor-stamp">N.03 <small>scale 1:200</small></span><div class="zoom-controls"><button type="button" id="zoom-out" aria-label="Zoom out">−</button><button type="button" id="zoom-reset" aria-label="Reset floor plan">◎</button><button type="button" id="zoom-in" aria-label="Zoom in">+</button></div></div>
-          <div class="map-viewport" id="map-viewport" tabindex="0" aria-label="Interactive floor plan. Drag to pan; use plus and minus to zoom."><div class="floorplan" id="floorplan">
-            <div class="north">N ↑</div><div class="room studio">STUDIO<br><small>01</small></div><div class="room tea">TEA / PRINT</div><div class="room library">LIBRARY</div><div class="room meeting">MEET 03</div><div class="room lounge">COMMON GROUND</div><div class="corridor">CIRCULATION / 1800 CLEAR</div>
-            <button class="resource desk" data-id="desk-17" data-name="Desk 17" data-kind="desk" style="--x:16%;--y:58%">17</button><button class="resource desk" data-id="desk-18" data-name="Desk 18" data-kind="desk" style="--x:28%;--y:58%">18</button><button class="resource desk" data-id="desk-19" data-name="Desk 19" data-kind="desk" style="--x:40%;--y:58%">19</button><button class="resource desk" data-id="desk-20" data-name="Desk 20" data-kind="desk" style="--x:52%;--y:58%">20</button><button class="resource booth" data-id="booth-a" data-name="Focus booth A" data-kind="desk" style="--x:73%;--y:58%">A</button><button class="resource booth" data-id="booth-b" data-name="Focus booth B" data-kind="desk" style="--x:84%;--y:58%">B</button><button class="resource room-pin" data-id="meet-03" data-name="Meet 03" data-kind="room" style="--x:71%;--y:24%">03</button><span class="elevator">⇅<br><small>LIFT</small></span><span class="entry">ENTRY →</span>
-          </div></div><p class="map-note">Drag the drawing to inspect. Select a marker to request a booking.</p>
-        </div>
-        <aside class="inspector" aria-live="polite">
-          <p class="eyebrow">Selected resource</p><div id="selection-empty"><h2>Choose a marker</h2><p>Select a room or workstation on the plan, or use the accessible list below.</p></div>
-          <div id="selection" hidden><p class="status" id="resource-status">Awaiting interval</p><h2 id="resource-name">—</h2><p id="resource-kind">—</p><dl><div><dt>Floor</dt><dd>North / 03</dd></div><div><dt>Equipment</dt><dd id="resource-equipment">Monitor · power</dd></div></dl>
-            <form id="booking-form"><label>Start (browser local time)<input id="starts-at" type="datetime-local" required></label><label>End (browser local time)<input id="ends-at" type="datetime-local" required></label><button class="secondary-button" type="button" id="availability-check">Check availability</button><button class="action-button" id="booking-submit" type="submit">Mark this time</button></form>
-          </div><p class="response" id="booking-response" role="status"></p>
-          <section class="admin-panel" id="admin-panel" hidden aria-labelledby="admin-title"><p class="eyebrow">Facilities only</p><h3 id="admin-title">Operations ledger</h3><div id="dashboard-metrics" class="metrics" aria-live="polite"></div><h3>Outbox diagnostics</h3><div id="outbox-metrics" class="metrics" aria-live="polite"></div><form id="outbox-cleanup-form"><label>Cleanup before (browser local time)<input id="outbox-cleanup-before" type="datetime-local" required></label><button class="secondary-button" id="outbox-cleanup-submit" type="submit">Clean delivered outbox records</button></form><p class="response" id="outbox-response" role="status"></p><button class="secondary-button" type="button" id="admin-retry">Refresh ledger</button><h3>Immutable audit trail</h3><div id="audit-log" class="audit-log" aria-live="polite"></div><h3>Add a resource</h3><form id="resource-form"><input type="hidden" name="office_id" value="building-n"><input type="hidden" name="floor_id" value="level-03"><label>Name<input name="name" required></label><label>Kind<select name="kind"><option value="desk">Desk</option><option value="room">Room</option></select></label><label>Map X<input name="x" type="number" min="0" max="1000" required></label><label>Map Y<input name="y" type="number" min="0" max="1000" required></label><button class="action-button" type="submit">Register resource</button></form><p class="response" id="resource-response" role="status"></p></section>
-        </aside>
-      </section>
-
-      <section class="calendar-section" aria-labelledby="calendar-title"><div class="section-heading"><div><p class="eyebrow">Interval register</p><h2 id="calendar-title">Booking calendar</h2></div><div class="calendar-tools"><label>View<select id="calendar-view"><option value="day">Day</option><option value="week" selected>Week</option></select></label><label>Display timezone<select id="timezone" aria-label="Calendar display timezone"></select></label><button class="secondary-button" type="button" id="calendar-prev" aria-label="Previous period">←</button><button class="secondary-button" type="button" id="calendar-today">Today</button><button class="secondary-button" type="button" id="calendar-next" aria-label="Next period">→</button></div></div><p id="calendar-range" class="calendar-range"></p><div id="calendar" class="calendar" aria-live="polite"></div><button class="secondary-button retry" type="button" id="bookings-retry" hidden>Retry calendar</button></section>
-
-      <section class="list-section" aria-labelledby="resource-list-title"><div><p class="eyebrow">No-map alternative</p><h2 id="resource-list-title">Resource register</h2></div><ul id="resource-list" aria-label="Workplace resources"><li class="list-message">Loading resources…</li></ul></section>
-      <section class="bookings-section" aria-labelledby="bookings-title"><div class="section-heading"><div><p class="eyebrow">Your schedule</p><h2 id="bookings-title">Bookings ledger</h2></div><button class="secondary-button" type="button" id="bookings-refresh">Refresh bookings</button></div><div id="bookings-list" class="bookings-list" aria-live="polite"></div><button class="secondary-button retry" type="button" id="bookings-list-retry" hidden>Retry bookings</button></section>
-    </main>
-    <footer><span>TORI SPACE / LOCAL REFERENCE</span><span id="api-status" role="status">Awaiting gateway</span><span>NOT A BUILDING SAFETY SYSTEM</span></footer>
+    <workplace-app style="display:block"></workplace-app>
     <script type="module" src="/web/app.js"></script>
   </body>
 </html>

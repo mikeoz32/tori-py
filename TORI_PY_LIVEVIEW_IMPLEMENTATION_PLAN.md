@@ -59,7 +59,15 @@
 - Exercise escaping, trusted composition, attribute safety, page/component
   targets, and streams through package and official-client tests.
 
+## LV8: Server-Initiated Updates
+
+- Add a bounded connection-local `send_info` queue and an asynchronous
+  `handle_info` callback for timer and subscription messages.
+- Serialize info callbacks with Phoenix Channel events, renders, component and
+  stream operations, and outbound writes; reject sends outside the connected
+  lifecycle and emit successful updates as unreferenced Phoenix `diff` pushes.
+
 ## Deferred
 
-- Evaluate nested components, uploads, navigation, hooks, and server-initiated
-  messages as separate contracts.
+- Evaluate nested components, uploads, navigation, and application hook/reply
+  APIs as separate contracts.

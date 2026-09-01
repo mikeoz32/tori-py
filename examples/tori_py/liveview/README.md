@@ -18,6 +18,10 @@ badges, alerts, cards, stacks, and responsive grids. `UiLiveView` adds the local
 content-addressed stylesheet and automatic light/dark theme without a second
 browser runtime.
 
+The delayed increment starts a background task and wakes the connected page
+through `send_info()`/`handle_info()`; the update remains serialized with normal
+Phoenix Channel events and renders.
+
 The hard-coded secret is for this local example only. Production deployments
 must supply a strong shared secret from configuration.
 

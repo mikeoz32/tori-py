@@ -56,6 +56,21 @@ from ..common.security import has_workplace_role, is_facilities_admin
 from ..common.services import BookingsService, NotificationsService, SpacesService
 
 WEB_ROOT = FilePath(__file__).resolve().parents[1] / "web"
+WEB_ASSETS = frozenset(
+    {
+        "admin-panel.js",
+        "api-client.js",
+        "app.js",
+        "auth.js",
+        "booking-calendar.js",
+        "booking-list.js",
+        "calendar.js",
+        "floor-plan.js",
+        "styles.css",
+        "workplace-app.js",
+    }
+)
+VENDOR_ASSETS = frozenset({"keycloak.js", "lit-core.min.js"})
 logger = logging.getLogger(__name__)
 
 
@@ -114,7 +129,7 @@ class KeycloakBearerGuard:
 
 @controller()
 class StaticController:
-    """Serve only the four files needed by the no-build browser client."""
+    """Serve only declared files needed by the no-build browser client."""
 
     @get("/")
     async def root(self) -> Response:
@@ -124,18 +139,23 @@ class StaticController:
     async def index(self) -> Response:
         return FileResponse(WEB_ROOT / "index.html")
 
-    @get("/web/styles.css")
-    async def styles(self) -> Response:
-        return FileResponse(WEB_ROOT / "styles.css", media_type="text/css")
+    @get("/web/{asset_name}")
+    async def web_asset(
+        self, asset_name: Annotated[str, Path("asset_name")]
+    ) -> Response:
+        if asset_name not in WEB_ASSETS:
+            raise HttpException(404, "Web asset was not found.")
+        media_type = "text/css" if asset_name.endswith(".css") else "text/javascript"
+        return FileResponse(WEB_ROOT / asset_name, media_type=media_type)
 
-    @get("/web/app.js")
-    async def application_script(self) -> Response:
-        return FileResponse(WEB_ROOT / "app.js", media_type="text/javascript")
-
-    @get("/assets/keycloak.js")
-    async def keycloak_script(self) -> Response:
+    @get("/assets/{asset_name}")
+    async def vendor_asset(
+        self, asset_name: Annotated[str, Path("asset_name")]
+    ) -> Response:
+        if asset_name not in VENDOR_ASSETS:
+            raise HttpException(404, "Vendor asset was not found.")
         return FileResponse(
-            WEB_ROOT / "assets" / "keycloak.js", media_type="text/javascript"
+            WEB_ROOT / "assets" / asset_name, media_type="text/javascript"
         )
 
 

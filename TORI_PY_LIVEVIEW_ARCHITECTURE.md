@@ -37,6 +37,8 @@ subclass. `LiveView` exposes:
 
 - `mount(context)` for disconnected and connected initialization;
 - `handle_event(event, value)` for connected browser events;
+- `handle_info(name, value)` for serialized timer and subscription messages;
+- `send_info(name, value=None)` for connection-local message delivery;
 - `render()` returning a Python 3.14 `Template`, `Rendered`, or trusted static
   HTML as `str`;
 - `title()` returning an optional document title;
@@ -47,6 +49,8 @@ subclass. `LiveView` exposes:
 no-render Channel reply carrying the reason, so the official client releases
 the originating element's loading/lock refs without advancing page state. Other
 handler exceptions terminate the connection with close code `1011`.
+`UnknownInfoError` declares an unsupported server message and is a server
+failure, so it terminates the connection with close code `1011`.
 
 ### 3.2 Mount context
 
@@ -111,7 +115,26 @@ still mean reset because the official client tests tuple-element presence.
 Operations are connection-local, consumed once by the next successful render,
 discarded after rejected events, and cleared on disconnect.
 
-### 3.5 Dynamic module
+### 3.5 Server-initiated updates
+
+Timers, subscriptions, and other page-owned background tasks call `send_info`
+instead of mutating connected page state directly. The method immediately
+returns `False` before connection, after disconnect, or when its bounded
+32-message queue is full. Accepted messages execute `handle_info` on the same
+connection task that processes Phoenix Channel events, renders, component and
+stream operations, and outbound WebSocket writes. A successful callback sends:
+
+```text
+[join_ref, null, topic, "diff", tree]
+```
+
+The default `handle_info` raises `UnknownInfoError`. Any unhandled info failure
+is a server failure and closes the connection with code `1011`. The page must
+stop and await its background tasks from `disconnect`; reconnect creates a fresh
+page instance and queue. Info traffic does not extend the browser's inbound idle
+deadline.
+
+### 3.6 Dynamic module
 
 `LiveViewModule.for_root(options, pages, imports=(), key="default")` returns a
 ToriPy `DeferredModule`. Materialization creates:
@@ -220,6 +243,23 @@ authorization. Replicas serving one application need the same secret.
 
 ## 8. Phoenix Channels Lifecycle
 
+Before acceptance, the gateway validates Origin. It then:
+
+1. Accepts the socket.
+2. Requires a valid join within `join_timeout_seconds`.
+3. Verifies the mount token and resolves the registered page provider.
+4. Attaches the info queue and calls `mount` with `connected=True`.
+5. Sends the complete Phoenix join render tree.
+6. Waits concurrently for inbound frames and accepted info messages.
+7. Processes one event, heartbeat, component-destruction message, or info
+   callback at a time.
+8. Sends referenced `phx_reply` event diffs or unreferenced server `diff` pushes.
+9. Detaches the info queue, disconnects all remaining components, and calls page
+   `disconnect` exactly once when a connected page session ends.
+
+Reconnect creates a new connection scope and page instance and repeats a full
+snapshot join. The server does not retain disconnected page instances.
+
 All text frames use the Phoenix V2 five-element array:
 
 ```text
@@ -240,6 +280,8 @@ and list decoding, and their metadata is merged before application dispatch.
 Successful events receive `{status: "ok", response: {diff: tree}}`. Unknown
 events and CIDs receive successful no-render replies carrying a reason so the
 client unlocks the event source. Application exceptions close with `1011`.
+Successful info callbacks push `[join_ref, null, topic, "diff", tree]`; they do
+not create a second event-version or stale-retry dialect.
 
 Heartbeats use topic `phoenix`, event `heartbeat`, null `join_ref`, and receive
 an empty successful reply with the same ref. `phx_leave` receives an empty
@@ -278,9 +320,9 @@ expiry are abuse controls, not substitutes for rate limiting or authorization.
 
 ## 11. Deliberate Non-Goals
 
-The package does not implement nested components, upload channels, live
-navigation, server-initiated `send_info`, durable sessions, cross-replica session
-migration, background event delivery, or application JavaScript-hook APIs.
+The package does not implement nested components, upload transport, navigation,
+durable sessions, cross-replica session migration, background event delivery,
+or application hook/reply APIs.
 
 ## 12. Acceptance
 
@@ -288,6 +330,7 @@ Acceptance requires package tests for rendering, token integrity/expiry,
 declaration validation, HTTP root output, exact asset hashes, Channels joins and
 replies, form/click events, component CIDs and destruction, heartbeats, reconnect,
 title updates, origins, limits, stream ordering/bounds/reset/delete behavior,
-deadlines, close codes, and cleanup. The Playwright example must exercise the
-real vendored official clients. Ruff, formatting, ty, wheel/sdist build, artifact
-verification, and isolated import smoke run through `uv`.
+serialized server updates, queue bounds, deadlines, close codes, and cleanup. The
+Playwright example must exercise the real vendored official clients. Ruff,
+formatting, ty, wheel/sdist build, artifact verification, and isolated import
+smoke run through `uv`.

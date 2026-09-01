@@ -22,7 +22,7 @@ from tori_py_liveview.errors import (
     UnknownEventError,
 )
 from tori_py_liveview.options import LiveViewOptions, normalize_origin, websocket_path
-from tori_py_liveview.page import LiveView, MountContext, _UnknownComponentError
+from tori_py_liveview.page import LiveView, MountContext, _Info, _UnknownComponentError
 from tori_py_liveview.rendering import (
     Rendered,
     _ComponentRendered,
@@ -423,6 +423,8 @@ def gateway_type(options: LiveViewOptions, registry: _Registry) -> type[object]:
                 return
             await socket.accept()
             page: LiveView | None = None
+            incoming_task: asyncio.Task[_ChannelMessage] | None = None
+            info_task: asyncio.Task[_Info] | None = None
             try:
                 join = await _message(
                     socket,
@@ -450,6 +452,7 @@ def gateway_type(options: LiveViewOptions, registry: _Registry) -> type[object]:
                     return
 
                 page = cast(LiveView, await context.resolver.resolve(page_type))
+                page._connect_liveview()
                 await page._mount_liveview(
                     MountContext(
                         socket,
@@ -472,84 +475,126 @@ def gateway_type(options: LiveViewOptions, registry: _Registry) -> type[object]:
                     },
                 )
 
-                while True:
-                    message = await _message(
+                incoming_task = asyncio.create_task(
+                    _message(
                         socket,
                         timeout=options.idle_timeout_seconds,
                         timeout_code=1001,
                         max_message_bytes=options.max_message_bytes,
                     )
-                    if message.topic == "phoenix" and message.event == "heartbeat":
-                        if message.join_ref is not None or message.ref is None:
-                            raise _CloseConnection(1002)
-                        await _reply(socket, message, "ok", {})
-                        continue
-                    if (
-                        message.topic != _TOPIC
-                        or message.join_ref != join.join_ref
-                        or message.ref is None
-                    ):
-                        raise _CloseConnection(1002)
-                    if message.event == "phx_leave":
-                        await _reply(socket, message, "ok", {})
-                        return
-                    if message.event == "cids_will_destroy":
-                        page._prepare_liveview_component_destruction(
-                            _destroyed_cids(message.payload)
-                        )
-                        await _reply(socket, message, "ok", {})
-                        continue
-                    if message.event == "cids_destroyed":
-                        destroyed = await page._destroy_liveview_components(
-                            _destroyed_cids(message.payload)
-                        )
-                        await _reply(socket, message, "ok", {"cids": destroyed})
-                        continue
-                    if message.event != "event":
-                        raise _CloseConnection(1002)
-
-                    event = message.payload.get("event")
-                    event_type = message.payload.get("type")
-                    if (
-                        not isinstance(event, str)
-                        or not event
-                        or not isinstance(event_type, str)
-                        or not event_type
-                    ):
-                        raise _CloseConnection(1002)
-                    target_value = message.payload.get("cid")
-                    target = (
-                        None if target_value is None else _positive_int(target_value)
+                )
+                info_task = asyncio.create_task(page._receive_liveview_info())
+                while True:
+                    done, _ = await asyncio.wait(
+                        (incoming_task, info_task),
+                        return_when=asyncio.FIRST_COMPLETED,
                     )
-                    try:
-                        await page._handle_liveview_event(
-                            target,
-                            event,
-                            _event_value(message.payload),
+                    if incoming_task in done:
+                        message = incoming_task.result()
+                        incoming_task = asyncio.create_task(
+                            _message(
+                                socket,
+                                timeout=options.idle_timeout_seconds,
+                                timeout_code=1001,
+                                max_message_bytes=options.max_message_bytes,
+                            )
                         )
-                    except _UnknownComponentError:
-                        page._clear_liveview_stream_operations()
-                        await _reply(
-                            socket,
-                            message,
-                            "ok",
-                            {"reason": "unknown_target"},
-                        )
-                        continue
-                    except UnknownEventError:
-                        page._clear_liveview_stream_operations()
-                        await _reply(
-                            socket,
-                            message,
-                            "ok",
-                            {"reason": "unknown_event"},
-                        )
-                        continue
+                        if message.topic == "phoenix" and message.event == "heartbeat":
+                            if message.join_ref is not None or message.ref is None:
+                                raise _CloseConnection(1002)
+                            await _reply(socket, message, "ok", {})
+                            continue
+                        if (
+                            message.topic != _TOPIC
+                            or message.join_ref != join.join_ref
+                            or message.ref is None
+                        ):
+                            raise _CloseConnection(1002)
+                        if message.event == "phx_leave":
+                            await _reply(socket, message, "ok", {})
+                            return
+                        if message.event == "cids_will_destroy":
+                            page._prepare_liveview_component_destruction(
+                                _destroyed_cids(message.payload)
+                            )
+                            await _reply(socket, message, "ok", {})
+                            continue
+                        if message.event == "cids_destroyed":
+                            destroyed = await page._destroy_liveview_components(
+                                _destroyed_cids(message.payload)
+                            )
+                            await _reply(socket, message, "ok", {"cids": destroyed})
+                            continue
+                        if message.event != "event":
+                            raise _CloseConnection(1002)
 
-                    updated = await _render(page)
-                    diff = _render_message(updated, title=page.title())
-                    page._clear_liveview_stream_operations()
-                    await _reply(socket, message, "ok", {"diff": diff})
+                        event = message.payload.get("event")
+                        event_type = message.payload.get("type")
+                        if (
+                            not isinstance(event, str)
+                            or not event
+                            or not isinstance(event_type, str)
+                            or not event_type
+                        ):
+                            raise _CloseConnection(1002)
+                        target_value = message.payload.get("cid")
+                        target = (
+                            None
+                            if target_value is None
+                            else _positive_int(target_value)
+                        )
+                        try:
+                            await page._handle_liveview_event(
+                                target,
+                                event,
+                                _event_value(message.payload),
+                            )
+                        except _UnknownComponentError:
+                            page._clear_liveview_stream_operations()
+                            await _reply(
+                                socket,
+                                message,
+                                "ok",
+                                {"reason": "unknown_target"},
+                            )
+                            continue
+                        except UnknownEventError:
+                            page._clear_liveview_stream_operations()
+                            await _reply(
+                                socket,
+                                message,
+                                "ok",
+                                {"reason": "unknown_event"},
+                            )
+                            continue
+
+                        updated = await _render(page)
+                        diff = _render_message(updated, title=page.title())
+                        page._clear_liveview_stream_operations()
+                        await _reply(socket, message, "ok", {"diff": diff})
+                    else:
+                        info = info_task.result()
+                        info_task = asyncio.create_task(page._receive_liveview_info())
+                        try:
+                            await page.handle_info(info.name, info.value)
+                        except Exception as error:
+                            _LOGGER.exception(
+                                "LiveView info failed: page=%s info=%s",
+                                type(page).__qualname__,
+                                info.name,
+                            )
+                            raise _CloseConnection(1011) from error
+                        updated = await _render(page)
+                        diff = _render_message(updated, title=page.title())
+                        page._clear_liveview_stream_operations()
+                        await _send(
+                            socket,
+                            join.join_ref,
+                            None,
+                            join.topic,
+                            "diff",
+                            diff,
+                        )
             except _ClientDisconnected:
                 pass
             except _CloseConnection as error:
@@ -560,6 +605,16 @@ def gateway_type(options: LiveViewOptions, registry: _Registry) -> type[object]:
                 _LOGGER.exception("Unhandled LiveView WebSocket session failure")
                 await _close(socket, 1011)
             finally:
+                if page is not None:
+                    page._detach_liveview()
+                tasks = [
+                    task for task in (incoming_task, info_task) if task is not None
+                ]
+                for task in tasks:
+                    if not task.done():
+                        task.cancel()
+                if tasks:
+                    await asyncio.gather(*tasks, return_exceptions=True)
                 if page is not None:
                     try:
                         await page._disconnect_liveview()

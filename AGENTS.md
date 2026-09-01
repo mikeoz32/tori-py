@@ -35,7 +35,7 @@
 ## Tori Py LiveView
 - The optional LiveView package is governed by `TORI_PY_LIVEVIEW_ARCHITECTURE.md`, `TORI_PY_LIVEVIEW_IMPLEMENTATION_PLAN.md`, and `spec/tori-py-liveview/README.md`.
 - Keep LiveView outside ToriPy core. Pages are explicit request-scoped providers, and the server interoperates with the unchanged pinned official Phoenix 1.8.13 and Phoenix LiveView 1.2.11 JavaScript clients.
-- Preserve Phoenix V2 Channels framing, `phx-*` bindings, render-tree/component/stream semantics, finite deadlines, Origin validation, signed mount tokens, component identity/target lifecycle, and browser-owned stream operations. Nested components, uploads, navigation, hooks, and `send_info` remain deferred until their official contracts are implemented end to end.
+- Preserve Phoenix V2 Channels framing, `phx-*` bindings, render-tree/component/stream semantics, finite deadlines, Origin validation, signed mount tokens, component identity/target lifecycle, browser-owned stream operations, and serialized connection-local `send_info`. Nested components, uploads, navigation, and application hook/reply APIs remain deferred until their official contracts are implemented end to end.
 
 ## Tori Py LiveView UI
 - The optional UI package is governed by `TORI_PY_LIVEVIEW_UI_ARCHITECTURE.md`, `TORI_PY_LIVEVIEW_UI_IMPLEMENTATION_PLAN.md`, and `spec/tori-py-liveview-ui/README.md`.

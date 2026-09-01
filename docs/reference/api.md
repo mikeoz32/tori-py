@@ -316,15 +316,18 @@ Principal public API:
 
 - Composition: `LiveViewModule`, `LiveViewOptions`.
 - Page and component lifecycle: `LiveView`, `LiveComponent`, `MountContext`,
-  `live_view`.
+  `live_view`, `LiveView.send_info`, `LiveView.handle_info`.
 - Rendering: `Rendered`, `SafeHtml`, `html`, `fragment`, `classes`, `attrs`,
   `rendered`, `raw`.
-- Errors: `LiveViewError`, `LiveViewConfigurationError`, `UnknownEventError`.
+- Errors: `LiveViewError`, `LiveViewConfigurationError`, `UnknownEventError`,
+  `UnknownInfoError`.
 
 The package interoperates with official Phoenix and Phoenix LiveView clients
 through Channels joins/replies, Phoenix render trees, stateful component CIDs,
 targeted events, heartbeats, title updates, browser-owned keyed streams, and
-reconnect joins. Nested components, uploads, navigation, hooks, and `send_info`
+reconnect joins. Server-initiated updates use the bounded connection-local
+`send_info` queue and serialized `handle_info` callback to emit Phoenix `diff`
+pushes. Nested components, uploads, navigation, and application hook/reply APIs
 are not part of the current server surface.
 
 ## `tori-py-liveview-ui`

@@ -24,7 +24,8 @@ one package does not require the same change in every package.
   request-scoped pages, signed mounts, checksum-pinned official Phoenix and
   Phoenix LiveView clients, Channels/render-tree interoperability,
   connection-local stateful component CIDs, targeted component events, and
-  browser-owned bounded streams.
+  browser-owned bounded streams, plus serialized connection-local server
+  updates through `send_info` and `handle_info`.
 - Separately installable `tori-py-liveview-ui` foundation with six typed
   stateless component helpers, a content-addressed immutable local stylesheet,
   and `UiLiveView` document theming for Phoenix LiveView pages.

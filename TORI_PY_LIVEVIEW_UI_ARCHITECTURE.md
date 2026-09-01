@@ -52,11 +52,10 @@ automatic class injection. Applications can wrap a helper in their own template
 where they need a separately owned extension point.
 
 `button(event=..., target=...)` emits `phx-click` and `phx-target`. `target`
-requires `event` and is a positive JavaScript-safe integer. A page button
-normally omits
-`target`; a stateful LiveView component passes its connection-local `myself`
-value. The helper preserves Phoenix's existing click and component-target
-semantics and does not add JavaScript behavior.
+requires `event` and is a positive JavaScript-safe integer. A page button normally
+omits `target`; a stateful LiveView component passes its connection-local
+`myself` value. The helper preserves Phoenix's existing click and
+component-target semantics and does not add JavaScript behavior.
 
 `alert` uses `role="alert"` for the `danger` tone and `role="status"` otherwise.
 Its optional title is an `h2`; `card` uses an `article`, optional header and

@@ -20,9 +20,10 @@ api-gateway (:8010) ──> spaces / bookings / notifications
 `spaces`, `bookings`, and `notifications` are separately deployed application
 processes with their own PostgreSQL database and role. `api-gateway` is the
 only process published to the browser; it also serves the web directory and
-the verified Keycloak browser module at `/assets/keycloak.js`. RabbitMQ is the
-asynchronous integration boundary. Keycloak owns identity and browser login;
-the API owns authorization decisions and resource data.
+the verified Keycloak browser module at `/assets/keycloak.js` and the verified
+Lit runtime at `/assets/lit-core.min.js`. RabbitMQ is the asynchronous
+integration boundary. Keycloak owns identity and browser login; the API owns
+authorization decisions and resource data.
 
 ## Run locally
 
@@ -95,11 +96,20 @@ adapter tokens in memory, refreshes before every API request, and attaches the
 access token as a bearer token. It deliberately does not put tokens in local
 storage, session storage, a cookie, or the URL.
 
+The no-build browser client uses a light-DOM Lit custom element as its reactive
+root. Authentication, API access, calendar calculations, the floor plan,
+booking views, and facilities controls remain separate ES modules under
+`web/`. Light DOM intentionally keeps the existing global stylesheet and
+accessibility selectors effective. The gateway serves only an explicit
+allowlist of those modules and generated vendor assets.
+
 Official references:
 
 - [Keycloak JavaScript adapter](https://www.keycloak.org/securing-apps/javascript-adapter)
 - [Keycloak realm import/export](https://www.keycloak.org/server/importExport)
 - [Keycloak downloads](https://www.keycloak.org/downloads)
+- [Lit bundles](https://lit.dev/docs/getting-started/#use-bundles)
+- [Lit production guidance](https://lit.dev/docs/tools/production/#preparing-code-for-production)
 
 ### Installing keycloak-js without npm or a CDN
 
@@ -108,6 +118,19 @@ downloads the official Keycloak **26.2.4** adapter release pinned in
 [`keycloak-js.manifest`](./keycloak-js.manifest), verifies its SHA-256 digest,
 and extracts `package/lib/keycloak.js` into the image. The gateway exposes only
 that generated file at `/assets/keycloak.js`; it is not committed to the repo.
+
+### Installing Lit without npm or a runtime CDN
+
+This demo also downloads the official Lit **3.3.1** production bundle during
+the Docker build. [`lit-js.manifest`](./lit-js.manifest) records the pinned URL
+and SHA-256 digest checked by the Dockerfile. The verified file is generated at
+`web/assets/lit-core.min.js` in the image and served from the same origin; the
+browser never contacts a public CDN.
+
+To upgrade Lit, choose an official `lit/dist` release, calculate the SHA-256 of
+its `core/lit-core.min.js` bundle, update the version, URL, and digest in both
+the manifest and Dockerfile, then rebuild the image and run the browser test.
+No npm install or JavaScript compilation step is involved.
 
 ## Trust boundaries and delivery semantics
 

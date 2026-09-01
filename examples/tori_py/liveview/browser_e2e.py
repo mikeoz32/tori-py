@@ -69,6 +69,7 @@ def test_counter_updates_and_recovers_after_reconnect(
     root = page.locator("[data-phx-session]")
     output = page.locator("output[data-page-counter]")
     increment = page.get_by_role("button", name="Increment page")
+    increment_later = page.get_by_role("button", name="Increment later")
     left_output = page.locator('output[data-component-id="left"]')
     right_output = page.locator('output[data-component-id="right"]')
     increment_left = page.get_by_role("button", name="Increment Left")
@@ -105,6 +106,8 @@ def test_counter_updates_and_recovers_after_reconnect(
     increment.evaluate("element => element.setAttribute('phx-click', 'increment')")
     increment.click()
     expect(output).to_have_text("3")
+    increment_later.click()
+    expect(output).to_have_text("4")
 
     prepend = page.get_by_role("button", name="Prepend activity")
     prepend.click()
@@ -119,27 +122,27 @@ def test_counter_updates_and_recovers_after_reconnect(
     expect(page.locator("#activity-stream > li span")).to_have_text(
         ["Activity 4", "Activity 1"]
     )
-    expect(page).to_have_title("Counter: 3")
+    expect(page).to_have_title("Counter: 4")
 
     increment_left.click()
     expect(left_output).to_have_text("1")
     expect(right_output).to_have_text("0")
-    expect(output).to_have_text("3")
+    expect(output).to_have_text("4")
     page.get_by_role("button", name="Clear title").click()
     expect(page).to_have_title("")
 
     root.evaluate(
         "() => window.liveSocket.getSocket().conn.close(4000, 'test reconnect')"
     )
-    expect(output).to_have_text("3")
+    expect(output).to_have_text("4")
     expect(left_output).to_have_text("0")
     expect(right_output).to_have_text("0")
     expect(root).to_have_class("phx-connected")
     expect(page.locator("#activity-stream > li span")).to_have_text(
         ["Activity 1", "Activity 2"]
     )
-    expect(page).to_have_title("Counter: 3")
+    expect(page).to_have_title("Counter: 4")
 
     increment.click()
-    expect(output).to_have_text("4")
+    expect(output).to_have_text("5")
     assert browser_errors == []

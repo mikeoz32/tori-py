@@ -21,10 +21,8 @@ from tori_py_liveview import (
     LiveViewModule,
     LiveViewOptions,
     MountContext,
-    Rendered,
     UnknownEventError,
     live_view,
-    rendered,
 )
 
 
@@ -93,6 +91,9 @@ passed to `live_component`. `mount()` runs once for an identity, `update()` runs
 before every render, and targeted events run on the component:
 
 ```python
+from string.templatelib import Template
+
+
 class CounterComponent(LiveComponent):
     def __init__(self) -> None:
         self.count = 0
@@ -107,24 +108,21 @@ class CounterComponent(LiveComponent):
             raise UnknownEventError(event)
         self.count += 1
 
-    def render(self) -> Rendered:
-        return rendered(
-            ('<button phx-target="',
-             '" phx-click="increment">', ': ', '</button>'),
-            self.myself,
-            self.label,
-            self.count,
+    def render(self) -> Template:
+        return (
+            t'<button phx-target="{self.myself}" phx-click="increment">'
+            t"{self.label}: {self.count}</button>"
         )
 
 
 class DashboardLive(LiveView):
-    def render(self) -> Rendered:
+    def render(self) -> Template:
         counter = self.live_component(
             CounterComponent,
             "primary",
             {"label": "Primary"},
         )
-        return rendered(("<main>", "</main>"), counter)
+        return t"<main>{counter}</main>"
 ```
 
 `phx-target` is placed on the event element and carries `myself`. The target is
@@ -145,19 +143,17 @@ each mount and expose it to the initial HTTP render with `stream_contents()`:
 ```python
 class ActivityLive(LiveView):
     async def mount(self, context: MountContext) -> None:
+        label = "Started"
         self.stream_reset("activities")
         self.stream_insert(
             "activities",
             "activity-1",
-            rendered(('<li id="activity-1">', "</li>"), "Started"),
+            t'<li id="activity-1">{label}</li>',
         )
 
-    def render(self) -> Rendered:
+    def render(self) -> Template:
         activities = self.stream_contents("activities")
-        return rendered(
-            ('<ul id="activities" phx-update="stream">', "</ul>"),
-            activities,
-        )
+        return t'<ul id="activities" phx-update="stream">{activities}</ul>'
 ```
 
 `stream_insert()` appends by default, prepends with `at=0`, and updates an
@@ -173,6 +169,37 @@ Do not render ordinary dynamic children into a `phx-update="stream"` container.
 Phoenix morphing preserves its children, and only the stream tuple may mutate
 them. Operations are delivered once, rejected event queues are discarded, and
 reconnect mount should reset and rebuild canonical state.
+
+## Server-initiated updates
+
+Timers and subscriptions must not mutate page state from their own tasks. Use
+`send_info()` to enqueue a connection-local message, then update state from the
+serialized `handle_info()` callback:
+
+```python
+import asyncio
+
+
+async def mount(self, context: MountContext) -> None:
+    if context.connected:
+        self.timer = asyncio.create_task(self._tick_later())
+
+async def _tick_later(self) -> None:
+    await asyncio.sleep(1)
+    _ = self.send_info("tick")
+
+async def handle_info(self, name: str, value: object) -> None:
+    if name != "tick":
+        await super().handle_info(name, value)
+        return
+    self.count += 1
+```
+
+`send_info()` returns `False` before connection, after disconnect, or when the
+bounded 32-message queue is full. Events, info callbacks, renders, and outbound
+writes run serially on the connection task. Stop and await page-owned background
+tasks from `disconnect()`; reconnect mounts a fresh page and queue. Server
+updates do not extend the browser's inbound idle deadline.
 
 ## Configuration
 
@@ -195,10 +222,11 @@ downloads before replacing either vendored file.
 
 This release implements Phoenix Channels joins and replies, Phoenix render
 trees, stateful component CIDs, targeted events, heartbeats,
-reconnect-compatible joins, title updates, and browser-owned bounded streams.
+reconnect-compatible joins, title updates, browser-owned bounded streams, and
+serialized connection-local server updates through `send_info`/`handle_info`.
 The configured socket path is the Phoenix endpoint base; the browser connects to
 its `/websocket?vsn=2.0.0` transport route. Nested components, uploads,
-navigation, hooks, and `send_info` are reserved for later releases.
+navigation, and application hook/reply APIs are reserved for later releases.
 
 See the runnable example in `examples/tori_py/liveview` and the normative
 architecture in `TORI_PY_LIVEVIEW_ARCHITECTURE.md`.

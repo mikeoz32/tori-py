@@ -1,3 +1,4 @@
+import asyncio
 from string.templatelib import Template
 
 from tori_py import NestApplication, module
@@ -62,6 +63,7 @@ class CounterLive(UiLiveView):
         self.count = 0
         self.next_activity = 3
         self.show_title = True
+        self.tasks: set[asyncio.Task[None]] = set()
 
     async def mount(self, context: MountContext) -> None:
         self.count = int(context.query_params.get("start", "0"))
@@ -72,6 +74,10 @@ class CounterLive(UiLiveView):
     async def handle_event(self, event: str, value: object) -> None:
         if event == "increment":
             self.count += 1
+        elif event == "increment_later":
+            task = asyncio.create_task(self._increment_later())
+            self.tasks.add(task)
+            task.add_done_callback(self.tasks.discard)
         elif event == "clear_title":
             self.show_title = False
         elif event == "set_count":
@@ -102,6 +108,20 @@ class CounterLive(UiLiveView):
         else:
             raise UnknownEventError(event)
 
+    async def handle_info(self, name: str, value: object) -> None:
+        if name != "increment":
+            await super().handle_info(name, value)
+            return
+        self.count += 1
+
+    async def disconnect(self) -> None:
+        tasks = list(self.tasks)
+        self.tasks.clear()
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+
     def render(self) -> Template:
         left = self.live_component(
             CounterComponent,
@@ -123,6 +143,11 @@ class CounterLive(UiLiveView):
             [
                 form,
                 button("Increment page", event="increment"),
+                button(
+                    "Increment later",
+                    event="increment_later",
+                    variant="ghost",
+                ),
                 button("Clear title", event="clear_title", variant="ghost"),
                 t"<output data-page-counter>{self.count}</output>",
                 badge(f"Count {self.count}", tone="success"),
@@ -159,6 +184,10 @@ class CounterLive(UiLiveView):
 
     def title(self) -> str | None:
         return f"Counter: {self.count}" if self.show_title else None
+
+    async def _increment_later(self) -> None:
+        await asyncio.sleep(0.1)
+        _ = self.send_info("increment")
 
     @staticmethod
     def _activity_item(sequence: int) -> Template:

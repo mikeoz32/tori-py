@@ -17,7 +17,7 @@ is typed, and is on the coordinated `0.1.0` beta release train.
 | Automatic event-sourced command transactions in Tori Py CQRS | `tori-py-cqrs-event-sourcing` / `tori_py_cqrs_event_sourcing` | Decorated command handlers need request-scoped repositories and outcome-aware commit finalization | Composes framework, CQRS, and event-sourcing core. It does not publish stored events, add an outbox, retry commands, or create distributed transactions. |
 | Async SQLAlchemy lifecycle, transactions, and repositories | `tori-py-sqlalchemy` / `tori_py_sqlalchemy` | Tori Py should own an async engine or integrate an external one | Depends on Tori Py and `sqlalchemy[asyncio]`. The application installs its async driver and owns models and Alembic migrations. There is no model scan or `AsyncSession` provider. |
 | OpenAPI 3.1 and Swagger UI for Tori Py HTTP controllers | `tori-py-openapi` / `tori_py_openapi` | Documentation should be compiled from Tori Py route plans | Depends on Tori Py, `msgspec`, and Starlette's public route compiler. Security and error responses are explicit metadata, not inferred from guards or filters. Default Swagger assets are external CDN assets. |
-| Server-rendered interactive pages | `tori-py-liveview` / `tori_py_liveview` | Page, component, and collection state should remain server-directed with the official Phoenix LiveView browser runtime | Depends on Tori Py and Starlette. It targets Phoenix 1.8.13 and Phoenix LiveView 1.2.11 Channels/render-tree contracts, including stateful component CIDs and browser-owned streams; nested components, uploads, navigation, hooks, and `send_info` are not implemented. |
+| Server-rendered interactive pages | `tori-py-liveview` / `tori_py_liveview` | Page, component, and collection state should remain server-directed with the official Phoenix LiveView browser runtime | Depends on Tori Py and Starlette. It targets Phoenix 1.8.13 and Phoenix LiveView 1.2.11 Channels/render-tree contracts, including stateful component CIDs, browser-owned streams, and serialized connection-local `send_info`; nested components, uploads, navigation, and application hook/reply APIs are not implemented. |
 | Styled LiveView foundation components | `tori-py-liveview-ui` / `tori_py_liveview_ui` | LiveView pages need a small stateless visual vocabulary and local stylesheet | Depends on Tori Py and LiveView. It adds no browser runtime, state model, global reset, form system, arbitrary classes/attributes, CDN, or remote assets. |
 | Transport-neutral RPC and queue-event delivery | `tori-py-microservices` / `tori_py_microservices` | One Tori Py application exposes one logical service or calls service clusters | Base runtime depends on Tori Py and `msgspec`; RabbitMQ is an extra. RPC and events are at least once and need application idempotency/outbox/inbox policy. |
 | Framework-neutral partitioned persistent-log contracts | `tori-py-persistent-streams-core` / `tori_py_persistent_streams_core` | Defining an adapter, testing log semantics, or using opaque byte records without Tori Py | Runtime dependency-free. The included in-memory log loses all state at process exit and is not a production adapter. |
@@ -164,9 +164,10 @@ The beta label is not the only production decision:
   not make application side effects transactional or durable. Deployments must
   use TLS, a strong shared token secret, explicit proxy-aware origins, and their
   own authorization and idempotency policy.
-- LiveView UI provides local CSS and stateless rendering helpers only. It does
-  not add client behavior, forms, navigation, widget state, or application
-  accessibility policy beyond its documented component foundation.
+- LiveView UI adds local CSS and stateless template helpers only. It has no CDN,
+  external fonts, runtime JavaScript, global reset, form behavior, or ownership
+  of page/component state; applications retain accessibility, interaction, and
+  state policy outside the documented component contracts.
 - Microservices RabbitMQ RPC and durable events are at least once. Publisher
   confirms do not prove handler execution; timeout and connection loss can leave
   outcomes unknown. Production applications need stable idempotency keys and,

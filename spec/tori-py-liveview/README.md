@@ -30,8 +30,12 @@ This directory records the executable contract for `tori-py-liveview`.
 12. Streams use `phx-update="stream"`, Phoenix keyed comprehensions, official
     insert/delete/reset tuples, browser-owned children, insertion and limit
     semantics, disconnected contents, one-shot delivery, and reconnect reset.
-13. Nested components, uploads, navigation, hooks, and server-initiated
-    `send_info` remain outside the current server surface.
+13. `send_info` uses a bounded connection-local queue. Info callbacks, browser
+    events, renders, and outbound writes are serialized on the WebSocket task;
+    successful callbacks emit unreferenced Phoenix `diff` pushes, and disconnect
+    detaches the queue and rejects later sends.
+14. Nested components, uploads, navigation, and application hook/reply APIs
+    remain outside the current server surface.
 
 The complete architectural and wire contract is maintained in
 `TORI_PY_LIVEVIEW_ARCHITECTURE.md`.
