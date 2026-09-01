@@ -30,6 +30,7 @@ REQUIRED_FILES = (
     "tutorials/task-api.md",
     "tutorials/cqrs-application.md",
     "tutorials/distributed-application.md",
+    "tutorials/event-sourced-application.md",
     "fundamentals/index.md",
     "fundamentals/modules.md",
     "fundamentals/providers-and-di.md",

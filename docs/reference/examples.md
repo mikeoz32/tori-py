@@ -69,15 +69,18 @@ creation is deliberately example-owned; it is not a migration feature of
 
 ### Task API tutorial series
 
-The three tutorial snapshots preserve one external HTTP contract while evolving
-the implementation. The isolated-project smoke test applies them in order to the
-same temporary consumer project.
+The first three snapshots preserve one HTTP contract while evolving the
+implementation. Part 4 keeps the existing paths and `Task` representation, adds
+rename, and deliberately moves GET semantics to an eventual projection. The
+isolated-project smoke test applies all four in order to the same temporary
+consumer project.
 
 | Part | Exact command | Demonstrates |
 | --- | --- | --- |
 | Ordinary Task API | `uv run pytest examples/tori_py/tutorials/task_api/task_app/test_app.py -q` | Controller, application service, singleton in-memory repository, filters, and lifespan |
 | CQRS Task API | `uv run pytest examples/tori_py/tutorials/cqrs_task_api/task_app/test_app.py -q` | The unchanged service behind command/query handlers plus asynchronous audit and metrics observers |
 | Distributed Task API | `uv run pytest examples/tori_py/tutorials/distributed_task_api/task_app/test_system.py -q` | Three application roots, typed RPC, local CQRS, integration events, and idempotent audit over an in-memory transport |
+| Event-Sourced Task API | `uv run pytest examples/tori_py/tutorials/event_sourced_task_api/task_app -q` | Event-sourced commands, projection-owned reads, persistent-stream relay, and independent projection and audit consumers |
 
 Run the complete source-checkout evolution check with:
 

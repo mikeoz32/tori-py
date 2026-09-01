@@ -740,3 +740,7 @@ semantics, [Events](../techniques/microservices/events.md) for subscription and
 deduplication policy, [Clients and Contracts](../techniques/microservices/clients-and-contracts.md)
 for typed proxy evolution, and [RabbitMQ](../techniques/microservices/rabbitmq.md)
 before changing topology or production broker configuration.
+
+Continue to [Part 4: Add Event Sourcing](event-sourced-application.md) to replace
+in-memory task state with event-sourced command writes, projection-owned reads,
+and persistent-stream delivery to projection and audit consumers.

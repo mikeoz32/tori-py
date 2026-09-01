@@ -9,6 +9,7 @@ TUTORIALS = ROOT / "examples" / "tori_py" / "tutorials"
 PART_ONE = TUTORIALS / "task_api" / "task_app"
 PART_TWO = TUTORIALS / "cqrs_task_api" / "task_app"
 PART_THREE = TUTORIALS / "distributed_task_api" / "task_app"
+PART_FOUR = TUTORIALS / "event_sourced_task_api" / "task_app"
 
 
 def test_task_tutorial_series_runs_as_an_isolated_project(tmp_path: Path) -> None:
@@ -85,6 +86,32 @@ def test_task_tutorial_series_runs_as_an_isolated_project(tmp_path: Path) -> Non
     )
 
     assert "1 passed" in part_three.stdout
+
+    for package in (
+        "tori-py-cqrs-event-sourcing-core",
+        "tori-py-cqrs-event-sourcing",
+        "tori-py-persistent-streams-core",
+        "tori-py-persistent-streams",
+        "tori-py-persistent-streams-rabbitmq",
+    ):
+        _run(
+            uv,
+            "add",
+            "--editable",
+            str(ROOT / "packages" / package),
+            cwd=project,
+        )
+    _replace_application(PART_FOUR, project)
+    part_four = _run(
+        uv,
+        "run",
+        "pytest",
+        "task_app",
+        "-q",
+        cwd=project,
+    )
+
+    assert "28 passed" in part_four.stdout
     assert (project / ".python-version").read_text(encoding="utf-8") == "3.14\n"
     assert 'requires-python = ">=3.14,<3.15"' in (project / "pyproject.toml").read_text(
         encoding="utf-8"
