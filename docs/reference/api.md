@@ -315,14 +315,15 @@ remove the adapter's provisional deployment restrictions.
 Principal public API:
 
 - Composition: `LiveViewModule`, `LiveViewOptions`.
-- Page lifecycle: `LiveView`, `MountContext`, `live_view`.
+- Page and component lifecycle: `LiveView`, `LiveComponent`, `MountContext`,
+  `live_view`.
 - Rendering: `Rendered`, `SafeHtml`, `rendered`, `raw`.
 - Errors: `LiveViewError`, `LiveViewConfigurationError`, `UnknownEventError`.
 
 The package implements Opal protocol-v2 page snapshots, structural diffs,
-events, stale resynchronization, heartbeats, title updates, and reconnect joins.
-Components, streams, uploads, and `send_info` are not part of the current server
-surface.
+stateful components, targeted events, stale resynchronization, heartbeats, title
+updates, and reconnect joins. Nested components, streams, uploads, and
+`send_info` are not part of the current server surface.
 
 ## Reading generated reference
 

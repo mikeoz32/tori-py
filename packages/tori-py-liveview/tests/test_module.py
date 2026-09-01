@@ -22,8 +22,10 @@ from tori_py import (
 )
 from tori_py.starlette import StarletteAdapter
 from tori_py_liveview import (
+    LiveComponent,
     LiveView,
     LiveViewConfigurationError,
+    LiveViewError,
     LiveViewModule,
     LiveViewOptions,
     MountContext,
@@ -81,6 +83,124 @@ class CrashingLive(LiveView):
     async def handle_event(self, event: str, value: object) -> None:
         del event, value
         raise RuntimeError("handler failed")
+
+
+class CrashingComponent(LiveComponent):
+    disconnects = 0
+
+    async def handle_event(self, event: str, value: object) -> None:
+        del event, value
+        raise RuntimeError("component handler failed")
+
+    def render(self):
+        return rendered(
+            ('<button data-opal-target="', '" data-opal-click="crash">Crash</button>'),
+            self.myself,
+        )
+
+    async def disconnect(self) -> None:
+        type(self).disconnects += 1
+
+
+@live_view("/component-crash")
+class CrashingComponentsLive(LiveView):
+    disconnects = 0
+
+    def render(self):
+        return self.live_component(CrashingComponent, "crashing")
+
+    async def disconnect(self) -> None:
+        type(self).disconnects += 1
+
+
+class CounterComponent(LiveComponent):
+    mounts = 0
+    updates = 0
+    disconnects = 0
+    mount_connections: list[bool] = []
+
+    def __init__(self) -> None:
+        self.count = 0
+        self.label = ""
+
+    @classmethod
+    def reset(cls) -> None:
+        cls.mounts = 0
+        cls.updates = 0
+        cls.disconnects = 0
+        cls.mount_connections = []
+
+    def mount(self) -> None:
+        type(self).mounts += 1
+        type(self).mount_connections.append(self.connected)
+
+    def update(self, assigns: object) -> None:
+        type(self).updates += 1
+        assert isinstance(assigns, dict)
+        label = cast(dict[str, object], assigns)["label"]
+        assert isinstance(label, str)
+        self.label = label
+
+    async def handle_event(self, event: str, value: object) -> None:
+        del value
+        if event != "increment":
+            raise UnknownEventError(event)
+        self.count += 1
+
+    def render(self):
+        return rendered(
+            (
+                '<button id="component-',
+                '" data-opal-target="',
+                '" data-opal-click="increment">',
+                ":",
+                "</button>",
+            ),
+            self.id,
+            self.myself,
+            self.label,
+            self.count,
+        )
+
+    async def disconnect(self) -> None:
+        type(self).disconnects += 1
+
+
+@live_view("/components")
+class ComponentsLive(LiveView):
+    def __init__(self) -> None:
+        self.show_right = True
+
+    async def handle_event(self, event: str, value: object) -> None:
+        del value
+        if event != "toggle_right":
+            raise UnknownEventError(event)
+        self.show_right = not self.show_right
+
+    def render(self):
+        left = self.live_component(
+            CounterComponent,
+            "left",
+            {"label": "Left"},
+        )
+        right = (
+            self.live_component(
+                CounterComponent,
+                "right",
+                {"label": "Right"},
+            )
+            if self.show_right
+            else ""
+        )
+        return rendered(
+            (
+                "<section>",
+                "",
+                '<button data-opal-click="toggle_right">toggle</button></section>',
+            ),
+            left,
+            right,
+        )
 
 
 def _asgi(application: NestApplication) -> ASGIApp:
@@ -157,6 +277,53 @@ def _decode_sent(messages: list[Message]) -> list[dict[str, object]]:
         for message in messages
         if message["type"] == "websocket.send"
     ]
+
+
+@pytest.mark.asyncio
+async def test_components_require_render_context_and_unique_identity() -> None:
+    class ProbeComponent(LiveComponent):
+        def __init__(self) -> None:
+            self.mounts = 0
+            self.updates = 0
+            self.disconnects = 0
+
+        def mount(self) -> None:
+            self.mounts += 1
+
+        def update(self, assigns: object) -> None:
+            del assigns
+            self.updates += 1
+
+        def render(self) -> str:
+            return "<p>probe</p>"
+
+        async def disconnect(self) -> None:
+            self.disconnects += 1
+
+    component = ProbeComponent()
+
+    class DuplicateComponentsLive(LiveView):
+        def render(self):
+            rendered_component = self.live_component(
+                ProbeComponent,
+                "duplicate",
+                factory=lambda: component,
+            )
+            self.live_component(ProbeComponent, "duplicate")
+            return rendered_component
+
+    page = DuplicateComponentsLive()
+    with pytest.raises(LiveViewError, match="only be rendered"):
+        page.live_component(ProbeComponent, "outside")
+    with pytest.raises(LiveViewError, match="not attached"):
+        _ = component.id
+    with pytest.raises(LiveViewError, match="Duplicate LiveView component"):
+        await page._render_liveview()
+
+    assert component.mounts == 1
+    assert component.updates == 1
+    await page._disconnect_liveview_components()
+    assert component.disconnects == 1
 
 
 def test_for_root_materializes_pages_as_request_scoped_normal_routes() -> None:
@@ -343,6 +510,134 @@ async def test_protocol_v2_connects_renders_diffs_and_correlates_events() -> Non
     }
     assert CounterLive.mounts == [False, True]
     assert CounterLive.disconnects == 1
+    await application.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_components_keep_state_route_targets_and_cleanup() -> None:
+    CounterComponent.reset()
+    liveview_module = LiveViewModule.for_root(
+        LiveViewOptions(secret="s" * 32),
+        pages=[ComponentsLive],
+        key="components",
+    )
+
+    @module(imports=[liveview_module])
+    class Root:
+        pass
+
+    application = await NestApplication.create(Root, adapter=StarletteAdapter())
+    await application.start()
+    page = await _request(application, "/components")
+    token = re.search(r'data-opal-token="([A-Za-z0-9_.-]+)"', page.text)
+    assert token is not None
+    assert "Left:0" in page.text
+    assert "Right:0" in page.text
+    assert CounterComponent.mounts == 2
+    assert CounterComponent.disconnects == 2
+
+    sent = await _call_websocket(
+        application,
+        "/_tori/live",
+        _receive_text({"type": "join", "protocol": 2, "token": token[1]}),
+        _receive_text(
+            {
+                "type": "event",
+                "event": "increment",
+                "target": 1,
+                "value": None,
+                "version": 0,
+                "ref": 1,
+            }
+        ),
+        _receive_text(
+            {
+                "type": "event",
+                "event": "increment",
+                "target": 2,
+                "value": None,
+                "version": 1,
+                "ref": 2,
+            }
+        ),
+        _receive_text(
+            {
+                "type": "event",
+                "event": "increment",
+                "target": 999_999,
+                "value": None,
+                "version": 2,
+                "ref": 3,
+            }
+        ),
+        _receive_text(
+            {
+                "type": "event",
+                "event": "missing",
+                "target": 1,
+                "value": None,
+                "version": 2,
+                "ref": 4,
+            }
+        ),
+        _receive_text(
+            {
+                "type": "event",
+                "event": "toggle_right",
+                "target": None,
+                "value": None,
+                "version": 2,
+                "ref": 5,
+            }
+        ),
+        _receive_text(
+            {
+                "type": "event",
+                "event": "toggle_right",
+                "target": None,
+                "value": None,
+                "version": 3,
+                "ref": 6,
+            }
+        ),
+        _disconnect(),
+    )
+    messages = _decode_sent(sent)
+    snapshot = cast(dict[str, object], messages[0]["rendered"])
+    initial_dynamics = cast(list[str], snapshot["dynamics"])
+    assert 'id="component-left" data-opal-target="1"' in initial_dynamics[0]
+    assert 'id="component-right" data-opal-target="2"' in initial_dynamics[1]
+    assert messages[1]["diff"] == {
+        "0": (
+            '<button id="component-left" data-opal-target="1" '
+            'data-opal-click="increment">Left:1</button>'
+        )
+    }
+    assert messages[2]["diff"] == {
+        "1": (
+            '<button id="component-right" data-opal-target="2" '
+            'data-opal-click="increment">Right:1</button>'
+        )
+    }
+    assert messages[3] == {
+        "type": "error",
+        "reason": "unknown_target",
+        "ref": 3,
+    }
+    assert messages[4] == {
+        "type": "error",
+        "reason": "unknown_event",
+        "ref": 4,
+    }
+    assert messages[5]["version"] == 3
+    assert messages[5]["diff"] == {"1": ""}
+    restored = cast(dict[str, str], messages[6]["diff"])["1"]
+    assert "Right:0" in restored
+    assert 'data-opal-target="3"' in restored
+    assert CounterComponent.mounts == 5
+    assert CounterComponent.mount_connections == [False, False, True, True, True]
+    assert CounterComponent.updates == 11
+    assert CounterComponent.disconnects == 5
     await application.shutdown()
 
 
@@ -670,4 +965,47 @@ async def test_protocol_closes_on_unexpected_handler_failures() -> None:
     )
     assert sent[-1]["type"] == "websocket.close"
     assert sent[-1]["code"] == 1011
+    await application.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_protocol_cleans_up_after_component_handler_failures() -> None:
+    CrashingComponent.disconnects = 0
+    CrashingComponentsLive.disconnects = 0
+    liveview_module = LiveViewModule.for_root(
+        LiveViewOptions(secret="s" * 32),
+        pages=[CrashingComponentsLive],
+        key="component-handler-failure",
+    )
+
+    @module(imports=[liveview_module])
+    class Root:
+        pass
+
+    application = await NestApplication.create(Root, adapter=StarletteAdapter())
+    await application.start()
+    page = await _request(application, "/component-crash")
+    token = re.search(r'data-opal-token="([A-Za-z0-9_.-]+)"', page.text)
+    assert token is not None
+    assert CrashingComponent.disconnects == 1
+
+    sent = await _call_websocket(
+        application,
+        "/_tori/live",
+        _receive_text({"type": "join", "protocol": 2, "token": token[1]}),
+        _receive_text(
+            {
+                "type": "event",
+                "event": "crash",
+                "target": 1,
+                "value": None,
+                "version": 0,
+                "ref": 1,
+            }
+        ),
+    )
+    assert sent[-1]["type"] == "websocket.close"
+    assert sent[-1]["code"] == 1011
+    assert CrashingComponent.disconnects == 2
+    assert CrashingComponentsLive.disconnects == 1
     await application.shutdown()

@@ -20,7 +20,7 @@ from tori_py_liveview.errors import (
     UnknownEventError,
 )
 from tori_py_liveview.options import LiveViewOptions, normalize_origin
-from tori_py_liveview.page import LiveView, MountContext
+from tori_py_liveview.page import LiveView, MountContext, _UnknownComponentError
 from tori_py_liveview.rendering import Rendered
 from tori_py_liveview.tokens import InvalidMountTokenError, MountTokenCodec
 
@@ -49,13 +49,8 @@ def _reject_json_constant(value: str) -> None:
     raise ValueError(f"non-standard JSON constant: {value}")
 
 
-def _render(page: LiveView) -> Rendered:
-    result = page.render()
-    if isinstance(result, Rendered):
-        return result
-    if isinstance(result, str):
-        return Rendered((result,), ())
-    raise TypeError("LiveView.render must return Rendered or str")
+async def _render(page: LiveView) -> Rendered:
+    return await page._render_liveview()
 
 
 def _resource(request: Request) -> str:
@@ -106,7 +101,7 @@ async def initial_response(
     page = cast(LiveView, await context.resolver.resolve(page_type))
     resource = _resource(request)
     params = dict(request.path_params)
-    await page.mount(
+    await page._mount_liveview(
         MountContext(
             request,
             params,
@@ -115,29 +110,35 @@ async def initial_response(
             QueryParams(resource.partition("?")[2]),
         )
     )
-    token = MountTokenCodec(options.secret, max_age_ms=options.token_max_age_ms).sign(
-        f"{page_type.__module__}.{page_type.__qualname__}",
-        params,
-        resource,
-    )
-    root = (
-        '<div id="opal-live-root" data-opal-live-root '
-        f'data-opal-token="{html.escape(token, quote=True)}" '
-        f'data-opal-socket="{html.escape(options.socket_path, quote=True)}">'
-        f"{_render(page).to_html()}</div>"
-    )
-    client_script = (
-        '<script type="module" '
-        f'src="{html.escape(options.client_path, quote=True)}"></script>'
-    )
-    document = page.render_document(root, client_script)
-    return HttpResponse(
-        document.encode(),
-        headers={
-            "content-type": "text/html; charset=utf-8",
-            "cache-control": "no-store",
-        },
-    )
+    try:
+        token = MountTokenCodec(
+            options.secret,
+            max_age_ms=options.token_max_age_ms,
+        ).sign(
+            f"{page_type.__module__}.{page_type.__qualname__}",
+            params,
+            resource,
+        )
+        root = (
+            '<div id="opal-live-root" data-opal-live-root '
+            f'data-opal-token="{html.escape(token, quote=True)}" '
+            f'data-opal-socket="{html.escape(options.socket_path, quote=True)}">'
+            f"{(await _render(page)).to_html()}</div>"
+        )
+        client_script = (
+            '<script type="module" '
+            f'src="{html.escape(options.client_path, quote=True)}"></script>'
+        )
+        document = page.render_document(root, client_script)
+        return HttpResponse(
+            document.encode(),
+            headers={
+                "content-type": "text/html; charset=utf-8",
+                "cache-control": "no-store",
+            },
+        )
+    finally:
+        await page._disconnect_liveview_components()
 
 
 def _allowed(socket: WebSocket, options: LiveViewOptions) -> bool:
@@ -256,7 +257,7 @@ def gateway_type(options: LiveViewOptions, registry: _Registry) -> type[object]:
                     raise _CloseConnection(1008) from error
 
                 page = cast(LiveView, await context.resolver.resolve(page_type))
-                await page.mount(
+                await page._mount_liveview(
                     MountContext(
                         socket,
                         params,
@@ -265,7 +266,7 @@ def gateway_type(options: LiveViewOptions, registry: _Registry) -> type[object]:
                         QueryParams(resource.partition("?")[2]),
                     )
                 )
-                current = _render(page)
+                current = await _render(page)
                 version = 0
                 await socket.send_json(
                     _render_message(current, version, title=page.title())
@@ -307,20 +308,24 @@ def gateway_type(options: LiveViewOptions, registry: _Registry) -> type[object]:
                             )
                         )
                         continue
-                    if target is not None:
+                    try:
+                        await page._handle_liveview_event(
+                            cast(int | None, target),
+                            event,
+                            message.get("value"),
+                        )
+                    except _UnknownComponentError:
                         await socket.send_json(
                             {"type": "error", "reason": "unknown_target", "ref": ref}
                         )
                         continue
-                    try:
-                        await page.handle_event(event, message.get("value"))
                     except UnknownEventError:
                         await socket.send_json(
                             {"type": "error", "reason": "unknown_event", "ref": ref}
                         )
                         continue
 
-                    updated = _render(page)
+                    updated = await _render(page)
                     version += 1
                     await socket.send_json(
                         _render_message(
@@ -345,7 +350,7 @@ def gateway_type(options: LiveViewOptions, registry: _Registry) -> type[object]:
             finally:
                 if page is not None:
                     try:
-                        await page.disconnect()
+                        await page._disconnect_liveview()
                     except Exception:
                         _LOGGER.exception("LiveView disconnect hook failed")
 

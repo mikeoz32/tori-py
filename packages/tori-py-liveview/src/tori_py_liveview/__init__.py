@@ -1,5 +1,6 @@
 """Server-rendered LiveView pages for ToriPy."""
 
+from tori_py_liveview.component import LiveComponent
 from tori_py_liveview.errors import (
     LiveViewConfigurationError,
     LiveViewError,
@@ -12,6 +13,7 @@ from tori_py_liveview.page import LiveView, MountContext
 from tori_py_liveview.rendering import Rendered, SafeHtml, raw, rendered
 
 __all__ = [
+    "LiveComponent",
     "LiveView",
     "LiveViewConfigurationError",
     "LiveViewError",

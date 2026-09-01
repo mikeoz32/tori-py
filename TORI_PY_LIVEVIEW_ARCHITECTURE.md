@@ -58,7 +58,30 @@ The HTTP mount receives `connected=False`. A successful WebSocket join receives
 on in-process object identity to transfer state between them. Signed params and
 resource data are the transfer boundary.
 
-### 3.3 Dynamic module
+### 3.3 Stateful components
+
+`LiveComponent` exposes synchronous `mount`, `update(assigns)`, and `render`
+hooks plus asynchronous `handle_event` and `disconnect` hooks. `id` is the
+caller-provided stable identity, `myself` is the positive connection-local
+target used by `data-opal-target`, and `connected` identifies the HTTP or
+WebSocket lifecycle.
+
+`LiveView.live_component(component_type, id, assigns, factory=...)` may only run
+inside `render`. Identity is the concrete component type plus `id`. The first
+render of an identity constructs and mounts one instance; every render updates
+its assigns before rendering. Reusing the identity preserves state, while
+rendering it twice in one parent render is an error. The optional factory allows
+the parent to pass dependencies it already owns; components are not separately
+resolved providers.
+
+An event carrying a component target runs that component's `handle_event` on the
+page's serialized connection task. Components omitted by a successful parent
+render are disconnected and forgotten. Recreating the identity produces fresh
+state and a new target. HTTP render components are disconnected after the
+response is built, and all connected components are disconnected before their
+parent page. Nested components are not supported.
+
+### 3.4 Dynamic module
 
 `LiveViewModule.for_root(options, pages, imports=(), key="default")` returns a
 ToriPy `DeferredModule`. Materialization creates:
@@ -103,11 +126,12 @@ For a page request, the generated controller:
 1. Resolves the request-scoped page provider from `HttpContext`.
 2. Builds the resource from the request path and raw query.
 3. Calls `mount` with `connected=False`.
-4. Renders the page once.
+4. Renders the page and its declared component identities once.
 5. Signs page identity, path params, resource, and issue time.
 6. Builds a root carrying `data-opal-live-root`, token, and socket path.
 7. Passes the root and module script to `render_document`.
-8. Returns UTF-8 HTML with `Cache-Control: no-store`.
+8. Disconnects the HTTP-only components.
+9. Returns UTF-8 HTML with `Cache-Control: no-store`.
 
 The default document escapes the title. Rendered page HTML and the framework
 root/script arguments remain explicit trusted markup boundaries.
@@ -123,8 +147,10 @@ equal structures maps changed zero-based dynamic indexes to replacement strings.
 Different structures require a full snapshot.
 
 `rendered(statics, *values)` escapes dynamic values with HTML escaping. Nested
-`Rendered` values are flattened to HTML in this page-only release. `raw(value)`
-is an explicit trust marker and must never be applied to untrusted input.
+component `Rendered` values are flattened into parent dynamic positions, which
+lets each component update independently when the parent fingerprint remains
+stable. `raw(value)` is an explicit trust marker and must never be applied to
+untrusted input.
 
 ## 7. Mount Tokens
 
@@ -149,7 +175,9 @@ Before acceptance, the gateway validates Origin. It then:
 4. Calls `mount` with `connected=True`.
 5. Sends version `0` as a full render snapshot.
 6. Processes one inbound event or heartbeat at a time.
-7. Calls `disconnect` exactly once when a connected page session ends.
+7. Disconnects removed components after each successful render.
+8. Disconnects all remaining components and calls page `disconnect` exactly
+   once when a connected page session ends.
 
 Reconnect creates a new connection scope and page instance and repeats a full
 snapshot join. The server does not retain disconnected page instances.
@@ -188,9 +216,9 @@ increments the version, and produces a diff or snapshot with the same `ref`.
 An event with a stale version does not execute; the server returns the current
 render state with `status="stale"` and the event ref so the client can retry.
 
-Non-null component targets currently return `reason="unknown_target"`.
-Unsupported page events return `reason="unknown_event"`. Neither advances the
-version.
+A known non-null component target dispatches to that component. An unknown
+target returns `reason="unknown_target"`; unsupported page or component events
+return `reason="unknown_event"`. Neither error advances the version.
 
 ## 10. Limits and Close Codes
 
@@ -222,18 +250,19 @@ expiry are abuse controls, not substitutes for rate limiting or authorization.
 
 ## 12. Deliberate Non-Goals
 
-The first release does not implement server components, component lifecycle,
-streams, upload transport, server-initiated `send_info`, durable sessions,
-cross-replica session migration, background event delivery, or JavaScript hooks.
+The package does not implement nested components, streams, upload transport,
+server-initiated `send_info`, durable sessions, cross-replica session migration,
+background event delivery, or JavaScript hooks.
 
-The common client already understands components and streams. Future server
-support must implement their existing protocol semantics rather than repurpose
-reserved fields or create ToriPy-only client behavior.
+The common client also understands streams. Future server support must implement
+their existing protocol semantics rather than repurpose reserved fields or
+create ToriPy-only client behavior.
 
 ## 13. Acceptance
 
 Acceptance requires package tests for rendering, token integrity/expiry,
 declaration validation, HTTP output, exact client bytes, joins, diffs, stale
-resynchronization, errors, origins, size limits, deadlines, close codes, and
-cleanup. Ruff, formatting, ty, wheel/sdist build, artifact content verification,
-and isolated import smoke must pass through `uv`.
+resynchronization, component identity/state/target routing, errors, origins, size
+limits, deadlines, close codes, and cleanup. Ruff, formatting, ty, wheel/sdist
+build, artifact content verification, and isolated import smoke must pass through
+`uv`.

@@ -64,19 +64,31 @@ def test_counter_updates_and_recovers_after_reconnect(
 
     page.goto(f"{liveview_url}/?start=2")
     root = page.locator("[data-opal-live-root]")
-    output = page.locator("output")
-    increment = page.get_by_role("button", name="Increment")
+    output = page.locator("output[data-page-counter]")
+    increment = page.get_by_role("button", name="Increment page")
+    left_output = page.locator('output[data-component-id="left"]')
+    right_output = page.locator('output[data-component-id="right"]')
+    increment_left = page.get_by_role("button", name="Increment Left")
 
     expect(root).to_have_attribute("data-opal-status", "connected")
     expect(output).to_have_text("2")
+    expect(left_output).to_have_text("0")
+    expect(right_output).to_have_text("0")
     expect(page).to_have_title("Counter: 2")
 
     increment.click()
     expect(output).to_have_text("3")
     expect(page).to_have_title("Counter: 3")
 
+    increment_left.click()
+    expect(left_output).to_have_text("1")
+    expect(right_output).to_have_text("0")
+    expect(output).to_have_text("3")
+
     root.evaluate("root => root.__opalLiveView.socket.close(4000, 'test reconnect')")
     expect(output).to_have_text("2")
+    expect(left_output).to_have_text("0")
+    expect(right_output).to_have_text("0")
     expect(root).to_have_attribute("data-opal-status", "connected")
 
     increment.click()

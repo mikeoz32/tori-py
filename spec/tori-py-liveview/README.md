@@ -17,8 +17,12 @@ This directory records the executable contract for `tori-py-liveview`.
 8. The default Origin policy is same-origin. Explicit origins are normalized
    absolute HTTP origins. Missing or malformed origins are rejected.
 9. Dynamic render values are escaped unless explicitly marked trusted.
-10. Components, streams, uploads, and server-initiated `send_info` are outside
-    the first release. Reserved protocol fields retain their Opal meaning.
+10. Stateful components use `(concrete type, id)` identity, stable
+    connection-local targets, update-before-render, targeted events, and cleanup
+    on removal or disconnect.
+11. Nested components, streams, uploads, and server-initiated `send_info` remain
+    outside the server surface. Reserved protocol fields retain their Opal
+    meaning.
 
 The complete architectural and wire contract is maintained in
 `TORI_PY_LIVEVIEW_ARCHITECTURE.md`.

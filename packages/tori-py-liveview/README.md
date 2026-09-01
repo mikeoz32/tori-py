@@ -14,6 +14,7 @@ uv add tori-py-liveview
 ```python
 from tori_py import module
 from tori_py_liveview import (
+    LiveComponent,
     LiveView,
     LiveViewModule,
     LiveViewOptions,
@@ -67,6 +68,55 @@ values wrapped by `raw()` are trusted application HTML. Override
 `render_document(live_root, client_script)` to supply a complete document while
 retaining both framework arguments.
 
+## Stateful components
+
+Subclass `LiveComponent` for independently stateful pieces sharing one page
+connection. A component identity is its concrete type plus the stable string ID
+passed to `live_component`. `mount()` runs once for an identity, `update()` runs
+before every render, and targeted events run on the component:
+
+```python
+class CounterComponent(LiveComponent):
+    def __init__(self) -> None:
+        self.count = 0
+        self.label = ""
+
+    def update(self, assigns: object) -> None:
+        assert isinstance(assigns, dict)
+        self.label = str(assigns["label"])
+
+    async def handle_event(self, event: str, value: object) -> None:
+        if event != "increment":
+            raise UnknownEventError(event)
+        self.count += 1
+
+    def render(self) -> Rendered:
+        return rendered(
+            ('<button data-opal-target="',
+             '" data-opal-click="increment">', ': ', '</button>'),
+            self.myself,
+            self.label,
+            self.count,
+        )
+
+
+class DashboardLive(LiveView):
+    def render(self) -> Rendered:
+        counter = self.live_component(
+            CounterComponent,
+            "primary",
+            {"label": "Primary"},
+        )
+        return rendered(("<main>", "</main>"), counter)
+```
+
+`data-opal-target` may be on the event element or an ancestor inside the
+component. The target is connection-local and must come from `myself`; do not
+persist or construct it. Omitting an identity disconnects and forgets that
+component. Rendering it again creates fresh state and a new target. Override
+the async `disconnect()` hook to stop component-owned resources. Nested
+components are not supported.
+
 ## Configuration
 
 `LiveViewOptions` controls the root-relative socket and client paths, explicit
@@ -86,11 +136,11 @@ The package vendors the unchanged Opal protocol-v2 browser client from commit
 in `static/opal_live_view.lock.json`; `scripts/sync_opal_client.py` verifies the
 checksum before replacing the vendored file.
 
-This release implements page snapshots, structural diffs, event correlation,
-stale-version resynchronization, heartbeats, reconnect-compatible joins, and
-title updates. Server-side components, streams, uploads, and `send_info` are
-reserved for later releases. Their existing browser protocol must not be
-reinterpreted by page-only implementations.
+This release implements page snapshots, structural diffs, stateful components,
+targeted events, event correlation, stale-version resynchronization, heartbeats,
+reconnect-compatible joins, and title updates. Nested components, streams,
+uploads, and `send_info` are reserved for later releases. Their existing browser
+protocol must not be reinterpreted.
 
 See the runnable example in `examples/tori_py/liveview` and the normative
 architecture in `TORI_PY_LIVEVIEW_ARCHITECTURE.md`.

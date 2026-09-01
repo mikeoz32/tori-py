@@ -23,8 +23,15 @@
 - Add the counter example, package guide, exact asset tests, security/edge tests,
   build verification, type checks, formatting, and family release integration.
 
+## LV4: Stateful Components
+
+- Add connection-local component identity, mount/update/render/event lifecycle,
+  removal and disconnect cleanup, and explicitly targeted protocol-v2 events.
+- Exercise isolated component state through server protocol tests and the exact
+  pinned browser client.
+
 ## Deferred
 
-- Implement protocol-v2 components and component lifecycle.
 - Implement streams without changing their existing browser message shape.
-- Evaluate uploads, hooks, and server-initiated messages as separate contracts.
+- Evaluate nested components, uploads, hooks, and server-initiated messages as
+  separate contracts.
