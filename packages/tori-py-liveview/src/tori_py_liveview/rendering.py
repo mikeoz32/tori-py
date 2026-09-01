@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import hashlib
-import html
 import json
+from collections.abc import Iterable
 from dataclasses import dataclass
+from html import escape
+from string.templatelib import Template, convert
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,13 +56,34 @@ class Rendered:
 
 
 def _dynamic(value: object) -> str:
-    if isinstance(value, (SafeHtml, Rendered)):
-        return value.value if isinstance(value, SafeHtml) else value.to_html()
-    return html.escape(str(value), quote=True)
+    if isinstance(value, SafeHtml):
+        return value.value
+    if isinstance(value, Rendered):
+        return value.to_html()
+    if isinstance(value, Template):
+        return html(value).to_html()
+    return escape(str(value), quote=True)
+
+
+def html(template: Template) -> Rendered:
+    if not isinstance(template, Template):
+        raise TypeError("template must be a Template")
+    dynamics: list[str] = []
+    for interpolation in template.interpolations:
+        value = convert(interpolation.value, interpolation.conversion)
+        if interpolation.format_spec:
+            value = format(value, interpolation.format_spec)
+        dynamics.append(_dynamic(value))
+    return Rendered(template.strings, tuple(dynamics))
+
+
+def fragment(values: Iterable[object], /) -> Rendered:
+    dynamics = tuple(_dynamic(value) for value in values)
+    return Rendered(("",) * (len(dynamics) + 1), dynamics)
 
 
 def rendered(statics: tuple[str, ...], *values: object) -> Rendered:
     return Rendered(tuple(statics), tuple(_dynamic(value) for value in values))
 
 
-__all__ = ["Rendered", "SafeHtml", "raw", "rendered"]
+__all__ = ["Rendered", "SafeHtml", "fragment", "html", "raw", "rendered"]

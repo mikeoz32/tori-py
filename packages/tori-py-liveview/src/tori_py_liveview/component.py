@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from string.templatelib import Template
 
 from tori_py_liveview.errors import LiveViewError, UnknownEventError
-from tori_py_liveview.rendering import Rendered
+from tori_py_liveview.rendering import Rendered, html
 
 
 class LiveComponent(ABC):
@@ -27,7 +28,7 @@ class LiveComponent(ABC):
         return None
 
     @abstractmethod
-    def render(self) -> Rendered | str: ...
+    def render(self) -> Rendered | Template | str: ...
 
     @property
     def id(self) -> str:
@@ -56,9 +57,11 @@ class LiveComponent(ABC):
         result = self.render()
         if isinstance(result, Rendered):
             return result
+        if isinstance(result, Template):
+            return html(result)
         if isinstance(result, str):
             return Rendered((result,), ())
-        raise TypeError("LiveComponent.render must return Rendered or str")
+        raise TypeError("LiveComponent.render must return Rendered, Template, or str")
 
 
 __all__ = ["LiveComponent"]

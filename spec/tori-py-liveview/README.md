@@ -16,7 +16,10 @@ This directory records the executable contract for `tori-py-liveview`.
    type, and governed by finite join and idle deadlines.
 8. The default Origin policy is same-origin. Explicit origins are normalized
    absolute HTTP origins. Missing or malformed origins are rejected.
-9. Dynamic render values are escaped unless explicitly marked trusted.
+9. Python 3.14 templates map their strings and escaped interpolations to the
+   structural render contract. Nested templates and explicitly marked markup are
+   trusted composition boundaries; finite iterables compose as positional
+   fragments.
 10. Stateful components use `(concrete type, id)` identity, stable
     connection-local targets, update-before-render, targeted events, and cleanup
     on removal or disconnect.

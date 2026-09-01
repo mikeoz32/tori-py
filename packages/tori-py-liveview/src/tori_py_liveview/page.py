@@ -6,6 +6,7 @@ import logging
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from string.templatelib import Template
 from types import MappingProxyType
 from typing import TypeVar, cast
 
@@ -14,6 +15,7 @@ from starlette.datastructures import QueryParams
 from tori_py_liveview.component import LiveComponent
 from tori_py_liveview.errors import LiveViewError, UnknownEventError, UnknownInfoError
 from tori_py_liveview.rendering import Rendered, SafeHtml, raw
+from tori_py_liveview.rendering import html as render_template
 
 _LOGGER = logging.getLogger(__name__)
 _ComponentT = TypeVar("_ComponentT", bound=LiveComponent)
@@ -85,7 +87,7 @@ class LiveView(ABC):
         return None
 
     @abstractmethod
-    def render(self) -> Rendered | str: ...
+    def render(self) -> Rendered | Template | str: ...
 
     def title(self) -> str | None:
         return None
@@ -159,7 +161,7 @@ class LiveView(ABC):
         self,
         container_id: str,
         item_id: str,
-        item: Rendered | str,
+        item: Rendered | Template | str,
         *,
         at: int = -1,
         limit: int | None = None,
@@ -182,10 +184,12 @@ class LiveView(ABC):
 
         if isinstance(item, Rendered):
             item_html = item.to_html()
+        elif isinstance(item, Template):
+            item_html = render_template(item).to_html()
         elif isinstance(item, str):
             item_html = item
         else:
-            raise TypeError("LiveView stream item must be Rendered or str")
+            raise TypeError("LiveView stream item must be Rendered, Template, or str")
 
         self._initialize_liveview_streams()
         self._liveview_stream_operations.append(
@@ -294,10 +298,14 @@ class LiveView(ABC):
             result = self.render()
             if isinstance(result, Rendered):
                 rendered = result
+            elif isinstance(result, Template):
+                rendered = render_template(result)
             elif isinstance(result, str):
                 rendered = Rendered((result,), ())
             else:
-                raise TypeError("LiveView.render must return Rendered or str")
+                raise TypeError(
+                    "LiveView.render must return Rendered, Template, or str"
+                )
         finally:
             self._liveview_rendered_components = None
 

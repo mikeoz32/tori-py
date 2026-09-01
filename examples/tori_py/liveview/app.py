@@ -1,4 +1,5 @@
 import asyncio
+from string.templatelib import Template
 
 from tori_py import NestApplication, module
 from tori_py.starlette import StarletteAdapter, asgi
@@ -8,10 +9,8 @@ from tori_py_liveview import (
     LiveViewModule,
     LiveViewOptions,
     MountContext,
-    Rendered,
     UnknownEventError,
     live_view,
-    rendered,
 )
 
 
@@ -34,24 +33,14 @@ class CounterComponent(LiveComponent):
             raise UnknownEventError(event)
         self.count += 1
 
-    def render(self) -> Rendered:
-        return rendered(
-            (
-                '<section id="component-',
-                '" data-opal-target="',
-                '"><h2>',
-                '</h2><button data-opal-click="increment">Increment ',
-                '</button><output data-component-id="',
-                '">',
-                "</output></section>",
-            ),
-            self.id,
-            self.myself,
-            self.label,
-            self.label,
-            self.id,
-            self.count,
-        )
+    def render(self) -> Template:
+        return t"""
+            <section id="component-{self.id}" data-opal-target="{self.myself}">
+                <h2>{self.label}</h2>
+                <button data-opal-click="increment">Increment {self.label}</button>
+                <output data-component-id="{self.id}">{self.count}</output>
+            </section>
+        """
 
 
 @live_view("/")
@@ -108,7 +97,7 @@ class CounterLive(LiveView):
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
 
-    def render(self) -> Rendered:
+    def render(self) -> Template:
         left = self.live_component(
             CounterComponent,
             "left",
@@ -120,23 +109,20 @@ class CounterLive(LiveView):
             {"label": "Right"},
         )
         activities = self.stream_contents("activity-stream")
-        return rendered(
-            (
-                '<main><h1>ToriPy LiveView</h1><button data-opal-click="increment">'
-                'Increment page</button><button data-opal-click="increment_later">'
-                "Increment later</button><output data-page-counter>",
-                '</output><div class="components">',
-                "",
-                "</div><section><h2>Activity stream</h2><button "
-                'data-opal-click="prepend_activity">Prepend activity</button>'
-                '<ul id="activity-stream" data-opal-stream>',
-                "</ul></section></main>",
-            ),
-            self.count,
-            left,
-            right,
-            activities,
-        )
+        return t"""
+            <main>
+                <h1>ToriPy LiveView</h1>
+                <button data-opal-click="increment">Increment page</button>
+                <button data-opal-click="increment_later">Increment later</button>
+                <output data-page-counter>{self.count}</output>
+                <div class="components">{left}{right}</div>
+                <section>
+                    <h2>Activity stream</h2>
+                    <button data-opal-click="prepend_activity">Prepend activity</button>
+                    <ul id="activity-stream" data-opal-stream>{activities}</ul>
+                </section>
+            </main>
+        """
 
     def title(self) -> str:
         return f"Counter: {self.count}"
@@ -146,21 +132,19 @@ class CounterLive(LiveView):
         _ = self.send_info("increment")
 
     @staticmethod
-    def _activity_item(sequence: int) -> Rendered:
+    def _activity_item(sequence: int) -> Template:
         item_id = f"activity-{sequence}"
-        return rendered(
-            (
-                '<li id="',
-                '"><span>Activity ',
-                '</span><button data-opal-click="delete_activity" data-opal-value-id="',
-                '">Remove Activity ',
-                "</button></li>",
-            ),
-            item_id,
-            sequence,
-            item_id,
-            sequence,
-        )
+        return t"""
+            <li id="{item_id}">
+                <span>Activity {sequence}</span>
+                <button
+                    data-opal-click="delete_activity"
+                    data-opal-value-id="{item_id}"
+                >
+                    Remove Activity {sequence}
+                </button>
+            </li>
+        """
 
 
 liveview_module = LiveViewModule.for_root(

@@ -41,7 +41,8 @@ root-relative URL paths without authority, query, or fragment components.
 - `handle_event(event, value)` for connected browser events;
 - `handle_info(name, value)` for serialized timer and subscription messages;
 - `send_info(name, value=None)` for connection-local message delivery;
-- `render()` returning `Rendered` or trusted static HTML as `str`;
+- `render()` returning a Python 3.14 `Template`, `Rendered`, or trusted static
+  HTML as `str`;
 - `title()` returning an optional document title;
 - `disconnect()` for connected-session cleanup;
 - `render_document(live_root, client_script)` for document customization.
@@ -90,7 +91,8 @@ parent page. Nested components are not supported.
 mutations. `stream_contents(container_id)` replays the current queue into trusted
 HTML for the disconnected response. Container and item IDs are non-empty strings,
 insertion indexes are `-1` or non-negative safe integers, limits are non-zero
-safe integers, and inserted content is `Rendered` or trusted `str` markup.
+safe integers, and inserted content is a `Template`, `Rendered`, or trusted
+`str` markup.
 
 A stream container has a unique DOM `id` and `data-opal-stream`. Each inserted
 item has exactly one root element whose DOM `id` matches the declared item ID;
@@ -186,11 +188,30 @@ tuple. Equal fingerprints therefore mean equal static structure. A diff between
 equal structures maps changed zero-based dynamic indexes to replacement strings.
 Different structures require a full snapshot.
 
-`rendered(statics, *values)` escapes dynamic values with HTML escaping. Nested
-component `Rendered` values are flattened into parent dynamic positions, which
-lets each component update independently when the parent fingerprint remains
-stable. `raw(value)` is an explicit trust marker and must never be applied to
-untrusted input.
+`html(template)` converts a Python 3.14 `string.templatelib.Template` into
+`Rendered`. Template strings become statics, and interpolation conversions and
+format specifications are applied before HTML escaping. Nested `Template`,
+`Rendered`, and `SafeHtml` values are flattened into parent dynamic positions.
+Applications may return a `Template` directly from page and component `render`
+hooks or pass one to `stream_insert`.
+
+Template interpolations are valid only in HTML text and quoted attribute-value
+contexts; they do not make tag names, attribute names, unquoted attributes,
+JavaScript, or CSS safe. Manually constructed `Template` string arguments are
+trusted statics and must not contain untrusted input.
+
+`rendered(statics, *values)` remains the lower-level constructor and escapes
+dynamic values using the same rules. Nested trusted render values are flattened
+into parent dynamic positions, which lets each component update independently
+when the parent fingerprint remains stable. `raw(value)` is an explicit trust
+marker and must never be applied to untrusted input.
+
+`fragment(values)` consumes a finite iterable once and returns a `Rendered` with
+one dynamic position per item and empty statics between them. Ordinary items are
+escaped through the same dynamic-value rules, trusted render values are
+flattened, and an empty iterable produces empty markup. Equal item counts share
+a structural fingerprint and therefore support positional diffs. Streams remain
+the required mechanism for browser-owned collection mutation and retention.
 
 `stream_contents` is the corresponding trusted boundary for markup already
 queued through stream operations. Connected renders normally produce an empty

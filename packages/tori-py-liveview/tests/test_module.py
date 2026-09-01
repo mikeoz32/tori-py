@@ -460,6 +460,18 @@ def test_stream_operations_validate_and_render_disconnected_contents() -> None:
     with pytest.raises(ValueError, match="limit cannot be zero"):
         page.stream_insert("activity-stream", "activity-1", "<li></li>", limit=0)
 
+    unsafe_label = "<unsafe>"
+    page.stream_insert(
+        "activity-stream",
+        "activity-template",
+        t'<li id="activity-template">{unsafe_label}</li>',
+    )
+    assert (
+        '<li id="activity-template">&lt;unsafe&gt;</li>'
+        in page.stream_contents("activity-stream").value
+    )
+    page.stream_reset("activity-stream")
+
     page.stream_insert("activity-stream", "activity-1", page._item(1, "First"))
     page.stream_insert("activity-stream", "activity-2", page._item(2, "Second"))
     page.stream_insert(

@@ -12,6 +12,8 @@ uv add tori-py-liveview
 ## Quick start
 
 ```python
+from string.templatelib import Template
+
 from tori_py import module
 from tori_py_liveview import (
     LiveComponent,
@@ -19,10 +21,8 @@ from tori_py_liveview import (
     LiveViewModule,
     LiveViewOptions,
     MountContext,
-    Rendered,
     UnknownEventError,
     live_view,
-    rendered,
 )
 
 
@@ -40,11 +40,11 @@ class CounterLive(LiveView):
             raise UnknownEventError(event)
         self.count += 1
 
-    def render(self) -> Rendered:
-        return rendered(
-            ('<button data-opal-click="increment">+</button><output>', "</output>"),
-            self.count,
-        )
+    def render(self) -> Template:
+        return t"""
+            <button data-opal-click="increment">+</button>
+            <output>{self.count}</output>
+        """
 
 
 liveview_module = LiveViewModule.for_root(
@@ -63,10 +63,54 @@ it does for other ToriPy providers. The disconnected HTTP mount and connected
 WebSocket mount use separate provider instances. `MountContext.connected`
 distinguishes them.
 
-Dynamic values passed to `rendered()` are HTML escaped. Static fragments and
-values wrapped by `raw()` are trusted application HTML. Override
-`render_document(live_root, client_script)` to supply a complete document while
-retaining both framework arguments.
+`render()` accepts Python 3.14 template strings and automatically converts them
+to structural `Rendered` values. Interpolated values are HTML escaped, while
+nested `Template`, `Rendered`, `raw()`, and `stream_contents()` values are trusted
+application markup. Conversions such as `!r` and format specifications are
+applied before escaping.
+
+Use interpolations for text and quoted attribute values, not tag names,
+attribute names, unquoted attributes, JavaScript, or CSS. A manually constructed
+`Template("...")` contains trusted static markup; do not construct one from
+untrusted input. `html(t"...")` explicitly converts a template when a helper
+needs a `Rendered` value. The lower-level `rendered(statics, *values)` API remains
+available for generated code and escapes each dynamic value using the same
+rules.
+
+Override `render_document(live_root, client_script)` to supply a complete
+document while retaining both framework arguments.
+
+## Template collections
+
+Use `fragment()` to compose a finite iterable of templates or other render
+values. The iterable is consumed once, ordinary values are escaped, and nested
+`Template`, `Rendered`, and `SafeHtml` values retain their trusted composition
+semantics:
+
+```python
+from tori_py_liveview import fragment
+
+
+def user_card(name: str) -> Template:
+    return t'<article class="user-card">{name}</article>'
+
+
+class UsersLive(LiveView):
+    def render(self) -> Template:
+        cards = fragment(user_card(user.name) for user in self.users)
+
+        return t"""
+            <main>
+                <h1>Users</h1>
+                <section class="user-grid">{cards}</section>
+            </main>
+        """
+```
+
+An empty iterable produces empty markup. When two fragments contain the same
+number of items, changes are reported as positional dynamics. Use streams
+instead when the browser should own insertion, deletion, ordering, or retention
+of a changing collection.
 
 ## Stateful components
 
@@ -76,6 +120,9 @@ passed to `live_component`. `mount()` runs once for an identity, `update()` runs
 before every render, and targeted events run on the component:
 
 ```python
+from string.templatelib import Template
+
+
 class CounterComponent(LiveComponent):
     def __init__(self) -> None:
         self.count = 0
@@ -90,24 +137,22 @@ class CounterComponent(LiveComponent):
             raise UnknownEventError(event)
         self.count += 1
 
-    def render(self) -> Rendered:
-        return rendered(
-            ('<button data-opal-target="',
-             '" data-opal-click="increment">', ': ', '</button>'),
-            self.myself,
-            self.label,
-            self.count,
-        )
+    def render(self) -> Template:
+        return t"""
+            <button data-opal-target="{self.myself}" data-opal-click="increment">
+                {self.label}: {self.count}
+            </button>
+        """
 
 
 class DashboardLive(LiveView):
-    def render(self) -> Rendered:
+    def render(self) -> Template:
         counter = self.live_component(
             CounterComponent,
             "primary",
             {"label": "Primary"},
         )
-        return rendered(("<main>", "</main>"), counter)
+        return t"<main>{counter}</main>"
 ```
 
 `data-opal-target` may be on the event element or an ancestor inside the
@@ -126,19 +171,17 @@ each mount and expose it to the initial HTTP render with `stream_contents()`:
 ```python
 class ActivityLive(LiveView):
     async def mount(self, context: MountContext) -> None:
+        label = "Started"
         self.stream_reset("activities")
         self.stream_insert(
             "activities",
             "activity-1",
-            rendered(('<li id="activity-1">', "</li>"), "Started"),
+            t'<li id="activity-1">{label}</li>',
         )
 
-    def render(self) -> Rendered:
+    def render(self) -> Template:
         activities = self.stream_contents("activities")
-        return rendered(
-            ('<ul id="activities" data-opal-stream>', "</ul>"),
-            activities,
-        )
+        return t'<ul id="activities" data-opal-stream>{activities}</ul>'
 ```
 
 `stream_insert()` appends by default, prepends with `at=0`, and updates an
@@ -147,8 +190,8 @@ negative limit retains the last N. `stream_delete()` removes one direct child;
 `stream_reset()` removes all children. Each inserted item must have exactly one
 root element whose DOM `id` matches the item ID passed to `stream_insert()`.
 Passing `str` as an item marks that whole string as trusted application HTML,
-just like returning `str` from `render()`; use `Rendered` dynamics for untrusted
-values so they are escaped.
+just like returning `str` from `render()`; prefer a `Template` or `Rendered`
+value when an item contains untrusted values so they are escaped.
 
 Do not render ordinary dynamic children into a `data-opal-stream` container.
 Normal structural morphing preserves its children, and only the ordered stream

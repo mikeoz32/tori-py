@@ -44,6 +44,15 @@
 - Serialize info callbacks with browser events, renders, versions, stream
   batches, and outbound writes; reject sends outside the connected lifecycle.
 
+## LV7: Template Authoring
+
+- Map Python 3.14 template strings onto the structural rendering contract while
+  preserving escaping, fingerprints, formatting, and trusted composition.
+- Accept templates from page and component render hooks and stream insertions;
+  retain `rendered` as the lower-level constructor.
+- Compose finite template iterables into escaped positional fragments while
+  retaining streams for browser-owned collections.
+
 ## Deferred
 
 - Evaluate nested components, uploads, navigation, and server hook/reply APIs as
