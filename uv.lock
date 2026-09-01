@@ -11,6 +11,7 @@ members = [
     "tori-py-cqrs-fastapi",
     "tori-py-framework",
     "tori-py-liveview",
+    "tori-py-liveview-ui",
     "tori-py-microservices",
     "tori-py-openapi",
     "tori-py-persistent-streams",
@@ -35,6 +36,7 @@ dev = [
     { name = "tori-py-cqrs-fastapi", editable = "packages/tori-py-cqrs-fastapi" },
     { name = "tori-py-framework", extras = ["testing"], editable = "packages/tori-py" },
     { name = "tori-py-liveview", editable = "packages/tori-py-liveview" },
+    { name = "tori-py-liveview-ui", editable = "packages/tori-py-liveview-ui" },
     { name = "tori-py-microservices", editable = "packages/tori-py-microservices" },
     { name = "tori-py-openapi", editable = "packages/tori-py-openapi" },
     { name = "tori-py-persistent-streams", editable = "packages/tori-py-persistent-streams" },
@@ -1299,6 +1301,21 @@ dependencies = [
 requires-dist = [
     { name = "starlette", specifier = ">=0.47.0" },
     { name = "tori-py-framework", editable = "packages/tori-py" },
+]
+
+[[package]]
+name = "tori-py-liveview-ui"
+version = "0.1.0"
+source = { editable = "packages/tori-py-liveview-ui" }
+dependencies = [
+    { name = "tori-py-framework" },
+    { name = "tori-py-liveview" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "tori-py-framework", editable = "packages/tori-py" },
+    { name = "tori-py-liveview", editable = "packages/tori-py-liveview" },
 ]
 
 [[package]]

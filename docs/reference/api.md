@@ -328,6 +328,26 @@ navigation, and server hook/reply APIs are not part of the current server
 surface. Server-initiated updates use the bounded connection-local `send_info`
 queue and serialized `handle_info` callback.
 
+## `tori-py-liveview-ui`
+
+### `tori_py_liveview_ui`
+
+Principal public API:
+
+- Composition and documents: `LiveViewUiModule`, `STYLESHEET_PATH`, and
+  `stylesheet_link`.
+- Themed page base: `UiLiveView` with `ui_theme()` values `"auto"`, `"light"`,
+  or `"dark"`.
+- Stateless template components: `button`, `badge`, `alert`, `card`, `stack`,
+  and `grid`.
+
+The components return Python 3.14 `Template` values and compose through the
+LiveView rendering contract. They deliberately do not accept arbitrary HTML
+attributes or CSS classes; use their closed options and compose trusted child
+templates where a documented content slot is available. `LiveViewUiModule` owns
+only the local immutable stylesheet route, while `UiLiveView` adds its link and
+theme attribute to the standard LiveView document.
+
 ## Reading generated reference
 
 When a generated symbol page is available, read it together with the owning

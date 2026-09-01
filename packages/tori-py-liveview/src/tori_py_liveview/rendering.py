@@ -2,10 +2,32 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Iterable
+import re
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from html import escape
 from string.templatelib import Template, convert
+
+_ATTRIBUTE_NAME = re.compile(r"[A-Za-z_:][A-Za-z0-9:._-]*")
+_URL_ATTRIBUTES = frozenset(
+    {
+        "action",
+        "background",
+        "cite",
+        "formaction",
+        "href",
+        "longdesc",
+        "manifest",
+        "ping",
+        "poster",
+        "profile",
+        "src",
+        "srcset",
+        "usemap",
+        "xlink:href",
+    }
+)
+_UNSAFE_URL_SCHEMES = ("data:", "javascript:", "vbscript:")
 
 
 @dataclass(frozen=True, slots=True)
@@ -96,8 +118,63 @@ def classes(*names: str, **conditional: bool) -> str:
     return " ".join(tokens)
 
 
+def _unsafe_url_scheme(value: object) -> bool:
+    normalized = "".join(
+        character for character in str(value).lower() if ord(character) > 0x20
+    )
+    return normalized.startswith(_UNSAFE_URL_SCHEMES)
+
+
+def _unsafe_url(name: str, value: object) -> bool:
+    if _unsafe_url_scheme(value):
+        return True
+    if name == "ping":
+        candidates = str(value).split()
+    elif name == "srcset":
+        candidates = (
+            candidate for candidate in str(value).split(",") if candidate.strip()
+        )
+    else:
+        return False
+    return any(_unsafe_url_scheme(candidate) for candidate in candidates)
+
+
+def attrs(values: Mapping[str, object], /) -> SafeHtml:
+    if not isinstance(values, Mapping):
+        raise TypeError("attributes must be a mapping")
+    encoded: list[str] = []
+    for name, value in values.items():
+        if not isinstance(name, str):
+            raise TypeError("attribute names must be strings")
+        normalized = name.lower()
+        if (
+            _ATTRIBUTE_NAME.fullmatch(name) is None
+            or normalized.startswith("on")
+            or normalized in {"srcdoc", "style"}
+        ):
+            raise ValueError(f"unsafe HTML attribute name: {name!r}")
+        if value is None or value is False:
+            continue
+        if value is True:
+            encoded.append(f" {name}")
+        else:
+            if normalized in _URL_ATTRIBUTES and _unsafe_url(normalized, value):
+                raise ValueError(f"unsafe URL scheme for HTML attribute: {name!r}")
+            encoded.append(f' {name}="{escape(str(value), quote=True)}"')
+    return SafeHtml("".join(encoded))
+
+
 def rendered(statics: tuple[str, ...], *values: object) -> Rendered:
     return Rendered(tuple(statics), tuple(_dynamic(value) for value in values))
 
 
-__all__ = ["Rendered", "SafeHtml", "classes", "fragment", "html", "raw", "rendered"]
+__all__ = [
+    "Rendered",
+    "SafeHtml",
+    "attrs",
+    "classes",
+    "fragment",
+    "html",
+    "raw",
+    "rendered",
+]

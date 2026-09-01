@@ -1,0 +1,364 @@
+/* Tori UI: an editorial instrument panel for server-rendered interfaces. */
+:root,
+[data-tori-ui-theme="light"],
+[data-tori-ui-theme="auto"] {
+  color-scheme: light;
+  --tori-ui-paper: #f2ecdf;
+  --tori-ui-panel: #fffdf7;
+  --tori-ui-panel-raised: #fffaf0;
+  --tori-ui-ink: #20201d;
+  --tori-ui-muted: #6e675d;
+  --tori-ui-line: #cfc4b3;
+  --tori-ui-line-strong: #393630;
+  --tori-ui-accent: #c43f27;
+  --tori-ui-accent-ink: #fffaf2;
+  --tori-ui-danger: #94291f;
+  --tori-ui-info: #176b87;
+  --tori-ui-success: #2f7450;
+  --tori-ui-warning: #9a640b;
+  --tori-ui-shadow-color: rgb(45 36 24 / 0.16);
+  --tori-ui-shadow: 4px 4px 0 var(--tori-ui-shadow-color);
+  --tori-ui-font-display: "Iowan Old Style", "Palatino Linotype",
+    "Book Antiqua", Georgia, serif;
+  --tori-ui-font-body: "Avenir Next", Avenir, "Century Gothic",
+    "Trebuchet MS", sans-serif;
+  --tori-ui-font-code: "Cascadia Code", "IBM Plex Mono", Consolas,
+    monospace;
+}
+
+[data-tori-ui-theme="dark"] {
+  color-scheme: dark;
+  --tori-ui-paper: #191816;
+  --tori-ui-panel: #26231f;
+  --tori-ui-panel-raised: #302b25;
+  --tori-ui-ink: #f4eddf;
+  --tori-ui-muted: #c2b7a8;
+  --tori-ui-line: #514a40;
+  --tori-ui-line-strong: #e7dccb;
+  --tori-ui-accent: #ff7458;
+  --tori-ui-accent-ink: #241713;
+  --tori-ui-danger: #ff8a74;
+  --tori-ui-info: #72cbe7;
+  --tori-ui-success: #79d3a1;
+  --tori-ui-warning: #efbd5c;
+  --tori-ui-shadow-color: rgb(0 0 0 / 0.42);
+  --tori-ui-shadow: 4px 4px 0 var(--tori-ui-shadow-color);
+}
+
+@media (prefers-color-scheme: dark) {
+  [data-tori-ui-theme="auto"] {
+    color-scheme: dark;
+    --tori-ui-paper: #191816;
+    --tori-ui-panel: #26231f;
+    --tori-ui-panel-raised: #302b25;
+    --tori-ui-ink: #f4eddf;
+    --tori-ui-muted: #c2b7a8;
+    --tori-ui-line: #514a40;
+    --tori-ui-line-strong: #e7dccb;
+    --tori-ui-accent: #ff7458;
+    --tori-ui-accent-ink: #241713;
+    --tori-ui-danger: #ff8a74;
+    --tori-ui-info: #72cbe7;
+    --tori-ui-success: #79d3a1;
+    --tori-ui-warning: #efbd5c;
+    --tori-ui-shadow-color: rgb(0 0 0 / 0.42);
+    --tori-ui-shadow: 4px 4px 0 var(--tori-ui-shadow-color);
+  }
+}
+
+:where(
+    .tori-ui-button,
+    .tori-ui-badge,
+    .tori-ui-alert,
+    .tori-ui-card,
+    .tori-ui-stack,
+    .tori-ui-grid
+  ),
+:where(
+    .tori-ui-button,
+    .tori-ui-badge,
+    .tori-ui-alert,
+    .tori-ui-card,
+    .tori-ui-stack,
+    .tori-ui-grid
+  ) *,
+:where(
+    .tori-ui-button,
+    .tori-ui-badge,
+    .tori-ui-alert,
+    .tori-ui-card,
+    .tori-ui-stack,
+    .tori-ui-grid
+  ) *::before,
+:where(
+    .tori-ui-button,
+    .tori-ui-badge,
+    .tori-ui-alert,
+    .tori-ui-card,
+    .tori-ui-stack,
+    .tori-ui-grid
+  ) *::after {
+  box-sizing: border-box;
+}
+
+.tori-ui-button {
+  appearance: none;
+  align-items: center;
+  background: var(--tori-ui-accent);
+  border: 1px solid var(--tori-ui-line-strong);
+  border-radius: 0.28rem;
+  color: var(--tori-ui-accent-ink);
+  cursor: pointer;
+  display: inline-flex;
+  font: 750 0.8rem/1.1 var(--tori-ui-font-body);
+  justify-content: center;
+  letter-spacing: 0.075em;
+  min-height: 2.5rem;
+  padding: 0.7rem 1rem;
+  text-transform: uppercase;
+  transition:
+    background-color 140ms ease,
+    box-shadow 140ms ease,
+    transform 140ms ease;
+}
+
+.tori-ui-button:hover:not(:disabled) {
+  box-shadow: var(--tori-ui-shadow);
+  transform: translate(-1px, -1px);
+}
+
+.tori-ui-button:active:not(:disabled) {
+  box-shadow: none;
+  transform: translate(0, 0);
+}
+
+.tori-ui-button:focus-visible {
+  outline: 3px solid var(--tori-ui-accent);
+  outline-offset: 3px;
+}
+
+.tori-ui-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.46;
+}
+
+.tori-ui-button--secondary {
+  background: var(--tori-ui-panel);
+  color: var(--tori-ui-ink);
+}
+
+.tori-ui-button--ghost {
+  background: transparent;
+  border-color: var(--tori-ui-line);
+  color: var(--tori-ui-ink);
+}
+
+.tori-ui-button--danger {
+  background: var(--tori-ui-danger);
+  color: var(--tori-ui-panel);
+}
+
+.tori-ui-button--sm {
+  font-size: 0.7rem;
+  min-height: 2rem;
+  padding: 0.5rem 0.72rem;
+}
+
+.tori-ui-button--lg {
+  font-size: 0.9rem;
+  min-height: 3rem;
+  padding: 0.9rem 1.25rem;
+}
+
+.tori-ui-badge {
+  align-items: center;
+  border: 1px solid currentcolor;
+  border-radius: 999px;
+  color: var(--tori-ui-muted);
+  display: inline-flex;
+  font: 700 0.67rem/1 var(--tori-ui-font-code);
+  letter-spacing: 0.08em;
+  padding: 0.38rem 0.55rem;
+  text-transform: uppercase;
+}
+
+.tori-ui-badge--info {
+  color: var(--tori-ui-info);
+}
+
+.tori-ui-badge--success {
+  color: var(--tori-ui-success);
+}
+
+.tori-ui-badge--warning {
+  color: var(--tori-ui-warning);
+}
+
+.tori-ui-badge--danger {
+  color: var(--tori-ui-danger);
+}
+
+.tori-ui-alert {
+  background: var(--tori-ui-panel);
+  border: 1px solid var(--tori-ui-line);
+  border-left: 5px solid var(--tori-ui-muted);
+  box-shadow: var(--tori-ui-shadow);
+  color: var(--tori-ui-ink);
+}
+
+.tori-ui-alert__content {
+  padding: 1rem 1.1rem;
+}
+
+.tori-ui-alert__title {
+  font: 700 1.05rem/1.2 var(--tori-ui-font-display);
+  letter-spacing: 0.015em;
+  margin: 0 0 0.4rem;
+}
+
+.tori-ui-alert__body {
+  color: var(--tori-ui-muted);
+  font: 500 0.93rem/1.55 var(--tori-ui-font-body);
+}
+
+.tori-ui-alert--info {
+  border-left-color: var(--tori-ui-info);
+}
+
+.tori-ui-alert--success {
+  border-left-color: var(--tori-ui-success);
+}
+
+.tori-ui-alert--warning {
+  border-left-color: var(--tori-ui-warning);
+}
+
+.tori-ui-alert--danger {
+  border-left-color: var(--tori-ui-danger);
+}
+
+.tori-ui-card {
+  background: var(--tori-ui-panel);
+  border: 1px solid var(--tori-ui-line-strong);
+  box-shadow: var(--tori-ui-shadow);
+  color: var(--tori-ui-ink);
+}
+
+.tori-ui-card__header {
+  background: var(--tori-ui-panel-raised);
+  border-bottom: 1px solid var(--tori-ui-line);
+  padding: 1.15rem 1.2rem 0.95rem;
+}
+
+.tori-ui-card__eyebrow {
+  color: var(--tori-ui-accent);
+  font: 700 0.67rem/1 var(--tori-ui-font-code);
+  letter-spacing: 0.12em;
+  margin: 0 0 0.45rem;
+  text-transform: uppercase;
+}
+
+.tori-ui-card__title {
+  font: 700 1.5rem/1.08 var(--tori-ui-font-display);
+  margin: 0;
+}
+
+.tori-ui-card__body {
+  font: 500 0.97rem/1.65 var(--tori-ui-font-body);
+  padding: 1.2rem;
+}
+
+.tori-ui-card__footer {
+  border-top: 1px solid var(--tori-ui-line);
+  color: var(--tori-ui-muted);
+  font: 650 0.72rem/1.35 var(--tori-ui-font-code);
+  padding: 0.75rem 1.2rem;
+}
+
+.tori-ui-stack {
+  display: flex;
+  flex-direction: column;
+}
+
+.tori-ui-stack--gap-xs,
+.tori-ui-grid--gap-xs {
+  gap: 0.25rem;
+}
+
+.tori-ui-stack--gap-sm,
+.tori-ui-grid--gap-sm {
+  gap: 0.5rem;
+}
+
+.tori-ui-stack--gap-md,
+.tori-ui-grid--gap-md {
+  gap: 1rem;
+}
+
+.tori-ui-stack--gap-lg,
+.tori-ui-grid--gap-lg {
+  gap: 1.5rem;
+}
+
+.tori-ui-stack--gap-xl,
+.tori-ui-grid--gap-xl {
+  gap: 2.5rem;
+}
+
+.tori-ui-stack--align-start {
+  align-items: flex-start;
+}
+
+.tori-ui-stack--align-center {
+  align-items: center;
+}
+
+.tori-ui-stack--align-end {
+  align-items: flex-end;
+}
+
+.tori-ui-stack--align-stretch {
+  align-items: stretch;
+}
+
+.tori-ui-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr));
+}
+
+.tori-ui-grid--columns-1 {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.tori-ui-grid--columns-2 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.tori-ui-grid--columns-3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.tori-ui-grid--columns-4 {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+@media (max-width: 42rem) {
+  .tori-ui-grid--columns-3,
+  .tori-ui-grid--columns-4 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 28rem) {
+  .tori-ui-grid--columns-2,
+  .tori-ui-grid--columns-3,
+  .tori-ui-grid--columns-4 {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tori-ui-button {
+    transition: none;
+  }
+}

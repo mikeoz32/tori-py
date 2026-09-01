@@ -2,8 +2,9 @@
 
 Tori Py is a family of independently installable, typed Python packages for
 building explicit modular applications. The family covers dependency injection,
-ASGI, CQRS, event sourcing, SQLAlchemy, OpenAPI, LiveView, microservices, and
-persistent streams without forcing every integration into the core framework.
+ASGI, CQRS, event sourcing, SQLAlchemy, OpenAPI, LiveView, LiveView UI,
+microservices, and persistent streams without forcing every integration into the
+core framework.
 
 Tori Py requires Python 3.14.
 
@@ -20,6 +21,7 @@ Tori Py requires Python 3.14.
 | `tori-py-sqlalchemy` | `tori_py_sqlalchemy` | Async SQLAlchemy lifecycle, repositories, and transactions |
 | `tori-py-openapi` | `tori_py_openapi` | OpenAPI 3.1 and Swagger UI integration |
 | `tori-py-liveview` | `tori_py_liveview` | Server-rendered interactive pages over WebSockets |
+| `tori-py-liveview-ui` | `tori_py_liveview_ui` | Styled foundation components and bundled CSS for LiveView |
 | `tori-py-microservices` | `tori_py_microservices` | Transport-neutral RPC and event delivery |
 | `tori-py-persistent-streams-core` | `tori_py_persistent_streams_core` | Framework-neutral persistent-log contracts |
 | `tori-py-persistent-streams` | `tori_py_persistent_streams` | Tori Py persistent-stream handlers and publishers |
@@ -34,6 +36,7 @@ uv add tori-py-framework
 uv add tori-py-cqrs tori-py-cqrs-event-sourcing
 uv add tori-py-sqlalchemy tori-py-openapi
 uv add tori-py-liveview
+uv add tori-py-liveview-ui
 uv add "tori-py-microservices[rabbitmq]"
 ```
 

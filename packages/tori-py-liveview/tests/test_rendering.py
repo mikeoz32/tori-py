@@ -9,6 +9,7 @@ from tori_py_liveview import (
     LiveComponent,
     LiveView,
     Rendered,
+    attrs,
     classes,
     fragment,
     html,
@@ -169,6 +170,72 @@ def test_classes_requires_string_names_and_boolean_conditions() -> None:
         classes(cast(str, 1))
     with pytest.raises(TypeError, match="conditional class flags must be booleans"):
         classes(active=cast(bool, 1))
+
+
+def test_attrs_encodes_values_and_omits_disabled_attributes() -> None:
+    result = attrs(
+        {
+            "id": "save-button",
+            "disabled": True,
+            "hidden": False,
+            "title": None,
+            "data-opal-click": "save",
+            "aria-label": '<Save & "close">',
+        }
+    )
+
+    assert result == raw(
+        ' id="save-button" disabled data-opal-click="save" '
+        'aria-label="&lt;Save &amp; &quot;close&quot;&gt;"'
+    )
+
+
+@pytest.mark.parametrize(
+    "name", ["", "not valid", "onclick", "ONFOCUS", "srcdoc", "style"]
+)
+def test_attrs_rejects_unsafe_attribute_names(name: str) -> None:
+    with pytest.raises(ValueError, match="unsafe HTML attribute name"):
+        attrs({name: "value"})
+
+
+def test_attrs_requires_a_mapping_with_string_names() -> None:
+    with pytest.raises(TypeError, match="attributes must be a mapping"):
+        attrs(cast(dict[str, object], []))
+    with pytest.raises(TypeError, match="attribute names must be strings"):
+        attrs(cast(dict[str, object], {1: "value"}))
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "javascript:alert(1)",
+        " JAVA\nSCRIPT:alert(1)",
+        "vbscript:msgbox(1)",
+        "data:text/html,<script>alert(1)</script>",
+    ],
+)
+def test_attrs_rejects_executable_url_schemes(value: str) -> None:
+    with pytest.raises(ValueError, match="unsafe URL scheme"):
+        attrs({"href": value})
+
+
+@pytest.mark.parametrize(
+    ("name", "value"),
+    [
+        ("ping", "https://safe.example/a javascript:alert(1)"),
+        ("srcset", "https://safe.example/a 1x, javascript:alert(1) 2x"),
+        ("srcset", "https://safe.example/a 1x, java\nscript:alert(1) 2x"),
+    ],
+)
+def test_attrs_rejects_executable_schemes_in_url_lists(name: str, value: str) -> None:
+    with pytest.raises(ValueError, match="unsafe URL scheme"):
+        attrs({name: value})
+
+
+def test_attrs_allows_relative_and_network_urls() -> None:
+    assert attrs({"href": "/settings", "src": "https://cdn.example/icon.svg"}) == raw(
+        ' href="/settings" src="https://cdn.example/icon.svg"'
+    )
 
 
 @pytest.mark.asyncio

@@ -24,6 +24,9 @@ one package does not require the same change in every package.
   request-scoped pages, signed mounts, Opal protocol-v2 structural diffs, and a
   checksum-pinned common browser client, now including connection-local stateful
   components, targeted component events, and browser-owned bounded streams.
+- Separately installable `tori-py-liveview-ui` foundation with six typed,
+  stateless LiveView template components, a bundled content-addressed immutable
+  stylesheet route, and `UiLiveView` document theming.
 
 ### Fixed
 

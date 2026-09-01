@@ -30,10 +30,11 @@ from scripts.testpypi_smoke import main as run_testpypi_smoke
 
 def test_manifest_covers_family_in_topological_order() -> None:
     manifest = load_manifest()
-    assert len(manifest) == 13
+    assert len(manifest) == 14
     assert EXPECTED_ARTIFACTS == len(manifest) * 2
     names = {item.normalized_name for item in manifest}
     assert "tori-py-framework" in names
+    assert "tori-py-liveview-ui" in names
     assert "tori-py" not in names
     positions = {item.normalized_name: index for index, item in enumerate(manifest)}
     for item in manifest:
@@ -162,8 +163,12 @@ def test_distribution_smoke_uses_only_declared_dependency_closure(
     tmp_path: Path,
 ) -> None:
     manifest = load_manifest()
-    liveview = next(item for item in manifest if item.name == "tori-py-liveview")
-    closure = dependency_closure(liveview, manifest)
+    liveview_ui = next(item for item in manifest if item.name == "tori-py-liveview-ui")
+    assert liveview_ui.internal_dependency_names == (
+        "tori-py-framework",
+        "tori-py-liveview",
+    )
+    closure = dependency_closure(liveview_ui, manifest)
     pairs = {
         item.normalized_name: (
             tmp_path / f"{item.artifact_stem}-{item.version}-py3-none-any.whl",
@@ -172,7 +177,7 @@ def test_distribution_smoke_uses_only_declared_dependency_closure(
         for item in manifest
     }
 
-    command = distribution_smoke_command(liveview, pairs, manifest, artifact_index=0)
+    command = distribution_smoke_command(liveview_ui, pairs, manifest, artifact_index=0)
 
     selected = [
         Path(command[index + 1]).name
@@ -182,6 +187,7 @@ def test_distribution_smoke_uses_only_declared_dependency_closure(
     assert [item.name for item in closure] == [
         "tori-py-framework",
         "tori-py-liveview",
+        "tori-py-liveview-ui",
     ]
     assert selected == [pairs[item.normalized_name][0].name for item in closure]
 

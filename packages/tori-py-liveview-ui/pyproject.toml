@@ -1,0 +1,37 @@
+[project]
+name = "tori-py-liveview-ui"
+version = "0.1.0"
+description = "Styled component library for Tori Py LiveView"
+readme = "README.md"
+requires-python = ">=3.14,<3.15"
+license = "Apache-2.0"
+license-files = ["NOTICE"]
+authors = [{ name = "Mykhailo Kozlovskyi" }]
+maintainers = [{ name = "Mykhailo Kozlovskyi" }]
+keywords = ["components", "design-system", "liveview", "tori-py", "ui"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.14",
+    "Typing :: Typed",
+]
+dependencies = [
+    "tori-py-framework>=0.1.0,<0.2.0",
+    "tori-py-liveview>=0.1.0,<0.2.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/mikeoz32/tori-py"
+Documentation = "https://github.com/mikeoz32/tori-py/tree/main/packages/tori-py-liveview-ui#readme"
+Repository = "https://github.com/mikeoz32/tori-py"
+Issues = "https://github.com/mikeoz32/tori-py/issues"
+Changelog = "https://github.com/mikeoz32/tori-py/blob/main/CHANGELOG.md"
+
+[build-system]
+requires = ["uv_build==0.11.28"]
+build-backend = "uv_build"
+
+[tool.uv.sources]
+tori-py-framework = { workspace = true }
+tori-py-liveview = { workspace = true }

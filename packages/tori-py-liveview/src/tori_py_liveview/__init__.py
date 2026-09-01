@@ -14,6 +14,7 @@ from tori_py_liveview.page import LiveView, MountContext
 from tori_py_liveview.rendering import (
     Rendered,
     SafeHtml,
+    attrs,
     classes,
     fragment,
     html,
@@ -33,6 +34,7 @@ __all__ = [
     "SafeHtml",
     "UnknownEventError",
     "UnknownInfoError",
+    "attrs",
     "classes",
     "fragment",
     "html",

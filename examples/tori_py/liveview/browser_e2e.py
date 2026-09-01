@@ -8,6 +8,7 @@ from collections.abc import Iterator
 import pytest
 import uvicorn
 from playwright.sync_api import Page, expect
+from tori_py_liveview_ui import STYLESHEET_PATH
 
 from examples.tori_py.liveview.app import application
 
@@ -73,6 +74,11 @@ def test_counter_updates_and_recovers_after_reconnect(
     activity_one = page.locator("#activity-1")
     activity_one.evaluate("element => { window.__toriActivityOne = element; }")
 
+    expect(page.locator("html")).to_have_attribute("data-tori-ui-theme", "auto")
+    expect(page.locator(f'link[href="{STYLESHEET_PATH}"]')).to_have_count(1)
+    expect(increment).to_have_class(
+        "tori-ui-button tori-ui-button--primary tori-ui-button--md"
+    )
     expect(root).to_have_attribute("data-opal-status", "connected")
     expect(output).to_have_text("2")
     expect(left_output).to_have_text("0")

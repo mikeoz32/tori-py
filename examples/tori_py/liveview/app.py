@@ -5,13 +5,21 @@ from tori_py import NestApplication, module
 from tori_py.starlette import StarletteAdapter, asgi
 from tori_py_liveview import (
     LiveComponent,
-    LiveView,
     LiveViewModule,
     LiveViewOptions,
     MountContext,
     UnknownEventError,
-    classes,
     live_view,
+)
+from tori_py_liveview_ui import (
+    LiveViewUiModule,
+    UiLiveView,
+    alert,
+    badge,
+    button,
+    card,
+    grid,
+    stack,
 )
 
 
@@ -35,20 +43,35 @@ class CounterComponent(LiveComponent):
         self.count += 1
 
     def render(self) -> Template:
-        button_class = classes("counter-button", incremented=self.count > 0)
+        controls = stack(
+            [
+                button(
+                    f"Increment {self.label}",
+                    event="increment",
+                    target=self.myself,
+                    variant="secondary",
+                    size="sm",
+                ),
+                t'<output data-component-id="{self.id}">{self.count}</output>',
+            ],
+            gap="sm",
+            align="start",
+        )
+        panel = card(
+            controls,
+            eyebrow="Stateful component",
+            title=self.label,
+            footer=badge("Isolated state", tone="info"),
+        )
         return t"""
             <section id="component-{self.id}" data-opal-target="{self.myself}">
-                <h2>{self.label}</h2>
-                <button class="{button_class}" data-opal-click="increment">
-                    Increment {self.label}
-                </button>
-                <output data-component-id="{self.id}">{self.count}</output>
+                {panel}
             </section>
         """
 
 
 @live_view("/")
-class CounterLive(LiveView):
+class CounterLive(UiLiveView):
     def __init__(self) -> None:
         self.count = 0
         self.next_activity = 3
@@ -113,20 +136,52 @@ class CounterLive(LiveView):
             {"label": "Right"},
         )
         activities = self.stream_contents("activity-stream")
-        return t"""
-            <main>
-                <h1>ToriPy LiveView</h1>
-                <button data-opal-click="increment">Increment page</button>
-                <button data-opal-click="increment_later">Increment later</button>
-                <output data-page-counter>{self.count}</output>
-                <div class="components">{left}{right}</div>
-                <section>
-                    <h2>Activity stream</h2>
-                    <button data-opal-click="prepend_activity">Prepend activity</button>
-                    <ul id="activity-stream" data-opal-stream>{activities}</ul>
-                </section>
-            </main>
-        """
+        page_counter = card(
+            stack(
+                [
+                    badge("Connected", tone="success"),
+                    t"<output data-page-counter>{self.count}</output>",
+                    button("Increment page", event="increment"),
+                    button(
+                        "Increment later",
+                        event="increment_later",
+                        variant="ghost",
+                    ),
+                ],
+                gap="sm",
+                align="start",
+            ),
+            eyebrow="Page process",
+            title="Counter",
+            footer="Immediate and queued server events",
+        )
+        component_counters = grid([left, right], columns=2, gap="lg")
+        activity_stream = card(
+            stack(
+                [
+                    alert(
+                        "Only three entries are retained when new activity "
+                        "is prepended.",
+                        title="Bounded stream",
+                        tone="info",
+                    ),
+                    button(
+                        "Prepend activity",
+                        event="prepend_activity",
+                        variant="primary",
+                    ),
+                    t'<ul id="activity-stream" data-opal-stream>{activities}</ul>',
+                ],
+                gap="md",
+            ),
+            eyebrow="Browser-owned collection",
+            title="Activity stream",
+        )
+        showcase = stack(
+            [page_counter, component_counters, activity_stream],
+            gap="xl",
+        )
+        return t"<main>{showcase}</main>"
 
     def title(self) -> str:
         return f"Counter: {self.count}"
@@ -142,8 +197,10 @@ class CounterLive(LiveView):
             <li id="{item_id}">
                 <span>Activity {sequence}</span>
                 <button
+                    class="tori-ui-button tori-ui-button--danger tori-ui-button--sm"
                     data-opal-click="delete_activity"
                     data-opal-value-id="{item_id}"
+                    type="button"
                 >
                     Remove Activity {sequence}
                 </button>
@@ -157,7 +214,7 @@ liveview_module = LiveViewModule.for_root(
 )
 
 
-@module(imports=[liveview_module])
+@module(imports=[liveview_module, LiveViewUiModule.for_root()])
 class AppModule:
     pass
 
