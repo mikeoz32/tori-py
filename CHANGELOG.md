@@ -21,9 +21,13 @@ one package does not require the same change in every package.
   sockets, marker-only handshake binding, connection-owned request scopes, and
   the full middleware/guard/pipe/interceptor/filter pipeline.
 - Separately installable `tori-py-liveview` integration with explicit
-  request-scoped pages, signed mounts, Opal protocol-v2 structural diffs, and a
-  checksum-pinned common browser client, now including connection-local stateful
-  components, targeted component events, and browser-owned bounded streams.
+  request-scoped pages, signed mounts, checksum-pinned official Phoenix and
+  Phoenix LiveView clients, Channels/render-tree interoperability,
+  connection-local stateful component CIDs, targeted component events, and
+  browser-owned bounded streams.
+- Separately installable `tori-py-liveview-ui` foundation with six typed
+  stateless component helpers, a content-addressed immutable local stylesheet,
+  and `UiLiveView` document theming for Phoenix LiveView pages.
 
 ### Fixed
 
@@ -32,7 +36,7 @@ one package does not require the same change in every package.
 
 ## [0.1.0] - Unreleased
 
-Coordinated initial beta release train for all 13 distributions. This train
+Coordinated initial beta release train for all 14 distributions. This train
 establishes public package boundaries and compatibility ranges; subsequent
 releases are versioned independently.
 

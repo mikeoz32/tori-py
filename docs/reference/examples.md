@@ -31,7 +31,7 @@ Request `GET /example/health?count=2` while it is running.
 
 | Example | Exact command | Demonstrates |
 | --- | --- | --- |
-| Counter | `uv run tori-py run examples.tori_py.liveview.app:create_application` | HTTP disconnected mount, signed WebSocket join, page events, isolated stateful components, targeted component events, bounded streams, and structural diffs |
+| LiveView UI showcase | `uv run tori-py run examples.tori_py.liveview.app:create_application` | HTTP disconnected mount, signed WebSocket join, Phoenix page/component/stream events, all six stateless UI helpers, the local themed stylesheet, and reconnect behavior |
 
 ### Getting started
 

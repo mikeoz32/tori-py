@@ -1,9 +1,9 @@
 # tori-py-liveview
 
 `tori-py-liveview` adds server-rendered interactive pages to ToriPy. A normal
-HTTP route renders the initial document. The included Opal browser client then
-joins a ToriPy WebSocket gateway, forwards declared DOM events, and applies
-protocol-v2 structural diffs.
+HTTP route renders the initial document. The included official Phoenix and
+Phoenix LiveView browser clients then join a ToriPy WebSocket gateway, forward
+`phx-*` DOM events, and apply Phoenix render-tree diffs.
 
 ```text
 uv add tori-py-liveview
@@ -12,6 +12,8 @@ uv add tori-py-liveview
 ## Quick start
 
 ```python
+from string.templatelib import Template
+
 from tori_py import module
 from tori_py_liveview import (
     LiveComponent,
@@ -40,10 +42,10 @@ class CounterLive(LiveView):
             raise UnknownEventError(event)
         self.count += 1
 
-    def render(self) -> Rendered:
-        return rendered(
-            ('<button data-opal-click="increment">+</button><output>', "</output>"),
-            self.count,
+    def render(self) -> Template:
+        return (
+            t'<section><button phx-click="increment">+</button>'
+            t"<output>{self.count}</output></section>"
         )
 
 
@@ -63,10 +65,25 @@ it does for other ToriPy providers. The disconnected HTTP mount and connected
 WebSocket mount use separate provider instances. `MountContext.connected`
 distinguishes them.
 
-Dynamic values passed to `rendered()` are HTML escaped. Static fragments and
-values wrapped by `raw()` are trusted application HTML. Override
+Ordinary Template interpolations and values passed to `rendered()` are HTML
+escaped. Template statics, explicit `rendered()` statics, direct `str` render
+returns, and values wrapped by `raw()` are trusted application HTML. Override
 `render_document(live_root, client_script)` to supply a complete document while
 retaining both framework arguments.
+
+## Template authoring
+
+`html(t"...")` converts a Python 3.14 template string to `Rendered`.
+`fragment()` composes a finite iterable once, `classes()` builds conditional
+class names as ordinary escaped text, and `attrs()` generates validated escaped
+attributes. Pages and components may return Templates directly, and stream
+items accept them as well.
+
+Nested Templates, `Rendered` values, components, and streams remain nested
+Phoenix render-tree values. Interpolate those structural values without `!s`,
+`!r`, `!a`, or a format specification. Ordinary interpolation is supported only
+in HTML text and quoted attribute values; dynamic tag or attribute names, CSS,
+and JavaScript are outside the safe authoring contract.
 
 ## Stateful components
 
@@ -92,8 +109,8 @@ class CounterComponent(LiveComponent):
 
     def render(self) -> Rendered:
         return rendered(
-            ('<button data-opal-target="',
-             '" data-opal-click="increment">', ': ', '</button>'),
+            ('<button phx-target="',
+             '" phx-click="increment">', ': ', '</button>'),
             self.myself,
             self.label,
             self.count,
@@ -110,12 +127,14 @@ class DashboardLive(LiveView):
         return rendered(("<main>", "</main>"), counter)
 ```
 
-`data-opal-target` may be on the event element or an ancestor inside the
-component. The target is connection-local and must come from `myself`; do not
-persist or construct it. Omitting an identity disconnects and forgets that
-component. Rendering it again creates fresh state and a new target. Override
-the async `disconnect()` hook to stop component-owned resources. Nested
-components are not supported.
+`phx-target` is placed on the event element and carries `myself`. The target is
+connection-local; do not persist or construct it. An omitted identity remains
+revivable until the browser completes Phoenix's component-destruction handshake.
+After final confirmation it is disconnected and forgotten; rendering it later
+creates fresh state and a new target. Override the async `disconnect()` hook to
+stop component-owned resources. Nested components are not supported. Component
+output must contain exactly one root element and use explicit balanced end tags
+rather than optional-end-tag HTML.
 
 ## Streams
 
@@ -136,7 +155,7 @@ class ActivityLive(LiveView):
     def render(self) -> Rendered:
         activities = self.stream_contents("activities")
         return rendered(
-            ('<ul id="activities" data-opal-stream>', "</ul>"),
+            ('<ul id="activities" phx-update="stream">', "</ul>"),
             activities,
         )
 ```
@@ -145,15 +164,15 @@ class ActivityLive(LiveView):
 existing item in place. A positive limit retains the first N children and a
 negative limit retains the last N. `stream_delete()` removes one direct child;
 `stream_reset()` removes all children. Each inserted item must have exactly one
-root element whose DOM `id` matches the item ID passed to `stream_insert()`.
-Passing `str` as an item marks that whole string as trusted application HTML,
-just like returning `str` from `render()`; use `Rendered` dynamics for untrusted
-values so they are escaped.
+explicitly balanced root element whose DOM `id` matches the item ID passed to
+`stream_insert()`. Passing `str` as an item marks that whole string as trusted
+application HTML, just like returning `str` from `render()`; use a Template or
+`Rendered` dynamics for untrusted values so they are escaped.
 
-Do not render ordinary dynamic children into a `data-opal-stream` container.
-Normal structural morphing preserves its children, and only the ordered stream
-batch may mutate them. Operations are delivered once, rejected event queues are
-discarded, and reconnect mount should reset and rebuild canonical state.
+Do not render ordinary dynamic children into a `phx-update="stream"` container.
+Phoenix morphing preserves its children, and only the stream tuple may mutate
+them. Operations are delivered once, rejected event queues are discarded, and
+reconnect mount should reset and rebuild canonical state.
 
 ## Configuration
 
@@ -169,16 +188,17 @@ authorization. Use TLS and a strong deployment secret shared by all replicas.
 
 ## Compatibility
 
-The package vendors the unchanged Opal protocol-v2 browser client from commit
-`e492477d62bbe578eb6a7b132db60e5b845ceb35`. Its source and checksum are recorded
-in `static/opal_live_view.lock.json`; `scripts/sync_opal_client.py` verifies the
-checksum before replacing the vendored file.
+The package vendors unchanged official global builds of `phoenix@1.8.13` and
+`phoenix_live_view@1.2.11`. Sources and checksums are recorded in
+`static/phoenix_assets.lock.json`; `scripts/sync_phoenix_assets.py` verifies all
+downloads before replacing either vendored file.
 
-This release implements page snapshots, structural diffs, stateful components,
-targeted events, event correlation, stale-version resynchronization, heartbeats,
+This release implements Phoenix Channels joins and replies, Phoenix render
+trees, stateful component CIDs, targeted events, heartbeats,
 reconnect-compatible joins, title updates, and browser-owned bounded streams.
-Nested components, uploads, and `send_info` are reserved for later releases.
-Their existing browser protocol must not be reinterpreted.
+The configured socket path is the Phoenix endpoint base; the browser connects to
+its `/websocket?vsn=2.0.0` transport route. Nested components, uploads,
+navigation, hooks, and `send_info` are reserved for later releases.
 
 See the runnable example in `examples/tori_py/liveview` and the normative
 architecture in `TORI_PY_LIVEVIEW_ARCHITECTURE.md`.

@@ -7,6 +7,10 @@ from urllib.parse import urlsplit
 from tori_py_liveview.errors import LiveViewConfigurationError
 
 
+def websocket_path(socket_path: str) -> str:
+    return f"{socket_path}/websocket"
+
+
 def normalize_origin(value: str) -> str:
     if not isinstance(value, str):
         raise LiveViewConfigurationError("allowed origins must be absolute origins")
@@ -55,6 +59,8 @@ class LiveViewOptions:
                 not isinstance(path, str)
                 or not path.startswith("/")
                 or path.startswith("//")
+                or path == "/"
+                or path.endswith("/")
                 or urlsplit(path).path != path
             ):
                 raise LiveViewConfigurationError("paths must be absolute")

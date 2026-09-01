@@ -1,0 +1,4 @@
+packages/tori-py-liveview/NOTICE text eol=lf
+packages/tori-py-liveview/scripts/*.py text eol=lf
+packages/tori-py-liveview/src/tori_py_liveview/static/*.json text eol=lf
+packages/tori-py-liveview/src/tori_py_liveview/static/*.min.js binary

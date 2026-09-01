@@ -4,10 +4,12 @@ import asyncio
 import html
 import json
 import logging
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Annotated, cast
+from urllib.parse import parse_qsl
 
 from starlette.datastructures import QueryParams
 from starlette.requests import Request
@@ -19,12 +21,19 @@ from tori_py_liveview.errors import (
     LiveViewConfigurationError,
     UnknownEventError,
 )
-from tori_py_liveview.options import LiveViewOptions, normalize_origin
+from tori_py_liveview.options import LiveViewOptions, normalize_origin, websocket_path
 from tori_py_liveview.page import LiveView, MountContext, _UnknownComponentError
-from tori_py_liveview.rendering import Rendered
+from tori_py_liveview.rendering import (
+    Rendered,
+    _ComponentRendered,
+    _StreamRendered,
+)
 from tori_py_liveview.tokens import InvalidMountTokenError, MountTokenCodec
 
 _LOGGER = logging.getLogger(__name__)
+_LIVEVIEW_VERSION = "1.2.11"
+_ROOT_ID = "tori-live-root"
+_TOPIC = f"lv:{_ROOT_ID}"
 _MAX_SAFE_INTEGER = 2**53 - 1
 
 
@@ -34,6 +43,15 @@ class _Registry:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "pages", MappingProxyType(dict(self.pages)))
+
+
+@dataclass(frozen=True, slots=True)
+class _ChannelMessage:
+    join_ref: str | None
+    ref: str | None
+    topic: str
+    event: str
+    payload: dict[str, object]
 
 
 @dataclass(frozen=True, slots=True)
@@ -59,39 +77,58 @@ def _resource(request: Request) -> str:
     return path if not query else f"{path}?{query}"
 
 
-def _render_message(
+def _stream_tree(rendered: _StreamRendered) -> dict[str, object]:
+    keyed: dict[str, object] = {"kc": len(rendered.inserts)}
+    insert_metadata: list[list[object]] = []
+    for index, insert in enumerate(rendered.inserts):
+        keyed[str(index)] = {"0": insert.html}
+        insert_metadata.append([insert.item_id, insert.at, insert.limit, None])
+    stream: list[object] = [
+        rendered.ref,
+        insert_metadata,
+        list(rendered.delete_ids),
+    ]
+    if rendered.reset:
+        stream.append(True)
+    return {"s": ["", ""], "k": keyed, "stream": stream}
+
+
+def _rendered_tree(
     rendered: Rendered,
-    version: int,
+    components: dict[str, object],
     *,
-    title: str | None,
-    previous: Rendered | None = None,
-    ref: int | None = None,
-    status: str | None = None,
-    streams: list[dict[str, object]] | None = None,
+    root: bool = False,
 ) -> dict[str, object]:
-    payload: dict[str, object] = {
-        "type": "render",
-        "protocol": 2,
-        "version": version,
-    }
-    diff = None if previous is None else rendered.diff(previous)
-    if diff is None:
-        payload["rendered"] = {
-            "fingerprint": rendered.fingerprint,
-            "statics": list(rendered.statics),
-            "dynamics": list(rendered.dynamics),
-        }
-    else:
-        payload["fingerprint"] = rendered.fingerprint
-        payload["diff"] = {str(index): value for index, value in diff.items()}
-    if streams:
-        payload["streams"] = streams
-    if title is not None:
-        payload["title"] = title
-    if ref is not None:
-        payload["ref"] = ref
-    if status is not None:
-        payload["status"] = status
+    tree: dict[str, object] = {"s": list(rendered.statics)}
+    if root:
+        tree["r"] = 1
+    for index, dynamic in enumerate(rendered.dynamics):
+        key = str(index)
+        if isinstance(dynamic, _ComponentRendered):
+            tree[key] = dynamic.cid
+            component = Rendered(dynamic.statics, dynamic.dynamics)
+            components[str(dynamic.cid)] = _rendered_tree(
+                component,
+                components,
+                root=True,
+            )
+        elif isinstance(dynamic, _StreamRendered):
+            tree[key] = _stream_tree(dynamic)
+        elif isinstance(dynamic, Rendered):
+            tree[key] = _rendered_tree(dynamic, components)
+        else:
+            tree[key] = dynamic
+    return tree
+
+
+def _render_message(rendered: Rendered, *, title: str | None) -> dict[str, object]:
+    components: dict[str, object] = {}
+    if isinstance(rendered, _ComponentRendered):
+        rendered = Rendered(("", ""), (rendered,))
+    payload = _rendered_tree(rendered, components)
+    if components:
+        payload["c"] = components
+    payload["t"] = "" if title is None else title
     return payload
 
 
@@ -123,13 +160,14 @@ async def initial_response(
             resource,
         )
         root = (
-            '<div id="opal-live-root" data-opal-live-root '
-            f'data-opal-token="{html.escape(token, quote=True)}" '
-            f'data-opal-socket="{html.escape(options.socket_path, quote=True)}">'
+            f'<div id="{_ROOT_ID}" data-phx-main '
+            f'data-phx-session="{html.escape(token, quote=True)}" '
+            'data-phx-static="" '
+            f'data-tori-live-socket="{html.escape(options.socket_path, quote=True)}">'
             f"{(await _render(page)).to_html()}</div>"
         )
         client_script = (
-            '<script type="module" '
+            "<script defer "
             f'src="{html.escape(options.client_path, quote=True)}"></script>'
         )
         document = page.render_document(root, client_script)
@@ -168,13 +206,42 @@ def _allowed(socket: WebSocket, options: LiveViewOptions) -> bool:
     return normalized == expected
 
 
+def _ref(value: object) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value:
+        raise _CloseConnection(1002)
+    return value
+
+
+def _channel_message(value: object) -> _ChannelMessage:
+    if not isinstance(value, list) or len(value) != 5:
+        raise _CloseConnection(1002)
+    join_ref, ref, topic, event, payload = value
+    if (
+        not isinstance(topic, str)
+        or not topic
+        or not isinstance(event, str)
+        or not event
+        or not isinstance(payload, dict)
+    ):
+        raise _CloseConnection(1002)
+    return _ChannelMessage(
+        _ref(join_ref),
+        _ref(ref),
+        topic,
+        event,
+        cast(dict[str, object], payload),
+    )
+
+
 async def _message(
     socket: WebSocket,
     *,
     timeout: float,
     timeout_code: int,
     max_message_bytes: int,
-) -> dict[str, object]:
+) -> _ChannelMessage:
     try:
         data = await asyncio.wait_for(socket.receive(), timeout=timeout)
     except TimeoutError as error:
@@ -200,21 +267,141 @@ async def _message(
         parsed = json.loads(text, parse_constant=_reject_json_constant)
     except (json.JSONDecodeError, UnicodeError, ValueError, RecursionError) as error:
         raise _CloseConnection(1002) from error
-    if not isinstance(parsed, dict):
-        raise _CloseConnection(1002)
-    return cast(dict[str, object], parsed)
+    return _channel_message(parsed)
 
 
-def _non_negative_int(value: object) -> int:
-    if type(value) is not int or not 0 <= value <= _MAX_SAFE_INTEGER:
-        raise _CloseConnection(1002)
-    return value
+async def _send(
+    socket: WebSocket,
+    join_ref: str | None,
+    ref: str | None,
+    topic: str,
+    event: str,
+    payload: dict[str, object],
+) -> None:
+    await socket.send_json([join_ref, ref, topic, event, payload])
+
+
+async def _reply(
+    socket: WebSocket,
+    message: _ChannelMessage,
+    status: str,
+    response: dict[str, object],
+) -> None:
+    await _send(
+        socket,
+        message.join_ref,
+        message.ref,
+        message.topic,
+        "phx_reply",
+        {"status": status, "response": response},
+    )
 
 
 def _positive_int(value: object) -> int:
     if type(value) is not int or not 0 < value <= _MAX_SAFE_INTEGER:
         raise _CloseConnection(1002)
     return value
+
+
+def _query_tokens(key: str) -> list[str]:
+    match = re.fullmatch(r"([^\[\]]+)((?:\[[^\[\]]*\])*)", key)
+    if match is None:
+        return [key]
+    tokens = [match[1], *re.findall(r"\[([^\[\]]*)\]", match[2])]
+    if len(tokens) > 32:
+        raise _CloseConnection(1002)
+    return tokens
+
+
+def _path_available(target: dict[str, object], tokens: list[str]) -> bool:
+    key = tokens[0]
+    if key not in target:
+        return True
+    if len(tokens) == 1:
+        return False
+    child = target[key]
+    return isinstance(child, dict) and _path_available(
+        cast(dict[str, object], child),
+        tokens[1:],
+    )
+
+
+def _assign_query_value(
+    target: dict[str, object],
+    tokens: list[str],
+    value: str,
+) -> None:
+    key = tokens[0]
+    if len(tokens) == 1:
+        target[key] = value
+        return
+
+    if tokens[1] == "":
+        stored = target.get(key)
+        if stored is None:
+            child: list[object] = []
+            target[key] = child
+        elif isinstance(stored, list):
+            child = cast(list[object], stored)
+        else:
+            raise _CloseConnection(1002)
+        remaining = tokens[2:]
+        if not remaining:
+            child.append(value)
+            return
+        candidate = (
+            cast(dict[str, object], child[-1])
+            if child and isinstance(child[-1], dict)
+            else None
+        )
+        if candidate is None or not _path_available(candidate, remaining):
+            candidate = {}
+            child.append(candidate)
+        _assign_query_value(candidate, remaining, value)
+        return
+
+    stored = target.get(key)
+    if stored is None:
+        child_dict: dict[str, object] = {}
+        target[key] = child_dict
+    elif isinstance(stored, dict):
+        child_dict = cast(dict[str, object], stored)
+    else:
+        raise _CloseConnection(1002)
+    _assign_query_value(child_dict, tokens[1:], value)
+
+
+def _event_value(payload: dict[str, object]) -> object:
+    value = payload.get("value")
+    if payload.get("type") != "form":
+        return value
+    if not isinstance(value, str):
+        raise _CloseConnection(1002)
+    decoded: dict[str, object] = {}
+    try:
+        pairs = parse_qsl(value, keep_blank_values=True, max_num_fields=1024)
+    except ValueError as error:
+        raise _CloseConnection(1002) from error
+    for key, item in pairs:
+        _assign_query_value(decoded, _query_tokens(key), item)
+    meta = payload.get("meta", {})
+    if not isinstance(meta, dict):
+        raise _CloseConnection(1002)
+    for key, item in meta.items():
+        if not isinstance(key, str):
+            raise _CloseConnection(1002)
+        if key == "_target" and isinstance(item, str):
+            decoded[key] = [part for part in _query_tokens(item) if part]
+        else:
+            decoded[key] = item
+    return decoded
+
+
+def _destroyed_cids(payload: dict[str, object]) -> list[int]:
+    cids = payload.get("cids")
+    if not isinstance(cids, list):
+        raise _CloseConnection(1002)
+    return [_positive_int(cid) for cid in cids]
 
 
 async def _close(socket: WebSocket, code: int) -> None:
@@ -243,10 +430,12 @@ def gateway_type(options: LiveViewOptions, registry: _Registry) -> type[object]:
                     timeout_code=1008,
                     max_message_bytes=options.max_message_bytes,
                 )
-                token = join.get("token")
+                token = join.payload.get("session")
                 if (
-                    join.get("type") != "join"
-                    or join.get("protocol") != 2
+                    join.event != "phx_join"
+                    or join.topic != _TOPIC
+                    or join.join_ref is None
+                    or join.join_ref != join.ref
                     or not isinstance(token, str)
                 ):
                     raise _CloseConnection(1002)
@@ -256,8 +445,9 @@ def gateway_type(options: LiveViewOptions, registry: _Registry) -> type[object]:
                         max_age_ms=options.token_max_age_ms,
                     ).verify(token)
                     page_type = registry.pages[name]
-                except (InvalidMountTokenError, KeyError) as error:
-                    raise _CloseConnection(1008) from error
+                except InvalidMountTokenError, KeyError:
+                    await _reply(socket, join, "error", {"reason": "unauthorized"})
+                    return
 
                 page = cast(LiveView, await context.resolver.resolve(page_type))
                 await page._mount_liveview(
@@ -270,14 +460,16 @@ def gateway_type(options: LiveViewOptions, registry: _Registry) -> type[object]:
                     )
                 )
                 current = await _render(page)
-                version = 0
-                await socket.send_json(
-                    _render_message(
-                        current,
-                        version,
-                        title=page.title(),
-                        streams=page._take_liveview_stream_operations(),
-                    )
+                rendered = _render_message(current, title=page.title())
+                page._clear_liveview_stream_operations()
+                await _reply(
+                    socket,
+                    join,
+                    "ok",
+                    {
+                        "rendered": rendered,
+                        "liveview_version": _LIVEVIEW_VERSION,
+                    },
                 )
 
                 while True:
@@ -287,69 +479,77 @@ def gateway_type(options: LiveViewOptions, registry: _Registry) -> type[object]:
                         timeout_code=1001,
                         max_message_bytes=options.max_message_bytes,
                     )
-                    kind = message.get("type")
-                    if kind == "heartbeat":
-                        ref = _positive_int(message.get("ref"))
-                        await socket.send_json({"type": "heartbeat", "ref": ref})
+                    if message.topic == "phoenix" and message.event == "heartbeat":
+                        if message.join_ref is not None or message.ref is None:
+                            raise _CloseConnection(1002)
+                        await _reply(socket, message, "ok", {})
                         continue
-                    if kind != "event":
+                    if (
+                        message.topic != _TOPIC
+                        or message.join_ref != join.join_ref
+                        or message.ref is None
+                    ):
                         raise _CloseConnection(1002)
-
-                    event = message.get("event")
-                    if not isinstance(event, str) or not event:
-                        raise _CloseConnection(1002)
-                    event_version = _non_negative_int(message.get("version"))
-                    ref = _positive_int(message.get("ref"))
-                    target = message.get("target")
-                    if target is not None:
-                        _positive_int(target)
-
-                    if event_version != version:
-                        await socket.send_json(
-                            _render_message(
-                                current,
-                                version,
-                                title=page.title(),
-                                previous=current,
-                                ref=ref,
-                                status="stale",
-                                streams=page._take_liveview_stream_operations(),
-                            )
+                    if message.event == "phx_leave":
+                        await _reply(socket, message, "ok", {})
+                        return
+                    if message.event == "cids_will_destroy":
+                        page._prepare_liveview_component_destruction(
+                            _destroyed_cids(message.payload)
                         )
+                        await _reply(socket, message, "ok", {})
                         continue
+                    if message.event == "cids_destroyed":
+                        destroyed = await page._destroy_liveview_components(
+                            _destroyed_cids(message.payload)
+                        )
+                        await _reply(socket, message, "ok", {"cids": destroyed})
+                        continue
+                    if message.event != "event":
+                        raise _CloseConnection(1002)
+
+                    event = message.payload.get("event")
+                    event_type = message.payload.get("type")
+                    if (
+                        not isinstance(event, str)
+                        or not event
+                        or not isinstance(event_type, str)
+                        or not event_type
+                    ):
+                        raise _CloseConnection(1002)
+                    target_value = message.payload.get("cid")
+                    target = (
+                        None if target_value is None else _positive_int(target_value)
+                    )
                     try:
                         await page._handle_liveview_event(
-                            cast(int | None, target),
+                            target,
                             event,
-                            message.get("value"),
+                            _event_value(message.payload),
                         )
                     except _UnknownComponentError:
                         page._clear_liveview_stream_operations()
-                        await socket.send_json(
-                            {"type": "error", "reason": "unknown_target", "ref": ref}
+                        await _reply(
+                            socket,
+                            message,
+                            "ok",
+                            {"reason": "unknown_target"},
                         )
                         continue
                     except UnknownEventError:
                         page._clear_liveview_stream_operations()
-                        await socket.send_json(
-                            {"type": "error", "reason": "unknown_event", "ref": ref}
+                        await _reply(
+                            socket,
+                            message,
+                            "ok",
+                            {"reason": "unknown_event"},
                         )
                         continue
 
                     updated = await _render(page)
-                    version += 1
-                    await socket.send_json(
-                        _render_message(
-                            updated,
-                            version,
-                            title=page.title(),
-                            previous=current,
-                            ref=ref,
-                            status="ok",
-                            streams=page._take_liveview_stream_operations(),
-                        )
-                    )
-                    current = updated
+                    diff = _render_message(updated, title=page.title())
+                    page._clear_liveview_stream_operations()
+                    await _reply(socket, message, "ok", {"diff": diff})
             except _ClientDisconnected:
                 pass
             except _CloseConnection as error:
@@ -367,7 +567,7 @@ def gateway_type(options: LiveViewOptions, registry: _Registry) -> type[object]:
                         _LOGGER.exception("LiveView disconnect hook failed")
 
     LiveGateway.__module__ = __name__
-    return websocket_gateway(options.socket_path)(LiveGateway)
+    return websocket_gateway(websocket_path(options.socket_path))(LiveGateway)
 
 
 __all__ = ["_Registry", "gateway_type", "initial_response"]

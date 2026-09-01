@@ -1,6 +1,6 @@
 # Packages
 
-Tori Py is a family of 13 independently installable distributions. There is no
+Tori Py is a family of 14 independently installable distributions. There is no
 all-in-one metapackage: install the smallest set that owns the contracts your
 application uses. Every distribution currently requires Python `>=3.14,<3.15`,
 is typed, and is on the coordinated `0.1.0` beta release train.
@@ -17,7 +17,8 @@ is typed, and is on the coordinated `0.1.0` beta release train.
 | Automatic event-sourced command transactions in Tori Py CQRS | `tori-py-cqrs-event-sourcing` / `tori_py_cqrs_event_sourcing` | Decorated command handlers need request-scoped repositories and outcome-aware commit finalization | Composes framework, CQRS, and event-sourcing core. It does not publish stored events, add an outbox, retry commands, or create distributed transactions. |
 | Async SQLAlchemy lifecycle, transactions, and repositories | `tori-py-sqlalchemy` / `tori_py_sqlalchemy` | Tori Py should own an async engine or integrate an external one | Depends on Tori Py and `sqlalchemy[asyncio]`. The application installs its async driver and owns models and Alembic migrations. There is no model scan or `AsyncSession` provider. |
 | OpenAPI 3.1 and Swagger UI for Tori Py HTTP controllers | `tori-py-openapi` / `tori_py_openapi` | Documentation should be compiled from Tori Py route plans | Depends on Tori Py, `msgspec`, and Starlette's public route compiler. Security and error responses are explicit metadata, not inferred from guards or filters. Default Swagger assets are external CDN assets. |
-| Server-rendered interactive pages | `tori-py-liveview` / `tori_py_liveview` | Page, component, and collection state should remain server-directed with a thin browser runtime | Depends on Tori Py and Starlette. Protocol v2 covers pages, structural diffs, connection-local stateful components, and browser-owned streams; nested components, uploads, and `send_info` are not implemented. |
+| Server-rendered interactive pages | `tori-py-liveview` / `tori_py_liveview` | Page, component, and collection state should remain server-directed with the official Phoenix LiveView browser runtime | Depends on Tori Py and Starlette. It targets Phoenix 1.8.13 and Phoenix LiveView 1.2.11 Channels/render-tree contracts, including stateful component CIDs and browser-owned streams; nested components, uploads, navigation, hooks, and `send_info` are not implemented. |
+| Styled LiveView foundation components | `tori-py-liveview-ui` / `tori_py_liveview_ui` | LiveView pages need a small stateless visual vocabulary and local stylesheet | Depends on Tori Py and LiveView. It adds no browser runtime, state model, global reset, form system, arbitrary classes/attributes, CDN, or remote assets. |
 | Transport-neutral RPC and queue-event delivery | `tori-py-microservices` / `tori_py_microservices` | One Tori Py application exposes one logical service or calls service clusters | Base runtime depends on Tori Py and `msgspec`; RabbitMQ is an extra. RPC and events are at least once and need application idempotency/outbox/inbox policy. |
 | Framework-neutral partitioned persistent-log contracts | `tori-py-persistent-streams-core` / `tori_py_persistent_streams_core` | Defining an adapter, testing log semantics, or using opaque byte records without Tori Py | Runtime dependency-free. The included in-memory log loses all state at process exit and is not a production adapter. |
 | Typed persistent-stream handlers and publishers in Tori Py | `tori-py-persistent-streams` / `tori_py_persistent_streams` | Tori Py should discover stream controllers and own work scopes and checkpoints | Depends on Tori Py and streams core. It contains no broker driver. Delivery is at least once; failed records stop their partition. |
@@ -43,6 +44,7 @@ uv add tori-py-cqrs-event-sourcing
 uv add tori-py-sqlalchemy
 uv add tori-py-openapi
 uv add tori-py-liveview
+uv add tori-py-liveview-ui
 uv add tori-py-microservices
 uv add tori-py-persistent-streams-core
 uv add tori-py-persistent-streams
@@ -79,6 +81,9 @@ uv add tori-py-cqrs-core
 # RabbitMQ RPC and event service
 uv add "tori-py-microservices[rabbitmq]"
 
+# Styled Phoenix LiveView pages
+uv add tori-py-liveview tori-py-liveview-ui
+
 # Tori Py persistent streams with the provisional RabbitMQ adapter
 uv add tori-py-persistent-streams-rabbitmq
 ```
@@ -108,6 +113,7 @@ tori-py-cqrs-event-sourcing
 tori-py-sqlalchemy -> tori-py-framework, sqlalchemy[asyncio]
 tori-py-openapi -> tori-py-framework, msgspec, starlette
 tori-py-liveview -> tori-py-framework, starlette
+tori-py-liveview-ui -> tori-py-framework, tori-py-liveview
 tori-py-microservices -> tori-py-framework, msgspec
 tori-py-microservices[rabbitmq] -> aio-pika
 
@@ -123,7 +129,7 @@ tori-py-persistent-streams-rabbitmq
 The boundaries are intentionally one-way:
 
 - Tori Py framework does not import CQRS, SQLAlchemy, OpenAPI, LiveView,
-  microservices, or persistent-stream integrations.
+  LiveView UI, microservices, or persistent-stream integrations.
 - CQRS core does not import Tori Py, FastAPI, Pydantic, SQLAlchemy, or a DI
   framework.
 - Persistent-streams core is standard-library-only and does not import Tori Py
@@ -139,7 +145,7 @@ The boundaries are intentionally one-way:
 
 ## Maturity and production decisions
 
-All 13 distributions are beta. Before `1.0.0`, compatible-looking APIs may still
+All 14 distributions are beta. Before `1.0.0`, compatible-looking APIs may still
 change in a minor release. Pin and test the complete resolved set in an
 application lockfile.
 
@@ -158,6 +164,9 @@ The beta label is not the only production decision:
   not make application side effects transactional or durable. Deployments must
   use TLS, a strong shared token secret, explicit proxy-aware origins, and their
   own authorization and idempotency policy.
+- LiveView UI provides local CSS and stateless rendering helpers only. It does
+  not add client behavior, forms, navigation, widget state, or application
+  accessibility policy beyond its documented component foundation.
 - Microservices RabbitMQ RPC and durable events are at least once. Publisher
   confirms do not prove handler execution; timeout and connection loss can leave
   outcomes unknown. Production applications need stable idempotency keys and,

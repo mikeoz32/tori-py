@@ -5,6 +5,8 @@ import logging
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from html.parser import HTMLParser
+from string.templatelib import Template
 from types import MappingProxyType
 from typing import TypeVar, cast
 
@@ -12,12 +14,40 @@ from starlette.datastructures import QueryParams
 
 from tori_py_liveview.component import LiveComponent
 from tori_py_liveview.errors import LiveViewError, UnknownEventError
-from tori_py_liveview.rendering import Rendered, SafeHtml, raw
+from tori_py_liveview.rendering import (
+    Rendered,
+    SafeHtml,
+    _ComponentRendered,
+    _StreamInsert,
+    _StreamRendered,
+    raw,
+)
+from tori_py_liveview.rendering import (
+    html as render_template,
+)
 
 _LOGGER = logging.getLogger(__name__)
 _ComponentT = TypeVar("_ComponentT", bound=LiveComponent)
 _ComponentIdentity = tuple[type[LiveComponent], str]
 _MAX_SAFE_INTEGER = 2**53 - 1
+_VOID_ELEMENTS = frozenset(
+    {
+        "area",
+        "base",
+        "br",
+        "col",
+        "embed",
+        "hr",
+        "img",
+        "input",
+        "link",
+        "meta",
+        "param",
+        "source",
+        "track",
+        "wbr",
+    }
+)
 
 
 class _UnknownComponentError(LiveViewError):
@@ -45,20 +75,71 @@ class _StreamOperation:
     at: int | None = None
     limit: int | None = None
 
-    def payload(self) -> dict[str, object]:
-        result: dict[str, object] = {
-            "op": self.operation,
-            "container": self.container_id,
-        }
-        if self.item_id is not None:
-            result["id"] = self.item_id
-        if self.html is not None:
-            result["html"] = self.html
-        if self.at is not None:
-            result["at"] = self.at
-        if self.limit is not None:
-            result["limit"] = self.limit
-        return result
+
+class _FragmentRootParser(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.depth = 0
+        self.tags: list[str] = []
+        self.roots = 0
+        self.root_id: str | None = None
+        self.invalid = False
+
+    def _record_root(self, attrs: list[tuple[str, str | None]]) -> None:
+        self.roots += 1
+        root_ids = [value for name, value in attrs if name == "id"]
+        if len(root_ids) > 1:
+            self.invalid = True
+        self.root_id = root_ids[0] if root_ids else None
+
+    def handle_starttag(
+        self,
+        tag: str,
+        attrs: list[tuple[str, str | None]],
+    ) -> None:
+        if self.depth == 0:
+            self._record_root(attrs)
+        if tag not in _VOID_ELEMENTS:
+            self.tags.append(tag)
+            self.depth += 1
+
+    def handle_startendtag(
+        self,
+        tag: str,
+        attrs: list[tuple[str, str | None]],
+    ) -> None:
+        if self.depth == 0:
+            self._record_root(attrs)
+        if tag not in _VOID_ELEMENTS:
+            self.invalid = True
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag in _VOID_ELEMENTS:
+            return
+        if self.depth == 0:
+            self.invalid = True
+            return
+        if self.tags.pop() != tag:
+            self.invalid = True
+        self.depth -= 1
+
+    def handle_data(self, data: str) -> None:
+        if self.depth == 0 and data.strip():
+            self.invalid = True
+
+    def handle_decl(self, decl: str) -> None:
+        del decl
+        if self.depth == 0:
+            self.invalid = True
+
+
+def _fragment_root(value: str) -> tuple[bool, str | None]:
+    parser = _FragmentRootParser()
+    parser.feed(value)
+    parser.close()
+    if parser.invalid or parser.depth != 0 or parser.roots != 1:
+        return False, None
+    return True, parser.root_id
 
 
 class LiveView(ABC):
@@ -73,7 +154,7 @@ class LiveView(ABC):
         return None
 
     @abstractmethod
-    def render(self) -> Rendered | str: ...
+    def render(self) -> Rendered | Template | str: ...
 
     def title(self) -> str | None:
         return None
@@ -81,7 +162,8 @@ class LiveView(ABC):
     def render_document(self, live_root: str, client_script: str) -> str:
         title = self.title()
         title_html = (
-            "" if title is None else f"<title>{html.escape(title, quote=True)}</title>"
+            '<title data-default="">'
+            f"{'' if title is None else html.escape(title, quote=True)}</title>"
         )
         return (
             '<!doctype html><html><head><meta charset="utf-8">'
@@ -124,30 +206,45 @@ class LiveView(ABC):
         components = self._liveview_components
         component = components.get(identity)
         if component is None:
-            component = component_type() if factory is None else factory()
-            if type(component) is not component_type:
-                raise TypeError(
-                    "component factory must return the declared component type"
+            component = self._liveview_pending_components.pop(identity, None)
+            if component is None:
+                component = component_type() if factory is None else factory()
+                if type(component) is not component_type:
+                    raise TypeError(
+                        "component factory must return the declared component type"
+                    )
+                self._liveview_next_component_cid += 1
+                component._attach_liveview(
+                    component_id,
+                    self._liveview_next_component_cid,
+                    self._liveview_connected,
                 )
-            self._liveview_next_component_cid += 1
-            component._attach_liveview(
-                component_id,
-                self._liveview_next_component_cid,
-                self._liveview_connected,
-            )
+                component.mount()
+            else:
+                self._liveview_pending_components_by_cid.pop(component.myself, None)
+                self._liveview_destroy_candidates.discard(component.myself)
             components[identity] = component
             self._liveview_components_by_cid[component.myself] = component
-            component.mount()
 
         rendered_components.add(identity)
         component.update(assigns)
-        return component._render_liveview()
+        component_rendered = component._render_liveview()
+        if not _fragment_root(component_rendered.to_html())[0]:
+            raise LiveViewError(
+                "LiveView components require exactly one explicitly balanced "
+                "root element"
+            )
+        return _ComponentRendered(
+            component_rendered.statics,
+            component_rendered.dynamics,
+            component.myself,
+        )
 
     def stream_insert(
         self,
         container_id: str,
         item_id: str,
-        item: Rendered | str,
+        item: Rendered | Template | str,
         *,
         at: int = -1,
         limit: int | None = None,
@@ -170,10 +267,18 @@ class LiveView(ABC):
 
         if isinstance(item, Rendered):
             item_html = item.to_html()
+        elif isinstance(item, Template):
+            item_html = render_template(item).to_html()
         elif isinstance(item, str):
             item_html = item
         else:
-            raise TypeError("LiveView stream item must be Rendered or str")
+            raise TypeError("LiveView stream item must be Rendered, Template, or str")
+        valid_root, root_id = _fragment_root(item_html)
+        if not valid_root or root_id != item_id:
+            raise ValueError(
+                "LiveView stream items require one explicitly balanced root element "
+                "with the declared id"
+            )
 
         self._initialize_liveview_streams()
         self._liveview_stream_operations.append(
@@ -203,11 +308,17 @@ class LiveView(ABC):
     def stream_contents(self, container_id: str) -> SafeHtml:
         self._validate_stream_id(container_id, "container")
         self._initialize_liveview_streams()
+        operations = [
+            operation
+            for operation in self._liveview_stream_operations
+            if operation.container_id == container_id
+        ]
+        if getattr(self, "_liveview_connected", False):
+            return self._connected_stream_contents(container_id, operations)
+
         items: list[tuple[str, str]] = []
 
-        for operation in self._liveview_stream_operations:
-            if operation.container_id != container_id:
-                continue
+        for operation in operations:
             if operation.operation == "reset":
                 items.clear()
             elif operation.operation == "delete":
@@ -241,6 +352,44 @@ class LiveView(ABC):
 
         return raw("".join(item[1] for item in items))
 
+    @staticmethod
+    def _connected_stream_contents(
+        container_id: str,
+        operations: list[_StreamOperation],
+    ) -> _StreamRendered:
+        inserts: dict[str, _StreamInsert] = {}
+        delete_ids: list[str] = []
+        reset = False
+        for operation in operations:
+            if operation.operation == "reset":
+                inserts.clear()
+                delete_ids.clear()
+                reset = True
+                continue
+            assert operation.item_id is not None
+            if operation.operation == "delete":
+                inserts.pop(operation.item_id, None)
+                if operation.item_id not in delete_ids:
+                    delete_ids.append(operation.item_id)
+                continue
+            assert operation.html is not None
+            assert operation.at is not None
+            if operation.item_id in delete_ids:
+                delete_ids.remove(operation.item_id)
+            inserts[operation.item_id] = _StreamInsert(
+                operation.item_id,
+                operation.html,
+                operation.at,
+                operation.limit,
+            )
+        return _StreamRendered(
+            "".join(item.html for item in inserts.values()),
+            container_id,
+            tuple(inserts.values()),
+            tuple(delete_ids),
+            reset,
+        )
+
     async def _mount_liveview(self, context: MountContext) -> None:
         self._initialize_liveview_components()
         self._initialize_liveview_streams()
@@ -258,10 +407,14 @@ class LiveView(ABC):
             result = self.render()
             if isinstance(result, Rendered):
                 rendered = result
+            elif isinstance(result, Template):
+                rendered = render_template(result)
             elif isinstance(result, str):
                 rendered = Rendered((result,), ())
             else:
-                raise TypeError("LiveView.render must return Rendered or str")
+                raise TypeError(
+                    "LiveView.render must return Rendered, Template, or str"
+                )
         finally:
             self._liveview_rendered_components = None
 
@@ -273,7 +426,11 @@ class LiveView(ABC):
         for identity in stale:
             component = self._liveview_components.pop(identity)
             self._liveview_components_by_cid.pop(component.myself, None)
-            await self._disconnect_liveview_component(component)
+            self._liveview_pending_components[identity] = component
+            self._liveview_pending_components_by_cid[component.myself] = (
+                identity,
+                component,
+            )
         return rendered
 
     async def _handle_liveview_event(
@@ -294,12 +451,41 @@ class LiveView(ABC):
     async def _disconnect_liveview_components(self) -> None:
         self._initialize_liveview_components()
         self._clear_liveview_stream_operations()
-        components = list(self._liveview_components.values())
+        components = [
+            *self._liveview_components.values(),
+            *self._liveview_pending_components.values(),
+        ]
         self._liveview_components.clear()
         self._liveview_components_by_cid.clear()
+        self._liveview_pending_components.clear()
+        self._liveview_pending_components_by_cid.clear()
+        self._liveview_destroy_candidates.clear()
         self._liveview_rendered_components = None
         for component in components:
             await self._disconnect_liveview_component(component)
+
+    def _prepare_liveview_component_destruction(self, cids: list[int]) -> None:
+        self._initialize_liveview_components()
+        self._liveview_destroy_candidates.update(
+            cid for cid in cids if cid in self._liveview_pending_components_by_cid
+        )
+
+    async def _destroy_liveview_components(self, cids: list[int]) -> list[int]:
+        self._initialize_liveview_components()
+        destroyed: list[int] = []
+        for cid in cids:
+            if cid not in self._liveview_destroy_candidates:
+                continue
+            pending = self._liveview_pending_components_by_cid.pop(cid, None)
+            self._liveview_destroy_candidates.discard(cid)
+            if pending is None:
+                continue
+            identity, component = pending
+            if self._liveview_pending_components.pop(identity, None) is not component:
+                continue
+            await self._disconnect_liveview_component(component)
+            destroyed.append(cid)
+        return destroyed
 
     async def _disconnect_liveview(self) -> None:
         await self._disconnect_liveview_components()
@@ -310,15 +496,14 @@ class LiveView(ABC):
             return
         self._liveview_components: dict[_ComponentIdentity, LiveComponent] = {}
         self._liveview_components_by_cid: dict[int, LiveComponent] = {}
+        self._liveview_pending_components: dict[_ComponentIdentity, LiveComponent] = {}
+        self._liveview_pending_components_by_cid: dict[
+            int, tuple[_ComponentIdentity, LiveComponent]
+        ] = {}
+        self._liveview_destroy_candidates: set[int] = set()
         self._liveview_rendered_components: set[_ComponentIdentity] | None = None
         self._liveview_next_component_cid = 0
         self._liveview_connected = False
-
-    def _take_liveview_stream_operations(self) -> list[dict[str, object]]:
-        self._initialize_liveview_streams()
-        operations = self._liveview_stream_operations
-        self._liveview_stream_operations = []
-        return [operation.payload() for operation in operations]
 
     def _clear_liveview_stream_operations(self) -> None:
         self._initialize_liveview_streams()
@@ -335,6 +520,11 @@ class LiveView(ABC):
             raise TypeError(f"LiveView stream {kind} id must be a string")
         if not value:
             raise ValueError(f"LiveView stream {kind} id cannot be empty")
+        if any(ord(character) <= 0x20 or ord(character) == 0x7F for character in value):
+            raise ValueError(
+                f"LiveView stream {kind} id cannot contain ASCII whitespace or "
+                "control characters"
+            )
 
     async def _disconnect_liveview_component(self, component: LiveComponent) -> None:
         try:

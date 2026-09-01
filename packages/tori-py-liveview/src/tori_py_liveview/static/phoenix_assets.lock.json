@@ -1,0 +1,20 @@
+{
+  "assets": [
+    {
+      "package": "phoenix",
+      "version": "1.8.13",
+      "artifact": "priv/static/phoenix.min.js",
+      "filename": "phoenix-1.8.13.min.js",
+      "source_url": "https://unpkg.com/phoenix@1.8.13/priv/static/phoenix.min.js",
+      "sha256": "b8702c214c5c7f2c476d827a22b5f337818ab7cb50d48b066a7a8c9691e8b923"
+    },
+    {
+      "package": "phoenix_live_view",
+      "version": "1.2.11",
+      "artifact": "priv/static/phoenix_live_view.min.js",
+      "filename": "phoenix_live_view-1.2.11.min.js",
+      "source_url": "https://unpkg.com/phoenix_live_view@1.2.11/priv/static/phoenix_live_view.min.js",
+      "sha256": "04163ddbfc277452590a7a391c806e1c71883522b106e508b7a9da514c6c3b12"
+    }
+  ]
+}

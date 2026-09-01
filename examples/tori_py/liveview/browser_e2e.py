@@ -8,6 +8,7 @@ from collections.abc import Iterator
 import pytest
 import uvicorn
 from playwright.sync_api import Page, expect
+from tori_py_liveview_ui import STYLESHEET_PATH
 
 from examples.tori_py.liveview.app import application
 
@@ -54,6 +55,7 @@ def test_counter_updates_and_recovers_after_reconnect(
     page: Page, liveview_url: str
 ) -> None:
     browser_errors: list[str] = []
+    websocket_urls: list[str] = []
     page.on(
         "console",
         lambda message: (
@@ -61,9 +63,10 @@ def test_counter_updates_and_recovers_after_reconnect(
         ),
     )
     page.on("pageerror", lambda error: browser_errors.append(str(error)))
+    page.on("websocket", lambda websocket: websocket_urls.append(websocket.url))
 
     page.goto(f"{liveview_url}/?start=2")
-    root = page.locator("[data-opal-live-root]")
+    root = page.locator("[data-phx-session]")
     output = page.locator("output[data-page-counter]")
     increment = page.get_by_role("button", name="Increment page")
     left_output = page.locator('output[data-component-id="left"]')
@@ -72,7 +75,12 @@ def test_counter_updates_and_recovers_after_reconnect(
     activity_one = page.locator("#activity-1")
     activity_one.evaluate("element => { window.__toriActivityOne = element; }")
 
-    expect(root).to_have_attribute("data-opal-status", "connected")
+    expect(root).to_have_class("phx-connected")
+    expect(page.locator("html")).to_have_attribute("data-tori-ui-theme", "auto")
+    expect(page.locator(f'link[href="{STYLESHEET_PATH}"]')).to_have_count(1)
+    expect(increment).to_have_class(
+        "tori-ui-button tori-ui-button--primary tori-ui-button--md"
+    )
     expect(output).to_have_text("2")
     expect(left_output).to_have_text("0")
     expect(right_output).to_have_text("0")
@@ -80,7 +88,21 @@ def test_counter_updates_and_recovers_after_reconnect(
     expect(page.locator("#activity-stream > li span")).to_have_text(
         ["Activity 1", "Activity 2"]
     )
+    expect(activity_one).to_have_attribute("data-phx-stream", "activity-stream")
+    assert page.evaluate("window.liveSocket.version()") == "1.2.11"
+    assert any("/_tori/live/websocket?vsn=2.0.0" in url for url in websocket_urls)
 
+    count_input = page.get_by_label("Set page count")
+    count_input.fill("5")
+    expect(output).to_have_text("5")
+    expect(page).to_have_title("Counter: 5")
+    count_input.fill("2")
+    expect(output).to_have_text("2")
+
+    increment.evaluate("element => element.setAttribute('phx-click', 'missing')")
+    increment.click()
+    expect(output).to_have_text("2")
+    increment.evaluate("element => element.setAttribute('phx-click', 'increment')")
     increment.click()
     expect(output).to_have_text("3")
 
@@ -93,30 +115,6 @@ def test_counter_updates_and_recovers_after_reconnect(
     expect(page.locator("#activity-2")).to_have_count(0)
     assert activity_one.evaluate("element => element === window.__toriActivityOne")
 
-    validation_error = root.evaluate(
-        """root => {
-          try {
-            root.__opalLiveView.applyStreams([
-              {op: "reset", container: "activity-stream"},
-              {
-                op: "insert",
-                container: "activity-stream",
-                id: "declared-id",
-                html: '<li id="different-id">invalid</li>',
-                at: -1,
-              },
-            ]);
-            return null;
-          } catch (error) {
-            return error.message;
-          }
-        }"""
-    )
-    assert validation_error == "stream item id mismatch"
-    expect(page.locator("#activity-stream > li span")).to_have_text(
-        ["Activity 4", "Activity 3", "Activity 1"]
-    )
-
     page.get_by_role("button", name="Remove Activity 3").click()
     expect(page.locator("#activity-stream > li span")).to_have_text(
         ["Activity 4", "Activity 1"]
@@ -127,16 +125,21 @@ def test_counter_updates_and_recovers_after_reconnect(
     expect(left_output).to_have_text("1")
     expect(right_output).to_have_text("0")
     expect(output).to_have_text("3")
+    page.get_by_role("button", name="Clear title").click()
+    expect(page).to_have_title("")
 
-    root.evaluate("root => root.__opalLiveView.socket.close(4000, 'test reconnect')")
-    expect(output).to_have_text("2")
+    root.evaluate(
+        "() => window.liveSocket.getSocket().conn.close(4000, 'test reconnect')"
+    )
+    expect(output).to_have_text("3")
     expect(left_output).to_have_text("0")
     expect(right_output).to_have_text("0")
-    expect(root).to_have_attribute("data-opal-status", "connected")
+    expect(root).to_have_class("phx-connected")
     expect(page.locator("#activity-stream > li span")).to_have_text(
         ["Activity 1", "Activity 2"]
     )
+    expect(page).to_have_title("Counter: 3")
 
     increment.click()
-    expect(output).to_have_text("3")
+    expect(output).to_have_text("4")
     assert browser_errors == []

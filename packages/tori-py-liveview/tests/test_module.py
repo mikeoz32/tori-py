@@ -9,6 +9,7 @@ from typing import Any, cast
 
 import httpx
 import pytest
+from starlette.datastructures import QueryParams
 from starlette.types import ASGIApp, Message
 from tori_py import (
     ClassProvider,
@@ -54,12 +55,9 @@ class CounterLive(LiveView):
         self.count += 1
 
     def render(self):
-        return rendered(
-            (
-                '<button data-opal-click="increment">+</button><output>',
-                "</output>",
-            ),
-            self.count,
+        return (
+            t'<section><button phx-click="increment">+</button>'
+            t"<output>{self.count}</output></section>"
         )
 
     def title(self) -> str:
@@ -94,7 +92,7 @@ class CrashingComponent(LiveComponent):
 
     def render(self):
         return rendered(
-            ('<button data-opal-target="', '" data-opal-click="crash">Crash</button>'),
+            ('<button phx-target="', '" phx-click="crash">Crash</button>'),
             self.myself,
         )
 
@@ -148,18 +146,9 @@ class CounterComponent(LiveComponent):
         self.count += 1
 
     def render(self):
-        return rendered(
-            (
-                '<button id="component-',
-                '" data-opal-target="',
-                '" data-opal-click="increment">',
-                ":",
-                "</button>",
-            ),
-            self.id,
-            self.myself,
-            self.label,
-            self.count,
+        return (
+            t'<button id="component-{self.id}" phx-target="{self.myself}" '
+            t'phx-click="increment">{self.label}:{self.count}</button>'
         )
 
     async def disconnect(self) -> None:
@@ -192,14 +181,9 @@ class ComponentsLive(LiveView):
             if self.show_right
             else ""
         )
-        return rendered(
-            (
-                "<section>",
-                "",
-                '<button data-opal-click="toggle_right">toggle</button></section>',
-            ),
-            left,
-            right,
+        return (
+            t"<section>{left}{right}"
+            t'<button phx-click="toggle_right">toggle</button></section>'
         )
 
 
@@ -247,19 +231,36 @@ class StreamsLive(LiveView):
             raise UnknownEventError(event)
 
     def render(self):
-        return rendered(
-            ('<ul id="activity-stream" data-opal-stream>', "</ul>"),
-            self.stream_contents("activity-stream"),
-        )
+        contents = self.stream_contents("activity-stream")
+        return t'<ul id="activity-stream" phx-update="stream">{contents}</ul>'
 
     @staticmethod
     def _item(sequence: int, label: str):
         item_id = f"activity-{sequence}"
+        return t'<li id="{item_id}">{label}</li>'
+
+
+@live_view("/form")
+class FormLive(LiveView):
+    values: list[object] = []
+
+    def __init__(self) -> None:
+        self.received = 0
+
+    async def handle_event(self, event: str, value: object) -> None:
+        if event != "validate":
+            raise UnknownEventError(event)
+        type(self).values.append(value)
+        self.received += 1
+
+    def render(self):
         return rendered(
-            ('<li id="', '" data-opal-key="', '">', "</li>"),
-            item_id,
-            item_id,
-            label,
+            (
+                '<form id="profile" phx-change="validate">'
+                '<input name="user[name]"><output>',
+                "</output></form>",
+            ),
+            self.received,
         )
 
 
@@ -323,7 +324,7 @@ async def _call_websocket(
     return sent
 
 
-def _receive_text(payload: dict[str, object]) -> Message:
+def _receive_text(payload: object) -> Message:
     return {"type": "websocket.receive", "text": json.dumps(payload)}
 
 
@@ -331,12 +332,67 @@ def _disconnect() -> Message:
     return {"type": "websocket.disconnect", "code": 1000, "reason": ""}
 
 
-def _decode_sent(messages: list[Message]) -> list[dict[str, object]]:
+def _decode_sent(messages: list[Message]) -> list[list[object]]:
     return [
-        cast(dict[str, object], json.loads(cast(str, message["text"])))
+        cast(list[object], json.loads(cast(str, message["text"])))
         for message in messages
         if message["type"] == "websocket.send"
     ]
+
+
+_TOPIC = "lv:tori-live-root"
+
+
+def _token(document: str) -> str:
+    match = re.search(r'data-phx-session="([A-Za-z0-9_.-]+)"', document)
+    assert match is not None
+    return match[1]
+
+
+def _join(token: str, *, ref: str = "1") -> Message:
+    return _receive_text(
+        [
+            ref,
+            ref,
+            _TOPIC,
+            "phx_join",
+            {
+                "url": "http://testserver/counter",
+                "params": {"_mounts": 0, "_mount_attempts": 0},
+                "session": token,
+                "static": None,
+                "sticky": False,
+            },
+        ]
+    )
+
+
+def _event(
+    ref: str,
+    event: str,
+    *,
+    value: object = None,
+    cid: int | None = None,
+    event_type: str = "click",
+) -> Message:
+    payload: dict[str, object] = {
+        "type": event_type,
+        "event": event,
+        "value": {} if value is None else value,
+    }
+    if cid is not None:
+        payload["cid"] = cid
+    return _receive_text(["1", ref, _TOPIC, "event", payload])
+
+
+def _reply_payload(frame: list[object]) -> dict[str, object]:
+    assert frame[3] == "phx_reply"
+    return cast(dict[str, object], frame[4])
+
+
+def _response(frame: list[object]) -> dict[str, object]:
+    payload = _reply_payload(frame)
+    return cast(dict[str, object], payload["response"])
 
 
 @pytest.mark.asyncio
@@ -386,6 +442,108 @@ async def test_components_require_render_context_and_unique_identity() -> None:
     assert component.disconnects == 1
 
 
+@pytest.mark.asyncio
+async def test_components_require_exactly_one_root_element() -> None:
+    class EmptyComponent(LiveComponent):
+        def render(self) -> str:
+            return ""
+
+    class MultipleRootComponent(LiveComponent):
+        def render(self) -> str:
+            return "<p>first</p><p>second</p>"
+
+    class SelfClosingComponent(LiveComponent):
+        def render(self) -> str:
+            return "<section/>"
+
+    class InvalidComponentLive(LiveView):
+        def __init__(self, component_type: type[LiveComponent]) -> None:
+            self.component_type = component_type
+
+        def render(self):
+            return self.live_component(self.component_type, "invalid")
+
+    for component_type in (
+        EmptyComponent,
+        MultipleRootComponent,
+        SelfClosingComponent,
+    ):
+        page = InvalidComponentLive(component_type)
+        with pytest.raises(LiveViewError, match="balanced root element"):
+            await page._render_liveview()
+        await page._disconnect_liveview_components()
+
+
+@pytest.mark.asyncio
+async def test_components_revive_until_phoenix_confirms_destruction() -> None:
+    class StatefulComponent(LiveComponent):
+        mounts = 0
+        disconnects = 0
+
+        def __init__(self) -> None:
+            self.count = 0
+
+        def mount(self) -> None:
+            type(self).mounts += 1
+
+        async def handle_event(self, event: str, value: object) -> None:
+            del value
+            if event != "increment":
+                raise UnknownEventError(event)
+            self.count += 1
+
+        def render(self):
+            return rendered(("<button>", "</button>"), self.count)
+
+        async def disconnect(self) -> None:
+            type(self).disconnects += 1
+
+    class ToggleLive(LiveView):
+        def __init__(self) -> None:
+            self.show = True
+
+        def render(self):
+            component = (
+                self.live_component(StatefulComponent, "counter") if self.show else ""
+            )
+            return rendered(("<section>", "</section>"), component)
+
+    page = ToggleLive()
+    await page._mount_liveview(MountContext(object(), {}, "/", True, QueryParams()))
+    await page._render_liveview()
+    first_cid = next(iter(page._liveview_components_by_cid))
+    await page._handle_liveview_event(first_cid, "increment", {})
+
+    page.show = False
+    await page._render_liveview()
+    page._prepare_liveview_component_destruction([first_cid])
+    page.show = True
+    await page._render_liveview()
+    revived = page._liveview_components_by_cid[first_cid]
+    assert isinstance(revived, StatefulComponent)
+    assert revived.count == 1
+    assert await page._destroy_liveview_components([first_cid]) == []
+    assert StatefulComponent.mounts == 1
+    assert StatefulComponent.disconnects == 0
+
+    page.show = False
+    await page._render_liveview()
+    page._prepare_liveview_component_destruction([first_cid])
+    assert await page._destroy_liveview_components([first_cid]) == [first_cid]
+    assert StatefulComponent.disconnects == 1
+
+    page.show = True
+    await page._render_liveview()
+    second_cid = next(iter(page._liveview_components_by_cid))
+    assert second_cid != first_cid
+    replacement = page._liveview_components_by_cid[second_cid]
+    assert isinstance(replacement, StatefulComponent)
+    assert replacement.count == 0
+    assert StatefulComponent.mounts == 2
+    await page._disconnect_liveview()
+    assert StatefulComponent.disconnects == 2
+
+
 def test_stream_operations_validate_and_render_disconnected_contents() -> None:
     page = StreamsLive()
 
@@ -395,10 +553,30 @@ def test_stream_operations_validate_and_render_disconnected_contents() -> None:
         page.stream_reset("")
     with pytest.raises(ValueError, match="item id cannot be empty"):
         page.stream_delete("activity-stream", "")
+    with pytest.raises(ValueError, match="cannot contain ASCII whitespace"):
+        page.stream_delete("activity-stream", "activity 1")
     with pytest.raises(ValueError, match="index must be -1 or greater"):
         page.stream_insert("activity-stream", "activity-1", "<li></li>", at=-2)
     with pytest.raises(ValueError, match="limit cannot be zero"):
         page.stream_insert("activity-stream", "activity-1", "<li></li>", limit=0)
+    with pytest.raises(ValueError, match="balanced root element"):
+        page.stream_insert(
+            "activity-stream",
+            "activity-1",
+            '<li id="different">Different</li>',
+        )
+    with pytest.raises(ValueError, match="balanced root element"):
+        page.stream_insert(
+            "activity-stream",
+            "activity-1",
+            '<li id="activity-1">One</li><li id="activity-2">Two</li>',
+        )
+    with pytest.raises(ValueError, match="balanced root element"):
+        page.stream_insert(
+            "activity-stream",
+            "activity-1",
+            '<li id="different" id="activity-1">Different</li>',
+        )
 
     page.stream_insert("activity-stream", "activity-1", page._item(1, "First"))
     page.stream_insert("activity-stream", "activity-2", page._item(2, "Second"))
@@ -485,7 +663,7 @@ def test_for_root_materializes_pages_as_request_scoped_normal_routes() -> None:
     assert gateway is not None
     gateway_metadata = get_websocket_gateway_metadata(gateway)
     assert gateway_metadata is not None
-    assert gateway_metadata.path == "/_tori/live"
+    assert gateway_metadata.path == "/_tori/live/websocket"
 
 
 def test_for_root_rejects_invalid_and_conflicting_page_declarations() -> None:
@@ -538,7 +716,7 @@ def test_for_root_rejects_invalid_and_conflicting_page_declarations() -> None:
 
 
 @pytest.mark.asyncio
-async def test_http_mount_serves_initial_html_and_pinned_opal_client() -> None:
+async def test_http_mount_serves_initial_html_and_pinned_phoenix_clients() -> None:
     CounterLive.mounts.clear()
     liveview_module = LiveViewModule.for_root(
         LiveViewOptions(secret="s" * 32),
@@ -558,27 +736,34 @@ async def test_http_mount_serves_initial_html_and_pinned_opal_client() -> None:
     assert page.headers["content-type"] == "text/html; charset=utf-8"
     assert page.headers["cache-control"] == "no-store"
     assert "<output>2</output>" in page.text
-    assert "<title>Counter 2</title>" in page.text
-    assert "data-opal-live-root" in page.text
-    assert 'data-opal-socket="/_tori/live"' in page.text
-    assert '<script type="module" src="/_tori/live.js"></script>' in page.text
-    assert re.search(r'data-opal-token="[A-Za-z0-9_.-]+"', page.text)
+    assert '<title data-default="">Counter 2</title>' in page.text
+    assert 'id="tori-live-root" data-phx-main' in page.text
+    assert 'data-phx-static=""' in page.text
+    assert 'data-tori-live-socket="/_tori/live"' in page.text
+    assert '<script defer src="/_tori/live.js"></script>' in page.text
+    assert re.search(r'data-phx-session="[A-Za-z0-9_.-]+"', page.text)
     assert client.status_code == 200
     assert client.headers["content-type"] == "text/javascript; charset=utf-8"
-    assert "const PROTOCOL_VERSION = 2;" in client.text
-    expected_client = (
-        files("tori_py_liveview").joinpath("static/opal_live_view.js").read_bytes()
+    assert "var Phoenix=" in client.text
+    assert "var LiveView=" in client.text
+    assert "new LiveView.LiveSocket" in client.text
+    static = files("tori_py_liveview").joinpath("static")
+    phoenix = static.joinpath("phoenix-1.8.13.min.js").read_bytes()
+    phoenix_live_view = static.joinpath("phoenix_live_view-1.2.11.min.js").read_bytes()
+    assert hashlib.sha256(phoenix).hexdigest() == (
+        "b8702c214c5c7f2c476d827a22b5f337818ab7cb50d48b066a7a8c9691e8b923"
     )
-    assert client.content == expected_client
-    assert hashlib.sha256(expected_client).hexdigest() == (
-        "abd50912b09bbfdfc849462d66559de57a706eb63651b08e3d412738becd5653"
+    assert hashlib.sha256(phoenix_live_view).hexdigest() == (
+        "04163ddbfc277452590a7a391c806e1c71883522b106e508b7a9da514c6c3b12"
     )
+    assert phoenix in client.content
+    assert phoenix_live_view in client.content
     assert CounterLive.mounts == [False]
     await application.shutdown()
 
 
 @pytest.mark.asyncio
-async def test_protocol_v2_connects_renders_diffs_and_correlates_events() -> None:
+async def test_phoenix_channel_connects_renders_and_correlates_events() -> None:
     CounterLive.mounts.clear()
     CounterLive.disconnects = 0
     liveview_module = LiveViewModule.for_root(
@@ -593,45 +778,96 @@ async def test_protocol_v2_connects_renders_diffs_and_correlates_events() -> Non
     application = await NestApplication.create(Root, adapter=StarletteAdapter())
     await application.start()
     page = await _request(application, "/counter?start=2")
-    token = re.search(r'data-opal-token="([A-Za-z0-9_.-]+)"', page.text)
-    assert token is not None
+    token = _token(page.text)
 
     sent = await _call_websocket(
         application,
-        "/_tori/live",
-        _receive_text({"type": "join", "protocol": 2, "token": token[1]}),
-        _receive_text(
-            {
-                "type": "event",
-                "event": "increment",
-                "value": {},
-                "target": None,
-                "version": 0,
-                "ref": 1,
-            }
-        ),
+        "/_tori/live/websocket",
+        _join(token),
+        _event("2", "increment"),
         _disconnect(),
     )
     assert sent[0]["type"] == "websocket.accept"
     messages = _decode_sent(sent)
-    assert messages[0]["type"] == "render"
-    assert messages[0]["protocol"] == 2
-    assert messages[0]["version"] == 0
-    snapshot = cast(dict[str, object], messages[0]["rendered"])
-    assert snapshot["dynamics"] == ["2"]
-    assert messages[0]["title"] == "Counter 2"
-    assert messages[1] == {
-        "type": "render",
-        "protocol": 2,
-        "version": 1,
-        "fingerprint": snapshot["fingerprint"],
-        "diff": {"0": "3"},
-        "ref": 1,
-        "status": "ok",
-        "title": "Counter 3",
+    assert messages[0][:4] == ["1", "1", _TOPIC, "phx_reply"]
+    join_payload = _reply_payload(messages[0])
+    assert join_payload["status"] == "ok"
+    join_response = _response(messages[0])
+    assert join_response["liveview_version"] == "1.2.11"
+    snapshot = cast(dict[str, object], join_response["rendered"])
+    assert snapshot == {
+        "s": [
+            '<section><button phx-click="increment">+</button><output>',
+            "</output></section>",
+        ],
+        "0": "2",
+        "t": "Counter 2",
+    }
+    assert messages[1][:4] == ["1", "2", _TOPIC, "phx_reply"]
+    event_payload = _reply_payload(messages[1])
+    assert event_payload["status"] == "ok"
+    assert _response(messages[1])["diff"] == {
+        "s": snapshot["s"],
+        "0": "3",
+        "t": "Counter 3",
     }
     assert CounterLive.mounts == [False, True]
     assert CounterLive.disconnects == 1
+    await application.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_phoenix_form_event_decodes_values_and_target_metadata() -> None:
+    FormLive.values.clear()
+    liveview_module = LiveViewModule.for_root(
+        LiveViewOptions(secret="s" * 32),
+        pages=[FormLive],
+        key="form",
+    )
+
+    @module(imports=[liveview_module])
+    class Root:
+        pass
+
+    application = await NestApplication.create(Root, adapter=StarletteAdapter())
+    await application.start()
+    page = await _request(application, "/form")
+    sent = await _call_websocket(
+        application,
+        "/_tori/live/websocket",
+        _join(_token(page.text)),
+        _receive_text(
+            [
+                "1",
+                "2",
+                _TOPIC,
+                "event",
+                {
+                    "type": "form",
+                    "event": "validate",
+                    "value": (
+                        "user%5Bname%5D=Tori&tag=one&tag=two&"
+                        "role%5B%5D=admin&role%5B%5D=editor&filter%5B=open"
+                    ),
+                    "meta": {"_target": "user[name]"},
+                    "uploads": {},
+                },
+            ]
+        ),
+        _disconnect(),
+    )
+
+    assert FormLive.values == [
+        {
+            "user": {"name": "Tori"},
+            "tag": "two",
+            "role": ["admin", "editor"],
+            "filter[": "open",
+            "_target": ["user", "name"],
+        }
+    ]
+    diff = cast(dict[str, object], _response(_decode_sent(sent)[1])["diff"])
+    assert diff["0"] == "1"
     await application.shutdown()
 
 
@@ -651,8 +887,7 @@ async def test_components_keep_state_route_targets_and_cleanup() -> None:
     application = await NestApplication.create(Root, adapter=StarletteAdapter())
     await application.start()
     page = await _request(application, "/components")
-    token = re.search(r'data-opal-token="([A-Za-z0-9_.-]+)"', page.text)
-    assert token is not None
+    token = _token(page.text)
     assert "Left:0" in page.text
     assert "Right:0" in page.text
     assert CounterComponent.mounts == 2
@@ -660,102 +895,53 @@ async def test_components_keep_state_route_targets_and_cleanup() -> None:
 
     sent = await _call_websocket(
         application,
-        "/_tori/live",
-        _receive_text({"type": "join", "protocol": 2, "token": token[1]}),
-        _receive_text(
-            {
-                "type": "event",
-                "event": "increment",
-                "target": 1,
-                "value": None,
-                "version": 0,
-                "ref": 1,
-            }
-        ),
-        _receive_text(
-            {
-                "type": "event",
-                "event": "increment",
-                "target": 2,
-                "value": None,
-                "version": 1,
-                "ref": 2,
-            }
-        ),
-        _receive_text(
-            {
-                "type": "event",
-                "event": "increment",
-                "target": 999_999,
-                "value": None,
-                "version": 2,
-                "ref": 3,
-            }
-        ),
-        _receive_text(
-            {
-                "type": "event",
-                "event": "missing",
-                "target": 1,
-                "value": None,
-                "version": 2,
-                "ref": 4,
-            }
-        ),
-        _receive_text(
-            {
-                "type": "event",
-                "event": "toggle_right",
-                "target": None,
-                "value": None,
-                "version": 2,
-                "ref": 5,
-            }
-        ),
-        _receive_text(
-            {
-                "type": "event",
-                "event": "toggle_right",
-                "target": None,
-                "value": None,
-                "version": 3,
-                "ref": 6,
-            }
-        ),
+        "/_tori/live/websocket",
+        _join(token),
+        _event("2", "increment", cid=1),
+        _event("3", "increment", cid=2),
+        _event("4", "increment", cid=999_999),
+        _event("5", "missing", cid=1),
+        _event("6", "toggle_right"),
+        _receive_text(["1", "7", _TOPIC, "cids_will_destroy", {"cids": [2]}]),
+        _receive_text(["1", "8", _TOPIC, "cids_destroyed", {"cids": [2]}]),
+        _event("9", "toggle_right"),
         _disconnect(),
     )
     messages = _decode_sent(sent)
-    snapshot = cast(dict[str, object], messages[0]["rendered"])
-    initial_dynamics = cast(list[str], snapshot["dynamics"])
-    assert 'id="component-left" data-opal-target="1"' in initial_dynamics[0]
-    assert 'id="component-right" data-opal-target="2"' in initial_dynamics[1]
-    assert messages[1]["diff"] == {
-        "0": (
-            '<button id="component-left" data-opal-target="1" '
-            'data-opal-click="increment">Left:1</button>'
-        )
+    snapshot = cast(dict[str, object], _response(messages[0])["rendered"])
+    components = cast(dict[str, dict[str, object]], snapshot["c"])
+    assert snapshot["0"] == 1
+    assert snapshot["1"] == 2
+    assert components["1"]["1"] == "1"
+    assert components["1"]["2"] == "Left"
+    assert components["1"]["3"] == "0"
+    assert components["1"]["r"] == 1
+    assert components["2"]["2"] == "Right"
+
+    left_diff = cast(dict[str, object], _response(messages[1])["diff"])
+    left_components = cast(dict[str, dict[str, object]], left_diff["c"])
+    assert left_components["1"]["3"] == "1"
+    right_diff = cast(dict[str, object], _response(messages[2])["diff"])
+    right_components = cast(dict[str, dict[str, object]], right_diff["c"])
+    assert right_components["2"]["3"] == "1"
+    assert _reply_payload(messages[3]) == {
+        "status": "ok",
+        "response": {"reason": "unknown_target"},
     }
-    assert messages[2]["diff"] == {
-        "1": (
-            '<button id="component-right" data-opal-target="2" '
-            'data-opal-click="increment">Right:1</button>'
-        )
+    assert _reply_payload(messages[4]) == {
+        "status": "ok",
+        "response": {"reason": "unknown_event"},
     }
-    assert messages[3] == {
-        "type": "error",
-        "reason": "unknown_target",
-        "ref": 3,
-    }
-    assert messages[4] == {
-        "type": "error",
-        "reason": "unknown_event",
-        "ref": 4,
-    }
-    assert messages[5]["version"] == 3
-    assert messages[5]["diff"] == {"1": ""}
-    restored = cast(dict[str, str], messages[6]["diff"])["1"]
-    assert "Right:0" in restored
-    assert 'data-opal-target="3"' in restored
+    removed = cast(dict[str, object], _response(messages[5])["diff"])
+    assert removed["1"] == ""
+    assert set(cast(dict[str, object], removed["c"])) == {"1"}
+    assert _response(messages[6]) == {}
+    assert _response(messages[7]) == {"cids": [2]}
+    restored = cast(dict[str, object], _response(messages[8])["diff"])
+    assert restored["1"] == 3
+    restored_components = cast(dict[str, dict[str, object]], restored["c"])
+    assert restored_components["3"]["2"] == "Right"
+    assert restored_components["3"]["3"] == "0"
     assert CounterComponent.mounts == 5
     assert CounterComponent.mount_connections == [False, False, True, True, True]
     assert CounterComponent.updates == 11
@@ -764,9 +950,7 @@ async def test_components_keep_state_route_targets_and_cleanup() -> None:
 
 
 @pytest.mark.asyncio
-async def test_streams_render_initial_html_and_send_ordered_protocol_operations() -> (
-    None
-):
+async def test_streams_render_initial_html_and_send_phoenix_stream_tuples() -> None:
     liveview_module = LiveViewModule.for_root(
         LiveViewOptions(secret="s" * 32),
         pages=[StreamsLive],
@@ -780,116 +964,81 @@ async def test_streams_render_initial_html_and_send_ordered_protocol_operations(
     application = await NestApplication.create(Root, adapter=StarletteAdapter())
     await application.start()
     page = await _request(application, "/streams")
-    token = re.search(r'data-opal-token="([A-Za-z0-9_.-]+)"', page.text)
-    assert token is not None
-    assert '<li id="activity-1" data-opal-key="activity-1">First</li>' in page.text
-    assert '<li id="activity-2" data-opal-key="activity-2">Second</li>' in page.text
+    token = _token(page.text)
+    assert '<li id="activity-1">First</li>' in page.text
+    assert '<li id="activity-2">Second</li>' in page.text
 
     sent = await _call_websocket(
         application,
-        "/_tori/live",
-        _receive_text({"type": "join", "protocol": 2, "token": token[1]}),
-        _receive_text(
-            {
-                "type": "event",
-                "event": "prepend",
-                "value": None,
-                "version": 0,
-                "ref": 1,
-            }
-        ),
-        _receive_text(
-            {
-                "type": "event",
-                "event": "update",
-                "value": None,
-                "version": 1,
-                "ref": 2,
-            }
-        ),
-        _receive_text(
-            {
-                "type": "event",
-                "event": "invalid_after_insert",
-                "value": None,
-                "version": 2,
-                "ref": 3,
-            }
-        ),
-        _receive_text(
-            {
-                "type": "event",
-                "event": "delete",
-                "value": None,
-                "version": 2,
-                "ref": 4,
-            }
-        ),
-        _receive_text(
-            {
-                "type": "event",
-                "event": "reset",
-                "value": None,
-                "version": 3,
-                "ref": 5,
-            }
-        ),
+        "/_tori/live/websocket",
+        _join(token),
+        _event("2", "prepend"),
+        _event("3", "update"),
+        _event("4", "invalid_after_insert"),
+        _event("5", "delete"),
+        _event("6", "reset"),
         _disconnect(),
     )
     messages = _decode_sent(sent)
-    assert messages[0]["streams"] == [
-        {"op": "reset", "container": "activity-stream"},
-        {
-            "op": "insert",
-            "container": "activity-stream",
-            "id": "activity-1",
-            "html": '<li id="activity-1" data-opal-key="activity-1">First</li>',
-            "at": -1,
-        },
-        {
-            "op": "insert",
-            "container": "activity-stream",
-            "id": "activity-2",
-            "html": '<li id="activity-2" data-opal-key="activity-2">Second</li>',
-            "at": -1,
-        },
-    ]
-    assert messages[1]["streams"] == [
-        {
-            "op": "insert",
-            "container": "activity-stream",
-            "id": "activity-3",
-            "html": '<li id="activity-3" data-opal-key="activity-3">Third</li>',
-            "at": 0,
-            "limit": 2,
-        }
-    ]
-    assert cast(list[dict[str, object]], messages[2]["streams"])[0]["html"] == (
-        '<li id="activity-1" data-opal-key="activity-1">First updated</li>'
+    initial = cast(
+        dict[str, object],
+        cast(dict[str, object], _response(messages[0])["rendered"])["0"],
     )
-    assert messages[3] == {
-        "type": "error",
-        "reason": "unknown_event",
-        "ref": 3,
+    assert initial["k"] == {
+        "0": {"0": '<li id="activity-1">First</li>'},
+        "1": {"0": '<li id="activity-2">Second</li>'},
+        "kc": 2,
     }
-    assert messages[4]["streams"] == [
-        {"op": "delete", "container": "activity-stream", "id": "activity-2"}
+    assert initial["stream"] == [
+        "activity-stream",
+        [
+            ["activity-1", -1, None, None],
+            ["activity-2", -1, None, None],
+        ],
+        [],
+        True,
     ]
-    assert messages[5]["streams"] == [
-        {"op": "reset", "container": "activity-stream"},
-        {
-            "op": "insert",
-            "container": "activity-stream",
-            "id": "activity-9",
-            "html": '<li id="activity-9" data-opal-key="activity-9">Reset item</li>',
-            "at": -1,
-        },
+    prepend = cast(
+        dict[str, object],
+        cast(dict[str, object], _response(messages[1])["diff"])["0"],
+    )
+    assert prepend["stream"] == [
+        "activity-stream",
+        [["activity-3", 0, 2, None]],
+        [],
+    ]
+    update = cast(
+        dict[str, object],
+        cast(dict[str, object], _response(messages[2])["diff"])["0"],
+    )
+    assert (
+        cast(dict[str, object], cast(dict[str, object], update["k"])["0"])["0"]
+        == '<li id="activity-1">First updated</li>'
+    )
+    assert _reply_payload(messages[3]) == {
+        "status": "ok",
+        "response": {"reason": "unknown_event"},
+    }
+    delete = cast(
+        dict[str, object],
+        cast(dict[str, object], _response(messages[4])["diff"])["0"],
+    )
+    assert delete["stream"] == ["activity-stream", [], ["activity-2"]]
+    reset = cast(
+        dict[str, object],
+        cast(dict[str, object], _response(messages[5])["diff"])["0"],
+    )
+    assert reset["stream"] == [
+        "activity-stream",
+        [["activity-9", -1, None, None]],
+        [],
+        True,
     ]
     await application.shutdown()
 
 
 @pytest.mark.asyncio
-async def test_protocol_v2_resynchronizes_stale_events_and_echoes_heartbeats() -> None:
+async def test_phoenix_channel_echoes_heartbeats_and_acknowledges_leave() -> None:
     liveview_module = LiveViewModule.for_root(
         LiveViewOptions(secret="s" * 32),
         pages=[CounterLive],
@@ -902,36 +1051,35 @@ async def test_protocol_v2_resynchronizes_stale_events_and_echoes_heartbeats() -
     application = await NestApplication.create(Root, adapter=StarletteAdapter())
     await application.start()
     page = await _request(application, "/counter")
-    token = re.search(r'data-opal-token="([A-Za-z0-9_.-]+)"', page.text)
-    assert token is not None
+    token = _token(page.text)
 
     sent = await _call_websocket(
         application,
-        "/_tori/live",
-        _receive_text({"type": "join", "protocol": 2, "token": token[1]}),
-        _receive_text(
-            {
-                "type": "event",
-                "event": "increment",
-                "value": {},
-                "version": 99,
-                "ref": 1,
-            }
-        ),
-        _receive_text({"type": "heartbeat", "ref": 2}),
-        _disconnect(),
+        "/_tori/live/websocket",
+        _join(token),
+        _receive_text([None, "2", "phoenix", "heartbeat", {}]),
+        _receive_text(["1", "3", _TOPIC, "phx_leave", {}]),
     )
     messages = _decode_sent(sent)
-    assert messages[1]["version"] == 0
-    assert messages[1]["diff"] == {}
-    assert messages[1]["ref"] == 1
-    assert messages[1]["status"] == "stale"
-    assert messages[2] == {"type": "heartbeat", "ref": 2}
+    assert messages[1] == [
+        None,
+        "2",
+        "phoenix",
+        "phx_reply",
+        {"status": "ok", "response": {}},
+    ]
+    assert messages[2] == [
+        "1",
+        "3",
+        _TOPIC,
+        "phx_reply",
+        {"status": "ok", "response": {}},
+    ]
     await application.shutdown()
 
 
 @pytest.mark.asyncio
-async def test_protocol_omits_an_absent_title() -> None:
+async def test_phoenix_render_omits_an_absent_title() -> None:
     liveview_module = LiveViewModule.for_root(
         LiveViewOptions(secret="s" * 32),
         pages=[UntitledLive],
@@ -944,22 +1092,25 @@ async def test_protocol_omits_an_absent_title() -> None:
     application = await NestApplication.create(Root, adapter=StarletteAdapter())
     await application.start()
     page = await _request(application, "/untitled")
-    token = re.search(r'data-opal-token="([A-Za-z0-9_.-]+)"', page.text)
-    assert token is not None
+    token = _token(page.text)
 
     sent = await _call_websocket(
         application,
-        "/_tori/live",
-        _receive_text({"type": "join", "protocol": 2, "token": token[1]}),
+        "/_tori/live/websocket",
+        _join(token),
         _disconnect(),
     )
-    render_message = _decode_sent(sent)[0]
+    render_message = cast(
+        dict[str, object],
+        _response(_decode_sent(sent)[0])["rendered"],
+    )
     assert "title" not in render_message
+    assert render_message["t"] == ""
     await application.shutdown()
 
 
 @pytest.mark.asyncio
-async def test_protocol_enforces_origin_message_type_and_size_before_dispatch() -> None:
+async def test_phoenix_channel_enforces_origin_type_and_size_before_dispatch() -> None:
     liveview_module = LiveViewModule.for_root(
         LiveViewOptions(
             secret="s" * 32,
@@ -976,33 +1127,32 @@ async def test_protocol_enforces_origin_message_type_and_size_before_dispatch() 
     application = await NestApplication.create(Root, adapter=StarletteAdapter())
     await application.start()
     page = await _request(application, "/counter")
-    token = re.search(r'data-opal-token="([A-Za-z0-9_.-]+)"', page.text)
-    assert token is not None
+    token = _token(page.text)
 
     allowed = await _call_websocket(
         application,
-        "/_tori/live",
+        "/_tori/live/websocket",
         _disconnect(),
         origin=b"https://trusted.example",
     )
     assert allowed[0]["type"] == "websocket.accept"
     disallowed = await _call_websocket(
         application,
-        "/_tori/live",
+        "/_tori/live/websocket",
         origin=b"http://testserver/path?query=1",
     )
     assert disallowed == [{"type": "websocket.close", "code": 1008, "reason": ""}]
     duplicate_origin = await _call_websocket(
         application,
-        "/_tori/live",
+        "/_tori/live/websocket",
         origin=(b"https://trusted.example", b"http://attacker.example"),
     )
     assert duplicate_origin[-1]["code"] == 1008
 
     oversized = await _call_websocket(
         application,
-        "/_tori/live",
-        _receive_text({"type": "join", "protocol": 2, "token": token[1]}),
+        "/_tori/live/websocket",
+        _join(token),
         origin=b"https://trusted.example",
     )
     assert oversized[-1]["type"] == "websocket.close"
@@ -1010,7 +1160,7 @@ async def test_protocol_enforces_origin_message_type_and_size_before_dispatch() 
 
     binary = await _call_websocket(
         application,
-        "/_tori/live",
+        "/_tori/live/websocket",
         {"type": "websocket.receive", "bytes": b"{}"},
         origin=b"https://trusted.example",
     )
@@ -1020,7 +1170,7 @@ async def test_protocol_enforces_origin_message_type_and_size_before_dispatch() 
 
 
 @pytest.mark.asyncio
-async def test_protocol_uses_policy_and_going_away_closes_for_timeouts() -> None:
+async def test_phoenix_channel_uses_policy_and_going_away_timeout_closes() -> None:
     join_timeout_module = LiveViewModule.for_root(
         LiveViewOptions(secret="s" * 32, join_timeout_seconds=0.01),
         pages=[CounterLive],
@@ -1036,7 +1186,10 @@ async def test_protocol_uses_policy_and_going_away_closes_for_timeouts() -> None
         adapter=StarletteAdapter(),
     )
     await join_application.start()
-    join_timeout = await _call_websocket(join_application, "/_tori/live")
+    join_timeout = await _call_websocket(
+        join_application,
+        "/_tori/live/websocket",
+    )
     assert join_timeout[-1]["type"] == "websocket.close"
     assert join_timeout[-1]["code"] == 1008
     await join_application.shutdown()
@@ -1057,12 +1210,11 @@ async def test_protocol_uses_policy_and_going_away_closes_for_timeouts() -> None
     )
     await idle_application.start()
     page = await _request(idle_application, "/counter")
-    token = re.search(r'data-opal-token="([A-Za-z0-9_.-]+)"', page.text)
-    assert token is not None
+    token = _token(page.text)
     idle_timeout = await _call_websocket(
         idle_application,
-        "/_tori/live",
-        _receive_text({"type": "join", "protocol": 2, "token": token[1]}),
+        "/_tori/live/websocket",
+        _join(token),
     )
     assert idle_timeout[-1]["type"] == "websocket.close"
     assert idle_timeout[-1]["code"] == 1001
@@ -1070,9 +1222,7 @@ async def test_protocol_uses_policy_and_going_away_closes_for_timeouts() -> None
 
 
 @pytest.mark.asyncio
-async def test_protocol_reports_unsupported_events_and_targets_without_mutation() -> (
-    None
-):
+async def test_phoenix_channel_reports_unknown_events_and_targets() -> None:
     liveview_module = LiveViewModule.for_root(
         LiveViewOptions(secret="s" * 32),
         pages=[CounterLive],
@@ -1086,40 +1236,24 @@ async def test_protocol_reports_unsupported_events_and_targets_without_mutation(
     application = await NestApplication.create(Root, adapter=StarletteAdapter())
     await application.start()
     page = await _request(application, "/counter")
-    token = re.search(r'data-opal-token="([A-Za-z0-9_.-]+)"', page.text)
-    assert token is not None
+    token = _token(page.text)
     sent = await _call_websocket(
         application,
-        "/_tori/live",
-        _receive_text({"type": "join", "protocol": 2, "token": token[1]}),
-        _receive_text(
-            {
-                "type": "event",
-                "event": "increment",
-                "target": 7,
-                "version": 0,
-                "ref": 1,
-            }
-        ),
-        _receive_text(
-            {
-                "type": "event",
-                "event": "missing",
-                "version": 0,
-                "ref": 2,
-            }
-        ),
+        "/_tori/live/websocket",
+        _join(token),
+        _event("2", "increment", cid=7),
+        _event("3", "missing"),
         _disconnect(),
     )
-    assert _decode_sent(sent)[1:] == [
-        {"type": "error", "reason": "unknown_target", "ref": 1},
-        {"type": "error", "reason": "unknown_event", "ref": 2},
+    assert [_reply_payload(frame) for frame in _decode_sent(sent)[1:]] == [
+        {"status": "ok", "response": {"reason": "unknown_target"}},
+        {"status": "ok", "response": {"reason": "unknown_event"}},
     ]
     await application.shutdown()
 
 
 @pytest.mark.asyncio
-async def test_protocol_rejects_malformed_messages_and_invalid_tokens() -> None:
+async def test_phoenix_channel_rejects_malformed_messages_and_invalid_tokens() -> None:
     liveview_module = LiveViewModule.for_root(
         LiveViewOptions(secret="s" * 32),
         pages=[CounterLive],
@@ -1134,46 +1268,41 @@ async def test_protocol_rejects_malformed_messages_and_invalid_tokens() -> None:
     await application.start()
     malformed = await _call_websocket(
         application,
-        "/_tori/live",
+        "/_tori/live/websocket",
         {"type": "websocket.receive", "text": "{"},
     )
     assert malformed[-1]["code"] == 1002
     nonstandard_json = await _call_websocket(
         application,
-        "/_tori/live",
+        "/_tori/live/websocket",
         {
             "type": "websocket.receive",
-            "text": '{"type":"join","protocol":2,"token":"invalid","x":NaN}',
+            "text": '["1","1","lv:tori-live-root","phx_join",{"x":NaN}]',
         },
     )
     assert nonstandard_json[-1]["code"] == 1002
     invalid_token = await _call_websocket(
         application,
-        "/_tori/live",
-        _receive_text({"type": "join", "protocol": 2, "token": "invalid"}),
+        "/_tori/live/websocket",
+        _join("invalid"),
     )
-    assert invalid_token[-1]["code"] == 1008
+    assert _reply_payload(_decode_sent(invalid_token)[0]) == {
+        "status": "error",
+        "response": {"reason": "unauthorized"},
+    }
 
     page = await _request(application, "/counter")
-    token = re.search(r'data-opal-token="([A-Za-z0-9_.-]+)"', page.text)
-    assert token is not None
+    token = _token(page.text)
     unsafe_integer = await _call_websocket(
         application,
-        "/_tori/live",
-        _receive_text({"type": "join", "protocol": 2, "token": token[1]}),
-        _receive_text(
-            {
-                "type": "event",
-                "event": "increment",
-                "version": 0,
-                "ref": 2**53,
-            }
-        ),
+        "/_tori/live/websocket",
+        _join(token),
+        _event("2", "increment", cid=2**53),
     )
     assert unsafe_integer[-1]["code"] == 1002
     invalid_unicode = await _call_websocket(
         application,
-        "/_tori/live",
+        "/_tori/live/websocket",
         {"type": "websocket.receive", "text": "\ud800"},
     )
     assert invalid_unicode[-1]["code"] == 1002
@@ -1181,7 +1310,7 @@ async def test_protocol_rejects_malformed_messages_and_invalid_tokens() -> None:
 
 
 @pytest.mark.asyncio
-async def test_protocol_closes_on_unexpected_handler_failures() -> None:
+async def test_phoenix_channel_closes_on_unexpected_handler_failures() -> None:
     liveview_module = LiveViewModule.for_root(
         LiveViewOptions(secret="s" * 32),
         pages=[CrashingLive],
@@ -1195,20 +1324,12 @@ async def test_protocol_closes_on_unexpected_handler_failures() -> None:
     application = await NestApplication.create(Root, adapter=StarletteAdapter())
     await application.start()
     page = await _request(application, "/crash")
-    token = re.search(r'data-opal-token="([A-Za-z0-9_.-]+)"', page.text)
-    assert token is not None
+    token = _token(page.text)
     sent = await _call_websocket(
         application,
-        "/_tori/live",
-        _receive_text({"type": "join", "protocol": 2, "token": token[1]}),
-        _receive_text(
-            {
-                "type": "event",
-                "event": "crash",
-                "version": 0,
-                "ref": 1,
-            }
-        ),
+        "/_tori/live/websocket",
+        _join(token),
+        _event("2", "crash"),
     )
     assert sent[-1]["type"] == "websocket.close"
     assert sent[-1]["code"] == 1011
@@ -1216,7 +1337,7 @@ async def test_protocol_closes_on_unexpected_handler_failures() -> None:
 
 
 @pytest.mark.asyncio
-async def test_protocol_cleans_up_after_component_handler_failures() -> None:
+async def test_phoenix_channel_cleans_up_after_component_handler_failures() -> None:
     CrashingComponent.disconnects = 0
     CrashingComponentsLive.disconnects = 0
     liveview_module = LiveViewModule.for_root(
@@ -1232,24 +1353,14 @@ async def test_protocol_cleans_up_after_component_handler_failures() -> None:
     application = await NestApplication.create(Root, adapter=StarletteAdapter())
     await application.start()
     page = await _request(application, "/component-crash")
-    token = re.search(r'data-opal-token="([A-Za-z0-9_.-]+)"', page.text)
-    assert token is not None
+    token = _token(page.text)
     assert CrashingComponent.disconnects == 1
 
     sent = await _call_websocket(
         application,
-        "/_tori/live",
-        _receive_text({"type": "join", "protocol": 2, "token": token[1]}),
-        _receive_text(
-            {
-                "type": "event",
-                "event": "crash",
-                "target": 1,
-                "value": None,
-                "version": 0,
-                "ref": 1,
-            }
-        ),
+        "/_tori/live/websocket",
+        _join(token),
+        _event("2", "crash", cid=1),
     )
     assert sent[-1]["type"] == "websocket.close"
     assert sent[-1]["code"] == 1011

@@ -1128,11 +1128,11 @@ WebSocket gateway. Explicitly declared page classes are request-scoped providers
 the disconnected HTTP mount and connected socket mount resolve through their
 normal owning scopes. ToriPy core contains no LiveView metadata or protocol code.
 
-The package implements Opal protocol version 2 and serves the unchanged pinned
-Opal JavaScript client. It preserves `data-opal-*`, `opal:*`, structural render
-fingerprints, event refs, versions, stale resynchronization, heartbeats, and
-connection-local stateful components plus browser-owned stream operations.
-Nested components, uploads, and server-initiated messages remain outside the
+The package serves unchanged pinned official Phoenix and Phoenix LiveView
+JavaScript clients. Its server implements Phoenix V2 Channels framing,
+`phx-*` event bindings, render trees, heartbeats, connection-local stateful
+component CIDs, and browser-owned keyed stream operations. Nested components,
+uploads, navigation, hooks, and server-initiated messages remain outside the
 current package contract.
 
 The architecture and implementation order are maintained in

@@ -1,15 +1,24 @@
+from string.templatelib import Template
+
 from tori_py import NestApplication, module
 from tori_py.starlette import StarletteAdapter, asgi
 from tori_py_liveview import (
     LiveComponent,
-    LiveView,
     LiveViewModule,
     LiveViewOptions,
     MountContext,
-    Rendered,
     UnknownEventError,
     live_view,
-    rendered,
+)
+from tori_py_liveview_ui import (
+    LiveViewUiModule,
+    UiLiveView,
+    alert,
+    badge,
+    button,
+    card,
+    grid,
+    stack,
 )
 
 
@@ -32,31 +41,27 @@ class CounterComponent(LiveComponent):
             raise UnknownEventError(event)
         self.count += 1
 
-    def render(self) -> Rendered:
-        return rendered(
-            (
-                '<section id="component-',
-                '" data-opal-target="',
-                '"><h2>',
-                '</h2><button data-opal-click="increment">Increment ',
-                '</button><output data-component-id="',
-                '">',
-                "</output></section>",
-            ),
-            self.id,
-            self.myself,
-            self.label,
-            self.label,
-            self.id,
-            self.count,
+    def render(self) -> Template:
+        action = button(
+            f"Increment {self.label}",
+            event="increment",
+            target=self.myself,
+            variant="secondary",
+        )
+        count = badge(self.count, tone="info")
+        return (
+            t'<section id="component-{self.id}"><h2>{self.label}</h2>'
+            t'{action}<output data-component-id="{self.id}">{self.count}</output>'
+            t"{count}</section>"
         )
 
 
 @live_view("/")
-class CounterLive(LiveView):
+class CounterLive(UiLiveView):
     def __init__(self) -> None:
         self.count = 0
         self.next_activity = 3
+        self.show_title = True
 
     async def mount(self, context: MountContext) -> None:
         self.count = int(context.query_params.get("start", "0"))
@@ -67,6 +72,16 @@ class CounterLive(LiveView):
     async def handle_event(self, event: str, value: object) -> None:
         if event == "increment":
             self.count += 1
+        elif event == "clear_title":
+            self.show_title = False
+        elif event == "set_count":
+            if (
+                not isinstance(value, dict)
+                or not isinstance(counter := value.get("counter"), dict)
+                or not isinstance(raw_count := counter.get("value"), str)
+            ):
+                raise UnknownEventError(event)
+            self.count = int(raw_count)
         elif event == "prepend_activity":
             sequence = self.next_activity
             self.next_activity += 1
@@ -87,7 +102,7 @@ class CounterLive(LiveView):
         else:
             raise UnknownEventError(event)
 
-    def render(self) -> Rendered:
+    def render(self) -> Template:
         left = self.live_component(
             CounterComponent,
             "left",
@@ -99,41 +114,59 @@ class CounterLive(LiveView):
             {"label": "Right"},
         )
         activities = self.stream_contents("activity-stream")
-        return rendered(
-            (
-                '<main><h1>ToriPy LiveView</h1><button data-opal-click="increment">'
-                "Increment page</button><output data-page-counter>",
-                '</output><div class="components">',
-                "",
-                "</div><section><h2>Activity stream</h2><button "
-                'data-opal-click="prepend_activity">Prepend activity</button>'
-                '<ul id="activity-stream" data-opal-stream>',
-                "</ul></section></main>",
-            ),
-            self.count,
-            left,
-            right,
-            activities,
+        form = (
+            t'<form id="page-counter-form" phx-change="set_count">'
+            t'<label>Set page count <input type="number" '
+            t'name="counter[value]" value="{self.count}"></label></form>'
         )
+        page_controls = stack(
+            [
+                form,
+                button("Increment page", event="increment"),
+                button("Clear title", event="clear_title", variant="ghost"),
+                t"<output data-page-counter>{self.count}</output>",
+                badge(f"Count {self.count}", tone="success"),
+            ],
+            gap="sm",
+            align="start",
+        )
+        components = grid([left, right], columns="2", gap="lg")
+        prepend_activity = button(
+            "Prepend activity",
+            event="prepend_activity",
+            variant="secondary",
+        )
+        stream_panel = card(
+            t"{prepend_activity}"
+            t'<ul id="activity-stream" phx-update="stream">{activities}</ul>',
+            eyebrow="Phoenix stream",
+            title="Activity stream",
+        )
+        layout = stack(
+            [
+                alert(
+                    "Official Phoenix LiveView client connected",
+                    title="Server-rendered UI",
+                    tone="info",
+                ),
+                card(page_controls, eyebrow="Page state", title="Counter"),
+                components,
+                stream_panel,
+            ],
+            gap="lg",
+        )
+        return t"<main><h1>ToriPy LiveView UI</h1>{layout}</main>"
 
-    def title(self) -> str:
-        return f"Counter: {self.count}"
+    def title(self) -> str | None:
+        return f"Counter: {self.count}" if self.show_title else None
 
     @staticmethod
-    def _activity_item(sequence: int) -> Rendered:
+    def _activity_item(sequence: int) -> Template:
         item_id = f"activity-{sequence}"
-        return rendered(
-            (
-                '<li id="',
-                '"><span>Activity ',
-                '</span><button data-opal-click="delete_activity" data-opal-value-id="',
-                '">Remove Activity ',
-                "</button></li>",
-            ),
-            item_id,
-            sequence,
-            item_id,
-            sequence,
+        return (
+            t'<li id="{item_id}"><span>Activity {sequence}</span>'
+            t'<button phx-click="delete_activity" phx-value-id="{item_id}">'
+            t"Remove Activity {sequence}</button></li>"
         )
 
 
@@ -143,7 +176,7 @@ liveview_module = LiveViewModule.for_root(
 )
 
 
-@module(imports=[liveview_module])
+@module(imports=[liveview_module, LiveViewUiModule.for_root()])
 class AppModule:
     pass
 

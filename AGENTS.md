@@ -1,13 +1,13 @@
 # Repository Notes
 
 ## Project
-- Tori Py is a public Python 3.14 framework package family for explicit modules, dependency injection, ASGI applications, CQRS, persistence, OpenAPI, microservices, and persistent streams.
+- Tori Py is a public Python 3.14 framework package family for explicit modules, dependency injection, ASGI applications, CQRS, persistence, OpenAPI, LiveView UI, microservices, and persistent streams.
 - Keep framework packages independently installable, typed, and explicit about their dependency and adapter boundaries.
 
 ## Development
 - ALWAYS use `uv` exclusively for Python environments, dependencies, commands, tests, builds, and services.
 - Add dependencies with `uv`; run tests and services with `uv`.
-- Run quality checks through `uv`: `uv run ruff check .`, `uv run ruff format --check .`, and `uv run ty check tests packages/tori-py-cqrs-core/src packages/tori-py-cqrs-core/tests packages/tori-py-cqrs-event-sourcing-core/src packages/tori-py-cqrs-event-sourcing-core/tests packages/tori-py-cqrs-fastapi/src packages/tori-py-cqrs-fastapi/tests packages/tori-py/src packages/tori-py/tests packages/tori-py-cqrs/src packages/tori-py-cqrs/tests packages/tori-py-cqrs-event-sourcing/src packages/tori-py-cqrs-event-sourcing/tests packages/tori-py-openapi/src packages/tori-py-openapi/tests packages/tori-py-sqlalchemy/src packages/tori-py-sqlalchemy/tests packages/tori-py-microservices/src packages/tori-py-microservices/tests packages/tori-py-persistent-streams-core/src packages/tori-py-persistent-streams-core/tests packages/tori-py-persistent-streams/src packages/tori-py-persistent-streams/tests packages/tori-py-persistent-streams-rabbitmq/src packages/tori-py-persistent-streams-rabbitmq/tests packages/tori-py-liveview/src packages/tori-py-liveview/tests examples/tori_py`.
+- Run quality checks through `uv`: `uv run ruff check .`, `uv run ruff format --check .`, and `uv run ty check tests packages/tori-py-cqrs-core/src packages/tori-py-cqrs-core/tests packages/tori-py-cqrs-event-sourcing-core/src packages/tori-py-cqrs-event-sourcing-core/tests packages/tori-py-cqrs-fastapi/src packages/tori-py-cqrs-fastapi/tests packages/tori-py/src packages/tori-py/tests packages/tori-py-cqrs/src packages/tori-py-cqrs/tests packages/tori-py-cqrs-event-sourcing/src packages/tori-py-cqrs-event-sourcing/tests packages/tori-py-openapi/src packages/tori-py-openapi/tests packages/tori-py-sqlalchemy/src packages/tori-py-sqlalchemy/tests packages/tori-py-microservices/src packages/tori-py-microservices/tests packages/tori-py-persistent-streams-core/src packages/tori-py-persistent-streams-core/tests packages/tori-py-persistent-streams/src packages/tori-py-persistent-streams/tests packages/tori-py-persistent-streams-rabbitmq/src packages/tori-py-persistent-streams-rabbitmq/tests packages/tori-py-liveview/src packages/tori-py-liveview/tests packages/tori-py-liveview-ui/src packages/tori-py-liveview-ui/tests examples/tori_py`.
 
 ## CQRS
 - Keep the core package framework-neutral; it must not depend on FastAPI, Pydantic, SQLAlchemy, or a DI framework.
@@ -34,5 +34,10 @@
 
 ## Tori Py LiveView
 - The optional LiveView package is governed by `TORI_PY_LIVEVIEW_ARCHITECTURE.md`, `TORI_PY_LIVEVIEW_IMPLEMENTATION_PLAN.md`, and `spec/tori-py-liveview/README.md`.
-- Keep LiveView outside ToriPy core. Pages are explicit request-scoped providers, the server implements Opal protocol v2, and the unchanged pinned Opal JavaScript remains the common browser client.
-- Preserve `data-opal-*`, `opal:*`, protocol fields, stale-event resynchronization, finite deadlines, Origin validation, signed mount-token semantics, component identity/target lifecycle, and browser-owned stream operations. Nested components, uploads, and `send_info` remain deferred until their existing protocol contracts are implemented end to end.
+- Keep LiveView outside ToriPy core. Pages are explicit request-scoped providers, and the server interoperates with the unchanged pinned official Phoenix 1.8.13 and Phoenix LiveView 1.2.11 JavaScript clients.
+- Preserve Phoenix V2 Channels framing, `phx-*` bindings, render-tree/component/stream semantics, finite deadlines, Origin validation, signed mount tokens, component identity/target lifecycle, and browser-owned stream operations. Nested components, uploads, navigation, hooks, and `send_info` remain deferred until their official contracts are implemented end to end.
+
+## Tori Py LiveView UI
+- The optional UI package is governed by `TORI_PY_LIVEVIEW_UI_ARCHITECTURE.md`, `TORI_PY_LIVEVIEW_UI_IMPLEMENTATION_PLAN.md`, and `spec/tori-py-liveview-ui/README.md`.
+- Keep `tori-py-liveview-ui` separately installable and limited to stateless Template helpers plus document and stylesheet integration. It must reuse LiveView's Phoenix `phx-*`, escaping, render-tree, and component-target contracts rather than adding a client runtime or state model.
+- Keep assets local and content-addressed, selectors prefixed, theme tokens overridable, and keyboard/reduced-motion behavior explicit. Do not add a CDN, Node tooling, external fonts, a global reset, arbitrary caller-controlled attributes/classes, or widget-owned state.

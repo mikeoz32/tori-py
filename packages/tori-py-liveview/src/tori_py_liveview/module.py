@@ -20,10 +20,25 @@ from tori_py.http import HttpContext, HttpResponse
 from tori_py_liveview.endpoint import _Registry, gateway_type, initial_response
 from tori_py_liveview.errors import LiveViewConfigurationError
 from tori_py_liveview.metadata import LiveViewMetadata
-from tori_py_liveview.options import LiveViewOptions
+from tori_py_liveview.options import LiveViewOptions, websocket_path
 from tori_py_liveview.page import LiveView
 
-_CLIENT = files("tori_py_liveview").joinpath("static/opal_live_view.js").read_bytes()
+_STATIC = files("tori_py_liveview").joinpath("static")
+_PHOENIX = _STATIC.joinpath("phoenix-1.8.13.min.js").read_bytes()
+_PHOENIX_LIVE_VIEW = _STATIC.joinpath("phoenix_live_view-1.2.11.min.js").read_bytes()
+_BOOTSTRAP = b"""
+;(() => {
+  const root = document.querySelector("[data-phx-session][data-tori-live-socket]");
+  if (!root) return;
+  const liveSocket = new LiveView.LiveSocket(
+    root.dataset.toriLiveSocket,
+    Phoenix.Socket,
+  );
+  liveSocket.connect();
+  globalThis.liveSocket = liveSocket;
+})();
+"""
+_CLIENT = b"\n".join((_PHOENIX, _PHOENIX_LIVE_VIEW, _BOOTSTRAP))
 
 
 def _metadata(page: type[object]) -> LiveViewMetadata:
@@ -89,6 +104,7 @@ class LiveViewModule:
             metadata = _metadata(page)
             if metadata.path in paths or metadata.path in {
                 options.socket_path,
+                websocket_path(options.socket_path),
                 options.client_path,
             }:
                 raise LiveViewConfigurationError(

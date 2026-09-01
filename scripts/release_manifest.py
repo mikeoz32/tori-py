@@ -7,7 +7,7 @@ import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
-EXPECTED_DISTRIBUTIONS = 13
+EXPECTED_DISTRIBUTIONS = 14
 EXPECTED_ARTIFACTS = EXPECTED_DISTRIBUTIONS * 2
 
 

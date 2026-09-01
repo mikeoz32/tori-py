@@ -317,13 +317,30 @@ Principal public API:
 - Composition: `LiveViewModule`, `LiveViewOptions`.
 - Page and component lifecycle: `LiveView`, `LiveComponent`, `MountContext`,
   `live_view`.
-- Rendering: `Rendered`, `SafeHtml`, `rendered`, `raw`.
+- Rendering: `Rendered`, `SafeHtml`, `html`, `fragment`, `classes`, `attrs`,
+  `rendered`, `raw`.
 - Errors: `LiveViewError`, `LiveViewConfigurationError`, `UnknownEventError`.
 
-The package implements Opal protocol-v2 page snapshots, structural diffs,
-stateful components, targeted events, stale resynchronization, heartbeats, title
-updates, browser-owned streams, and reconnect joins. Nested components, uploads,
-and `send_info` are not part of the current server surface.
+The package interoperates with official Phoenix and Phoenix LiveView clients
+through Channels joins/replies, Phoenix render trees, stateful component CIDs,
+targeted events, heartbeats, title updates, browser-owned keyed streams, and
+reconnect joins. Nested components, uploads, navigation, hooks, and `send_info`
+are not part of the current server surface.
+
+## `tori-py-liveview-ui`
+
+### `tori_py_liveview_ui`
+
+The public facade is limited to:
+
+- Components: `button`, `badge`, `alert`, `card`, `stack`, `grid`.
+- Composition and documents: `LiveViewUiModule`, `UiLiveView`,
+  `STYLESHEET_PATH`, `stylesheet_link`.
+
+The components are stateless Python 3.14 Template helpers. They reuse LiveView's
+escaping, Phoenix render-tree, `phx-click`, and `phx-target` contracts and ship
+one local content-addressed stylesheet; they do not add a client runtime or
+state model.
 
 ## Reading generated reference
 
