@@ -86,7 +86,7 @@ consumer project.
 | Ordinary Task API | `uv run pytest examples/tori_py/tutorials/task_api/task_app/test_app.py -q` | Controller, application service, singleton in-memory repository, filters, and lifespan |
 | CQRS Task API | `uv run pytest examples/tori_py/tutorials/cqrs_task_api/task_app/test_app.py -q` | The unchanged service behind command/query handlers plus asynchronous audit and metrics observers |
 | Distributed Task API | `uv run pytest examples/tori_py/tutorials/distributed_task_api/task_app/test_system.py -q` | Three application roots, typed RPC, local CQRS, integration events, and idempotent audit over an in-memory transport |
-| Event-Sourced Task API | `uv run pytest examples/tori_py/tutorials/event_sourced_task_api/task_app -q` | Event-sourced commands, projection-owned reads, persistent-stream relay, and independent projection and audit consumers |
+| Event-Sourced Task API | `uv run pytest examples/tori_py/tutorials/event_sourced_task_api/task_app -q` | Event-sourced commands, direct persistent-stream publication, projection-owned reads, and independent projection and audit consumers |
 
 Run the complete source-checkout evolution check with:
 

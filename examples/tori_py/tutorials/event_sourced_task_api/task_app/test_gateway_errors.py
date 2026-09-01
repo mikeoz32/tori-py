@@ -12,9 +12,11 @@ from tori_py.http import HttpException
 from tori_py.starlette import RequestContext
 from tori_py_cqrs_event_sourcing import (
     CommandFinalizationPhase,
+    ConfirmedCommandFinalizationError,
     ConfirmedNonCommitFinalizationError,
 )
 from tori_py_cqrs_event_sourcing_core import (
+    CommitResult,
     CommitResultMismatchError,
     ConfirmedNonCommit,
 )
@@ -28,7 +30,6 @@ from tori_py_microservices import (
 from .contracts import CreateTaskV1
 from .gateway.app import GatewayErrorFilter
 from .tasks.app import TaskRpcController
-from .tasks.relay import RelayPublicationError, RelayUnavailable
 from .tasks.services import TaskApplicationService
 
 
@@ -36,8 +37,16 @@ from .tasks.services import TaskApplicationService
 @pytest.mark.parametrize(
     ("error", "code", "retryable"),
     (
-        (RelayUnavailable("unavailable"), "relay_unavailable", False),
-        (RelayPublicationError("stopped"), "relay_unavailable", False),
+        (
+            ConfirmedCommandFinalizationError(
+                commit_result=CommitResult(()),
+                handler_result=None,
+                phase=CommandFinalizationPhase.SYNCHRONIZATION,
+                primary_error=RuntimeError("stream publication failed"),
+            ),
+            "command_committed_finalization_failed",
+            False,
+        ),
         (CommitResultMismatchError("mismatch"), "command_outcome_unknown", False),
         (
             ConfirmedNonCommitFinalizationError(
@@ -85,15 +94,6 @@ async def test_task_rpc_maps_hardened_command_failures(
             "Task Conflict",
         ),
         (RuntimeError("unexpected"), 500, "Internal Server Error"),
-        (
-            RemoteRpcError(
-                "relay_unavailable",
-                "Task event relay is unavailable.",
-                retryable=False,
-            ),
-            503,
-            "Service Unavailable",
-        ),
         (UnknownServiceError("missing"), 503, "Service Unavailable"),
         (RpcTimeoutError("timeout"), 504, "Gateway Timeout"),
     ),

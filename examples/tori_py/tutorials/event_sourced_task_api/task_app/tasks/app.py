@@ -52,13 +52,7 @@ from ..infrastructure import (
 from ..streams import task_event_binding
 from .domain import TaskTitleInvalid
 from .handlers import CreateTaskHandler, RenameTaskHandler
-from .relay import (
-    EVENT_SOURCING_KEY,
-    RelayGate,
-    RelayPublicationError,
-    RelayUnavailable,
-    TaskEventRelay,
-)
+from .publisher import EVENT_SOURCING_KEY, TaskEventPublisher
 from .repository import TaskRepository
 from .schemas import TASK_SCHEMAS
 from .services import TaskApplicationService
@@ -77,8 +71,6 @@ class TaskRpcController:
     ) -> Task:
         try:
             return await self._tasks.create(payload.title)
-        except (RelayUnavailable, RelayPublicationError) as error:
-            raise _relay_unavailable(error) from error
         except TaskTitleInvalid as error:
             raise _invalid_title(error) from error
         except OptimisticConcurrencyError as error:
@@ -101,8 +93,6 @@ class TaskRpcController:
     ) -> Task:
         try:
             return await self._tasks.rename(payload.task_id, payload.title)
-        except (RelayUnavailable, RelayPublicationError) as error:
-            raise _relay_unavailable(error) from error
         except TaskTitleInvalid as error:
             raise _invalid_title(error) from error
         except AggregateNotFoundError as error:
@@ -126,14 +116,6 @@ def _invalid_title(error: BaseException) -> PublicRpcError:
     return PublicRpcError(
         "invalid_request",
         "After trimming, the task title must contain 1-120 characters.",
-    )
-
-
-def _relay_unavailable(error: BaseException) -> PublicRpcError:
-    del error
-    return PublicRpcError(
-        "relay_unavailable",
-        "Task event relay is unavailable.",
     )
 
 
@@ -207,13 +189,13 @@ task_microservices = MicroservicesModule.for_root(
 )
 
 task_stream_adapter = RabbitMqPersistentStreamsModule.for_root(
-    rabbitmq_stream_options("event-sourced-task-relay")
+    rabbitmq_stream_options("event-sourced-task-publisher")
 )
 task_streams = PersistentStreamsModule.for_root(
     PersistentStreamsOptions(
         bindings=(task_event_binding(),),
         runtime=PersistentStreamsRuntimeOptions(
-            owner_id="task-command-relay-v1",
+            owner_id="task-command-publisher-v1",
         ),
     ),
     imports=(task_stream_adapter,),
@@ -230,14 +212,12 @@ task_streams = PersistentStreamsModule.for_root(
     ),
     providers=(
         ClassProvider(TaskIdSequence),
-        ClassProvider(RelayGate),
-        ClassProvider(TaskEventRelay),
+        ClassProvider(TaskEventPublisher),
         ClassProvider(TaskApplicationService),
         CreateTaskHandler,
         RenameTaskHandler,
     ),
     controllers=(TaskRpcController,),
-    exports=(RelayGate, TaskEventRelay),
 )
 class TaskAppModule:
     """The task command service's independent application root."""

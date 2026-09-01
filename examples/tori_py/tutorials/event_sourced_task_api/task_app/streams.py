@@ -1,4 +1,4 @@
-"""The one versioned persistent-stream contract used by relay and consumers."""
+"""The one versioned persistent-stream contract used by all four roots."""
 
 from __future__ import annotations
 
@@ -22,14 +22,13 @@ TASK_EVENTS_DEFINITION = StreamDefinition(TASK_EVENTS_PHYSICAL, partition_count=
 
 
 class TaskEventRecordV1(msgspec.Struct, frozen=True, forbid_unknown_fields=True):
-    """Exact version 1 record relayed from committed domain events."""
+    """Exact version 1 record published from a committed domain event."""
 
     event_id: UUID
     kind: Literal["task-created", "task-renamed"]
     task_id: int
     title: str
     aggregate_version: int
-    source_global_position: int
     occurred_at: datetime
 
 

@@ -4,13 +4,16 @@ This directory is the complete executable Part 4 snapshot. It composes four
 independent Tori Py application roots:
 
 - `gateway` exposes the HTTP API and calls two finite-deadline typed RPC APIs.
-- `tasks` owns task commands, local CQRS, the event store, and the event relay.
+- `tasks` owns task commands, local CQRS, the event store, and direct stream
+  publication after commit.
 - `projection` consumes task records and exposes projection-only RPC reads.
 - `audit` consumes the same records in an independent consumer group.
 
-The command response confirms the event-store command outcome only. The relay
-is woken after commit and publishes later, so a successful `POST` or `PATCH`
-does not imply that projection-backed `GET` requests have converged.
+The command handler registers one `after_commit` callback. That callback publishes
+the committed event directly to the stream and is awaited before a successful
+command response is returned. Projection and audit consumers still run
+asynchronously, so a successful `POST` or `PATCH` does not imply that
+projection-backed `GET` requests have converged.
 
 Part 4 intentionally replaces the Part 3 task RPC identity with
 `tutorial.task-commands.v1` and adds `tutorial.task-projection.v1`. This is a
@@ -69,12 +72,11 @@ readiness coordinator or service health endpoint in this snapshot.
 
 ## State, Retention, and Shutdown
 
-The command event store, integer ID allocator, projection, audit log, relay
-checkpoint, and external consumer checkpoints are process-local memory. A
-restart loses the corresponding state. Consumer checkpoints starting from
-`Beginning` can rebuild projection or audit only while every required record is
-still retained. A retention gap blocks a partition; this example has no repair
-or snapshot procedure.
+The command event store, integer ID allocator, projection, audit log, and external
+consumer checkpoints are process-local memory. A restart loses the corresponding
+state. Consumer checkpoints starting from `Beginning` can rebuild projection or
+audit only while every required record is still retained. A retention gap blocks
+a partition; this example has no repair or snapshot procedure.
 
 Do not retain `tutorial-task-events-v1` while restarting with an empty command
 event store and reset ID allocator. New aggregate IDs and versions can collide
@@ -83,16 +85,9 @@ requires a coordinated reset of the command store, physical stream, consumer
 checkpoints, projection, and audit state, or replacement with durable stores and
 an explicit migration plan.
 
-The relay retries only bounded, proven no-send backpressure. Timeout,
-indeterminate, rejected, or closed publication outcomes degrade it and stop
-publication; it does not automatically restart or blindly resend. Once degraded,
-the command handlers reject new work, but a command already in flight can still
-race that transition.
-
-Application shutdown cancels the relay task. This snapshot does not claim a
-cross-provider ordering guarantee that drains every committed event before the
-persistent-stream runtime closes. Operationally, remove command traffic first,
-wait for observed relay convergence, and only then stop the task process. A
-forced or badly ordered shutdown can leave committed events unpublished. These
+Direct publication is deliberately a simple dual write, not an outbox. If the
+event-store commit succeeds but stream publication is not confirmed, the RPC
+returns `command_committed_finalization_failed`; the stored event remains
+committed and this snapshot has no retry or reconciliation worker. These
 limitations are why this tutorial must not be treated as restart-safe or
 exactly-once infrastructure.

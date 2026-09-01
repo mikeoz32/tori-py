@@ -110,7 +110,6 @@ class GatewayErrorFilter:
                 "not_found": 404,
                 "conflict": 409,
                 "projection_unavailable": 503,
-                "relay_unavailable": 503,
                 "command_committed_finalization_failed": 502,
                 "command_finalization_failed": 502,
                 "command_outcome_unknown": 502,
