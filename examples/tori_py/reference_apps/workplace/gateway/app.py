@@ -6,6 +6,7 @@ import asyncio
 import logging
 import os
 from collections.abc import Awaitable
+from datetime import datetime
 from pathlib import Path as FilePath
 from typing import Annotated, Any
 
@@ -17,6 +18,7 @@ from tori_py import (
     Context,
     NestApplication,
     Path,
+    Query,
     ValueProvider,
     controller,
     get,
@@ -37,13 +39,19 @@ from tori_py_microservices import (
 )
 
 from ..common.contracts import (
+    AuditEntry,
+    Availability,
     Booking,
+    CleanupOutboxRequest,
     CreateBookingRequest,
     CreateResource,
+    FacilityDashboard,
     Notification,
+    OutboxDiagnostics,
     Principal,
     Resource,
 )
+from ..common.infrastructure import rabbitmq_url
 from ..common.security import has_workplace_role, is_facilities_admin
 from ..common.services import BookingsService, NotificationsService, SpacesService
 
@@ -163,9 +171,77 @@ class GatewayController:
 
     @get("/bookings")
     async def list_bookings(
-        self, context: Annotated[RequestContext, Context()]
+        self,
+        context: Annotated[RequestContext, Context()],
+        resource_id: Annotated[str | None, Query("resource_id")] = None,
+        starts_at: Annotated[datetime | None, Query("starts_at")] = None,
+        ends_at: Annotated[datetime | None, Query("ends_at")] = None,
+        offset: Annotated[int, Query("offset")] = 0,
+        limit: Annotated[int, Query("limit")] = 100,
     ) -> list[Booking]:
-        return await _dispatch(self._bookings.list_bookings(_principal(context)))
+        if offset < 0 or not 1 <= limit <= 500:
+            raise HttpException(400, "Booking page is outside the supported range.")
+        return await _dispatch(
+            self._bookings.list_bookings(
+                _principal(context), resource_id, starts_at, ends_at, offset, limit
+            )
+        )
+
+    @get("/availability")
+    async def availability(
+        self,
+        starts_at: Annotated[datetime, Query("starts_at")],
+        ends_at: Annotated[datetime, Query("ends_at")],
+        context: Annotated[RequestContext, Context()],
+        resource_id: Annotated[str | None, Query("resource_id")] = None,
+    ) -> list[Availability]:
+        _validate_availability_interval(starts_at, ends_at)
+        return await _dispatch(
+            self._bookings.availability(
+                _principal(context), starts_at, ends_at, resource_id
+            )
+        )
+
+    @get("/facilities/dashboard")
+    async def facilities_dashboard(
+        self, context: Annotated[RequestContext, Context()]
+    ) -> FacilityDashboard:
+        principal = _principal(context)
+        _require_admin(principal)
+        return await _dispatch(self._bookings.facilities_dashboard(principal))
+
+    @get("/audit")
+    async def list_audit(
+        self,
+        context: Annotated[RequestContext, Context()],
+        starts_at: Annotated[datetime | None, Query("starts_at")] = None,
+        ends_at: Annotated[datetime | None, Query("ends_at")] = None,
+        resource_id: Annotated[str | None, Query("resource_id")] = None,
+    ) -> list[AuditEntry]:
+        principal = _principal(context)
+        _require_admin(principal)
+        return await _dispatch(
+            self._bookings.list_audit(principal, starts_at, ends_at, resource_id)
+        )
+
+    @get("/outbox/diagnostics")
+    async def outbox_diagnostics(
+        self, context: Annotated[RequestContext, Context()]
+    ) -> OutboxDiagnostics:
+        principal = _principal(context)
+        _require_admin(principal)
+        return await _dispatch(self._bookings.outbox_diagnostics(principal))
+
+    @post("/outbox/cleanup")
+    async def cleanup_outbox(
+        self,
+        body: Annotated[CleanupOutboxRequest, Body()],
+        context: Annotated[RequestContext, Context()],
+    ) -> int:
+        principal = _principal(context)
+        _require_admin(principal)
+        _validate_utc_timestamp(body.before, "Cleanup timestamp")
+        return await _dispatch(self._bookings.cleanup_outbox(principal, body.before))
 
     @get("/bookings/{booking_id}")
     async def get_booking(
@@ -256,9 +332,7 @@ class OperationsController:
 
 
 gateway_reference = RabbitMqTransport()
-gateway_rabbit = RabbitMqModule.for_root(
-    RabbitMqOptions(os.getenv("RABBITMQ_URL", "amqp://guest:guest@localhost/"))
-)
+gateway_rabbit = RabbitMqModule.for_root(RabbitMqOptions(rabbitmq_url("gateway")))
 gateway_clients = ClientsModule.register_cluster(
     gateway_reference,
     imports=(gateway_rabbit,),
@@ -315,6 +389,19 @@ def _principal_from_claims(claims: dict[str, Any]) -> Principal:
 def _require_admin(principal: Principal) -> None:
     if not is_facilities_admin(principal):
         raise HttpException(403, "Facilities administrator role is required.")
+
+
+def _validate_availability_interval(starts_at: datetime, ends_at: datetime) -> None:
+    for value in (starts_at, ends_at):
+        _validate_utc_timestamp(value, "Availability timestamp")
+    if starts_at >= ends_at:
+        raise HttpException(400, "Availability period is invalid.")
+
+
+def _validate_utc_timestamp(value: datetime, label: str) -> None:
+    offset = value.utcoffset()
+    if value.tzinfo is None or offset is None or offset.total_seconds() != 0:
+        raise HttpException(400, f"{label} must be timezone-aware UTC.")
 
 
 async def _dispatch[T](request: Awaitable[T]) -> T:

@@ -9,10 +9,19 @@ import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
-from typing import Annotated
+from typing import Annotated, Literal, cast
 from uuid import uuid4
 
-from sqlalchemy import DateTime, Integer, String, Text, UniqueConstraint, select
+from sqlalchemy import (
+    DateTime,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    delete,
+    select,
+    update,
+)
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from tori_py import NestApplication, controller, injectable, module
@@ -29,21 +38,33 @@ from tori_py_microservices import (
 from tori_py_sqlalchemy import EntityManager, Repository, SqlAlchemyModule, repository
 
 from ..common.contracts import (
+    AdminRequest,
+    AuditEntry,
+    Availability,
     Booking,
     BookingCreated,
+    BookingLifecycleEvent,
     CancelBooking,
     CheckInBooking,
+    CleanupOutbox,
     CreateBooking,
+    FacilityDashboard,
     GetBooking,
     Health,
+    ListAudit,
     ListBookings,
+    OutboxDiagnostics,
     Principal,
 )
+from ..common.contracts import (
+    AvailabilityQuery as AvailabilityPayload,
+)
 from ..common.infrastructure import rabbit_modules, serve, sql_module
-from ..common.security import has_workplace_role
+from ..common.security import has_workplace_role, is_facilities_admin
 from ..common.services import BOOKINGS, BookingsService, SpacesService
 
 MAX_BOOKING_DURATION = timedelta(hours=24)
+OUTBOX_CLAIM_LEASE = timedelta(minutes=2)
 logger = logging.getLogger(__name__)
 
 
@@ -70,9 +91,34 @@ class OutboxRow(Base):
     __tablename__ = "outbox"
     event_id: Mapped[str] = mapped_column(String(36), primary_key=True)
     event_name: Mapped[str] = mapped_column(String(120))
+    tenant_id: Mapped[str] = mapped_column(String(128), index=True)
     payload: Mapped[str] = mapped_column(Text)
     attempts: Mapped[int] = mapped_column(Integer, default=0)
+    next_attempt_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
+    )
+    last_error: Mapped[str | None] = mapped_column(Text)
+    dead_lettered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
+    )
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    claim_token: Mapped[str | None] = mapped_column(String(36))
+    claimed_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class AuditRow(Base):
+    __tablename__ = "booking_audit"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(128), index=True)
+    booking_id: Mapped[str] = mapped_column(String(36), index=True)
+    resource_id: Mapped[str] = mapped_column(String(128), index=True)
+    actor_id: Mapped[str] = mapped_column(String(128))
+    action: Mapped[str] = mapped_column(String(64))
+    from_status: Mapped[str | None] = mapped_column(String(16))
+    to_status: Mapped[str] = mapped_column(String(16))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
 @repository(BookingRow)
@@ -103,9 +149,42 @@ class BookingRepository(Repository[BookingRow]):
 
 @repository(OutboxRow)
 class OutboxRepository(Repository[OutboxRow]):
-    async def next_pending(self) -> OutboxRow | None:
-        rows = await self.find(OutboxRow.published_at.is_(None), limit=1)
-        return rows[0] if rows else None
+    async def claim_pending(
+        self, claim_token: str, now: datetime, claimed_until: datetime
+    ) -> OutboxRow | None:
+        eligibility = (
+            OutboxRow.published_at.is_(None),
+            OutboxRow.dead_lettered_at.is_(None),
+            OutboxRow.next_attempt_at <= now,
+            (OutboxRow.claimed_until.is_(None) | (OutboxRow.claimed_until <= now)),
+        )
+        candidate = (
+            select(OutboxRow.event_id)
+            .where(*eligibility)
+            .order_by(OutboxRow.created_at)
+            .limit(1)
+            .scalar_subquery()
+        )
+        rows = await self._scalars(
+            update(OutboxRow)
+            .where(OutboxRow.event_id == candidate, *eligibility)
+            .values(
+                claim_token=claim_token,
+                claimed_until=claimed_until,
+                attempts=OutboxRow.attempts + 1,
+            )
+            .returning(OutboxRow)
+            .execution_options(synchronize_session=False)
+        )
+        return rows.one_or_none()
+
+    async def tenant_rows(self, tenant_id: str) -> list[OutboxRow]:
+        return list(await self.find(OutboxRow.tenant_id == tenant_id))
+
+
+@repository(AuditRow)
+class AuditRepository(Repository[AuditRow]):
+    pass
 
 
 class IdempotencyConflict(Exception):
@@ -114,6 +193,19 @@ class IdempotencyConflict(Exception):
 
 class BookingConflict(Exception):
     pass
+
+
+class BookingStatusTransitionError(BookingConflict):
+    pass
+
+
+_LEGAL_TRANSITIONS = {
+    "booked": ("checked_in", "cancelled", "no_show"),
+    "checked_in": ("completed", "cancelled"),
+    "cancelled": (),
+    "no_show": (),
+    "completed": (),
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -140,6 +232,23 @@ class ListBookingsQuery(Query[list[Booking]]):
     actor_id: str
     roles: tuple[str, ...]
     resource_id: str | None
+    starts_at: datetime | None = None
+    ends_at: datetime | None = None
+    offset: int = 0
+    limit: int = 100
+
+
+@dataclass(frozen=True, slots=True)
+class AvailabilityQuery(Query[list[Availability]]):
+    tenant_id: str
+    starts_at: datetime
+    ends_at: datetime
+    resource_ids: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class FacilityDashboardQuery(Query[FacilityDashboard]):
+    tenant_id: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -158,8 +267,14 @@ class CreateBookingHandler:
         entities: EntityManager,
         bookings: BookingRepository,
         outbox: OutboxRepository,
+        audit: AuditRepository,
     ) -> None:
-        self._entities, self._bookings, self._outbox = entities, bookings, outbox
+        self._entities, self._bookings, self._outbox, self._audit = (
+            entities,
+            bookings,
+            outbox,
+            audit,
+        )
 
     async def handle(self, command: CreateBookingCommand) -> Booking:
         _validate(command)
@@ -202,6 +317,7 @@ class CreateBookingHandler:
                     OutboxRow(
                         event_id=str(uuid4()),
                         event_name="booking-created",
+                        tenant_id=booking.tenant_id,
                         payload=json.dumps(
                             {
                                 "tenant_id": event.tenant_id,
@@ -211,6 +327,11 @@ class CreateBookingHandler:
                             },
                             separators=(",", ":"),
                         ),
+                    )
+                )
+                await self._audit.add(
+                    _audit_row(
+                        booking, command.actor_id, "booking-created", None, "booked"
                     )
                 )
                 return booking
@@ -255,13 +376,86 @@ class ListBookingsHandler:
             filters.append(BookingRow.actor_id == query.actor_id)
         if query.resource_id:
             filters.append(BookingRow.resource_id == query.resource_id)
-        return [_booking(row) for row in await self._bookings.find(*filters)]
+        if query.starts_at:
+            filters.append(BookingRow.ends_at > query.starts_at)
+        if query.ends_at:
+            filters.append(BookingRow.starts_at < query.ends_at)
+        rows = await self._bookings.find(
+            *filters,
+            order_by=(BookingRow.starts_at.desc(), BookingRow.id),
+            offset=query.offset,
+            limit=query.limit,
+        )
+        return [_booking(row) for row in rows]
+
+
+@query_handler(AvailabilityQuery)
+class AvailabilityHandler:
+    def __init__(self, bookings: BookingRepository) -> None:
+        self._bookings = bookings
+
+    async def handle(self, query: AvailabilityQuery) -> list[Availability]:
+        filters = [
+            BookingRow.tenant_id == query.tenant_id,
+            BookingRow.status.in_(("booked", "checked_in")),
+            BookingRow.starts_at < query.ends_at,
+            BookingRow.ends_at > query.starts_at,
+        ]
+        if not query.resource_ids:
+            return []
+        filters.append(BookingRow.resource_id.in_(query.resource_ids))
+        conflicts: dict[str, list[str]] = {
+            resource_id: [] for resource_id in query.resource_ids
+        }
+        for row in await self._bookings.find(*filters):
+            conflicts[row.resource_id].append(row.id)
+        return [
+            Availability(resource_id, not booking_ids, tuple(booking_ids))
+            for resource_id, booking_ids in conflicts.items()
+        ]
+
+
+@query_handler(FacilityDashboardQuery)
+class FacilitiesDashboardHandler:
+    def __init__(self, bookings: BookingRepository, outbox: OutboxRepository) -> None:
+        self._bookings, self._outbox = bookings, outbox
+
+    async def handle(self, query: FacilityDashboardQuery) -> FacilityDashboard:
+        rows = await self._bookings.find(BookingRow.tenant_id == query.tenant_id)
+        outbox = await self._outbox.tenant_rows(query.tenant_id)
+        pending = [
+            row
+            for row in outbox
+            if row.published_at is None and row.dead_lettered_at is None
+        ]
+        eligible = [row for row in pending if _as_utc(row.next_attempt_at) <= utc_now()]
+        return FacilityDashboard(
+            active_bookings=sum(row.status in ("booked", "checked_in") for row in rows),
+            no_shows=sum(row.status == "no_show" for row in rows),
+            outbox_pending=len(pending),
+            outbox_dead_letter=sum(row.dead_lettered_at is not None for row in outbox),
+            outbox_failures=sum(
+                row.attempts > 0 and row.published_at is None for row in outbox
+            ),
+            outbox_lag_seconds=_outbox_lag_seconds(eligible),
+        )
 
 
 @command_handler(SetBookingStatusCommand)
 class SetBookingStatusHandler:
-    def __init__(self, entities: EntityManager, bookings: BookingRepository) -> None:
-        self._entities, self._bookings = entities, bookings
+    def __init__(
+        self,
+        entities: EntityManager,
+        bookings: BookingRepository,
+        outbox: OutboxRepository,
+        audit: AuditRepository,
+    ) -> None:
+        self._entities, self._bookings, self._outbox, self._audit = (
+            entities,
+            bookings,
+            outbox,
+            audit,
+        )
 
     async def handle(self, command: SetBookingStatusCommand) -> Booking:
         async with self._entities.transaction():
@@ -275,13 +469,155 @@ class SetBookingStatusHandler:
                 and "facilities-admin" not in command.roles
             ):
                 raise PermissionError("booking belongs to another employee")
-            if command.status == "checked_in" and row.status != "booked":
-                raise BookingConflict("only a booked reservation can be checked in")
-            if command.status == "cancelled" and row.status == "cancelled":
+            if command.status == row.status:
                 return _booking(row)
+            if command.status not in _LEGAL_TRANSITIONS.get(row.status, ()):
+                raise BookingStatusTransitionError(
+                    f"cannot transition booking from {row.status} to {command.status}"
+                )
+            before = row.status
             row.status = command.status
+            booking = _booking(row)
+            await _write_lifecycle(
+                self._outbox, self._audit, booking, command.actor_id, before
+            )
             await self._entities.flush()
-            return _booking(row)
+            return booking
+
+
+@injectable()
+class BookingExpiryService:
+    """Deterministic lifecycle expiry; callers provide the clock."""
+
+    def __init__(
+        self,
+        entities: EntityManager,
+        bookings: BookingRepository,
+        outbox: OutboxRepository,
+        audit: AuditRepository,
+        poll_interval: float = 30,
+    ) -> None:
+        self._entities, self._bookings, self._outbox, self._audit = (
+            entities,
+            bookings,
+            outbox,
+            audit,
+        )
+        self._poll_interval = poll_interval
+        self._task: asyncio.Task[None] | None = None
+        self._lock = asyncio.Lock()
+
+    async def on_application_bootstrap(self) -> None:
+        self._task = asyncio.create_task(self._run())
+
+    async def on_application_shutdown(self) -> None:
+        if self._task is not None:
+            self._task.cancel()
+            await asyncio.gather(self._task, return_exceptions=True)
+
+    async def _run(self) -> None:
+        while True:
+            try:
+                await self.expire(utc_now())
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.exception("booking expiry failed")
+            await asyncio.sleep(self._poll_interval)
+
+    async def expire(self, now: datetime) -> list[Booking]:
+        if now.tzinfo is None or now.utcoffset() is None:
+            raise ValueError("expiry time must be timezone-aware")
+        async with self._lock:
+            return await self._expire(now)
+
+    async def _expire(self, now: datetime) -> list[Booking]:
+        changed: list[Booking] = []
+        async with self._entities.transaction():
+            rows = (
+                await self._entities.scalars(
+                    select(BookingRow)
+                    .where(BookingRow.status.in_(("booked", "checked_in")))
+                    .with_for_update(skip_locked=True)
+                )
+            ).all()
+            for row in rows:
+                status = (
+                    "no_show"
+                    if row.status == "booked"
+                    and _as_utc(row.starts_at) + timedelta(minutes=15) < now
+                    else "completed"
+                    if row.status == "checked_in" and _as_utc(row.ends_at) < now
+                    else None
+                )
+                if status is None:
+                    continue
+                previous = row.status
+                row.status = status
+                booking = _booking(row)
+                await _write_lifecycle(
+                    self._outbox, self._audit, booking, "system", previous
+                )
+                changed.append(booking)
+            await self._entities.flush()
+        return changed
+
+
+async def _write_lifecycle(
+    outbox: OutboxRepository,
+    audit: AuditRepository,
+    booking: Booking,
+    actor_id: str,
+    previous: str,
+) -> None:
+    event_name = f"booking-{booking.status.replace('_', '-')}"
+    event = BookingLifecycleEvent(
+        booking.tenant_id,
+        booking.id,
+        booking.actor_id,
+        booking.resource_id,
+        cast(
+            Literal["cancelled", "checked_in", "no_show", "completed"], booking.status
+        ),
+    )
+    await outbox.add(
+        OutboxRow(
+            event_id=str(uuid4()),
+            event_name=event_name,
+            tenant_id=booking.tenant_id,
+            payload=json.dumps(
+                {
+                    "tenant_id": event.tenant_id,
+                    "booking_id": event.booking_id,
+                    "actor_id": event.actor_id,
+                    "resource_id": event.resource_id,
+                    "status": event.status,
+                },
+                separators=(",", ":"),
+            ),
+        )
+    )
+    await audit.add(_audit_row(booking, actor_id, event_name, previous, booking.status))
+
+
+def _audit_row(
+    booking: Booking,
+    actor_id: str,
+    action: str,
+    from_status: str | None,
+    to_status: str,
+) -> AuditRow:
+    return AuditRow(
+        id=str(uuid4()),
+        tenant_id=booking.tenant_id,
+        booking_id=booking.id,
+        resource_id=booking.resource_id,
+        actor_id=actor_id,
+        action=action,
+        from_status=from_status,
+        to_status=to_status,
+        created_at=datetime.now(UTC),
+    )
 
 
 @injectable()
@@ -316,24 +652,55 @@ class OutboxRelay:
                 await asyncio.sleep(0.5)
 
     async def publish_once(self) -> bool:
+        claim_token = str(uuid4())
+        now = utc_now()
         async with self._entities.transaction():
-            row = await self._outbox.next_pending()
+            row = await self._outbox.claim_pending(
+                claim_token, now, now + OUTBOX_CLAIM_LEASE
+            )
             if row is None:
                 return False
-            row.attempts += 1
-            event_id, payload = row.event_id, json.loads(row.payload)
-            await self._entities.flush()
-        await self._events.publish(
-            "booking-created",
-            1,
-            payload,
-            headers={"outbox_event_id": event_id},
-            require_route=True,
-        )
+            event_id, event_name = row.event_id, row.event_name
+            payload = json.loads(row.payload)
+        try:
+            await self._events.publish(
+                event_name,
+                1,
+                payload,
+                headers={"outbox_event_id": event_id},
+                require_route=True,
+            )
+        except Exception as error:
+            async with self._entities.transaction():
+                failed = await self._outbox.find_one(
+                    OutboxRow.event_id == event_id,
+                    OutboxRow.claim_token == claim_token,
+                    OutboxRow.published_at.is_(None),
+                    with_for_update=True,
+                )
+                if failed is not None:
+                    failed.last_error = str(error)[:4096]
+                    failed.claim_token = None
+                    failed.claimed_until = None
+                    if failed.attempts >= 5:
+                        failed.dead_lettered_at = utc_now()
+                    else:
+                        failed.next_attempt_at = utc_now() + timedelta(
+                            seconds=min(60, 2 ** (failed.attempts - 1))
+                        )
+                    await self._entities.flush()
+            raise
         async with self._entities.transaction():
-            row = await self._outbox.get(event_id)
-            if row is not None:
-                row.published_at = utc_now()
+            published = await self._outbox.find_one(
+                OutboxRow.event_id == event_id,
+                OutboxRow.claim_token == claim_token,
+                OutboxRow.published_at.is_(None),
+                with_for_update=True,
+            )
+            if published is not None:
+                published.published_at = utc_now()
+                published.claim_token = None
+                published.claimed_until = None
                 await self._entities.flush()
         return True
 
@@ -346,9 +713,16 @@ class BookingsController:
         queries: QueryBus,
         entities: EntityManager,
         spaces: SpacesService,
+        audit: AuditRepository,
+        outbox: OutboxRepository,
     ) -> None:
         self._commands, self._queries = commands, queries
-        self._entities, self._spaces = entities, spaces
+        self._entities, self._spaces, self._audit, self._outbox = (
+            entities,
+            spaces,
+            audit,
+            outbox,
+        )
 
     @rpc(BookingsService.create_booking)
     async def create_booking(
@@ -402,8 +776,100 @@ class BookingsController:
                 payload.principal.actor_id,
                 payload.principal.roles,
                 payload.resource_id,
+                payload.starts_at,
+                payload.ends_at,
+                payload.offset,
+                payload.limit,
             )
         )
+
+    @rpc(BookingsService.availability)
+    async def availability(
+        self, payload: Annotated[AvailabilityPayload, Payload()]
+    ) -> list[Availability]:
+        _require_workplace_role(payload.principal)
+        try:
+            _validate_utc_interval(payload.starts_at, payload.ends_at)
+        except ValueError as error:
+            raise PublicRpcError("invalid_request", str(error)) from error
+        resources = (
+            [await self._spaces.get_resource(payload.principal, payload.resource_id)]
+            if payload.resource_id
+            else await self._spaces.list_resources(payload.principal)
+        )
+        return await self._queries.execute(
+            AvailabilityQuery(
+                payload.principal.tenant_id,
+                payload.starts_at,
+                payload.ends_at,
+                tuple(resource.id for resource in resources),
+            )
+        )
+
+    @rpc(BookingsService.facilities_dashboard)
+    async def facilities_dashboard(
+        self, payload: Annotated[AdminRequest, Payload()]
+    ) -> FacilityDashboard:
+        _require_admin_rpc(payload.principal)
+        return await self._queries.execute(
+            FacilityDashboardQuery(payload.principal.tenant_id)
+        )
+
+    @rpc(BookingsService.list_audit)
+    async def list_audit(
+        self, payload: Annotated[ListAudit, Payload()]
+    ) -> list[AuditEntry]:
+        _require_admin_rpc(payload.principal)
+        filters = [AuditRow.tenant_id == payload.principal.tenant_id]
+        if payload.starts_at:
+            filters.append(AuditRow.created_at >= payload.starts_at)
+        if payload.ends_at:
+            filters.append(AuditRow.created_at < payload.ends_at)
+        if payload.resource_id:
+            filters.append(AuditRow.resource_id == payload.resource_id)
+        rows = await self._audit.find(
+            *filters, order_by=(AuditRow.created_at.desc(),), limit=payload.limit
+        )
+        return [
+            AuditEntry(
+                row.id,
+                row.tenant_id,
+                row.booking_id,
+                row.resource_id,
+                row.actor_id,
+                row.action,
+                row.from_status,
+                row.to_status,
+                _as_utc(row.created_at),
+            )
+            for row in rows
+        ]
+
+    @rpc(BookingsService.outbox_diagnostics)
+    async def outbox_diagnostics(
+        self, payload: Annotated[AdminRequest, Payload()]
+    ) -> OutboxDiagnostics:
+        _require_admin_rpc(payload.principal)
+        return _outbox_diagnostics(
+            await self._outbox.tenant_rows(payload.principal.tenant_id)
+        )
+
+    @rpc(BookingsService.cleanup_outbox)
+    async def cleanup_outbox(self, payload: Annotated[CleanupOutbox, Payload()]) -> int:
+        _require_admin_rpc(payload.principal)
+        try:
+            _validate_utc(payload.before)
+        except ValueError as error:
+            raise PublicRpcError("invalid_request", str(error)) from error
+        async with self._entities.transaction():
+            result = await self._entities.execute(
+                delete(OutboxRow).where(
+                    OutboxRow.tenant_id == payload.principal.tenant_id,
+                    OutboxRow.published_at.is_not(None),
+                    OutboxRow.published_at < payload.before,
+                )
+            )
+            return int(getattr(result, "rowcount", 0) or 0)
 
     async def _set(self, payload: GetBooking, status: str) -> Booking:
         _require_workplace_role(payload.principal)
@@ -444,7 +910,9 @@ class BookingsController:
 
 
 bookings_sql = sql_module("bookings")
-bookings_feature = SqlAlchemyModule.for_feature([BookingRepository, OutboxRepository])
+bookings_feature = SqlAlchemyModule.for_feature(
+    [BookingRepository, OutboxRepository, AuditRepository]
+)
 bookings_reference, bookings_rabbit, bookings_service = rabbit_modules(BOOKINGS)
 bookings_clients = ClientsModule.register_cluster(
     bookings_reference,
@@ -460,7 +928,10 @@ cqrs = CqrsModule.for_root(global_=True)
         CreateBookingHandler,
         GetBookingHandler,
         ListBookingsHandler,
+        AvailabilityHandler,
+        FacilitiesDashboardHandler,
         SetBookingStatusHandler,
+        BookingExpiryService,
         OutboxRelay,
     ),
     controllers=(BookingsController,),
@@ -478,16 +949,47 @@ async def run() -> None:
 
 
 def _validate(command: CreateBookingCommand) -> None:
-    for instant in (command.starts_at, command.ends_at):
-        if instant.tzinfo is None or instant.utcoffset() is None:
-            raise ValueError("booking times must be timezone-aware")
-        if instant.utcoffset() != timedelta(0):
-            raise ValueError("booking times must be UTC")
+    _validate_utc_interval(command.starts_at, command.ends_at)
     if (
         command.starts_at >= command.ends_at
         or command.ends_at - command.starts_at > MAX_BOOKING_DURATION
     ):
         raise ValueError("booking period is invalid")
+
+
+def _validate_utc_interval(starts_at: datetime, ends_at: datetime) -> None:
+    _validate_utc(starts_at)
+    _validate_utc(ends_at)
+    if starts_at >= ends_at:
+        raise ValueError("availability period is invalid")
+
+
+def _validate_utc(value: datetime) -> None:
+    if value.tzinfo is None or value.utcoffset() is None:
+        raise ValueError("timestamps must be timezone-aware")
+    if value.utcoffset() != timedelta(0):
+        raise ValueError("timestamps must be UTC")
+
+
+def _outbox_lag_seconds(rows: list[OutboxRow]) -> float | None:
+    if not rows:
+        return None
+    return max(
+        0.0, (utc_now() - min(_as_utc(row.created_at) for row in rows)).total_seconds()
+    )
+
+
+def _outbox_diagnostics(rows: list[OutboxRow]) -> OutboxDiagnostics:
+    pending = [
+        row for row in rows if row.published_at is None and row.dead_lettered_at is None
+    ]
+    eligible = [row for row in pending if _as_utc(row.next_attempt_at) <= utc_now()]
+    return OutboxDiagnostics(
+        pending=len(pending),
+        dead_letter=sum(row.dead_lettered_at is not None for row in rows),
+        failures=sum(row.attempts > 0 and row.published_at is None for row in rows),
+        lag_seconds=_outbox_lag_seconds(eligible),
+    )
 
 
 def _fingerprint(command: CreateBookingCommand) -> str:
@@ -525,6 +1027,11 @@ def _is_idempotency_violation(error: IntegrityError) -> bool:
 def _require_workplace_role(principal: Principal) -> None:
     if not has_workplace_role(principal):
         raise PublicRpcError("forbidden", "A workplace role is required.")
+
+
+def _require_admin_rpc(principal: Principal) -> None:
+    if not is_facilities_admin(principal):
+        raise PublicRpcError("forbidden", "Facilities administrator role is required.")
 
 
 def _booking(row: BookingRow) -> Booking:

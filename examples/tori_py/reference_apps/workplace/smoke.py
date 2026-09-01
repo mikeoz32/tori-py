@@ -118,6 +118,7 @@ def _api(
     *,
     body: dict[str, Any] | None = None,
     headers: dict[str, str] | None = None,
+    method: str | None = None,
 ) -> Any:
     request_headers = {
         "Accept": "application/json",
@@ -125,13 +126,13 @@ def _api(
         **(headers or {}),
     }
     data = None
-    method = "GET"
+    request_method = method or "GET"
     if body is not None:
         data = json.dumps(body).encode()
         request_headers["Content-Type"] = "application/json"
-        method = "POST"
+        request_method = method or "POST"
     request = Request(
-        f"{GATEWAY}{path}", data=data, headers=request_headers, method=method
+        f"{GATEWAY}{path}", data=data, headers=request_headers, method=request_method
     )
     try:
         with urlopen(request) as response:  # noqa: S310 - fixed local demo URL
@@ -139,7 +140,7 @@ def _api(
     except HTTPError as error:
         detail = error.read().decode()
         raise RuntimeError(
-            f"{method} {path} returned {error.code}: {detail}"
+            f"{request_method} {path} returned {error.code}: {detail}"
         ) from error
 
 
@@ -155,6 +156,23 @@ def smoke() -> None:
         "starts_at": start.isoformat(),
         "ends_at": (start + timedelta(hours=1)).isoformat(),
     }
+    interval_query = urlencode(
+        {
+            "resource_id": resources[0]["id"],
+            "starts_at": request_body["starts_at"],
+            "ends_at": request_body["ends_at"],
+        }
+    )
+    available = _api(north_token, f"/api/availability?{interval_query}")
+    if available != [
+        {
+            "resource_id": resources[0]["id"],
+            "available": True,
+            "conflicting_booking_ids": [],
+        }
+    ]:
+        raise RuntimeError(f"unexpected initial availability: {available}")
+
     key = secrets.token_urlsafe(24)
     booking = _api(
         north_token,
@@ -171,13 +189,53 @@ def smoke() -> None:
     if booking != repeated:
         raise RuntimeError("idempotent replay returned a different booking")
 
+    unavailable = _api(north_token, f"/api/availability?{interval_query}")
+    if unavailable[0]["available"] or unavailable[0]["conflicting_booking_ids"] != [
+        booking["id"]
+    ]:
+        raise RuntimeError(f"booking did not update availability: {unavailable}")
+
+    checked_in = _api(
+        north_token, f"/api/bookings/{booking['id']}/check-in", method="POST"
+    )
+    if checked_in["status"] != "checked_in":
+        raise RuntimeError("check-in lifecycle transition failed")
+    cancelled = _api(
+        north_token, f"/api/bookings/{booking['id']}/cancel", method="POST"
+    )
+    if cancelled["status"] != "cancelled":
+        raise RuntimeError("cancellation lifecycle transition failed")
+
     for _ in range(20):
         notifications = _api(north_token, "/api/notifications")
-        if any(booking["id"] in item["message"] for item in notifications):
+        booking_messages = [
+            item["message"]
+            for item in notifications
+            if booking["id"] in item["message"]
+        ]
+        if len(booking_messages) >= 3:
             break
         time.sleep(0.25)
     else:
-        raise RuntimeError("booking-created notification was not delivered")
+        raise RuntimeError("booking lifecycle notifications were not delivered")
+
+    dashboard = _api(north_token, "/api/facilities/dashboard")
+    if dashboard["active_bookings"] != 0 or dashboard["outbox_pending"] != 0:
+        raise RuntimeError(f"unexpected facilities dashboard: {dashboard}")
+    audit = _api(north_token, "/api/audit")
+    actions = {row["action"] for row in audit if row["booking_id"] == booking["id"]}
+    if actions != {"booking-created", "booking-checked-in", "booking-cancelled"}:
+        raise RuntimeError(f"incomplete booking audit trail: {actions}")
+    diagnostics = _api(north_token, "/api/outbox/diagnostics")
+    if diagnostics["pending"] != 0 or diagnostics["dead_letter"] != 0:
+        raise RuntimeError(f"unexpected outbox diagnostics: {diagnostics}")
+    cleaned = _api(
+        north_token,
+        "/api/outbox/cleanup",
+        body={"before": (datetime.now(UTC) + timedelta(minutes=1)).isoformat()},
+    )
+    if cleaned < 3:
+        raise RuntimeError(f"expected delivered outbox cleanup, got {cleaned}")
 
     south_token = _login("south.employee", "south-employee-demo-only")
     if _api(south_token, "/api/bookings"):

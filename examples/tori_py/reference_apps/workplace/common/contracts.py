@@ -93,6 +93,72 @@ class GetBooking(msgspec.Struct, forbid_unknown_fields=True):
 class ListBookings(msgspec.Struct, forbid_unknown_fields=True):
     principal: Principal
     resource_id: str | None = None
+    starts_at: datetime | None = None
+    ends_at: datetime | None = None
+    offset: Annotated[int, msgspec.Meta(ge=0)] = 0
+    limit: Annotated[int, msgspec.Meta(ge=1, le=500)] = 100
+
+
+class AvailabilityQuery(msgspec.Struct, forbid_unknown_fields=True):
+    principal: Principal
+    starts_at: datetime
+    ends_at: datetime
+    resource_id: str | None = None
+
+
+class Availability(msgspec.Struct, frozen=True):
+    resource_id: str
+    available: bool
+    conflicting_booking_ids: tuple[str, ...]
+
+
+class FacilityDashboard(msgspec.Struct, frozen=True):
+    active_bookings: int
+    no_shows: int
+    outbox_pending: int
+    outbox_dead_letter: int
+    outbox_failures: int
+    outbox_lag_seconds: float | None
+
+
+class AuditEntry(msgspec.Struct, frozen=True):
+    id: str
+    tenant_id: str
+    booking_id: str
+    resource_id: str
+    actor_id: str
+    action: str
+    from_status: str | None
+    to_status: str
+    occurred_at: datetime
+
+
+class ListAudit(msgspec.Struct, forbid_unknown_fields=True):
+    principal: Principal
+    starts_at: datetime | None = None
+    ends_at: datetime | None = None
+    resource_id: str | None = None
+    limit: Annotated[int, msgspec.Meta(ge=1, le=500)] = 100
+
+
+class OutboxDiagnostics(msgspec.Struct, frozen=True):
+    pending: int
+    dead_letter: int
+    failures: int
+    lag_seconds: float | None
+
+
+class AdminRequest(msgspec.Struct, forbid_unknown_fields=True):
+    principal: Principal
+
+
+class CleanupOutbox(msgspec.Struct, forbid_unknown_fields=True):
+    principal: Principal
+    before: datetime
+
+
+class CleanupOutboxRequest(msgspec.Struct, forbid_unknown_fields=True):
+    before: datetime
 
 
 class CancelBooking(GetBooking):
@@ -108,6 +174,14 @@ class BookingCreated(msgspec.Struct, frozen=True):
     booking_id: str
     actor_id: str
     resource_id: str
+
+
+class BookingLifecycleEvent(msgspec.Struct, frozen=True):
+    tenant_id: str
+    booking_id: str
+    actor_id: str
+    resource_id: str
+    status: Literal["cancelled", "checked_in", "no_show", "completed"]
 
 
 class Notification(msgspec.Struct, frozen=True):

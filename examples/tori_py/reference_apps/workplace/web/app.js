@@ -1,96 +1,90 @@
 import Keycloak from "/assets/keycloak.js";
 
-const keycloak = new Keycloak({
-  url: "http://localhost:8080",
-  realm: "tori-space",
-  clientId: "tori-space-web",
-});
-const state = { selected: null, scale: 1, x: 0, y: 0 };
+const keycloak = new Keycloak({ url: "http://localhost:8080", realm: "tori-space", clientId: "tori-space-web" });
+const state = { selected: null, scale: 1, x: 0, y: 0, bookings: [], calendarDate: null, calendarView: "week", timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone, bookingKey: null, fingerprint: null, admin: false };
 const $ = (selector) => document.querySelector(selector);
+const make = (tag, text, className) => { const element = document.createElement(tag); if (text !== undefined) element.textContent = text; if (className) element.className = className; return element; };
 
-function showResponse(target, message, isError = false) {
-  target.textContent = message;
-  target.style.color = isError ? "#b33220" : "#3f684e";
-}
-function applyTransform() {
-  $("#floorplan").style.transform = `translate(${state.x}px, ${state.y}px) scale(${state.scale})`;
-}
-function selectResource(resource) {
-  state.selected = resource;
-  document.querySelectorAll(".resource").forEach((marker) => marker.classList.toggle("selected", marker.dataset.id === resource.id));
-  $("#selection-empty").hidden = true;
-  $("#selection").hidden = false;
-  $("#resource-name").textContent = resource.name;
-  $("#resource-kind").textContent = resource.kind;
-  $("#resource-status").textContent = "Availability is checked when you submit a booking";
-  $("#resource-equipment").textContent = resource.kind === "room" ? "Screen · whiteboard" : "Monitor · power";
-  $("#booking-response").textContent = "";
-}
+function showResponse(target, message, isError = false) { target.textContent = message; target.classList.toggle("error", isError); }
+function errorMessage(payload, fallback) { if (typeof payload === "string") return payload; return payload?.detail ?? payload?.message ?? payload?.error ?? payload?.errors?.[0]?.message ?? fallback; }
 async function api(path, options = {}) {
+  if (!navigator.onLine) throw new Error("You are offline. Reconnect and retry.");
   await keycloak.updateToken(30);
-  const response = await fetch(path, { ...options, headers: { Accept: "application/json", Authorization: `Bearer ${keycloak.token}`, ...options.headers } });
-  if (!response.ok) throw new Error(`Gateway returned ${response.status}`);
+  let response;
+  try { response = await fetch(path, { ...options, headers: { Accept: "application/json", Authorization: `Bearer ${keycloak.token}`, ...options.headers } }); } catch { throw new Error("Cannot reach the gateway. Check your connection and retry."); }
+  if (!response.ok) { const text = await response.text(); let payload = text; try { payload = JSON.parse(text); } catch {} throw new Error(errorMessage(payload, `Gateway returned ${response.status}`)); }
   return response.status === 204 ? null : response.json();
 }
+function setBusy(button, busy, label) { button.disabled = busy; if (busy) { button.dataset.label = button.textContent; button.textContent = label; } else if (button.dataset.label) button.textContent = button.dataset.label; }
+function applyTransform() { $("#floorplan").style.transform = `translate(${state.x}px, ${state.y}px) scale(${state.scale})`; }
 function resourceFromMarker(marker) { return { id: marker.dataset.id, name: marker.dataset.name, kind: marker.dataset.kind }; }
+function bookingInterval() { const startsAt = new Date($("#starts-at").value); const endsAt = new Date($("#ends-at").value); return startsAt < endsAt ? { startsAt, endsAt } : null; }
+function bookingFingerprint() { const interval = bookingInterval(); return state.selected && interval ? `${state.selected.id}|${interval.startsAt.toISOString()}|${interval.endsAt.toISOString()}` : null; }
+function resetIdempotencyKey() { const fingerprint = bookingFingerprint(); if (fingerprint !== state.fingerprint) { state.fingerprint = fingerprint; state.bookingKey = fingerprint ? crypto.randomUUID() : null; } }
+function selectResource(resource) {
+  state.selected = resource; resetIdempotencyKey(); document.querySelectorAll(".resource").forEach((marker) => marker.classList.toggle("selected", marker.dataset.id === resource.id));
+  $("#selection-empty").hidden = true; $("#selection").hidden = false; $("#resource-name").textContent = resource.name; $("#resource-kind").textContent = resource.kind; $("#resource-status").textContent = "Set an interval to check availability"; $("#resource-equipment").textContent = resource.kind === "room" ? "Screen · whiteboard" : "Monitor · power"; showResponse($("#booking-response"), "");
+}
+function renderMessage(target, message, error = false) { target.replaceChildren(make("p", message, `list-message${error ? " error" : ""}`)); }
 function renderResources(resources) {
-  const list = $("#resource-list");
-  if (!resources?.length) { list.innerHTML = '<li class="list-message">No resources are registered for this tenant yet.</li>'; return; }
-  list.replaceChildren(...resources.map((resource) => {
-    const item = document.createElement("li"); item.className = "resource-item";
-    const button = document.createElement("button"); button.textContent = resource.name ?? resource.id; button.type = "button";
-    button.addEventListener("click", () => selectResource(resource));
-    const detail = document.createElement("small"); detail.textContent = `${resource.kind} · ${resource.office_id} / ${resource.floor_id}`;
-    item.append(button, detail); return item;
-  }));
-  document.querySelectorAll(".resource").forEach((marker) => {
-    const resource = resources.find((item) => item.name === marker.dataset.name);
-    marker.hidden = !resource;
-    if (resource) {
-      marker.dataset.id = resource.id;
-      marker.dataset.kind = resource.kind;
-    }
-  });
+  const list = $("#resource-list"); list.replaceChildren();
+  if (!resources?.length) { list.append(make("li", "No resources are registered for this tenant yet.", "list-message")); return; }
+  for (const resource of resources) { const item = make("li", undefined, "resource-item"); const button = make("button", resource.name ?? resource.id); button.type = "button"; button.addEventListener("click", () => selectResource(resource)); const detail = make("small", `${resource.kind ?? "resource"} · ${resource.office_id ?? "—"} / ${resource.floor_id ?? "—"}`); item.append(button, detail); list.append(item); }
+  document.querySelectorAll(".resource").forEach((marker) => { const resource = resources.find((item) => item.name === marker.dataset.name); marker.hidden = !resource; if (resource) { marker.dataset.id = resource.id; marker.dataset.kind = resource.kind; } });
 }
-async function loadDesk() {
-  try {
-    const resources = await api("/api/resources");
-    renderResources(Array.isArray(resources) ? resources : resources.items);
-    $("#api-status").textContent = "GATEWAY LINKED";
-  } catch (error) {
-    renderResources([]); $("#api-status").textContent = "GATEWAY UNAVAILABLE";
-    showResponse($("#booking-response"), `Cannot load live desk: ${error.message}`, true);
-  }
+async function loadResources() { try { const resources = await api("/api/resources"); renderResources(Array.isArray(resources) ? resources : resources.items); $("#api-status").textContent = "GATEWAY LINKED"; } catch (error) { renderResources([]); $("#api-status").textContent = "GATEWAY UNAVAILABLE"; showResponse($("#booking-response"), `Cannot load live desk: ${error.message}`, true); } }
+async function checkAvailability() {
+  const interval = bookingInterval(); if (!state.selected || !interval) { showResponse($("#booking-response"), "Choose a resource and an end time after the start time.", true); return false; }
+  const button = $("#availability-check"); setBusy(button, true, "Checking…"); $("#resource-status").textContent = "Checking availability";
+  try { const query = new URLSearchParams({ starts_at: interval.startsAt.toISOString(), ends_at: interval.endsAt.toISOString(), resource_id: state.selected.id }); const rows = await api(`/api/availability?${query}`); const result = (Array.isArray(rows) ? rows : rows.items ?? []).find((row) => row.resource_id === state.selected.id); const available = result?.available === true; $("#resource-status").textContent = available ? "Available for this interval" : "Conflicts with an existing booking"; showResponse($("#booking-response"), available ? "Interval is available. You can mark this time." : `Interval unavailable${result?.conflicting_booking_ids?.length ? ` (${result.conflicting_booking_ids.length} conflict${result.conflicting_booking_ids.length === 1 ? "" : "s"})` : ""}.`, !available); return available;
+  } catch (error) { $("#resource-status").textContent = "Availability unknown"; showResponse($("#booking-response"), `Could not check availability: ${error.message}`, true); return false; } finally { setBusy(button, false); }
 }
-$("#booking-form").addEventListener("submit", async (event) => {
-  event.preventDefault();
-  if (!state.selected) return;
-  const startsAt = new Date($("#starts-at").value); const endsAt = new Date($("#ends-at").value);
-  if (!(startsAt < endsAt)) { showResponse($("#booking-response"), "End must be after start.", true); return; }
+function dateFormat(date, options = {}) { return new Intl.DateTimeFormat(undefined, { timeZone: state.timeZone, ...options }).format(date); }
+function formatRange(start, end) { return `${dateFormat(start, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}–${dateFormat(end, { hour: "numeric", minute: "2-digit" })}`; }
+function zonedParts(date) { return Object.fromEntries(new Intl.DateTimeFormat("en", { timeZone: state.timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(date).filter((part) => part.type !== "literal").map((part) => [part.type, part.value])); }
+function calendarDateFromInstant(date) { const parts = zonedParts(date); return new Date(Date.UTC(Number(parts.year), Number(parts.month) - 1, Number(parts.day))); }
+function calendarDateKey(date) { return date.toISOString().slice(0, 10); }
+function instantDateKey(date) { const parts = zonedParts(date); return `${parts.year}-${parts.month}-${parts.day}`; }
+function formatCalendarDate(date, options) { return new Intl.DateTimeFormat(undefined, { timeZone: "UTC", ...options }).format(date); }
+function calendarFirstDate() { const first = new Date(state.calendarDate); if (state.calendarView === "week") first.setUTCDate(first.getUTCDate() - ((first.getUTCDay() + 6) % 7)); return first; }
+function bookingTouchesDay(booking, key) { const end = new Date(booking.ends_at).getTime(); if (!Number.isFinite(end)) return false; return instantDateKey(new Date(booking.starts_at)) <= key && instantDateKey(new Date(end - 1)) >= key; }
+function calendarBookingQuery() { const first = calendarFirstDate(), days = state.calendarView === "week" ? 7 : 1, starts = new Date(first), ends = new Date(first); starts.setUTCDate(starts.getUTCDate() - 1); ends.setUTCDate(ends.getUTCDate() + days + 1); return new URLSearchParams({ starts_at: starts.toISOString(), ends_at: ends.toISOString() }); }
+function renderCalendar() {
+  const calendar = $("#calendar"), first = calendarFirstDate(), days = state.calendarView === "week" ? 7 : 1;
+  const last = new Date(first); last.setUTCDate(last.getUTCDate() + days - 1); $("#calendar-range").textContent = `${formatCalendarDate(first, { month: "long", day: "numeric", year: "numeric" })}${days > 1 ? ` — ${formatCalendarDate(last, { month: "long", day: "numeric", year: "numeric" })}` : ""} · ${state.timeZone}`; calendar.replaceChildren();
+  for (let index = 0; index < days; index += 1) { const day = new Date(first); day.setUTCDate(day.getUTCDate() + index); const column = make("section", undefined, "calendar-day"); column.append(make("h3", formatCalendarDate(day, { weekday: "short", month: "short", day: "numeric" }))); const key = calendarDateKey(day); const rows = state.bookings.filter((booking) => bookingTouchesDay(booking, key)); if (!rows.length) column.append(make("p", "No bookings", "empty-state")); for (const booking of rows) { const card = make("div", undefined, "calendar-entry"); card.append(make("strong", booking.resource_name ?? booking.resource_id ?? "Resource"), make("span", formatRange(new Date(booking.starts_at), new Date(booking.ends_at))), make("small", booking.status ?? "booked")); column.append(card); } calendar.append(column); }
+}
+function renderBookings() {
+  const target = $("#bookings-list"); target.replaceChildren(); if (!state.bookings.length) { renderMessage(target, "No bookings are recorded for this tenant."); return; }
+  for (const booking of state.bookings) { const row = make("article", undefined, "booking-row"); const detail = make("div"); detail.append(make("h3", booking.resource_name ?? booking.resource_id ?? "Resource"), make("p", formatRange(new Date(booking.starts_at), new Date(booking.ends_at))), make("small", `Status: ${booking.status ?? "unknown"}`)); const actions = make("div", undefined, "booking-actions"); if (booking.status === "booked") { for (const [label, suffix, confirmation] of [["Check in", "check-in", false], ["Cancel", "cancel", true]]) { const button = make("button", label, "secondary-button"); button.type = "button"; button.addEventListener("click", async () => { if (confirmation && !confirm("Cancel this booking?")) return; setBusy(button, true, "Sending…"); try { await api(`/api/bookings/${encodeURIComponent(booking.id)}/${suffix}`, { method: "POST" }); await loadBookings(); } catch (error) { showResponse($("#booking-response"), `Booking action failed: ${error.message}`, true); } finally { setBusy(button, false); } }); actions.append(button); } } row.append(detail, actions); target.append(row); }
+}
+async function loadBookings() { const retry = $("#bookings-retry"), listRetry = $("#bookings-list-retry"), query = calendarBookingQuery(), pageSize = 100; renderMessage($("#bookings-list"), "Loading bookings…"); try { const bookings = []; for (let offset = 0; ; offset += pageSize) { query.set("offset", offset); query.set("limit", pageSize); const result = await api(`/api/bookings?${query}`); const page = Array.isArray(result) ? result : result.items ?? []; bookings.push(...page); if (page.length < pageSize) break; } state.bookings = bookings; renderBookings(); renderCalendar(); retry.hidden = true; listRetry.hidden = true; } catch (error) { state.bookings = []; renderMessage($("#bookings-list"), `Could not load bookings: ${error.message}`, true); renderMessage($("#calendar"), "Calendar unavailable. Retry when the gateway is reachable.", true); retry.hidden = false; listRetry.hidden = false; } }
+function metric(label, value) { const item = make("div"); item.append(make("dt", label), make("dd", String(value ?? "—"))); return item; }
+function renderMetrics(target, rows) { target.replaceChildren(...rows.map(([label, value]) => metric(label, value))); }
+function seconds(value) { return value == null ? "—" : `${value}s`; }
+function auditTransition(entry) { return `${entry.from_status ?? "—"} → ${entry.to_status ?? "—"}`; }
+async function loadAdmin() {
+  if (!state.admin) return;
+  const metrics = $("#dashboard-metrics"), outbox = $("#outbox-metrics"), audit = $("#audit-log");
+  renderMessage(metrics, "Loading facilities ledger…"); renderMessage(outbox, "Loading outbox diagnostics…"); renderMessage(audit, "Loading audit trail…");
   try {
-    await api("/api/bookings", { method: "POST", headers: { "Content-Type": "application/json", "Idempotency-Key": crypto.randomUUID() }, body: JSON.stringify({ resource_id: state.selected.id, starts_at: startsAt.toISOString(), ends_at: endsAt.toISOString() }) });
-    showResponse($("#booking-response"), "Booking request accepted. Times were sent as UTC.");
-  } catch (error) { showResponse($("#booking-response"), `Booking was not accepted: ${error.message}`, true); }
-});
-$("#resource-form").addEventListener("submit", async (event) => {
-  event.preventDefault(); const form = new FormData(event.currentTarget);
-  const resource = Object.fromEntries(form); resource.x = Number(resource.x); resource.y = Number(resource.y);
-  try { await api("/api/resources", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(resource) }); showResponse($("#resource-response"), "Resource registered."); event.currentTarget.reset(); await loadDesk(); }
-  catch (error) { showResponse($("#resource-response"), `Resource was not registered: ${error.message}`, true); }
-});
-document.querySelectorAll(".resource").forEach((marker) => marker.addEventListener("click", () => selectResource(resourceFromMarker(marker))));
-$("#zoom-in").onclick = () => { state.scale = Math.min(2.1, state.scale + .2); applyTransform(); };
-$("#zoom-out").onclick = () => { state.scale = Math.max(.75, state.scale - .2); applyTransform(); };
-$("#zoom-reset").onclick = () => { Object.assign(state, { scale: 1, x: 0, y: 0 }); applyTransform(); };
-let drag; $("#map-viewport").addEventListener("pointerdown", (event) => { drag = { x: event.clientX - state.x, y: event.clientY - state.y }; event.currentTarget.setPointerCapture(event.pointerId); });
-$("#map-viewport").addEventListener("pointermove", (event) => { if (!drag) return; state.x = event.clientX - drag.x; state.y = event.clientY - drag.y; applyTransform(); });
-$("#map-viewport").addEventListener("pointerup", () => { drag = null; });
-$("#logout").onclick = () => keycloak.logout({ redirectUri: location.origin + "/web/" });
+    const [dashboard, diagnostics, entries] = await Promise.all([api("/api/facilities/dashboard"), api("/api/outbox/diagnostics"), api("/api/audit")]);
+    renderMetrics(metrics, [["Active", dashboard.active_bookings], ["No shows", dashboard.no_shows], ["Outbox pending", dashboard.outbox_pending], ["Dead letter", dashboard.outbox_dead_letter], ["Outbox failures", dashboard.outbox_failures], ["Outbox lag", seconds(dashboard.outbox_lag_seconds)]]);
+    renderMetrics(outbox, [["Pending", diagnostics.pending], ["Dead letter", diagnostics.dead_letter], ["Failures", diagnostics.failures], ["Lag", seconds(diagnostics.lag_seconds)]]);
+    audit.replaceChildren(); const rows = Array.isArray(entries) ? entries : entries.items ?? [];
+    if (!rows.length) audit.append(make("p", "No audit records.", "empty-state"));
+    for (const entry of rows) { const row = make("article", undefined, "audit-row"); row.append(make("strong", entry.action ?? "Booking transition"), make("span", `Resource ${entry.resource_id ?? "—"} · booking ${entry.booking_id ?? "—"}`), make("p", auditTransition(entry)), make("small", `${entry.actor_id ?? "—"} · ${entry.occurred_at ? dateFormat(new Date(entry.occurred_at), { dateStyle: "medium", timeStyle: "short" }) : "—"}`)); audit.append(row); }
+  } catch (error) { renderMessage(metrics, `Facilities dashboard unavailable: ${error.message}`, true); renderMessage(outbox, "Outbox diagnostics unavailable. Use Refresh ledger to retry.", true); renderMessage(audit, "Audit trail unavailable. Use Refresh ledger to retry.", true); }
+}
+function populateTimeZones() { const select = $("#timezone"), local = state.timeZone; const zones = typeof Intl.supportedValuesOf === "function" ? Intl.supportedValuesOf("timeZone") : [local]; for (const zone of [...new Set([local, "UTC", ...zones])]) { const option = make("option", zone); option.value = zone; option.selected = zone === local; select.append(option); } }
 
-try {
-  await keycloak.init({ onLoad: "login-required", flow: "standard", pkceMethod: "S256", checkLoginIframe: false });
-  const roles = keycloak.resourceAccess?.["tori-space-web"]?.roles ?? [];
-  $("#identity-text").textContent = `${keycloak.tokenParsed?.preferred_username ?? "signed in"} / ${keycloak.tokenParsed?.tenant_id ?? "no tenant"}`;
-  $("#logout").hidden = false; $("#admin-panel").hidden = !roles.includes("facilities-admin");
-  await loadDesk();
-} catch (error) { $("#identity-text").textContent = "Sign-in unavailable"; showResponse($("#booking-response"), `Authentication could not start: ${error.message}`, true); }
+$("#booking-form").addEventListener("input", resetIdempotencyKey); $("#availability-check").addEventListener("click", checkAvailability);
+$("#booking-form").addEventListener("submit", async (event) => { event.preventDefault(); const interval = bookingInterval(); if (!interval || !state.selected) { showResponse($("#booking-response"), "End must be after start.", true); return; } resetIdempotencyKey(); const button = $("#booking-submit"); setBusy(button, true, "Submitting…"); try { await api("/api/bookings", { method: "POST", headers: { "Content-Type": "application/json", "Idempotency-Key": state.bookingKey }, body: JSON.stringify({ resource_id: state.selected.id, starts_at: interval.startsAt.toISOString(), ends_at: interval.endsAt.toISOString() }) }); showResponse($("#booking-response"), "Booking request accepted. Times were sent as UTC."); state.bookingKey = null; state.fingerprint = null; await loadBookings(); } catch (error) { showResponse($("#booking-response"), `Booking was not accepted: ${error.message}`, true); } finally { setBusy(button, false); } });
+$("#resource-form").addEventListener("submit", async (event) => { event.preventDefault(); const form = new FormData(event.currentTarget), resource = Object.fromEntries(form); resource.x = Number(resource.x); resource.y = Number(resource.y); const button = event.currentTarget.querySelector("button[type=submit]"); setBusy(button, true, "Registering…"); try { await api("/api/resources", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(resource) }); showResponse($("#resource-response"), "Resource registered."); event.currentTarget.reset(); await loadResources(); } catch (error) { showResponse($("#resource-response"), `Resource was not registered: ${error.message}`, true); } finally { setBusy(button, false); } });
+$("#outbox-cleanup-form").addEventListener("submit", async (event) => { event.preventDefault(); const cutoff = new Date($("#outbox-cleanup-before").value); if (Number.isNaN(cutoff.getTime())) { showResponse($("#outbox-response"), "Choose a valid cleanup cutoff.", true); return; } if (!confirm(`Clean delivered outbox records before ${cutoff.toLocaleString()}? This cannot be undone.`)) return; const button = $("#outbox-cleanup-submit"); setBusy(button, true, "Cleaning…"); try { await api("/api/outbox/cleanup", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ before: cutoff.toISOString() }) }); showResponse($("#outbox-response"), "Outbox cleanup completed. Diagnostics refreshed."); await loadAdmin(); } catch (error) { showResponse($("#outbox-response"), `Outbox cleanup failed: ${error.message}`, true); } finally { setBusy(button, false); } });
+document.querySelectorAll(".resource").forEach((marker) => marker.addEventListener("click", () => selectResource(resourceFromMarker(marker)))); $("#zoom-in").onclick = () => { state.scale = Math.min(2.1, state.scale + .2); applyTransform(); }; $("#zoom-out").onclick = () => { state.scale = Math.max(.75, state.scale - .2); applyTransform(); }; $("#zoom-reset").onclick = () => { Object.assign(state, { scale: 1, x: 0, y: 0 }); applyTransform(); };
+let drag; $("#map-viewport").addEventListener("pointerdown", (event) => { drag = { x: event.clientX - state.x, y: event.clientY - state.y }; event.currentTarget.setPointerCapture(event.pointerId); }); $("#map-viewport").addEventListener("pointermove", (event) => { if (!drag) return; state.x = event.clientX - drag.x; state.y = event.clientY - drag.y; applyTransform(); }); $("#map-viewport").addEventListener("pointerup", () => { drag = null; });
+$("#calendar-view").addEventListener("change", (event) => { state.calendarView = event.target.value; loadBookings(); }); $("#timezone").addEventListener("change", (event) => { state.timeZone = event.target.value; state.calendarDate = calendarDateFromInstant(new Date()); loadBookings(); }); $("#calendar-prev").onclick = () => { state.calendarDate.setUTCDate(state.calendarDate.getUTCDate() - (state.calendarView === "week" ? 7 : 1)); loadBookings(); }; $("#calendar-next").onclick = () => { state.calendarDate.setUTCDate(state.calendarDate.getUTCDate() + (state.calendarView === "week" ? 7 : 1)); loadBookings(); }; $("#calendar-today").onclick = () => { state.calendarDate = calendarDateFromInstant(new Date()); loadBookings(); }; $("#bookings-retry").onclick = loadBookings; $("#bookings-list-retry").onclick = loadBookings; $("#bookings-refresh").onclick = loadBookings; $("#admin-retry").onclick = loadAdmin; $("#logout").onclick = () => keycloak.logout({ redirectUri: location.origin + "/web/" });
+window.addEventListener("offline", () => { $("#api-status").textContent = "OFFLINE — CHANGES PAUSED"; }); window.addEventListener("online", async () => { $("#api-status").textContent = "CONNECTION RESTORED"; await Promise.all([loadResources(), loadBookings(), loadAdmin()]); });
+populateTimeZones(); state.calendarDate = calendarDateFromInstant(new Date()); const cleanupCutoff = new Date(Date.now() - 30 * 86400000); cleanupCutoff.setMinutes(cleanupCutoff.getMinutes() - cleanupCutoff.getTimezoneOffset()); $("#outbox-cleanup-before").value = cleanupCutoff.toISOString().slice(0, 16); renderCalendar();
+try { await keycloak.init({ onLoad: "login-required", flow: "standard", pkceMethod: "S256", checkLoginIframe: false }); const roles = keycloak.resourceAccess?.["tori-space-web"]?.roles ?? []; $("#identity-text").textContent = `${keycloak.tokenParsed?.preferred_username ?? "signed in"} / ${keycloak.tokenParsed?.tenant_id ?? "no tenant"}`; $("#logout").hidden = false; state.admin = roles.includes("facilities-admin"); $("#admin-panel").hidden = !state.admin; await Promise.all([loadResources(), loadBookings(), loadAdmin()]); } catch (error) { $("#identity-text").textContent = "Sign-in unavailable"; showResponse($("#booking-response"), `Authentication could not start: ${error.message}`, true); }

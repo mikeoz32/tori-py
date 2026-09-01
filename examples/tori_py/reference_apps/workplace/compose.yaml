@@ -1,5 +1,10 @@
 name: tori-space-demo
 
+x-app-environment: &app-environment
+  KEYCLOAK_ISSUER: http://localhost:8080/realms/tori-space
+  KEYCLOAK_JWKS_URL: http://keycloak:8080/realms/tori-space/protocol/openid-connect/certs
+  KEYCLOAK_AUDIENCE: tori-space-api
+
 services:
   postgres:
     image: postgres:17
@@ -29,6 +34,19 @@ services:
       timeout: 5s
       retries: 20
 
+  rabbitmq-setup:
+    image: python:3.14-alpine
+    command: python /rabbitmq/setup.py
+    environment:
+      RABBITMQ_MANAGEMENT_URL: http://rabbitmq:15672/api
+      RABBITMQ_ADMIN_USER: rabbitmq_demo
+      RABBITMQ_ADMIN_PASSWORD: rabbitmq-demo-only
+    volumes:
+      - ./rabbitmq/setup.py:/rabbitmq/setup.py:ro
+    depends_on:
+      rabbitmq: { condition: service_healthy }
+    restart: "no"
+
   keycloak:
     image: quay.io/keycloak/keycloak:26.7.3
     command: start-dev --import-realm
@@ -56,14 +74,9 @@ services:
   migrate-spaces:
     build: { context: ../../../.., dockerfile: examples/tori_py/reference_apps/workplace/Dockerfile }
     command: uv run --no-sync python -m examples.tori_py.reference_apps.workplace.spaces.migrate
-    environment: &app-environment
+    environment:
+      <<: *app-environment
       WORKPLACE_SPACES_DATABASE_URL: postgresql+psycopg://spaces_demo:spaces-demo-only@postgres:5432/spaces
-      WORKPLACE_BOOKINGS_DATABASE_URL: postgresql+psycopg://bookings_demo:bookings-demo-only@postgres:5432/bookings
-      WORKPLACE_NOTIFICATIONS_DATABASE_URL: postgresql+psycopg://notifications_demo:notifications-demo-only@postgres:5432/notifications
-      RABBITMQ_URL: amqp://rabbitmq_demo:rabbitmq-demo-only@rabbitmq:5672/
-      KEYCLOAK_ISSUER: http://localhost:8080/realms/tori-space
-      KEYCLOAK_JWKS_URL: http://keycloak:8080/realms/tori-space/protocol/openid-connect/certs
-      KEYCLOAK_AUDIENCE: tori-space-api
     depends_on:
       postgres: { condition: service_healthy }
     restart: "no"
@@ -71,7 +84,9 @@ services:
   migrate-bookings:
     build: { context: ../../../.., dockerfile: examples/tori_py/reference_apps/workplace/Dockerfile }
     command: uv run --no-sync python -m examples.tori_py.reference_apps.workplace.bookings.migrate
-    environment: *app-environment
+    environment:
+      <<: *app-environment
+      WORKPLACE_BOOKINGS_DATABASE_URL: postgresql+psycopg://bookings_demo:bookings-demo-only@postgres:5432/bookings
     depends_on:
       postgres: { condition: service_healthy }
     restart: "no"
@@ -79,7 +94,9 @@ services:
   migrate-notifications:
     build: { context: ../../../.., dockerfile: examples/tori_py/reference_apps/workplace/Dockerfile }
     command: uv run --no-sync python -m examples.tori_py.reference_apps.workplace.notifications.migrate
-    environment: *app-environment
+    environment:
+      <<: *app-environment
+      WORKPLACE_NOTIFICATIONS_DATABASE_URL: postgresql+psycopg://notifications_demo:notifications-demo-only@postgres:5432/notifications
     depends_on:
       postgres: { condition: service_healthy }
     restart: "no"
@@ -87,34 +104,46 @@ services:
   spaces:
     build: { context: ../../../.., dockerfile: examples/tori_py/reference_apps/workplace/Dockerfile }
     command: uv run --no-sync python -m examples.tori_py.reference_apps.workplace.spaces.app
-    environment: *app-environment
+    environment:
+      <<: *app-environment
+      WORKPLACE_SPACES_DATABASE_URL: postgresql+psycopg://spaces_demo:spaces-demo-only@postgres:5432/spaces
+      WORKPLACE_SPACES_RABBITMQ_URL: amqp://spaces_demo:spaces-demo-only@rabbitmq:5672/
     depends_on:
       migrate-spaces: { condition: service_completed_successfully }
-      rabbitmq: { condition: service_healthy }
+      rabbitmq-setup: { condition: service_completed_successfully }
 
   bookings:
     build: { context: ../../../.., dockerfile: examples/tori_py/reference_apps/workplace/Dockerfile }
     command: uv run --no-sync python -m examples.tori_py.reference_apps.workplace.bookings.app
-    environment: *app-environment
+    environment:
+      <<: *app-environment
+      WORKPLACE_BOOKINGS_DATABASE_URL: postgresql+psycopg://bookings_demo:bookings-demo-only@postgres:5432/bookings
+      WORKPLACE_BOOKINGS_RABBITMQ_URL: amqp://bookings_demo:bookings-demo-only@rabbitmq:5672/
     depends_on:
       migrate-bookings: { condition: service_completed_successfully }
-      rabbitmq: { condition: service_healthy }
+      rabbitmq-setup: { condition: service_completed_successfully }
 
   notifications:
     build: { context: ../../../.., dockerfile: examples/tori_py/reference_apps/workplace/Dockerfile }
     command: uv run --no-sync python -m examples.tori_py.reference_apps.workplace.notifications.app
-    environment: *app-environment
+    environment:
+      <<: *app-environment
+      WORKPLACE_NOTIFICATIONS_DATABASE_URL: postgresql+psycopg://notifications_demo:notifications-demo-only@postgres:5432/notifications
+      WORKPLACE_NOTIFICATIONS_RABBITMQ_URL: amqp://notifications_demo:notifications-demo-only@rabbitmq:5672/
     depends_on:
       migrate-notifications: { condition: service_completed_successfully }
-      rabbitmq: { condition: service_healthy }
+      rabbitmq-setup: { condition: service_completed_successfully }
 
   api-gateway:
     build: { context: ../../../.., dockerfile: examples/tori_py/reference_apps/workplace/Dockerfile }
     command: uv run --no-sync uvicorn examples.tori_py.reference_apps.workplace.gateway.__main__:application --host 0.0.0.0 --port 8000
-    environment: *app-environment
+    environment:
+      <<: *app-environment
+      WORKPLACE_GATEWAY_RABBITMQ_URL: amqp://gateway_demo:gateway-demo-only@rabbitmq:5672/
     ports: ["127.0.0.1:8010:8000"]
     depends_on:
       keycloak: { condition: service_healthy }
+      rabbitmq-setup: { condition: service_completed_successfully }
       spaces: { condition: service_started }
       bookings: { condition: service_started }
       notifications: { condition: service_started }

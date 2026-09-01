@@ -8,19 +8,27 @@ from typing import Protocol
 from tori_py_microservices import ServiceIdentity, rpc_call, service_contract
 
 from .contracts import (
+    AdminRequest,
+    AuditEntry,
+    Availability,
+    AvailabilityQuery,
     Booking,
     CancelBooking,
     CheckInBooking,
+    CleanupOutbox,
     CreateBooking,
     CreateResource,
     CreateResourceRpc,
+    FacilityDashboard,
     GetBooking,
     GetResource,
     Health,
+    ListAudit,
     ListBookings,
     ListNotifications,
     ListResources,
     Notification,
+    OutboxDiagnostics,
     Principal,
     Resource,
 )
@@ -63,8 +71,37 @@ class BookingsService(Protocol):
     async def get_booking(self, principal: Principal, booking_id: str) -> Booking: ...
     @rpc_call("list-bookings", payload=ListBookings)
     async def list_bookings(
-        self, principal: Principal, resource_id: str | None = None
+        self,
+        principal: Principal,
+        resource_id: str | None = None,
+        starts_at: datetime | None = None,
+        ends_at: datetime | None = None,
+        offset: int = 0,
+        limit: int = 100,
     ) -> list[Booking]: ...
+    @rpc_call("availability", payload=AvailabilityQuery)
+    async def availability(
+        self,
+        principal: Principal,
+        starts_at: datetime,
+        ends_at: datetime,
+        resource_id: str | None = None,
+    ) -> list[Availability]: ...
+    @rpc_call("facilities-dashboard", payload=AdminRequest)
+    async def facilities_dashboard(self, principal: Principal) -> FacilityDashboard: ...
+    @rpc_call("list-audit", payload=ListAudit)
+    async def list_audit(
+        self,
+        principal: Principal,
+        starts_at: datetime | None = None,
+        ends_at: datetime | None = None,
+        resource_id: str | None = None,
+        limit: int = 100,
+    ) -> list[AuditEntry]: ...
+    @rpc_call("outbox-diagnostics", payload=AdminRequest)
+    async def outbox_diagnostics(self, principal: Principal) -> OutboxDiagnostics: ...
+    @rpc_call("cleanup-outbox", payload=CleanupOutbox)
+    async def cleanup_outbox(self, principal: Principal, before: datetime) -> int: ...
     @rpc_call("cancel-booking", payload=CancelBooking)
     async def cancel_booking(
         self, principal: Principal, booking_id: str

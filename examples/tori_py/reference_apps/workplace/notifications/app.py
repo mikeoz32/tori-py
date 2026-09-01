@@ -22,7 +22,13 @@ from tori_py_microservices import (
 )
 from tori_py_sqlalchemy import EntityManager, Repository, SqlAlchemyModule, repository
 
-from ..common.contracts import BookingCreated, Health, ListNotifications, Notification
+from ..common.contracts import (
+    BookingCreated,
+    BookingLifecycleEvent,
+    Health,
+    ListNotifications,
+    Notification,
+)
 from ..common.infrastructure import rabbit_modules, serve, sql_module
 from ..common.security import has_workplace_role
 from ..common.services import BOOKINGS, NOTIFICATIONS, NotificationsService
@@ -77,6 +83,101 @@ class NotificationsController:
                         tenant_id=payload.tenant_id,
                         event_id=event_id,
                         message=f"Booking {payload.booking_id} created",
+                        created_at=datetime.now(UTC),
+                    )
+                )
+        except IntegrityError:
+            async with self._entities.transaction():
+                if (
+                    await self._notifications.find_one(
+                        NotificationRow.event_id == event_id
+                    )
+                    is None
+                ):
+                    raise
+
+    @event_handler(
+        BOOKINGS,
+        "booking-cancelled",
+        schema_version=1,
+        mode=EventDispatchMode.SERVICE_POOL,
+        subscription="notification-workers",
+    )
+    async def booking_cancelled(
+        self,
+        payload: Annotated[BookingLifecycleEvent, Payload()],
+        event_id: Annotated[str, Header("outbox_event_id")],
+    ) -> None:
+        await self._record_lifecycle(payload, event_id)
+
+    @event_handler(
+        BOOKINGS,
+        "booking-checked-in",
+        schema_version=1,
+        mode=EventDispatchMode.SERVICE_POOL,
+        subscription="notification-workers",
+    )
+    async def booking_checked_in(
+        self,
+        payload: Annotated[BookingLifecycleEvent, Payload()],
+        event_id: Annotated[str, Header("outbox_event_id")],
+    ) -> None:
+        await self._record_lifecycle(payload, event_id)
+
+    @event_handler(
+        BOOKINGS,
+        "booking-no-show",
+        schema_version=1,
+        mode=EventDispatchMode.SERVICE_POOL,
+        subscription="notification-workers",
+    )
+    async def booking_no_show(
+        self,
+        payload: Annotated[BookingLifecycleEvent, Payload()],
+        event_id: Annotated[str, Header("outbox_event_id")],
+    ) -> None:
+        await self._record_lifecycle(payload, event_id)
+
+    @event_handler(
+        BOOKINGS,
+        "booking-completed",
+        schema_version=1,
+        mode=EventDispatchMode.SERVICE_POOL,
+        subscription="notification-workers",
+    )
+    async def booking_completed(
+        self,
+        payload: Annotated[BookingLifecycleEvent, Payload()],
+        event_id: Annotated[str, Header("outbox_event_id")],
+    ) -> None:
+        await self._record_lifecycle(payload, event_id)
+
+    async def _record_lifecycle(
+        self,
+        payload: BookingLifecycleEvent,
+        event_id: str,
+    ) -> None:
+        await self._record_notification(
+            payload.tenant_id,
+            event_id,
+            f"Booking {payload.booking_id} {payload.status.replace('_', ' ')}",
+        )
+
+    async def _record_notification(
+        self, tenant_id: str, event_id: str, message: str
+    ) -> None:
+        try:
+            async with self._entities.transaction():
+                if await self._notifications.find_one(
+                    NotificationRow.event_id == event_id
+                ):
+                    return
+                await self._notifications.add(
+                    NotificationRow(
+                        id=str(uuid4()),
+                        tenant_id=tenant_id,
+                        event_id=event_id,
+                        message=message,
                         created_at=datetime.now(UTC),
                     )
                 )

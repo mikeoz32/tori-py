@@ -25,6 +25,13 @@ def database_url(service: str) -> str:
     )
 
 
+def rabbitmq_url(service: str) -> str:
+    return os.getenv(
+        f"WORKPLACE_{service.upper()}_RABBITMQ_URL",
+        os.getenv("RABBITMQ_URL", "amqp://guest:guest@localhost/"),
+    )
+
+
 def sql_module(service: str) -> DeferredModule:
     return SqlAlchemyModule.for_root(SqlAlchemyOptions(url=database_url(service)))
 
@@ -33,9 +40,7 @@ def rabbit_modules(
     identity: ServiceIdentity,
 ) -> tuple[RabbitMqTransport, DeferredModule, DeferredModule]:
     transport = RabbitMqTransport()
-    rabbit = RabbitMqModule.for_root(
-        RabbitMqOptions(os.getenv("RABBITMQ_URL", "amqp://guest:guest@localhost/"))
-    )
+    rabbit = RabbitMqModule.for_root(RabbitMqOptions(rabbitmq_url(identity.name)))
     service = MicroservicesModule.for_root(
         identity, transport=transport, imports=(rabbit,), options=MicroservicesOptions()
     )

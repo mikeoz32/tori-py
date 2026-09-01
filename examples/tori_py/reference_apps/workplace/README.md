@@ -54,6 +54,23 @@ The Compose migration jobs invoke their dedicated migration modules through
 for placing the verified `keycloak.js` adapter in the gateway image, so these
 instructions intentionally do not advertise unsupported host process commands.
 
+RabbitMQ creates its application users after its health check. `rabbitmq_demo`
+is the local management/setup administrator; it is not supplied to an
+application process. The local-only application credentials are:
+
+| Process | Username | Password |
+| --- | --- | --- |
+| API gateway | `gateway_demo` | `gateway-demo-only` |
+| Spaces | `spaces_demo` | `spaces-demo-only` |
+| Bookings | `bookings_demo` | `bookings-demo-only` |
+| Notifications | `notifications_demo` | `notifications-demo-only` |
+
+The browser provides day/week calendar views in a selectable IANA timezone and
+loads the displayed interval through bounded booking pages. Bookings remain UTC
+on the wire and in storage. Facilities administrators also receive tenant-scoped
+lifecycle counts, outbox diagnostics and cleanup, and an immutable booking audit
+trail.
+
 ## Demo identities
 
 These are deliberately weak, local-only, **demo-only** passwords embedded in
@@ -100,27 +117,37 @@ that generated file at `/assets/keycloak.js`; it is not committed to the repo.
   `tori-space-api`, `tenant_id`, and required role on every protected request.
   It creates the `Principal` carried over RPC; services validate its workplace
   role and derive tenant and actor from it, not request body, UI state, routing,
-  or a user-supplied header. The private broker network and credentials are a
-  trusted internal boundary in this local reference deployment.
+   or a user-supplied header. The broker is an internal boundary, not a trust
+   bypass: each process has a separate RabbitMQ credential limited to its own
+   topology resources and routing keys. The setup/management administrator is
+   reserved for local setup and the management UI.
 - Every database read and write must be constrained by `tenant_id`; resource
   identifiers alone are not authorization. Separate databases/roles limit
   accidental cross-service access but do not replace row-level tenant checks.
 - RabbitMQ delivery and RPC/event handling are **at least once**. The outbox
-  and inbox/idempotency patterns reduce duplicate effects but do not give
-  exactly-once end-to-end delivery. Consumers must be idempotent, and the
-  application must handle duplicated or delayed notifications.
+  uses database lease claims so replicas do not normally publish the same row
+  concurrently. Lease recovery and the inbox/idempotency patterns reduce
+  duplicate effects but do not give exactly-once end-to-end delivery. Consumers
+  must be idempotent, and the application must handle duplicated or delayed
+  notifications.
 
 ## Tests and non-goals
 
-Run the reference-app test module from the repository root with `uv`:
+Run the reference-app unit and security specifications from the repository root
+with `uv`:
 
 ```sh
-uv run pytest examples/tori_py/reference_apps/workplace/test_workplace.py
+uv run pytest examples/tori_py/reference_apps/workplace/test_workplace.py examples/tori_py/reference_apps/workplace/tests
 ```
 
+The PostgreSQL concurrency specification uses `pytest-docker` and requires the
+Linux-only `psycopg` dependency from this workspace. It verifies that the real
+exclusion constraint commits exactly one of two overlapping reservations while
+keeping booking, outbox, and audit rows atomic.
+
 This is a reference, not a production deployment template. Non-goals include
-real building access control, calendars, availability optimization, SSO across
-domains, production secrets management, TLS termination, backups/HA, automatic
-migrations in a running production system, audit retention, and exactly-once
+real building access control, calendar-provider synchronization, production
+secrets management, TLS termination, backups/HA, automatic migrations in a
+running production system, regulatory audit retention, and exactly-once
 messaging. The floor plan is illustrative and must not be used for emergency,
 safety, or occupancy decisions.
