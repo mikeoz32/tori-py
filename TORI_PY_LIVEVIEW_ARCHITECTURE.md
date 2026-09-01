@@ -81,7 +81,29 @@ state and a new target. HTTP render components are disconnected after the
 response is built, and all connected components are disconnected before their
 parent page. Nested components are not supported.
 
-### 3.4 Dynamic module
+### 3.4 Streams
+
+`LiveView.stream_insert(container_id, item_id, rendered, at=-1, limit=None)`,
+`stream_delete`, and `stream_reset` queue ordered browser-owned collection
+mutations. `stream_contents(container_id)` replays the current queue into trusted
+HTML for the disconnected response. Container and item IDs are non-empty strings,
+insertion indexes are `-1` or non-negative safe integers, limits are non-zero
+safe integers, and inserted content is `Rendered` or trusted `str` markup.
+
+A stream container has a unique DOM `id` and `data-opal-stream`. Each inserted
+item has exactly one root element whose DOM `id` matches the declared item ID;
+the unchanged browser client validates this before applying any operation in the
+batch. Normal structural morphing preserves stream-container children. Only
+stream operations own their insertion, update, deletion, reset, order, and
+bounds.
+
+Inserting an existing ID morphs it in place without changing position. New
+items append at `-1` or insert at the requested non-negative child index. A
+positive limit retains the first N children and a negative limit retains the
+last N. Operations are connection-local, consumed once by the next render
+message, cleared after rejected events, and cleared on disconnect.
+
+### 3.5 Dynamic module
 
 `LiveViewModule.for_root(options, pages, imports=(), key="default")` returns a
 ToriPy `DeferredModule`. Materialization creates:
@@ -126,11 +148,12 @@ For a page request, the generated controller:
 1. Resolves the request-scoped page provider from `HttpContext`.
 2. Builds the resource from the request path and raw query.
 3. Calls `mount` with `connected=False`.
-4. Renders the page and its declared component identities once.
+4. Renders the page, declared component identities, and disconnected stream
+   contents once.
 5. Signs page identity, path params, resource, and issue time.
 6. Builds a root carrying `data-opal-live-root`, token, and socket path.
 7. Passes the root and module script to `render_document`.
-8. Disconnects the HTTP-only components.
+8. Disconnects the HTTP-only components and clears queued stream operations.
 9. Returns UTF-8 HTML with `Cache-Control: no-store`.
 
 The default document escapes the title. Rendered page HTML and the framework
@@ -151,6 +174,11 @@ component `Rendered` values are flattened into parent dynamic positions, which
 lets each component update independently when the parent fingerprint remains
 stable. `raw(value)` is an explicit trust marker and must never be applied to
 untrusted input.
+
+`stream_contents` is the corresponding trusted boundary for markup already
+queued through stream operations. Connected renders normally produce an empty
+stream-container dynamic after the previous batch is consumed; the browser
+preserves existing children and applies the separately validated operations.
 
 ## 7. Mount Tokens
 
@@ -173,7 +201,7 @@ Before acceptance, the gateway validates Origin. It then:
 2. Requires a valid join within `join_timeout_seconds`.
 3. Verifies the mount token and resolves the registered page provider.
 4. Calls `mount` with `connected=True`.
-5. Sends version `0` as a full render snapshot.
+5. Sends version `0` as a full render snapshot plus any queued stream operations.
 6. Processes one inbound event or heartbeat at a time.
 7. Disconnects removed components after each successful render.
 8. Disconnects all remaining components and calls page `disconnect` exactly
@@ -200,9 +228,9 @@ positive integers. `target` is null for the page or a positive component ID.
 Server messages:
 
 ```text
-full render {type: "render", protocol: 2, version, rendered, title?}
+full render {type: "render", protocol: 2, version, rendered, streams?, title?}
 diff render {type: "render", protocol: 2, version, fingerprint, diff,
-             ref?, status?, title?}
+             streams?, ref?, status?, title?}
 heartbeat   {type: "heartbeat", ref}
 error       {type: "error", reason, ref}
 ```
@@ -210,6 +238,20 @@ error       {type: "error", reason, ref}
 `rendered` contains `fingerprint`, `statics`, and `dynamics`. `diff` uses JSON
 string keys for dynamic indexes. An absent title leaves `document.title`
 unchanged; null is not sent as an instruction.
+
+`streams`, when present, is a non-empty ordered array using the canonical Opal
+operation shapes:
+
+```text
+insert {op: "insert", container, id, html, at, limit?}
+delete {op: "delete", container, id}
+reset  {op: "reset", container}
+```
+
+The server omits the field for an empty queue. The client validates the complete
+array, stream containers, insertion values, single-root item markup, and item-ID
+match before mutating the DOM, so an invalid operation leaves the batch
+unapplied.
 
 The browser allows one event in flight. A matching-version page event executes,
 increments the version, and produces a diff or snapshot with the same `ref`.
@@ -250,19 +292,15 @@ expiry are abuse controls, not substitutes for rate limiting or authorization.
 
 ## 12. Deliberate Non-Goals
 
-The package does not implement nested components, streams, upload transport,
+The package does not implement nested components, upload transport,
 server-initiated `send_info`, durable sessions, cross-replica session migration,
 background event delivery, or JavaScript hooks.
-
-The common client also understands streams. Future server support must implement
-their existing protocol semantics rather than repurpose reserved fields or
-create ToriPy-only client behavior.
 
 ## 13. Acceptance
 
 Acceptance requires package tests for rendering, token integrity/expiry,
 declaration validation, HTTP output, exact client bytes, joins, diffs, stale
 resynchronization, component identity/state/target routing, errors, origins, size
-limits, deadlines, close codes, and cleanup. Ruff, formatting, ty, wheel/sdist
-build, artifact content verification, and isolated import smoke must pass through
-`uv`.
+limits, stream ordering/bounds/reset/delete semantics, atomic browser validation,
+deadlines, close codes, and cleanup. Ruff, formatting, ty, wheel/sdist build,
+artifact content verification, and isolated import smoke must pass through `uv`.

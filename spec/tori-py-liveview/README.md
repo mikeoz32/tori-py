@@ -20,9 +20,11 @@ This directory records the executable contract for `tori-py-liveview`.
 10. Stateful components use `(concrete type, id)` identity, stable
     connection-local targets, update-before-render, targeted events, and cleanup
     on removal or disconnect.
-11. Nested components, streams, uploads, and server-initiated `send_info` remain
-    outside the server surface. Reserved protocol fields retain their Opal
-    meaning.
+11. Streams preserve Opal's ordered insert/update/delete/reset message shapes,
+    browser-owned containers, item-ID validation, insertion and limit semantics,
+    disconnected contents, one-shot delivery, and reconnect reset behavior.
+12. Nested components, uploads, and server-initiated `send_info` remain outside
+    the server surface. Reserved protocol fields retain their Opal meaning.
 
 The complete architectural and wire contract is maintained in
 `TORI_PY_LIVEVIEW_ARCHITECTURE.md`.

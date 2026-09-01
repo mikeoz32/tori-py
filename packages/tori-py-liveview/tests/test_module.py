@@ -203,6 +203,66 @@ class ComponentsLive(LiveView):
         )
 
 
+@live_view("/streams")
+class StreamsLive(LiveView):
+    async def mount(self, context: MountContext) -> None:
+        del context
+        self.stream_reset("activity-stream")
+        self.stream_insert("activity-stream", "activity-1", self._item(1, "First"))
+        self.stream_insert("activity-stream", "activity-2", self._item(2, "Second"))
+
+    async def handle_event(self, event: str, value: object) -> None:
+        del value
+        if event == "prepend":
+            self.stream_insert(
+                "activity-stream",
+                "activity-3",
+                self._item(3, "Third"),
+                at=0,
+                limit=2,
+            )
+        elif event == "update":
+            self.stream_insert(
+                "activity-stream",
+                "activity-1",
+                self._item(1, "First updated"),
+            )
+        elif event == "delete":
+            self.stream_delete("activity-stream", "activity-2")
+        elif event == "reset":
+            self.stream_reset("activity-stream")
+            self.stream_insert(
+                "activity-stream",
+                "activity-9",
+                self._item(9, "Reset item"),
+            )
+        elif event == "invalid_after_insert":
+            self.stream_insert(
+                "activity-stream",
+                "activity-leaked",
+                '<li id="activity-leaked">Leaked</li>',
+            )
+            raise UnknownEventError(event)
+        else:
+            raise UnknownEventError(event)
+
+    def render(self):
+        return rendered(
+            ('<ul id="activity-stream" data-opal-stream>', "</ul>"),
+            self.stream_contents("activity-stream"),
+        )
+
+    @staticmethod
+    def _item(sequence: int, label: str):
+        item_id = f"activity-{sequence}"
+        return rendered(
+            ('<li id="', '" data-opal-key="', '">', "</li>"),
+            item_id,
+            item_id,
+            label,
+        )
+
+
 def _asgi(application: NestApplication) -> ASGIApp:
     return application.get_adapter(StarletteAdapter).app
 
@@ -324,6 +384,68 @@ async def test_components_require_render_context_and_unique_identity() -> None:
     assert component.updates == 1
     await page._disconnect_liveview_components()
     assert component.disconnects == 1
+
+
+def test_stream_operations_validate_and_render_disconnected_contents() -> None:
+    page = StreamsLive()
+
+    with pytest.raises(TypeError, match="container id must be a string"):
+        page.stream_reset(cast(Any, 1))
+    with pytest.raises(ValueError, match="container id cannot be empty"):
+        page.stream_reset("")
+    with pytest.raises(ValueError, match="item id cannot be empty"):
+        page.stream_delete("activity-stream", "")
+    with pytest.raises(ValueError, match="index must be -1 or greater"):
+        page.stream_insert("activity-stream", "activity-1", "<li></li>", at=-2)
+    with pytest.raises(ValueError, match="limit cannot be zero"):
+        page.stream_insert("activity-stream", "activity-1", "<li></li>", limit=0)
+
+    page.stream_insert("activity-stream", "activity-1", page._item(1, "First"))
+    page.stream_insert("activity-stream", "activity-2", page._item(2, "Second"))
+    page.stream_insert(
+        "activity-stream",
+        "activity-1",
+        page._item(1, "First updated"),
+    )
+    page.stream_delete("activity-stream", "activity-2")
+    page.stream_insert(
+        "activity-stream",
+        "activity-3",
+        page._item(3, "Third"),
+        at=0,
+        limit=2,
+    )
+
+    contents = page.stream_contents("activity-stream")
+    assert contents.value.index("activity-3") < contents.value.index("activity-1")
+    assert "First updated" in contents.value
+    assert "activity-2" not in contents.value
+
+    page.stream_reset("activity-stream")
+    page.stream_insert("activity-stream", "activity-9", page._item(9, "Reset item"))
+    reset_contents = page.stream_contents("activity-stream")
+    assert "activity-9" in reset_contents.value
+    assert "activity-1" not in reset_contents.value
+
+    bounded = StreamsLive()
+    for sequence in range(1, 5):
+        bounded.stream_insert(
+            "activity-stream",
+            f"activity-{sequence}",
+            bounded._item(sequence, str(sequence)),
+            limit=-2 if sequence == 4 else None,
+        )
+    bounded.stream_insert(
+        "activity-stream",
+        "activity-5",
+        bounded._item(5, "5"),
+        at=99,
+    )
+    bounded_contents = bounded.stream_contents("activity-stream").value
+    assert "activity-1" not in bounded_contents
+    assert "activity-2" not in bounded_contents
+    assert bounded_contents.index("activity-3") < bounded_contents.index("activity-4")
+    assert bounded_contents.index("activity-4") < bounded_contents.index("activity-5")
 
 
 def test_for_root_materializes_pages_as_request_scoped_normal_routes() -> None:
@@ -638,6 +760,131 @@ async def test_components_keep_state_route_targets_and_cleanup() -> None:
     assert CounterComponent.mount_connections == [False, False, True, True, True]
     assert CounterComponent.updates == 11
     assert CounterComponent.disconnects == 5
+    await application.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_streams_render_initial_html_and_send_ordered_protocol_operations() -> (
+    None
+):
+    liveview_module = LiveViewModule.for_root(
+        LiveViewOptions(secret="s" * 32),
+        pages=[StreamsLive],
+        key="streams",
+    )
+
+    @module(imports=[liveview_module])
+    class Root:
+        pass
+
+    application = await NestApplication.create(Root, adapter=StarletteAdapter())
+    await application.start()
+    page = await _request(application, "/streams")
+    token = re.search(r'data-opal-token="([A-Za-z0-9_.-]+)"', page.text)
+    assert token is not None
+    assert '<li id="activity-1" data-opal-key="activity-1">First</li>' in page.text
+    assert '<li id="activity-2" data-opal-key="activity-2">Second</li>' in page.text
+
+    sent = await _call_websocket(
+        application,
+        "/_tori/live",
+        _receive_text({"type": "join", "protocol": 2, "token": token[1]}),
+        _receive_text(
+            {
+                "type": "event",
+                "event": "prepend",
+                "value": None,
+                "version": 0,
+                "ref": 1,
+            }
+        ),
+        _receive_text(
+            {
+                "type": "event",
+                "event": "update",
+                "value": None,
+                "version": 1,
+                "ref": 2,
+            }
+        ),
+        _receive_text(
+            {
+                "type": "event",
+                "event": "invalid_after_insert",
+                "value": None,
+                "version": 2,
+                "ref": 3,
+            }
+        ),
+        _receive_text(
+            {
+                "type": "event",
+                "event": "delete",
+                "value": None,
+                "version": 2,
+                "ref": 4,
+            }
+        ),
+        _receive_text(
+            {
+                "type": "event",
+                "event": "reset",
+                "value": None,
+                "version": 3,
+                "ref": 5,
+            }
+        ),
+        _disconnect(),
+    )
+    messages = _decode_sent(sent)
+    assert messages[0]["streams"] == [
+        {"op": "reset", "container": "activity-stream"},
+        {
+            "op": "insert",
+            "container": "activity-stream",
+            "id": "activity-1",
+            "html": '<li id="activity-1" data-opal-key="activity-1">First</li>',
+            "at": -1,
+        },
+        {
+            "op": "insert",
+            "container": "activity-stream",
+            "id": "activity-2",
+            "html": '<li id="activity-2" data-opal-key="activity-2">Second</li>',
+            "at": -1,
+        },
+    ]
+    assert messages[1]["streams"] == [
+        {
+            "op": "insert",
+            "container": "activity-stream",
+            "id": "activity-3",
+            "html": '<li id="activity-3" data-opal-key="activity-3">Third</li>',
+            "at": 0,
+            "limit": 2,
+        }
+    ]
+    assert cast(list[dict[str, object]], messages[2]["streams"])[0]["html"] == (
+        '<li id="activity-1" data-opal-key="activity-1">First updated</li>'
+    )
+    assert messages[3] == {
+        "type": "error",
+        "reason": "unknown_event",
+        "ref": 3,
+    }
+    assert messages[4]["streams"] == [
+        {"op": "delete", "container": "activity-stream", "id": "activity-2"}
+    ]
+    assert messages[5]["streams"] == [
+        {"op": "reset", "container": "activity-stream"},
+        {
+            "op": "insert",
+            "container": "activity-stream",
+            "id": "activity-9",
+            "html": '<li id="activity-9" data-opal-key="activity-9">Reset item</li>',
+            "at": -1,
+        },
+    ]
     await application.shutdown()
 
 

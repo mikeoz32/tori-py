@@ -67,6 +67,7 @@ def _render_message(
     previous: Rendered | None = None,
     ref: int | None = None,
     status: str | None = None,
+    streams: list[dict[str, object]] | None = None,
 ) -> dict[str, object]:
     payload: dict[str, object] = {
         "type": "render",
@@ -83,6 +84,8 @@ def _render_message(
     else:
         payload["fingerprint"] = rendered.fingerprint
         payload["diff"] = {str(index): value for index, value in diff.items()}
+    if streams:
+        payload["streams"] = streams
     if title is not None:
         payload["title"] = title
     if ref is not None:
@@ -269,7 +272,12 @@ def gateway_type(options: LiveViewOptions, registry: _Registry) -> type[object]:
                 current = await _render(page)
                 version = 0
                 await socket.send_json(
-                    _render_message(current, version, title=page.title())
+                    _render_message(
+                        current,
+                        version,
+                        title=page.title(),
+                        streams=page._take_liveview_stream_operations(),
+                    )
                 )
 
                 while True:
@@ -305,6 +313,7 @@ def gateway_type(options: LiveViewOptions, registry: _Registry) -> type[object]:
                                 previous=current,
                                 ref=ref,
                                 status="stale",
+                                streams=page._take_liveview_stream_operations(),
                             )
                         )
                         continue
@@ -315,11 +324,13 @@ def gateway_type(options: LiveViewOptions, registry: _Registry) -> type[object]:
                             message.get("value"),
                         )
                     except _UnknownComponentError:
+                        page._clear_liveview_stream_operations()
                         await socket.send_json(
                             {"type": "error", "reason": "unknown_target", "ref": ref}
                         )
                         continue
                     except UnknownEventError:
+                        page._clear_liveview_stream_operations()
                         await socket.send_json(
                             {"type": "error", "reason": "unknown_event", "ref": ref}
                         )
@@ -335,6 +346,7 @@ def gateway_type(options: LiveViewOptions, registry: _Registry) -> type[object]:
                             previous=current,
                             ref=ref,
                             status="ok",
+                            streams=page._take_liveview_stream_operations(),
                         )
                     )
                     current = updated

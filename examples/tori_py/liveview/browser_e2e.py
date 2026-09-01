@@ -69,15 +69,58 @@ def test_counter_updates_and_recovers_after_reconnect(
     left_output = page.locator('output[data-component-id="left"]')
     right_output = page.locator('output[data-component-id="right"]')
     increment_left = page.get_by_role("button", name="Increment Left")
+    activity_one = page.locator("#activity-1")
+    activity_one.evaluate("element => { window.__toriActivityOne = element; }")
 
     expect(root).to_have_attribute("data-opal-status", "connected")
     expect(output).to_have_text("2")
     expect(left_output).to_have_text("0")
     expect(right_output).to_have_text("0")
     expect(page).to_have_title("Counter: 2")
+    expect(page.locator("#activity-stream > li span")).to_have_text(
+        ["Activity 1", "Activity 2"]
+    )
 
     increment.click()
     expect(output).to_have_text("3")
+
+    prepend = page.get_by_role("button", name="Prepend activity")
+    prepend.click()
+    prepend.click()
+    expect(page.locator("#activity-stream > li span")).to_have_text(
+        ["Activity 4", "Activity 3", "Activity 1"]
+    )
+    expect(page.locator("#activity-2")).to_have_count(0)
+    assert activity_one.evaluate("element => element === window.__toriActivityOne")
+
+    validation_error = root.evaluate(
+        """root => {
+          try {
+            root.__opalLiveView.applyStreams([
+              {op: "reset", container: "activity-stream"},
+              {
+                op: "insert",
+                container: "activity-stream",
+                id: "declared-id",
+                html: '<li id="different-id">invalid</li>',
+                at: -1,
+              },
+            ]);
+            return null;
+          } catch (error) {
+            return error.message;
+          }
+        }"""
+    )
+    assert validation_error == "stream item id mismatch"
+    expect(page.locator("#activity-stream > li span")).to_have_text(
+        ["Activity 4", "Activity 3", "Activity 1"]
+    )
+
+    page.get_by_role("button", name="Remove Activity 3").click()
+    expect(page.locator("#activity-stream > li span")).to_have_text(
+        ["Activity 4", "Activity 1"]
+    )
     expect(page).to_have_title("Counter: 3")
 
     increment_left.click()
@@ -90,6 +133,9 @@ def test_counter_updates_and_recovers_after_reconnect(
     expect(left_output).to_have_text("0")
     expect(right_output).to_have_text("0")
     expect(root).to_have_attribute("data-opal-status", "connected")
+    expect(page.locator("#activity-stream > li span")).to_have_text(
+        ["Activity 1", "Activity 2"]
+    )
 
     increment.click()
     expect(output).to_have_text("3")

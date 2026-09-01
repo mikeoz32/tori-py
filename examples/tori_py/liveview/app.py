@@ -56,15 +56,36 @@ class CounterComponent(LiveComponent):
 class CounterLive(LiveView):
     def __init__(self) -> None:
         self.count = 0
+        self.next_activity = 3
 
     async def mount(self, context: MountContext) -> None:
         self.count = int(context.query_params.get("start", "0"))
+        self.stream_reset("activity-stream")
+        self.stream_insert("activity-stream", "activity-1", self._activity_item(1))
+        self.stream_insert("activity-stream", "activity-2", self._activity_item(2))
 
     async def handle_event(self, event: str, value: object) -> None:
-        del value
-        if event != "increment":
+        if event == "increment":
+            self.count += 1
+        elif event == "prepend_activity":
+            sequence = self.next_activity
+            self.next_activity += 1
+            self.stream_insert(
+                "activity-stream",
+                f"activity-{sequence}",
+                self._activity_item(sequence),
+                at=0,
+                limit=3,
+            )
+        elif event == "delete_activity":
+            if not isinstance(value, dict) or not isinstance(
+                item_id := value.get("id"),
+                str,
+            ):
+                raise UnknownEventError(event)
+            self.stream_delete("activity-stream", item_id)
+        else:
             raise UnknownEventError(event)
-        self.count += 1
 
     def render(self) -> Rendered:
         left = self.live_component(
@@ -77,21 +98,43 @@ class CounterLive(LiveView):
             "right",
             {"label": "Right"},
         )
+        activities = self.stream_contents("activity-stream")
         return rendered(
             (
                 '<main><h1>ToriPy LiveView</h1><button data-opal-click="increment">'
                 "Increment page</button><output data-page-counter>",
                 '</output><div class="components">',
                 "",
-                "</div></main>",
+                "</div><section><h2>Activity stream</h2><button "
+                'data-opal-click="prepend_activity">Prepend activity</button>'
+                '<ul id="activity-stream" data-opal-stream>',
+                "</ul></section></main>",
             ),
             self.count,
             left,
             right,
+            activities,
         )
 
     def title(self) -> str:
         return f"Counter: {self.count}"
+
+    @staticmethod
+    def _activity_item(sequence: int) -> Rendered:
+        item_id = f"activity-{sequence}"
+        return rendered(
+            (
+                '<li id="',
+                '"><span>Activity ',
+                '</span><button data-opal-click="delete_activity" data-opal-value-id="',
+                '">Remove Activity ',
+                "</button></li>",
+            ),
+            item_id,
+            sequence,
+            item_id,
+            sequence,
+        )
 
 
 liveview_module = LiveViewModule.for_root(

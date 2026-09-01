@@ -23,7 +23,7 @@ one package does not require the same change in every package.
 - Separately installable `tori-py-liveview` integration with explicit
   request-scoped pages, signed mounts, Opal protocol-v2 structural diffs, and a
   checksum-pinned common browser client, now including connection-local stateful
-  components and targeted component events.
+  components, targeted component events, and browser-owned bounded streams.
 
 ### Fixed
 

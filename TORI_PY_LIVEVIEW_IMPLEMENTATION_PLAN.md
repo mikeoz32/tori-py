@@ -30,8 +30,14 @@
 - Exercise isolated component state through server protocol tests and the exact
   pinned browser client.
 
+## LV5: Streams
+
+- Add ordered insert/update/delete/reset operation queues, disconnected stream
+  contents, bounded prepend/append semantics, and one-shot protocol payloads.
+- Exercise retained DOM identity, atomic batch validation, reconnect reset, and
+  operation cleanup through the exact pinned browser client.
+
 ## Deferred
 
-- Implement streams without changing their existing browser message shape.
 - Evaluate nested components, uploads, hooks, and server-initiated messages as
   separate contracts.

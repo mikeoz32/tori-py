@@ -12,11 +12,12 @@ from starlette.datastructures import QueryParams
 
 from tori_py_liveview.component import LiveComponent
 from tori_py_liveview.errors import LiveViewError, UnknownEventError
-from tori_py_liveview.rendering import Rendered
+from tori_py_liveview.rendering import Rendered, SafeHtml, raw
 
 _LOGGER = logging.getLogger(__name__)
 _ComponentT = TypeVar("_ComponentT", bound=LiveComponent)
 _ComponentIdentity = tuple[type[LiveComponent], str]
+_MAX_SAFE_INTEGER = 2**53 - 1
 
 
 class _UnknownComponentError(LiveViewError):
@@ -33,6 +34,31 @@ class MountContext:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "params", MappingProxyType(dict(self.params)))
+
+
+@dataclass(frozen=True, slots=True)
+class _StreamOperation:
+    operation: str
+    container_id: str
+    item_id: str | None = None
+    html: str | None = None
+    at: int | None = None
+    limit: int | None = None
+
+    def payload(self) -> dict[str, object]:
+        result: dict[str, object] = {
+            "op": self.operation,
+            "container": self.container_id,
+        }
+        if self.item_id is not None:
+            result["id"] = self.item_id
+        if self.html is not None:
+            result["html"] = self.html
+        if self.at is not None:
+            result["at"] = self.at
+        if self.limit is not None:
+            result["limit"] = self.limit
+        return result
 
 
 class LiveView(ABC):
@@ -117,8 +143,107 @@ class LiveView(ABC):
         component.update(assigns)
         return component._render_liveview()
 
+    def stream_insert(
+        self,
+        container_id: str,
+        item_id: str,
+        item: Rendered | str,
+        *,
+        at: int = -1,
+        limit: int | None = None,
+    ) -> None:
+        self._validate_stream_id(container_id, "container")
+        self._validate_stream_id(item_id, "item")
+        if type(at) is not int:
+            raise TypeError("LiveView stream insertion index must be an integer")
+        if at < -1:
+            raise ValueError("LiveView stream insertion index must be -1 or greater")
+        if at > _MAX_SAFE_INTEGER:
+            raise ValueError("LiveView stream insertion index must be a safe integer")
+        if limit is not None:
+            if type(limit) is not int:
+                raise TypeError("LiveView stream limit must be an integer or None")
+            if limit == 0:
+                raise ValueError("LiveView stream limit cannot be zero")
+            if abs(limit) > _MAX_SAFE_INTEGER:
+                raise ValueError("LiveView stream limit must be a safe integer")
+
+        if isinstance(item, Rendered):
+            item_html = item.to_html()
+        elif isinstance(item, str):
+            item_html = item
+        else:
+            raise TypeError("LiveView stream item must be Rendered or str")
+
+        self._initialize_liveview_streams()
+        self._liveview_stream_operations.append(
+            _StreamOperation(
+                "insert",
+                container_id,
+                item_id=item_id,
+                html=item_html,
+                at=at,
+                limit=limit,
+            )
+        )
+
+    def stream_delete(self, container_id: str, item_id: str) -> None:
+        self._validate_stream_id(container_id, "container")
+        self._validate_stream_id(item_id, "item")
+        self._initialize_liveview_streams()
+        self._liveview_stream_operations.append(
+            _StreamOperation("delete", container_id, item_id=item_id)
+        )
+
+    def stream_reset(self, container_id: str) -> None:
+        self._validate_stream_id(container_id, "container")
+        self._initialize_liveview_streams()
+        self._liveview_stream_operations.append(_StreamOperation("reset", container_id))
+
+    def stream_contents(self, container_id: str) -> SafeHtml:
+        self._validate_stream_id(container_id, "container")
+        self._initialize_liveview_streams()
+        items: list[tuple[str, str]] = []
+
+        for operation in self._liveview_stream_operations:
+            if operation.container_id != container_id:
+                continue
+            if operation.operation == "reset":
+                items.clear()
+            elif operation.operation == "delete":
+                items = [item for item in items if item[0] != operation.item_id]
+            else:
+                assert operation.item_id is not None
+                assert operation.html is not None
+                existing = next(
+                    (
+                        index
+                        for index, item in enumerate(items)
+                        if item[0] == operation.item_id
+                    ),
+                    None,
+                )
+                if existing is not None:
+                    items[existing] = (operation.item_id, operation.html)
+                else:
+                    assert operation.at is not None
+                    index = (
+                        len(items)
+                        if operation.at == -1 or operation.at >= len(items)
+                        else operation.at
+                    )
+                    items.insert(index, (operation.item_id, operation.html))
+                if operation.limit is not None:
+                    if operation.limit > 0:
+                        del items[operation.limit :]
+                    else:
+                        del items[: max(0, len(items) + operation.limit)]
+
+        return raw("".join(item[1] for item in items))
+
     async def _mount_liveview(self, context: MountContext) -> None:
         self._initialize_liveview_components()
+        self._initialize_liveview_streams()
         self._liveview_connected = context.connected
         await self.mount(context)
 
@@ -168,6 +293,7 @@ class LiveView(ABC):
 
     async def _disconnect_liveview_components(self) -> None:
         self._initialize_liveview_components()
+        self._clear_liveview_stream_operations()
         components = list(self._liveview_components.values())
         self._liveview_components.clear()
         self._liveview_components_by_cid.clear()
@@ -187,6 +313,28 @@ class LiveView(ABC):
         self._liveview_rendered_components: set[_ComponentIdentity] | None = None
         self._liveview_next_component_cid = 0
         self._liveview_connected = False
+
+    def _take_liveview_stream_operations(self) -> list[dict[str, object]]:
+        self._initialize_liveview_streams()
+        operations = self._liveview_stream_operations
+        self._liveview_stream_operations = []
+        return [operation.payload() for operation in operations]
+
+    def _clear_liveview_stream_operations(self) -> None:
+        self._initialize_liveview_streams()
+        self._liveview_stream_operations.clear()
+
+    def _initialize_liveview_streams(self) -> None:
+        if hasattr(self, "_liveview_stream_operations"):
+            return
+        self._liveview_stream_operations: list[_StreamOperation] = []
+
+    @staticmethod
+    def _validate_stream_id(value: object, kind: str) -> None:
+        if not isinstance(value, str):
+            raise TypeError(f"LiveView stream {kind} id must be a string")
+        if not value:
+            raise ValueError(f"LiveView stream {kind} id cannot be empty")
 
     async def _disconnect_liveview_component(self, component: LiveComponent) -> None:
         try:

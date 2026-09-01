@@ -6,10 +6,11 @@ Run the application with:
 uv run tori-py run examples.tori_py.liveview.app:create_application
 ```
 
-Open `http://127.0.0.1:8000/?start=2`. The initial page and two component
-counters are rendered over HTTP. Subsequent increments travel over
-`/_tori/live`; page events update the page counter, while targeted component
-events preserve isolated left/right state.
+Open `http://127.0.0.1:8000/?start=2`. The initial page, two component counters,
+and activity stream are rendered over HTTP. Subsequent events travel over
+`/_tori/live`; page events update the page counter, targeted component events
+preserve isolated left/right state, and bounded stream operations prepend or
+delete activity items without rerendering retained children.
 
 The hard-coded secret is for this local example only. Production deployments
 must supply a strong shared secret from configuration.
@@ -25,7 +26,8 @@ uv run pytest examples/tori_py/liveview/browser_e2e.py
 
 The test exercises the real vendored Opal client against a local ASGI server.
 It verifies HTTP rendering, page and targeted component events, component state
-isolation, structural DOM updates, title changes, reconnect state, and browser
-console errors. The file is named outside normal pytest discovery so browser
-installation remains an explicit local gate rather than an implicit CI
+isolation, bounded stream insertion/deletion, retained DOM identity, atomic
+stream validation, structural DOM updates, title changes, reconnect state, and
+browser console errors. The file is named outside normal pytest discovery so
+browser installation remains an explicit local gate rather than an implicit CI
 requirement.

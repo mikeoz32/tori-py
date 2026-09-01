@@ -322,8 +322,8 @@ Principal public API:
 
 The package implements Opal protocol-v2 page snapshots, structural diffs,
 stateful components, targeted events, stale resynchronization, heartbeats, title
-updates, and reconnect joins. Nested components, streams, uploads, and
-`send_info` are not part of the current server surface.
+updates, browser-owned streams, and reconnect joins. Nested components, uploads,
+and `send_info` are not part of the current server surface.
 
 ## Reading generated reference
 

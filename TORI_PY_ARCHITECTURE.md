@@ -1131,8 +1131,9 @@ normal owning scopes. ToriPy core contains no LiveView metadata or protocol code
 The package implements Opal protocol version 2 and serves the unchanged pinned
 Opal JavaScript client. It preserves `data-opal-*`, `opal:*`, structural render
 fingerprints, event refs, versions, stale resynchronization, heartbeats, and
-connection-local stateful components. Nested components, streams, uploads, and
-server-initiated messages remain outside the current package contract.
+connection-local stateful components plus browser-owned stream operations.
+Nested components, uploads, and server-initiated messages remain outside the
+current package contract.
 
 The architecture and implementation order are maintained in
 [`TORI_PY_LIVEVIEW_ARCHITECTURE.md`](TORI_PY_LIVEVIEW_ARCHITECTURE.md),
