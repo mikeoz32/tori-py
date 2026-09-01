@@ -1,0 +1,5 @@
+# Pinned browser adapter downloaded by Dockerfile from the official release.
+version=26.2.4
+url=https://github.com/keycloak/keycloak-js/releases/download/26.2.4/keycloak-js-26.2.4.tgz
+sha256=1e52998fd8f44dc15293df6af88f0bae57248e503617930067cb802ebe9665c9
+archive_path=package/lib/keycloak.js

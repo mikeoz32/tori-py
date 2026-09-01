@@ -1,0 +1,128 @@
+name: tori-space-demo
+
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres-demo-only
+      POSTGRES_DB: postgres
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./postgres-init/01-databases.sql:/docker-entrypoint-initdb.d/01-databases.sql:ro
+    ports: ["127.0.0.1:5432:5432"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  rabbitmq:
+    image: rabbitmq:4-management
+    environment:
+      RABBITMQ_DEFAULT_USER: rabbitmq_demo
+      RABBITMQ_DEFAULT_PASS: rabbitmq-demo-only
+    ports: ["127.0.0.1:5672:5672", "127.0.0.1:15672:15672"]
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.7.3
+    command: start-dev --import-realm
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: keycloak-admin-demo-only
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak
+      KC_DB_USERNAME: keycloak_demo
+      KC_DB_PASSWORD: keycloak-demo-only
+      KC_HEALTH_ENABLED: "true"
+    volumes:
+      - ./keycloak/tori-space-realm.json:/opt/keycloak/data/import/tori-space-realm.json:ro
+    ports: ["127.0.0.1:8080:8080"]
+    mem_limit: 768m
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c \"exec 3<>/dev/tcp/127.0.0.1/9000; printf 'GET /health/ready HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3; grep -q '200' <&3\""]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+
+  migrate-spaces:
+    build: { context: ../../../.., dockerfile: examples/tori_py/reference_apps/workplace/Dockerfile }
+    command: uv run --no-sync python -m examples.tori_py.reference_apps.workplace.spaces.migrate
+    environment: &app-environment
+      WORKPLACE_SPACES_DATABASE_URL: postgresql+psycopg://spaces_demo:spaces-demo-only@postgres:5432/spaces
+      WORKPLACE_BOOKINGS_DATABASE_URL: postgresql+psycopg://bookings_demo:bookings-demo-only@postgres:5432/bookings
+      WORKPLACE_NOTIFICATIONS_DATABASE_URL: postgresql+psycopg://notifications_demo:notifications-demo-only@postgres:5432/notifications
+      RABBITMQ_URL: amqp://rabbitmq_demo:rabbitmq-demo-only@rabbitmq:5672/
+      KEYCLOAK_ISSUER: http://localhost:8080/realms/tori-space
+      KEYCLOAK_JWKS_URL: http://keycloak:8080/realms/tori-space/protocol/openid-connect/certs
+      KEYCLOAK_AUDIENCE: tori-space-api
+    depends_on:
+      postgres: { condition: service_healthy }
+    restart: "no"
+
+  migrate-bookings:
+    build: { context: ../../../.., dockerfile: examples/tori_py/reference_apps/workplace/Dockerfile }
+    command: uv run --no-sync python -m examples.tori_py.reference_apps.workplace.bookings.migrate
+    environment: *app-environment
+    depends_on:
+      postgres: { condition: service_healthy }
+    restart: "no"
+
+  migrate-notifications:
+    build: { context: ../../../.., dockerfile: examples/tori_py/reference_apps/workplace/Dockerfile }
+    command: uv run --no-sync python -m examples.tori_py.reference_apps.workplace.notifications.migrate
+    environment: *app-environment
+    depends_on:
+      postgres: { condition: service_healthy }
+    restart: "no"
+
+  spaces:
+    build: { context: ../../../.., dockerfile: examples/tori_py/reference_apps/workplace/Dockerfile }
+    command: uv run --no-sync python -m examples.tori_py.reference_apps.workplace.spaces.app
+    environment: *app-environment
+    depends_on:
+      migrate-spaces: { condition: service_completed_successfully }
+      rabbitmq: { condition: service_healthy }
+
+  bookings:
+    build: { context: ../../../.., dockerfile: examples/tori_py/reference_apps/workplace/Dockerfile }
+    command: uv run --no-sync python -m examples.tori_py.reference_apps.workplace.bookings.app
+    environment: *app-environment
+    depends_on:
+      migrate-bookings: { condition: service_completed_successfully }
+      rabbitmq: { condition: service_healthy }
+
+  notifications:
+    build: { context: ../../../.., dockerfile: examples/tori_py/reference_apps/workplace/Dockerfile }
+    command: uv run --no-sync python -m examples.tori_py.reference_apps.workplace.notifications.app
+    environment: *app-environment
+    depends_on:
+      migrate-notifications: { condition: service_completed_successfully }
+      rabbitmq: { condition: service_healthy }
+
+  api-gateway:
+    build: { context: ../../../.., dockerfile: examples/tori_py/reference_apps/workplace/Dockerfile }
+    command: uv run --no-sync uvicorn examples.tori_py.reference_apps.workplace.gateway.__main__:application --host 0.0.0.0 --port 8000
+    environment: *app-environment
+    ports: ["127.0.0.1:8010:8000"]
+    depends_on:
+      keycloak: { condition: service_healthy }
+      spaces: { condition: service_started }
+      bookings: { condition: service_started }
+      notifications: { condition: service_started }
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/ready', timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  postgres-data:

@@ -46,6 +46,7 @@ dev = [
     "ty>=0.0.59",
     "uvicorn>=0.41,<1",
     "psycopg>=3.2,<4 ; sys_platform == 'linux'",
+    "pyjwt[crypto]>=2.13,<3",
 ]
 docs = [
     "mkdocs>=1.6.1,<2",
