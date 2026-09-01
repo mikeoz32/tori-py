@@ -1,9 +1,10 @@
 # Build a Task API: Part 1
 
 This tutorial builds a complete ToriPy HTTP application from an empty directory.
-It is Part 1 of a three-part series that evolves one Task API from an ordinary
-layered application, through CQRS, into a distributed system without changing
-the shared HTTP contract.
+It is Part 1 of a four-part series that evolves one Task API from an ordinary
+layered application through CQRS and distribution to event-sourced writes and
+projection-owned reads. Parts 1-3 preserve one HTTP contract; Part 4 keeps its
+paths and `Task` shape while deliberately introducing eventual read semantics.
 
 Every Python file shown here is complete. The page includes those files from the
 tested source under `examples/tori_py/tutorials/task_api/task_app`, so the
