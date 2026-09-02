@@ -6,11 +6,14 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, time, timedelta
 from hashlib import sha256
 from typing import Annotated, Literal, cast
 from uuid import uuid4
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import (
     DateTime,
@@ -24,6 +27,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from sqlalchemy.types import TypeDecorator
 from tori_py import NestApplication, controller, injectable, module
 from tori_py_cqrs import CqrsModule, command_handler, query_handler
 from tori_py_cqrs_core import Command, CommandBus, Query, QueryBus
@@ -44,17 +48,21 @@ from ..common.contracts import (
     Booking,
     BookingCreated,
     BookingLifecycleEvent,
+    BookingRescheduled,
     CancelBooking,
     CheckInBooking,
     CleanupOutbox,
     CreateBooking,
+    CreateRecurringBooking,
     FacilityDashboard,
     GetBooking,
     Health,
     ListAudit,
     ListBookings,
+    OfficePolicy,
     OutboxDiagnostics,
     Principal,
+    RescheduleBooking,
 )
 from ..common.contracts import (
     AvailabilityQuery as AvailabilityPayload,
@@ -72,6 +80,19 @@ class Base(DeclarativeBase):
     """Bookings-owned metadata (portable to SQLite)."""
 
 
+class UtcDateTime(TypeDecorator[datetime]):
+    """Restore UTC tzinfo when SQLite returns naive timestamp values."""
+
+    impl = DateTime(timezone=True)
+    cache_ok = True
+
+    def process_result_value(
+        self, value: datetime | None, dialect: object
+    ) -> datetime | None:
+        del dialect
+        return None if value is None else _as_utc(value)
+
+
 class BookingRow(Base):
     __tablename__ = "bookings"
     __table_args__ = (UniqueConstraint("tenant_id", "idempotency_key"),)
@@ -80,11 +101,53 @@ class BookingRow(Base):
     tenant_id: Mapped[str] = mapped_column(String(128), index=True)
     actor_id: Mapped[str] = mapped_column(String(128))
     resource_id: Mapped[str] = mapped_column(String(128), index=True)
-    starts_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
-    ends_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    starts_at: Mapped[datetime] = mapped_column(UtcDateTime())
+    ends_at: Mapped[datetime] = mapped_column(UtcDateTime())
     status: Mapped[str] = mapped_column(String(16), default="booked")
     idempotency_key: Mapped[str] = mapped_column(String(128))
     request_fingerprint: Mapped[str] = mapped_column(String(64))
+    series_id: Mapped[str | None] = mapped_column(String(36), index=True)
+    occurrence_index: Mapped[int | None] = mapped_column(Integer)
+
+
+class BookingOperationRow(Base):
+    """Durable idempotency record for mutations of an existing booking."""
+
+    __tablename__ = "booking_operations"
+    __table_args__ = (UniqueConstraint("tenant_id", "idempotency_key"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(128), index=True)
+    booking_id: Mapped[str] = mapped_column(String(36), index=True)
+    idempotency_key: Mapped[str] = mapped_column(String(128))
+    request_fingerprint: Mapped[str] = mapped_column(String(64))
+    result_starts_at: Mapped[datetime] = mapped_column(UtcDateTime())
+    result_ends_at: Mapped[datetime] = mapped_column(UtcDateTime())
+
+
+class BookingSeriesRow(Base):
+    """Idempotency and ownership record for a materialized booking series."""
+
+    __tablename__ = "booking_series"
+    __table_args__ = (UniqueConstraint("tenant_id", "idempotency_key"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(128), index=True)
+    idempotency_key: Mapped[str] = mapped_column(String(128))
+    request_fingerprint: Mapped[str] = mapped_column(String(64))
+
+
+class BookingCancellationOperationRow(Base):
+    """Durable result of one scoped cancellation request."""
+
+    __tablename__ = "booking_cancellation_operations"
+    __table_args__ = (UniqueConstraint("tenant_id", "idempotency_key"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(128), index=True)
+    idempotency_key: Mapped[str] = mapped_column(String(128))
+    request_fingerprint: Mapped[str] = mapped_column(String(64))
+    result_booking_ids_json: Mapped[str] = mapped_column(Text)
 
 
 class OutboxRow(Base):
@@ -129,21 +192,67 @@ class BookingRepository(Repository[BookingRow]):
         )
 
     async def overlapping(
-        self, tenant_id: str, resource_id: str, starts_at: datetime, ends_at: datetime
+        self,
+        tenant_id: str,
+        resource_id: str,
+        starts_at: datetime,
+        ends_at: datetime,
+        *,
+        exclude_booking_id: str | None = None,
     ) -> BookingRow | None:
-        return await self.find_one(
+        filters = [
             BookingRow.tenant_id == tenant_id,
             BookingRow.resource_id == resource_id,
             BookingRow.status.in_(("booked", "checked_in")),
             BookingRow.starts_at < ends_at,
             BookingRow.ends_at > starts_at,
-        )
+        ]
+        if exclude_booking_id is not None:
+            filters.append(BookingRow.id != exclude_booking_id)
+        return await self.find_one(*filters)
 
     async def tenant_booking(
-        self, tenant_id: str, booking_id: str
+        self, tenant_id: str, booking_id: str, *, for_update: bool = False
     ) -> BookingRow | None:
         return await self.find_one(
-            BookingRow.tenant_id == tenant_id, BookingRow.id == booking_id
+            BookingRow.tenant_id == tenant_id,
+            BookingRow.id == booking_id,
+            with_for_update=for_update,
+        )
+
+
+@repository(BookingOperationRow)
+class BookingOperationRepository(Repository[BookingOperationRow]):
+    async def by_idempotency_key(
+        self, tenant_id: str, key: str
+    ) -> BookingOperationRow | None:
+        return await self.find_one(
+            BookingOperationRow.tenant_id == tenant_id,
+            BookingOperationRow.idempotency_key == key,
+        )
+
+
+@repository(BookingSeriesRow)
+class BookingSeriesRepository(Repository[BookingSeriesRow]):
+    async def by_idempotency_key(
+        self, tenant_id: str, key: str
+    ) -> BookingSeriesRow | None:
+        return await self.find_one(
+            BookingSeriesRow.tenant_id == tenant_id,
+            BookingSeriesRow.idempotency_key == key,
+        )
+
+
+@repository(BookingCancellationOperationRow)
+class BookingCancellationOperationRepository(
+    Repository[BookingCancellationOperationRow]
+):
+    async def by_idempotency_key(
+        self, tenant_id: str, key: str
+    ) -> BookingCancellationOperationRow | None:
+        return await self.find_one(
+            BookingCancellationOperationRow.tenant_id == tenant_id,
+            BookingCancellationOperationRow.idempotency_key == key,
         )
 
 
@@ -216,6 +325,35 @@ class CreateBookingCommand(Command[Booking]):
     starts_at: datetime
     ends_at: datetime
     idempotency_key: str
+    resource_active: bool = True
+    office_policy: OfficePolicy | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class RescheduleBookingCommand(Command[Booking]):
+    tenant_id: str
+    actor_id: str
+    roles: tuple[str, ...]
+    booking_id: str
+    starts_at: datetime
+    ends_at: datetime
+    idempotency_key: str
+    resource_active: bool = True
+    office_policy: OfficePolicy | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class CreateRecurringBookingCommand(Command[list[Booking]]):
+    tenant_id: str
+    actor_id: str
+    resource_id: str
+    starts_at: datetime
+    ends_at: datetime
+    recurrence: str
+    occurrence_count: int
+    idempotency_key: str
+    resource_active: bool = True
+    office_policy: OfficePolicy | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -260,6 +398,16 @@ class SetBookingStatusCommand(Command[Booking]):
     status: str
 
 
+@dataclass(frozen=True, slots=True)
+class CancelBookingCommand(Command[list[Booking]]):
+    tenant_id: str
+    actor_id: str
+    roles: tuple[str, ...]
+    booking_id: str
+    scope: str
+    idempotency_key: str
+
+
 @command_handler(CreateBookingCommand)
 class CreateBookingHandler:
     def __init__(
@@ -286,6 +434,11 @@ class CreateBookingHandler:
                 )
                 if existing is not None:
                     return _idempotent_booking(existing, fingerprint)
+                if not command.resource_active:
+                    raise BookingConflict("resource is inactive")
+                _validate_office_period(
+                    command.starts_at, command.ends_at, command.office_policy
+                )
                 if await self._bookings.overlapping(
                     command.tenant_id,
                     command.resource_id,
@@ -349,6 +502,193 @@ class CreateBookingHandler:
                 if existing is None:
                     raise
                 return _idempotent_booking(existing, fingerprint)
+
+
+@command_handler(RescheduleBookingCommand)
+class RescheduleBookingHandler:
+    def __init__(
+        self,
+        entities: EntityManager,
+        bookings: BookingRepository,
+        operations: BookingOperationRepository,
+        outbox: OutboxRepository,
+        audit: AuditRepository,
+    ) -> None:
+        self._entities = entities
+        self._bookings = bookings
+        self._operations = operations
+        self._outbox = outbox
+        self._audit = audit
+
+    async def handle(self, command: RescheduleBookingCommand) -> Booking:
+        _validate(command)
+        fingerprint = _reschedule_fingerprint(command)
+        async with _booking_transaction(self._entities):
+            operation = await self._operations.by_idempotency_key(
+                command.tenant_id, command.idempotency_key
+            )
+            if operation is not None:
+                if operation.request_fingerprint != fingerprint:
+                    raise IdempotencyConflict(
+                        "idempotency key belongs to a different request"
+                    )
+                row = await self._bookings.tenant_booking(
+                    command.tenant_id, operation.booking_id
+                )
+                if row is None:
+                    raise LookupError("booking was not found")
+                return _booking_at(
+                    row, operation.result_starts_at, operation.result_ends_at
+                )
+
+            row = await self._bookings.tenant_booking(
+                command.tenant_id, command.booking_id, for_update=True
+            )
+            if row is None:
+                raise LookupError("booking was not found")
+            if (
+                row.actor_id != command.actor_id
+                and "facilities-admin" not in command.roles
+            ):
+                raise PermissionError("booking belongs to another employee")
+            if row.status != "booked":
+                raise BookingStatusTransitionError(
+                    "only booked bookings can be rescheduled"
+                )
+            if not command.resource_active:
+                raise BookingConflict("resource is inactive")
+            _validate_office_period(
+                command.starts_at, command.ends_at, command.office_policy
+            )
+            if await self._bookings.overlapping(
+                command.tenant_id,
+                row.resource_id,
+                command.starts_at,
+                command.ends_at,
+                exclude_booking_id=row.id,
+            ):
+                raise BookingConflict("resource is already booked for this period")
+
+            row.starts_at, row.ends_at = command.starts_at, command.ends_at
+            booking = _booking(row)
+            await self._operations.add(
+                BookingOperationRow(
+                    id=str(uuid4()),
+                    tenant_id=command.tenant_id,
+                    booking_id=row.id,
+                    idempotency_key=command.idempotency_key,
+                    request_fingerprint=fingerprint,
+                    result_starts_at=booking.starts_at,
+                    result_ends_at=booking.ends_at,
+                )
+            )
+            await _write_rescheduled(
+                self._outbox, self._audit, booking, command.actor_id
+            )
+            await self._entities.flush()
+            return booking
+
+
+@command_handler(CreateRecurringBookingCommand)
+class CreateRecurringBookingHandler:
+    def __init__(
+        self,
+        entities: EntityManager,
+        bookings: BookingRepository,
+        series: BookingSeriesRepository,
+        outbox: OutboxRepository,
+        audit: AuditRepository,
+    ) -> None:
+        self._entities = entities
+        self._bookings = bookings
+        self._series = series
+        self._outbox = outbox
+        self._audit = audit
+
+    async def handle(self, command: CreateRecurringBookingCommand) -> list[Booking]:
+        _validate(command)
+        if command.recurrence not in ("daily", "weekly"):
+            raise ValueError("recurrence must be daily or weekly")
+        if not 2 <= command.occurrence_count <= 52:
+            raise ValueError("occurrence count must be between 2 and 52")
+        fingerprint = _recurring_fingerprint(command)
+        try:
+            return await self._materialize(command, fingerprint)
+        except IntegrityError as error:
+            if not _is_series_idempotency_violation(error):
+                raise
+            async with self._entities.transaction():
+                existing = await self._series.by_idempotency_key(
+                    command.tenant_id, command.idempotency_key
+                )
+                if existing is None:
+                    raise
+                return await self._replay(existing, fingerprint)
+
+    async def _materialize(
+        self, command: CreateRecurringBookingCommand, fingerprint: str
+    ) -> list[Booking]:
+        async with _booking_transaction(self._entities):
+            existing = await self._series.by_idempotency_key(
+                command.tenant_id, command.idempotency_key
+            )
+            if existing is not None:
+                return await self._replay(existing, fingerprint)
+            if not command.resource_active:
+                raise BookingConflict("resource is inactive")
+
+            periods = _recurring_periods(command)
+            for starts_at, ends_at in periods:
+                _validate_office_period(starts_at, ends_at, command.office_policy)
+            for starts_at, ends_at in periods:
+                if await self._bookings.overlapping(
+                    command.tenant_id, command.resource_id, starts_at, ends_at
+                ):
+                    raise BookingConflict("resource is already booked for this period")
+
+            series = await self._series.add(
+                BookingSeriesRow(
+                    id=str(uuid4()),
+                    tenant_id=command.tenant_id,
+                    idempotency_key=command.idempotency_key,
+                    request_fingerprint=fingerprint,
+                )
+            )
+            occurrences: list[Booking] = []
+            for index, (starts_at, ends_at) in enumerate(periods):
+                row = await self._bookings.add(
+                    BookingRow(
+                        id=str(uuid4()),
+                        tenant_id=command.tenant_id,
+                        actor_id=command.actor_id,
+                        resource_id=command.resource_id,
+                        starts_at=starts_at,
+                        ends_at=ends_at,
+                        status="booked",
+                        idempotency_key=f"{series.id}:{index}",
+                        request_fingerprint=fingerprint,
+                        series_id=series.id,
+                        occurrence_index=index,
+                    )
+                )
+                booking = _booking(row)
+                await _write_created(
+                    self._outbox, self._audit, booking, command.actor_id
+                )
+                occurrences.append(booking)
+            return occurrences
+
+    async def _replay(
+        self, series: BookingSeriesRow, fingerprint: str
+    ) -> list[Booking]:
+        if series.request_fingerprint != fingerprint:
+            raise IdempotencyConflict("idempotency key belongs to a different request")
+        rows = await self._bookings.find(
+            BookingRow.tenant_id == series.tenant_id,
+            BookingRow.series_id == series.id,
+            order_by=(BookingRow.occurrence_index,),
+        )
+        return [_booking(row) for row in rows]
 
 
 @query_handler(GetBookingQuery)
@@ -460,7 +800,7 @@ class SetBookingStatusHandler:
     async def handle(self, command: SetBookingStatusCommand) -> Booking:
         async with self._entities.transaction():
             row = await self._bookings.tenant_booking(
-                command.tenant_id, command.booking_id
+                command.tenant_id, command.booking_id, for_update=True
             )
             if row is None:
                 raise LookupError("booking was not found")
@@ -483,6 +823,137 @@ class SetBookingStatusHandler:
             )
             await self._entities.flush()
             return booking
+
+
+@command_handler(CancelBookingCommand)
+class CancelBookingHandler:
+    def __init__(
+        self,
+        entities: EntityManager,
+        bookings: BookingRepository,
+        operations: BookingCancellationOperationRepository,
+        outbox: OutboxRepository,
+        audit: AuditRepository,
+    ) -> None:
+        self._entities = entities
+        self._bookings = bookings
+        self._operations = operations
+        self._outbox = outbox
+        self._audit = audit
+
+    async def handle(self, command: CancelBookingCommand) -> list[Booking]:
+        if command.scope not in ("one", "this-and-following", "entire-series"):
+            raise ValueError("cancellation scope is invalid")
+        fingerprint = _cancellation_fingerprint(command)
+        try:
+            return await self._cancel(command, fingerprint)
+        except IntegrityError as error:
+            if not _is_cancellation_idempotency_violation(error):
+                raise
+            async with self._entities.transaction():
+                operation = await self._operations.by_idempotency_key(
+                    command.tenant_id, command.idempotency_key
+                )
+                if operation is None:
+                    raise
+                return await self._replay(operation, fingerprint)
+
+    async def _cancel(
+        self, command: CancelBookingCommand, fingerprint: str
+    ) -> list[Booking]:
+        async with self._entities.transaction():
+            operation = await self._operations.by_idempotency_key(
+                command.tenant_id, command.idempotency_key
+            )
+            if operation is not None:
+                return await self._replay(operation, fingerprint)
+
+            target = await self._bookings.tenant_booking(
+                command.tenant_id,
+                command.booking_id,
+                for_update=command.scope == "one",
+            )
+            if target is None:
+                raise LookupError("booking was not found")
+            if (
+                target.actor_id != command.actor_id
+                and "facilities-admin" not in command.roles
+            ):
+                raise PermissionError("booking belongs to another employee")
+            if command.scope != "one" and target.series_id is None:
+                raise ValueError("series cancellation requires a recurring booking")
+
+            rows = await self._rows_for_scope(command, target)
+            result: list[Booking] = []
+            for row in rows:
+                if (
+                    row.actor_id != command.actor_id
+                    and "facilities-admin" not in command.roles
+                ):
+                    raise PermissionError("booking belongs to another employee")
+                if row.status == "cancelled":
+                    result.append(_booking(row))
+                    continue
+                if "cancelled" not in _LEGAL_TRANSITIONS.get(row.status, ()):
+                    continue
+                before = row.status
+                row.status = "cancelled"
+                booking = _booking(row)
+                await _write_lifecycle(
+                    self._outbox, self._audit, booking, command.actor_id, before
+                )
+                result.append(booking)
+
+            await self._operations.add(
+                BookingCancellationOperationRow(
+                    id=str(uuid4()),
+                    tenant_id=command.tenant_id,
+                    idempotency_key=command.idempotency_key,
+                    request_fingerprint=fingerprint,
+                    result_booking_ids_json=json.dumps(
+                        [booking.id for booking in result], separators=(",", ":")
+                    ),
+                )
+            )
+            await self._entities.flush()
+            return result
+
+    async def _rows_for_scope(
+        self, command: CancelBookingCommand, target: BookingRow
+    ) -> list[BookingRow]:
+        if command.scope == "one":
+            return [target]
+        if target.occurrence_index is None:
+            raise ValueError("series occurrence metadata is invalid")
+        filters = [
+            BookingRow.tenant_id == command.tenant_id,
+            BookingRow.series_id == target.series_id,
+        ]
+        if command.scope == "this-and-following":
+            filters.append(BookingRow.occurrence_index >= target.occurrence_index)
+        rows = (
+            await self._entities.scalars(
+                select(BookingRow)
+                .where(*filters)
+                .order_by(BookingRow.occurrence_index)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+        ).all()
+        return list(rows)
+
+    async def _replay(
+        self, operation: BookingCancellationOperationRow, fingerprint: str
+    ) -> list[Booking]:
+        if operation.request_fingerprint != fingerprint:
+            raise IdempotencyConflict("idempotency key belongs to a different request")
+        result: list[Booking] = []
+        for booking_id in json.loads(operation.result_booking_ids_json):
+            row = await self._bookings.tenant_booking(operation.tenant_id, booking_id)
+            if row is None:
+                raise LookupError("booking was not found")
+            result.append(_booking(row))
+        return result
 
 
 @injectable()
@@ -598,6 +1069,71 @@ async def _write_lifecycle(
         )
     )
     await audit.add(_audit_row(booking, actor_id, event_name, previous, booking.status))
+
+
+async def _write_created(
+    outbox: OutboxRepository,
+    audit: AuditRepository,
+    booking: Booking,
+    actor_id: str,
+) -> None:
+    event = BookingCreated(
+        booking.tenant_id, booking.id, booking.actor_id, booking.resource_id
+    )
+    await outbox.add(
+        OutboxRow(
+            event_id=str(uuid4()),
+            event_name="booking-created",
+            tenant_id=booking.tenant_id,
+            payload=json.dumps(
+                {
+                    "tenant_id": event.tenant_id,
+                    "booking_id": event.booking_id,
+                    "actor_id": event.actor_id,
+                    "resource_id": event.resource_id,
+                },
+                separators=(",", ":"),
+            ),
+        )
+    )
+    await audit.add(_audit_row(booking, actor_id, "booking-created", None, "booked"))
+
+
+async def _write_rescheduled(
+    outbox: OutboxRepository,
+    audit: AuditRepository,
+    booking: Booking,
+    actor_id: str,
+) -> None:
+    event = BookingRescheduled(
+        booking.tenant_id,
+        booking.id,
+        booking.actor_id,
+        booking.resource_id,
+        booking.starts_at,
+        booking.ends_at,
+    )
+    await outbox.add(
+        OutboxRow(
+            event_id=str(uuid4()),
+            event_name="booking-rescheduled",
+            tenant_id=booking.tenant_id,
+            payload=json.dumps(
+                {
+                    "tenant_id": event.tenant_id,
+                    "booking_id": event.booking_id,
+                    "actor_id": event.actor_id,
+                    "resource_id": event.resource_id,
+                    "starts_at": event.starts_at.isoformat(),
+                    "ends_at": event.ends_at.isoformat(),
+                },
+                separators=(",", ":"),
+            ),
+        )
+    )
+    await audit.add(
+        _audit_row(booking, actor_id, "booking-rescheduled", "booked", "booked")
+    )
 
 
 def _audit_row(
@@ -730,7 +1266,16 @@ class BookingsController:
     ) -> Booking:
         _require_workplace_role(payload.principal)
         try:
-            await self._spaces.get_resource(payload.principal, payload.resource_id)
+            resource = await self._spaces.get_resource(
+                payload.principal, payload.resource_id
+            )
+            policy = (
+                await self._spaces.get_office_policy(
+                    payload.principal, resource.office_id
+                )
+                if resource.active
+                else None
+            )
             return await self._commands.execute(
                 CreateBookingCommand(
                     payload.principal.tenant_id,
@@ -739,8 +1284,86 @@ class BookingsController:
                     payload.starts_at,
                     payload.ends_at,
                     payload.idempotency_key,
+                    resource.active,
+                    policy,
                 )
             )
+        except (ValueError, IdempotencyConflict, BookingConflict) as error:
+            raise PublicRpcError(
+                "conflict" if not isinstance(error, ValueError) else "invalid_request",
+                str(error),
+            ) from error
+
+    @rpc(BookingsService.create_recurring_booking)
+    async def create_recurring_booking(
+        self, payload: Annotated[CreateRecurringBooking, Payload()]
+    ) -> list[Booking]:
+        _require_workplace_role(payload.principal)
+        try:
+            resource = await self._spaces.get_resource(
+                payload.principal, payload.resource_id
+            )
+            policy = (
+                await self._spaces.get_office_policy(
+                    payload.principal, resource.office_id
+                )
+                if resource.active
+                else None
+            )
+            return await self._commands.execute(
+                CreateRecurringBookingCommand(
+                    payload.principal.tenant_id,
+                    payload.principal.actor_id,
+                    payload.resource_id,
+                    payload.starts_at,
+                    payload.ends_at,
+                    payload.recurrence,
+                    payload.occurrence_count,
+                    payload.idempotency_key,
+                    resource.active,
+                    policy,
+                )
+            )
+        except (ValueError, IdempotencyConflict, BookingConflict) as error:
+            raise PublicRpcError(
+                "conflict" if not isinstance(error, ValueError) else "invalid_request",
+                str(error),
+            ) from error
+
+    @rpc(BookingsService.reschedule_booking)
+    async def reschedule_booking(
+        self, payload: Annotated[RescheduleBooking, Payload()]
+    ) -> Booking:
+        _require_workplace_role(payload.principal)
+        try:
+            booking = await self._get(GetBooking(payload.principal, payload.booking_id))
+            resource = await self._spaces.get_resource(
+                payload.principal, booking.resource_id
+            )
+            policy = (
+                await self._spaces.get_office_policy(
+                    payload.principal, resource.office_id
+                )
+                if resource.active
+                else None
+            )
+            return await self._commands.execute(
+                RescheduleBookingCommand(
+                    payload.principal.tenant_id,
+                    payload.principal.actor_id,
+                    payload.principal.roles,
+                    payload.booking_id,
+                    payload.starts_at,
+                    payload.ends_at,
+                    payload.idempotency_key,
+                    resource.active,
+                    policy,
+                )
+            )
+        except LookupError as error:
+            raise PublicRpcError("not_found", "Booking was not found.") from error
+        except PermissionError as error:
+            raise PublicRpcError("forbidden", str(error)) from error
         except (ValueError, IdempotencyConflict, BookingConflict) as error:
             raise PublicRpcError(
                 "conflict" if not isinstance(error, ValueError) else "invalid_request",
@@ -792,12 +1415,50 @@ class BookingsController:
             _validate_utc_interval(payload.starts_at, payload.ends_at)
         except ValueError as error:
             raise PublicRpcError("invalid_request", str(error)) from error
-        resources = (
-            [await self._spaces.get_resource(payload.principal, payload.resource_id)]
-            if payload.resource_id
-            else await self._spaces.list_resources(payload.principal)
-        )
-        return await self._queries.execute(
+        if payload.resource_id:
+            resource = await self._spaces.get_resource(
+                payload.principal, payload.resource_id
+            )
+            if not resource.active:
+                return [Availability(resource.id, False, ())]
+            resources = [resource]
+        elif payload.resource_ids:
+            if len(payload.resource_ids) > 100:
+                raise PublicRpcError(
+                    "invalid_request", "Resource batch exceeds the supported size."
+                )
+            resources = await self._spaces.get_resources(
+                payload.principal, payload.resource_ids
+            )
+        else:
+            resources = []
+            page_size = 100
+            offset = 0
+            while True:
+                page = await self._spaces.list_resources(
+                    payload.principal, offset=offset, limit=page_size
+                )
+                resources.extend(page)
+                if len(page) < page_size:
+                    break
+                offset += page_size
+        policies: dict[str, OfficePolicy] = {}
+        closed_resource_ids: set[str] = set()
+        for resource in resources:
+            if not resource.active:
+                closed_resource_ids.add(resource.id)
+                continue
+            policy = policies.get(resource.office_id)
+            if policy is None:
+                policy = await self._spaces.get_office_policy(
+                    payload.principal, resource.office_id
+                )
+                policies[resource.office_id] = policy
+            try:
+                _validate_office_period(payload.starts_at, payload.ends_at, policy)
+            except ValueError:
+                closed_resource_ids.add(resource.id)
+        availability = await self._queries.execute(
             AvailabilityQuery(
                 payload.principal.tenant_id,
                 payload.starts_at,
@@ -805,6 +1466,12 @@ class BookingsController:
                 tuple(resource.id for resource in resources),
             )
         )
+        return [
+            Availability(item.resource_id, False, ())
+            if item.resource_id in closed_resource_ids
+            else item
+            for item in availability
+        ]
 
     @rpc(BookingsService.facilities_dashboard)
     async def facilities_dashboard(
@@ -893,8 +1560,28 @@ class BookingsController:
     @rpc(BookingsService.cancel_booking)
     async def cancel_booking(
         self, payload: Annotated[CancelBooking, Payload()]
-    ) -> Booking:
-        return await self._set(payload, "cancelled")
+    ) -> list[Booking]:
+        _require_workplace_role(payload.principal)
+        try:
+            return await self._commands.execute(
+                CancelBookingCommand(
+                    payload.principal.tenant_id,
+                    payload.principal.actor_id,
+                    payload.principal.roles,
+                    payload.booking_id,
+                    payload.scope,
+                    payload.idempotency_key,
+                )
+            )
+        except LookupError as error:
+            raise PublicRpcError("not_found", "Booking was not found.") from error
+        except PermissionError as error:
+            raise PublicRpcError("forbidden", str(error)) from error
+        except (ValueError, IdempotencyConflict, BookingConflict) as error:
+            raise PublicRpcError(
+                "conflict" if not isinstance(error, ValueError) else "invalid_request",
+                str(error),
+            ) from error
 
     @rpc(BookingsService.check_in_booking)
     async def check_in_booking(
@@ -911,7 +1598,14 @@ class BookingsController:
 
 bookings_sql = sql_module("bookings")
 bookings_feature = SqlAlchemyModule.for_feature(
-    [BookingRepository, OutboxRepository, AuditRepository]
+    [
+        BookingRepository,
+        BookingOperationRepository,
+        BookingSeriesRepository,
+        BookingCancellationOperationRepository,
+        OutboxRepository,
+        AuditRepository,
+    ]
 )
 bookings_reference, bookings_rabbit, bookings_service = rabbit_modules(BOOKINGS)
 bookings_clients = ClientsModule.register_cluster(
@@ -926,11 +1620,14 @@ cqrs = CqrsModule.for_root(global_=True)
     imports=(bookings_sql, bookings_feature, cqrs, bookings_service, bookings_clients),
     providers=(
         CreateBookingHandler,
+        RescheduleBookingHandler,
+        CreateRecurringBookingHandler,
         GetBookingHandler,
         ListBookingsHandler,
         AvailabilityHandler,
         FacilitiesDashboardHandler,
         SetBookingStatusHandler,
+        CancelBookingHandler,
         BookingExpiryService,
         OutboxRelay,
     ),
@@ -948,7 +1645,26 @@ async def run() -> None:
     await serve(create_application)
 
 
-def _validate(command: CreateBookingCommand) -> None:
+@asynccontextmanager
+async def _booking_transaction(entities: EntityManager) -> AsyncIterator[None]:
+    """Keep Postgres exclusion races indistinguishable from preflight conflicts."""
+
+    try:
+        async with entities.transaction():
+            yield
+    except IntegrityError as error:
+        if _sqlstate(error) == "23P01":
+            raise BookingConflict(
+                "resource is already booked for this period"
+            ) from error
+        raise
+
+
+def _validate(
+    command: CreateBookingCommand
+    | RescheduleBookingCommand
+    | CreateRecurringBookingCommand,
+) -> None:
     _validate_utc_interval(command.starts_at, command.ends_at)
     if (
         command.starts_at >= command.ends_at
@@ -1005,6 +1721,41 @@ def _fingerprint(command: CreateBookingCommand) -> str:
     return sha256(data.encode()).hexdigest()
 
 
+def _reschedule_fingerprint(command: RescheduleBookingCommand) -> str:
+    return _hash_fields(
+        command.tenant_id,
+        command.actor_id,
+        command.booking_id,
+        command.starts_at.astimezone(UTC).isoformat(),
+        command.ends_at.astimezone(UTC).isoformat(),
+    )
+
+
+def _recurring_fingerprint(command: CreateRecurringBookingCommand) -> str:
+    return _hash_fields(
+        command.tenant_id,
+        command.actor_id,
+        command.resource_id,
+        command.starts_at.astimezone(UTC).isoformat(),
+        command.ends_at.astimezone(UTC).isoformat(),
+        command.recurrence,
+        str(command.occurrence_count),
+    )
+
+
+def _cancellation_fingerprint(command: CancelBookingCommand) -> str:
+    return _hash_fields(
+        command.tenant_id,
+        command.actor_id,
+        command.booking_id,
+        command.scope,
+    )
+
+
+def _hash_fields(*fields: str) -> str:
+    return sha256("|".join(fields).encode()).hexdigest()
+
+
 def _idempotent_booking(row: BookingRow, fingerprint: str) -> Booking:
     if row.request_fingerprint != fingerprint:
         raise IdempotencyConflict("idempotency key belongs to a different request")
@@ -1022,6 +1773,88 @@ def _is_idempotency_violation(error: IntegrityError) -> bool:
         "UNIQUE constraint failed: bookings.tenant_id, bookings.idempotency_key"
         in str(error.orig)
     )
+
+
+def _is_series_idempotency_violation(error: IntegrityError) -> bool:
+    constraint = getattr(getattr(error.orig, "diag", None), "constraint_name", None)
+    if constraint == "booking_series_tenant_id_idempotency_key_key":
+        return True
+    return (
+        "UNIQUE constraint failed: booking_series.tenant_id, "
+        "booking_series.idempotency_key" in str(error.orig)
+    )
+
+
+def _is_cancellation_idempotency_violation(error: IntegrityError) -> bool:
+    constraint = getattr(getattr(error.orig, "diag", None), "constraint_name", None)
+    if constraint == "booking_cancellation_operations_tenant_id_idempotency_key_key":
+        return True
+    return (
+        "UNIQUE constraint failed: booking_cancellation_operations.tenant_id, "
+        "booking_cancellation_operations.idempotency_key" in str(error.orig)
+    )
+
+
+def _recurring_periods(
+    command: CreateRecurringBookingCommand,
+) -> list[tuple[datetime, datetime]]:
+    step = timedelta(days=1 if command.recurrence == "daily" else 7)
+    if command.office_policy is None:
+        return [
+            (command.starts_at + step * index, command.ends_at + step * index)
+            for index in range(command.occurrence_count)
+        ]
+    zone = ZoneInfo(command.office_policy.time_zone)
+    local_start = command.starts_at.astimezone(zone)
+    local_end = command.ends_at.astimezone(zone)
+    return [
+        (
+            _strict_local(local_start.replace(tzinfo=None) + step * index, zone),
+            _strict_local(local_end.replace(tzinfo=None) + step * index, zone),
+        )
+        for index in range(command.occurrence_count)
+    ]
+
+
+def _strict_local(value: datetime, zone: ZoneInfo) -> datetime:
+    candidates = [value.replace(tzinfo=zone, fold=fold) for fold in (0, 1)]
+    valid = [
+        candidate
+        for candidate in candidates
+        if candidate.astimezone(UTC).astimezone(zone).replace(tzinfo=None) == value
+    ]
+    offsets = {candidate.utcoffset() for candidate in valid}
+    if not valid or len(offsets) != 1:
+        raise ValueError(
+            "recurring booking crosses an ambiguous or nonexistent office time"
+        )
+    return valid[0].astimezone(UTC)
+
+
+def _validate_office_period(
+    starts_at: datetime, ends_at: datetime, policy: OfficePolicy | None
+) -> None:
+    if policy is None:
+        return
+    zone = ZoneInfo(policy.time_zone)
+    local_start = starts_at.astimezone(zone)
+    local_end = ends_at.astimezone(zone)
+    opens_at = _policy_time(policy.opens_at)
+    closes_at = _policy_time(policy.closes_at)
+    starts_time = local_start.timetz().replace(tzinfo=None)
+    ends_time = local_end.timetz().replace(tzinfo=None)
+    if (
+        local_start.date() != local_end.date()
+        or local_start.weekday() not in policy.weekdays
+        or starts_time < opens_at
+        or ends_time > closes_at
+    ):
+        raise ValueError("booking must be within office hours")
+
+
+def _policy_time(value: str) -> time:
+    hour, minute = (int(part) for part in value.split(":"))
+    return time(hour, minute)
 
 
 def _require_workplace_role(principal: Principal) -> None:
@@ -1044,6 +1877,24 @@ def _booking(row: BookingRow) -> Booking:
         _as_utc(row.ends_at),
         row.status,
         row.idempotency_key,
+        row.series_id,
+        row.occurrence_index,
+    )
+
+
+def _booking_at(row: BookingRow, starts_at: datetime, ends_at: datetime) -> Booking:
+    booking = _booking(row)
+    return Booking(
+        booking.id,
+        booking.tenant_id,
+        booking.actor_id,
+        booking.resource_id,
+        _as_utc(starts_at),
+        _as_utc(ends_at),
+        booking.status,
+        booking.idempotency_key,
+        booking.series_id,
+        booking.occurrence_index,
     )
 
 

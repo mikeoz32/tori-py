@@ -20,7 +20,7 @@ function markerTemplate(host, marker) {
       data-name=${name}
       data-kind=${resource?.kind ?? ""}
       style=${`--x:${x};--y:${y}`}
-      ?hidden=${!resource}
+      ?hidden=${!resource || resource.active === false}
       @click=${() => host.selectResource(resource)}
     >${label}</button>
   `;

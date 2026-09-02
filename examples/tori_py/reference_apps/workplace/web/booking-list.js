@@ -31,14 +31,67 @@ export function bookingListTemplate(host) {
                     </div>
                     <div class="booking-actions">
                       ${booking.status === "booked" ? html`
-                        <button class="secondary-button" type="button" @click=${() => host.bookingAction(booking, "check-in")}>Check in</button>
-                        <button class="secondary-button" type="button" @click=${() => host.bookingAction(booking, "cancel", true)}>Cancel</button>
+                        <button class="secondary-button" type="button" @click=${() => host.bookingAction(booking, "check-in")}>
+                          Check in
+                        </button>
+                        <button class="secondary-button" type="button" @click=${() => host.beginReschedule(booking)}>
+                          Reschedule
+                        </button>
+                        ${booking.series_id ? html`
+                          <button class="secondary-button" type="button" ?disabled=${host.cancellationBusy} @click=${() => host.cancelBooking(booking, "one")}>
+                            Cancel this occurrence
+                          </button>
+                          <button class="secondary-button" type="button" ?disabled=${host.cancellationBusy} @click=${() => host.cancelBooking(booking, "this-and-following")}>
+                            Cancel this and following
+                          </button>
+                          <button class="secondary-button" type="button" ?disabled=${host.cancellationBusy} @click=${() => host.cancelBooking(booking, "entire-series")}>
+                            Cancel entire series
+                          </button>
+                        ` : html`
+                          <button class="secondary-button" type="button" ?disabled=${host.cancellationBusy} @click=${() => host.cancelBooking(booking, "one")}>
+                            Cancel booking
+                          </button>
+                        `}
                       ` : ""}
                     </div>
                   </article>
                 `)
               : html`<p class="list-message">No bookings are recorded for this interval.</p>`}
       </div>
+      ${host.rescheduling ? html`
+        <form class="reschedule-form" id="reschedule-form" @submit=${host.saveReschedule}>
+          <h3>Reschedule ${host.rescheduling.id}</h3>
+          <label>
+            Start (browser local time)
+            <input
+              id="reschedule-starts-at"
+              type="datetime-local"
+              required
+              .value=${host.rescheduleStarts}
+              @input=${(event) => {
+                host.rescheduleStarts = event.currentTarget.value;
+              }}
+            >
+          </label>
+          <label>
+            End (browser local time)
+            <input
+              id="reschedule-ends-at"
+              type="datetime-local"
+              required
+              .value=${host.rescheduleEnds}
+              @input=${(event) => {
+                host.rescheduleEnds = event.currentTarget.value;
+              }}
+            >
+          </label>
+          <button class="action-button" type="submit" ?disabled=${host.rescheduleBusy}>
+            ${host.rescheduleBusy ? "Saving…" : "Save reschedule"}
+          </button>
+          <button class="quiet-button" type="button" @click=${host.cancelReschedule}>Dismiss</button>
+        </form>
+      ` : ""}
+      <p class="response ${host.bookingsMessage.error ? "error" : ""}" id="bookings-response" role="status">${host.bookingsMessage.text}</p>
       <button
         class="secondary-button retry"
         id="bookings-list-retry"

@@ -146,6 +146,7 @@ def main() -> None:
 
     events = (
         "booking-created",
+        "booking-rescheduled",
         "booking-cancelled",
         "booking-checked-in",
         "booking-no-show",
@@ -183,7 +184,9 @@ def main() -> None:
     _rpc_service("bookings", outbound=r"workplace\.spaces\.v1\..*")
     _rpc_service("notifications")
 
-    event_routes = r"booking-(?:created|cancelled|checked-in|no-show|completed)\.v1"
+    event_routes = (
+        r"booking-(?:created|rescheduled|cancelled|checked-in|no-show|completed)\.v1"
+    )
     bookings_resources = _resource_pattern(
         RPC,
         DEAD_LETTER,

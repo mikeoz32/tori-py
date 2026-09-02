@@ -55,6 +55,7 @@ dev = [
     "pytest-playwright>=0.7,<1",
     "websockets>=17,<18",
     "uvicorn>=0.41,<1",
+    "tzdata>=2026.3",
 ]
 docs = [
     "mkdocs>=1.6.1,<2",

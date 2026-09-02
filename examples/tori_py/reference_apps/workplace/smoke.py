@@ -8,12 +8,14 @@ import json
 import secrets
 import time
 from datetime import UTC, datetime, timedelta
+from datetime import time as clock_time
 from html.parser import HTMLParser
 from http.cookiejar import CookieJar
 from typing import Any
 from urllib.error import HTTPError
 from urllib.parse import parse_qs, urlencode, urljoin, urlparse
 from urllib.request import HTTPCookieProcessor, Request, build_opener, urlopen
+from zoneinfo import ZoneInfo
 
 GATEWAY = "http://localhost:8010"
 KEYCLOAK = "http://localhost:8080"
@@ -144,17 +146,138 @@ def _api(
         ) from error
 
 
+def _booking_slots(
+    policy: dict[str, Any],
+) -> tuple[datetime, datetime, datetime, timedelta]:
+    zone = ZoneInfo(policy["time_zone"])
+    opens_hour, opens_minute = map(int, policy["opens_at"].split(":"))
+    closes_hour, closes_minute = map(int, policy["closes_at"].split(":"))
+    opens = opens_hour * 60 + opens_minute
+    closes = closes_hour * 60 + closes_minute
+    duration_minutes = max(1, min(60, (closes - opens) // 3))
+    start_minute = opens + duration_minutes
+    now = datetime.now(UTC)
+    local_today = now.astimezone(zone).date()
+    weekdays = set(policy["weekdays"])
+    for offset in range(15):
+        candidate_date = local_today + timedelta(days=offset)
+        if candidate_date.weekday() not in weekdays:
+            continue
+        candidate = datetime.combine(
+            candidate_date,
+            clock_time(start_minute // 60, start_minute % 60),
+            zone,
+        ).astimezone(UTC)
+        if candidate > now + timedelta(hours=1):
+            rescheduled = datetime.combine(
+                candidate_date + timedelta(days=7),
+                clock_time(start_minute // 60, start_minute % 60),
+                zone,
+            ).astimezone(UTC)
+            recurring = datetime.combine(
+                candidate_date + timedelta(days=14),
+                clock_time(start_minute // 60, start_minute % 60),
+                zone,
+            ).astimezone(UTC)
+            return (
+                candidate,
+                rescheduled,
+                recurring,
+                timedelta(minutes=duration_minutes),
+            )
+    raise RuntimeError("office policy has no future smoke-test slot")
+
+
 def smoke() -> None:
     north_token = _login("north.admin", "north-admin-demo-only")
     resources = _api(north_token, "/api/resources")
     if not resources:
         raise RuntimeError("north tenant has no seeded resources")
 
-    start = datetime.now(UTC).replace(microsecond=0) + timedelta(hours=1)
+    policy_path = f"/api/offices/{resources[0]['office_id']}/policy"
+    policy = _api(north_token, policy_path)
+    updated_policy = _api(
+        north_token,
+        policy_path,
+        body={
+            "time_zone": policy["time_zone"],
+            "opens_at": policy["opens_at"],
+            "closes_at": policy["closes_at"],
+            "weekdays": policy["weekdays"],
+        },
+        method="PATCH",
+    )
+    if updated_policy != policy:
+        raise RuntimeError(f"office policy round trip failed: {updated_policy}")
+    start, rescheduled_start, recurring_start, duration = _booking_slots(policy)
+    filtered_query = urlencode(
+        {
+            "office_id": resources[0]["office_id"],
+            "floor_id": resources[0]["floor_id"],
+            "kind": resources[0]["kind"],
+            "equipment": resources[0]["equipment"],
+            "min_capacity": resources[0]["capacity"],
+            "availability_from": start.isoformat(),
+            "availability_to": (start + duration).isoformat(),
+            "offset": 0,
+            "limit": 20,
+        },
+        doseq=True,
+    )
+    filtered = _api(north_token, f"/api/resources?{filtered_query}")
+    if resources[0]["id"] not in {resource["id"] for resource in filtered}:
+        raise RuntimeError(
+            f"resource filters excluded the matching resource: {filtered}"
+        )
+
+    managed = _api(
+        north_token,
+        "/api/resources",
+        body={
+            "office_id": "building-n",
+            "floor_id": "level-03",
+            "name": f"Smoke resource {secrets.token_hex(4)}",
+            "kind": "room",
+            "x": 90,
+            "y": 90,
+            "equipment": ["screen"],
+            "capacity": 6,
+        },
+    )
+    updated = _api(
+        north_token,
+        f"/api/resources/{managed['id']}",
+        body={"name": f"{managed['name']} updated", "capacity": 8},
+        method="PATCH",
+    )
+    if updated["capacity"] != 8:
+        raise RuntimeError(f"resource update failed: {updated}")
+    deactivated = _api(north_token, f"/api/resources/{managed['id']}", method="DELETE")
+    if deactivated["active"]:
+        raise RuntimeError("resource deactivation did not persist")
+    if managed["id"] in {
+        resource["id"] for resource in _api(north_token, "/api/resources")
+    }:
+        raise RuntimeError("inactive resource remained in the default listing")
+    inactive = _api(north_token, "/api/resources?include_inactive=true")
+    if not any(
+        resource["id"] == managed["id"] and not resource["active"]
+        for resource in inactive
+    ):
+        raise RuntimeError("inactive resource is unavailable to facilities admin")
+    reactivated = _api(
+        north_token,
+        f"/api/resources/{managed['id']}",
+        body={"active": True},
+        method="PATCH",
+    )
+    if not reactivated["active"]:
+        raise RuntimeError("resource reactivation did not persist")
+
     request_body = {
         "resource_id": resources[0]["id"],
         "starts_at": start.isoformat(),
-        "ends_at": (start + timedelta(hours=1)).isoformat(),
+        "ends_at": (start + duration).isoformat(),
     }
     interval_query = urlencode(
         {
@@ -195,16 +318,76 @@ def smoke() -> None:
     ]:
         raise RuntimeError(f"booking did not update availability: {unavailable}")
 
+    reschedule_body = {
+        "starts_at": rescheduled_start.isoformat(),
+        "ends_at": (rescheduled_start + duration).isoformat(),
+    }
+    reschedule_key = secrets.token_urlsafe(24)
+    rescheduled = _api(
+        north_token,
+        f"/api/bookings/{booking['id']}/reschedule",
+        body=reschedule_body,
+        headers={"Idempotency-Key": reschedule_key},
+    )
+    repeated_reschedule = _api(
+        north_token,
+        f"/api/bookings/{booking['id']}/reschedule",
+        body=reschedule_body,
+        headers={"Idempotency-Key": reschedule_key},
+    )
+    if rescheduled != repeated_reschedule or rescheduled["id"] != booking["id"]:
+        raise RuntimeError("idempotent reschedule did not preserve booking identity")
+
+    recurring_body = {
+        "resource_id": resources[0]["id"],
+        "starts_at": recurring_start.isoformat(),
+        "ends_at": (recurring_start + duration).isoformat(),
+        "recurrence": "weekly",
+        "occurrence_count": 2,
+    }
+    recurring_key = secrets.token_urlsafe(24)
+    recurring = _api(
+        north_token,
+        "/api/bookings/recurring",
+        body=recurring_body,
+        headers={"Idempotency-Key": recurring_key},
+    )
+    repeated_recurring = _api(
+        north_token,
+        "/api/bookings/recurring",
+        body=recurring_body,
+        headers={"Idempotency-Key": recurring_key},
+    )
+    if recurring != repeated_recurring or len(recurring) != 2:
+        raise RuntimeError("idempotent recurring booking replay failed")
+    if len({item["series_id"] for item in recurring}) != 1 or [
+        item["occurrence_index"] for item in recurring
+    ] != [0, 1]:
+        raise RuntimeError(f"recurring booking metadata is invalid: {recurring}")
+
     checked_in = _api(
         north_token, f"/api/bookings/{booking['id']}/check-in", method="POST"
     )
     if checked_in["status"] != "checked_in":
         raise RuntimeError("check-in lifecycle transition failed")
     cancelled = _api(
-        north_token, f"/api/bookings/{booking['id']}/cancel", method="POST"
+        north_token,
+        f"/api/bookings/{booking['id']}/cancel",
+        body={"scope": "one"},
+        headers={"Idempotency-Key": secrets.token_urlsafe(24)},
     )
-    if cancelled["status"] != "cancelled":
+    if len(cancelled) != 1 or cancelled[0]["status"] != "cancelled":
         raise RuntimeError("cancellation lifecycle transition failed")
+    cancelled_series = _api(
+        north_token,
+        f"/api/bookings/{recurring[1]['id']}/cancel",
+        body={"scope": "entire-series"},
+        headers={"Idempotency-Key": secrets.token_urlsafe(24)},
+    )
+    if len(cancelled_series) != 2 or any(
+        item["status"] != "cancelled" for item in cancelled_series
+    ):
+        raise RuntimeError("scoped recurring cancellation failed")
 
     for _ in range(20):
         notifications = _api(north_token, "/api/notifications")
@@ -213,7 +396,7 @@ def smoke() -> None:
             for item in notifications
             if booking["id"] in item["message"]
         ]
-        if len(booking_messages) >= 3:
+        if len(booking_messages) >= 4:
             break
         time.sleep(0.25)
     else:
@@ -224,7 +407,12 @@ def smoke() -> None:
         raise RuntimeError(f"unexpected facilities dashboard: {dashboard}")
     audit = _api(north_token, "/api/audit")
     actions = {row["action"] for row in audit if row["booking_id"] == booking["id"]}
-    if actions != {"booking-created", "booking-checked-in", "booking-cancelled"}:
+    if actions != {
+        "booking-created",
+        "booking-rescheduled",
+        "booking-checked-in",
+        "booking-cancelled",
+    }:
         raise RuntimeError(f"incomplete booking audit trail: {actions}")
     diagnostics = _api(north_token, "/api/outbox/diagnostics")
     if diagnostics["pending"] != 0 or diagnostics["dead_letter"] != 0:
@@ -234,7 +422,7 @@ def smoke() -> None:
         "/api/outbox/cleanup",
         body={"before": (datetime.now(UTC) + timedelta(minutes=1)).isoformat()},
     )
-    if cleaned < 3:
+    if cleaned < 8:
         raise RuntimeError(f"expected delivered outbox cleanup, got {cleaned}")
 
     south_token = _login("south.employee", "south-employee-demo-only")

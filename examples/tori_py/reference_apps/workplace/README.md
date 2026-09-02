@@ -43,8 +43,10 @@ Open:
 All exposed ports bind only to `localhost`/`127.0.0.1`. Delete local demo state
 with `docker compose -f compose.yaml down -v`.
 
-With the stack healthy, exercise real PKCE login, RPC, booking idempotency,
-outbox delivery, and tenant isolation from the repository root:
+With the stack healthy, exercise real PKCE login, filtered resource discovery,
+resource lifecycle management, office policy editing, booking and series
+idempotency, scoped cancellation, rescheduling, outbox delivery, and tenant
+isolation from the repository root:
 
 ```sh
 uv run --no-sync python -m examples.tori_py.reference_apps.workplace.smoke
@@ -66,11 +68,27 @@ application process. The local-only application credentials are:
 | Bookings | `bookings_demo` | `bookings-demo-only` |
 | Notifications | `notifications_demo` | `notifications-demo-only` |
 
-The browser provides day/week calendar views in a selectable IANA timezone and
-loads the displayed interval through bounded booking pages. Bookings remain UTC
-on the wire and in storage. Facilities administrators also receive tenant-scoped
-lifecycle counts, outbox diagnostics and cleanup, and an immutable booking audit
-trail.
+The browser provides day/week calendar views in a selectable IANA timezone,
+loads the displayed interval through bounded booking pages, and supports daily
+or weekly recurring reservations. Resource discovery combines location, kind,
+equipment, capacity, and availability filters; resource metadata filters run
+in the Spaces database before stable bounded pagination. Bookings remain UTC on
+the wire and in storage, while recurring occurrences preserve office-local wall
+time across offset changes. Facilities administrators can edit each tenant
+office's IANA timezone, local working days, and opening interval. Create,
+recurring-create, and reschedule operations must fit that policy. Spaces and
+Bookings intentionally do not share a distributed transaction, so a concurrent
+policy or resource-state update is ordered by the snapshot observed when the
+booking operation starts.
+
+Facilities administrators can also edit, deactivate, and reactivate tenant
+resources, and receive tenant-scoped lifecycle counts, outbox diagnostics and
+cleanup, and an immutable booking audit trail. Deactivation prevents new
+booking mutations but deliberately keeps existing future bookings valid.
+Recurring cancellations support one occurrence, the selected occurrence and
+all following occurrences, or the entire series. Each cancellation request has
+its own idempotency key and writes one lifecycle event and audit row for every
+booking it actually transitions.
 
 ## Demo identities
 
@@ -149,10 +167,15 @@ No npm install or JavaScript compilation step is involved.
   accidental cross-service access but do not replace row-level tenant checks.
 - RabbitMQ delivery and RPC/event handling are **at least once**. The outbox
   uses database lease claims so replicas do not normally publish the same row
-  concurrently. Lease recovery and the inbox/idempotency patterns reduce
-  duplicate effects but do not give exactly-once end-to-end delivery. Consumers
-  must be idempotent, and the application must handle duplicated or delayed
-  notifications.
+  concurrently. The notification consumer atomically writes a durable inbox
+  record and its notification projection; matching redeliveries are no-ops,
+  while reuse of an event ID with a different type or payload is rejected.
+  Notifications written before the inbox migration contain no source payload;
+  their first replay is adopted only after tenant and rendered message match,
+  and establishes the full fingerprint used for subsequent deliveries.
+  Lease recovery and inbox idempotency reduce duplicate effects but do not give
+  exactly-once end-to-end delivery. Consumers must remain idempotent, and the
+  application must handle duplicated or delayed events.
 
 ## Tests and non-goals
 
@@ -163,10 +186,11 @@ with `uv`:
 uv run pytest examples/tori_py/reference_apps/workplace/test_workplace.py examples/tori_py/reference_apps/workplace/tests
 ```
 
-The PostgreSQL concurrency specification uses `pytest-docker` and requires the
-Linux-only `psycopg` dependency from this workspace. It verifies that the real
-exclusion constraint commits exactly one of two overlapping reservations while
-keeping booking, outbox, and audit rows atomic.
+The PostgreSQL concurrency specifications use `pytest-docker` and `psycopg`.
+They verify ordinary, recurring, rescheduled, and scoped cancellation races
+against the real exclusion constraint and row locks, plus concurrent duplicate
+notification delivery, while keeping booking side effects and notification
+inbox records atomic.
 
 This is a reference, not a production deployment template. Non-goals include
 real building access control, calendar-provider synchronization, production
