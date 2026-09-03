@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
+from math import isfinite
 from typing import TypedDict
 
 
@@ -29,8 +30,12 @@ class BenchmarkConfig:
     concurrencies: tuple[int, ...]
 
     def __post_init__(self) -> None:
+        if not isfinite(self.duration_seconds):
+            raise ValueError("duration must be finite")
         if self.duration_seconds <= 0:
             raise ValueError("duration must be positive")
+        if not isfinite(self.warmup_seconds):
+            raise ValueError("warmup must be finite")
         if self.warmup_seconds < 0:
             raise ValueError("warmup must not be negative")
         if self.repeats <= 0:
@@ -49,6 +54,8 @@ class LoadRun:
     latencies_ns: tuple[int, ...]
 
     def __post_init__(self) -> None:
+        if not isfinite(self.elapsed_seconds):
+            raise ValueError("elapsed time must be finite")
         if self.elapsed_seconds <= 0:
             raise ValueError("elapsed time must be positive")
         if self.completed < 0 or self.errors < 0:

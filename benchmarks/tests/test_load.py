@@ -1,86 +1,72 @@
 from __future__ import annotations
 
-import asyncio
+import time
+from collections.abc import Iterator
+from contextlib import contextmanager
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from threading import Thread
 
-from tori_py_benchmarks.load import parse_http_response, run_load
+import pytest
 
-
-def test_http_response_parser_reads_content_length_and_keep_alive() -> None:
-    status, length, keep_alive = parse_http_response(
-        b"HTTP/1.1 200 OK\r\ncontent-type: application/json\r\n"
-        b"content-length: 17\r\nconnection: keep-alive\r\n\r\n"
-    )
-
-    assert status == 200
-    assert length == 17
-    assert keep_alive is True
+from tori_py_benchmarks.load import run_load
 
 
-def test_http_response_parser_detects_connection_close() -> None:
-    status, length, keep_alive = parse_http_response(
-        b"HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\n"
-        b"Connection: close\r\n\r\n"
-    )
+@contextmanager
+def _http_server(status: int, *, delay: float = 0) -> Iterator[int]:
+    class Handler(BaseHTTPRequestHandler):
+        protocol_version = "HTTP/1.1"
 
-    assert status == 503
-    assert length == 0
-    assert keep_alive is False
+        def do_GET(self) -> None:
+            time.sleep(delay)
+            body = b"ok"
+            self.send_response(status)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
 
+        def log_message(self, format: str, *args: object) -> None:
+            del format, args
 
-def test_load_counts_malformed_responses_instead_of_aborting() -> None:
-    async def exercise() -> None:
-        async def malformed_response(
-            reader: asyncio.StreamReader, writer: asyncio.StreamWriter
-        ) -> None:
-            del reader
-            writer.write(b"not-http\r\n\r\n")
-            await writer.drain()
-            writer.close()
-
-        server = await asyncio.start_server(malformed_response, "127.0.0.1", 0)
-        port = server.sockets[0].getsockname()[1]
-        try:
-            result = await run_load(port, "/", concurrency=1, duration_seconds=0.02)
-        finally:
-            server.close()
-            await server.wait_closed()
-        assert result.completed == 0
-        assert result.errors > 0
-
-    asyncio.run(exercise())
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = Thread(target=server.serve_forever)
+    thread.start()
+    try:
+        yield server.server_port
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join()
 
 
-def test_load_stops_at_the_deadline_when_a_response_stalls() -> None:
-    async def exercise() -> float:
-        handlers: set[asyncio.Task[None]] = set()
+def test_locust_load_records_successful_requests() -> None:
+    with _http_server(200) as port:
+        result = run_load(port, "/", concurrency=2, duration_seconds=0.2)
 
-        async def stalled_response(
-            reader: asyncio.StreamReader, writer: asyncio.StreamWriter
-        ) -> None:
-            del reader
-            task = asyncio.current_task()
-            assert task is not None
-            handlers.add(task)
-            try:
-                await asyncio.sleep(10)
-            finally:
-                writer.close()
-                handlers.discard(task)
+    assert result.completed > 0
+    assert result.errors == 0
+    assert len(result.latencies_ns) == result.completed
 
-        server = await asyncio.start_server(stalled_response, "127.0.0.1", 0)
-        port = server.sockets[0].getsockname()[1]
-        loop = asyncio.get_running_loop()
-        started = loop.time()
-        try:
-            result = await run_load(port, "/", concurrency=1, duration_seconds=0.02)
-            elapsed = loop.time() - started
-        finally:
-            for handler in handlers:
-                handler.cancel()
-            await asyncio.gather(*handlers, return_exceptions=True)
-            server.close()
-            await server.wait_closed()
-        assert result.completed == 0
-        return elapsed
 
-    assert asyncio.run(exercise()) < 0.5
+def test_locust_load_records_non_200_responses_as_errors() -> None:
+    with _http_server(503) as port:
+        result = run_load(port, "/", concurrency=1, duration_seconds=0.2)
+
+    assert result.completed > 0
+    assert result.errors == result.completed
+    assert len(result.latencies_ns) == result.completed
+
+
+def test_locust_load_stops_without_waiting_for_stalled_responses() -> None:
+    with _http_server(200, delay=30) as port:
+        started = time.monotonic()
+        result = run_load(port, "/", concurrency=1, duration_seconds=0.2)
+        elapsed = time.monotonic() - started
+
+    assert result.completed == 0
+    assert elapsed < 10
+
+
+@pytest.mark.parametrize("duration", [float("nan"), float("inf")])
+def test_locust_load_rejects_non_finite_duration(duration: float) -> None:
+    with pytest.raises(ValueError, match="duration must be finite"):
+        run_load(8000, "/", concurrency=1, duration_seconds=duration)

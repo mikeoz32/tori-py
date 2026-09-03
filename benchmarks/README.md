@@ -22,7 +22,7 @@ Verify all applications and the measurement pipeline with a short run:
 docker compose -f benchmarks/compose.yaml run --rm benchmark --smoke
 ```
 
-Run the default suite, which takes about thirteen minutes:
+Run the default suite:
 
 ```shell
 docker compose -f benchmarks/compose.yaml run --rm benchmark
@@ -96,16 +96,18 @@ internals.
   competitor controls do not add an equivalent header, so use the two Tori Py
   rows, rather than cross-framework rows, to isolate adapter overhead.
 - A correctness preflight checks status and body before timing each framework.
-- The load driver uses HTTP/1.1 keep-alive over container loopback from a
-  separate process. It records each successful request latency.
-- Warmup data is discarded. Reported throughput is total completed requests
-  divided by total elapsed time across measured repeats.
+- Locust `FastHttpUser` generates HTTP/1.1 keep-alive load over container
+  loopback from an isolated local-runner process. Each Locust user issues at
+  most one request at a time.
+- Locust statistics are reset after all users spawn, so warmup and ramp-up data
+  are discarded. Reported throughput is total completed requests divided by
+  the configured measurement time across repeats.
 - Framework order rotates deterministically for every scenario/concurrency cell
   to distribute host and thermal drift instead of grouping all work by framework.
-- p50, p95, and p99 are calculated from the combined successful latency
-  samples. Errors are reported and are never counted as completed requests.
-- The duration is a hard deadline. Requests still in flight at the deadline are
-  canceled and excluded from both completed and error counts.
+- p50, p95, and p99 are calculated from the combined Locust response-time
+  histograms. Errors are reported as a subset of completed requests.
+- The duration is a hard measurement deadline. Requests still in flight at the
+  deadline are stopped and excluded from the captured statistics.
 - Cold startup measures process creation through successful `/health`
   readiness, including imports, framework initialization, route compilation,
   and ASGI lifespan startup.
@@ -114,8 +116,8 @@ internals.
   host runs on platforms without `/proc`.
 
 The raw-ASGI result is a lower-bound control. If multiple frameworks converge
-on raw-ASGI throughput, the included Python load driver or available CPU may
-be saturated; use an external native load generator before drawing conclusions.
+on raw-ASGI throughput, Locust or the available CPU may be saturated; use a
+distributed or external native load generator before drawing conclusions.
 Compose limits the benchmark to two CPUs and 2 GiB of memory, and the effective
 cgroup limits are recorded in the report. Do not compare results captured with
 different limits, host power modes, or background workloads.
@@ -149,3 +151,5 @@ The framework DI implementations follow their public documentation:
 - [Starlette routing](https://www.starlette.io/routing/)
 - [ASGI specifications](https://asgi.readthedocs.io/en/latest/specs/index.html)
 - [Uvicorn lifespan](https://uvicorn.dev/concepts/lifespan/)
+- [Locust as a library](https://docs.locust.io/en/stable/use-as-lib.html)
+- [Locust FastHttpUser](https://docs.locust.io/en/stable/increase-performance.html)

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import asyncio
 import hashlib
 import importlib.metadata
 import io
@@ -107,22 +106,18 @@ def execute_profile(
     with ServerProcess(framework, profile_path=str(profile_path)) as server:
         _verify_contract(framework, server.port)
         if config.warmup_seconds:
-            asyncio.run(
-                run_load(
-                    server.port,
-                    f"/{scenario}",
-                    concurrency=concurrency,
-                    duration_seconds=config.warmup_seconds,
-                )
+            run_load(
+                server.port,
+                f"/{scenario}",
+                concurrency=concurrency,
+                duration_seconds=config.warmup_seconds,
             )
         runs = [
-            asyncio.run(
-                run_load(
-                    server.port,
-                    f"/{scenario}",
-                    concurrency=concurrency,
-                    duration_seconds=config.duration_seconds,
-                )
+            run_load(
+                server.port,
+                f"/{scenario}",
+                concurrency=concurrency,
+                duration_seconds=config.duration_seconds,
             )
             for _ in range(config.repeats)
         ]
@@ -191,22 +186,18 @@ def _measure_http(config: BenchmarkConfig) -> list[dict[str, Any]]:
                 with ServerProcess(framework) as server:
                     _verify_contract(framework, server.port)
                     if config.warmup_seconds:
-                        asyncio.run(
-                            run_load(
-                                server.port,
-                                f"/{scenario}",
-                                concurrency=concurrency,
-                                duration_seconds=config.warmup_seconds,
-                            )
+                        run_load(
+                            server.port,
+                            f"/{scenario}",
+                            concurrency=concurrency,
+                            duration_seconds=config.warmup_seconds,
                         )
                     runs = [
-                        asyncio.run(
-                            run_load(
-                                server.port,
-                                f"/{scenario}",
-                                concurrency=concurrency,
-                                duration_seconds=config.duration_seconds,
-                            )
+                        run_load(
+                            server.port,
+                            f"/{scenario}",
+                            concurrency=concurrency,
+                            duration_seconds=config.duration_seconds,
                         )
                         for _ in range(config.repeats)
                     ]
@@ -260,6 +251,7 @@ def _metadata() -> dict[str, Any]:
     }
     versions["python"] = platform.python_version()
     versions["uvicorn"] = importlib.metadata.version("uvicorn")
+    versions["locust"] = importlib.metadata.version("locust")
     benchmark_root = Path(__file__).resolve().parents[2]
     return {
         "versions": versions,
@@ -282,7 +274,8 @@ def _metadata() -> dict[str, Any]:
             ),
         },
         "server": "uvicorn --loop asyncio --http httptools --lifespan on",
-        "load_generator": "asyncio HTTP/1.1 keep-alive, separate server process",
+        "load_generator": "Locust FastHttpUser, isolated local-runner process",
+        "load_generator_spawn_rate_per_second": 100,
         "framework_order": "deterministic rotation per scenario/concurrency cell",
     }
 

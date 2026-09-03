@@ -78,3 +78,13 @@ def test_benchmark_config_rejects_non_positive_work(changes: dict[str, object]) 
 
     with pytest.raises(ValueError):
         BenchmarkConfig(**values)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("value", [float("nan"), float("inf")])
+def test_benchmark_models_reject_non_finite_times(value: float) -> None:
+    with pytest.raises(ValueError, match="duration must be finite"):
+        BenchmarkConfig(value, 0.0, 1, 1, (1,))
+    with pytest.raises(ValueError, match="warmup must be finite"):
+        BenchmarkConfig(1.0, value, 1, 1, (1,))
+    with pytest.raises(ValueError, match="elapsed time must be finite"):
+        LoadRun(value, 0, 0, ())
