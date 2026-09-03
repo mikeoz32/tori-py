@@ -5,6 +5,7 @@ import tori_py
 import tori_py.core.compiler as compiler_module
 from tori_py import (
     AliasProvider,
+    AwaitPolicy,
     BootstrapError,
     ClassProvider,
     DeferredModule,
@@ -458,6 +459,61 @@ async def test_dependency_plans_handle_defaults_inject_and_factory_signatures() 
     assert consumer.dependencies[0].token == token
     assert consumer.dependencies[0].provider_ref is not None
     assert consumer.dependencies[1].token is None
+
+
+@pytest.mark.asyncio
+async def test_provider_recipes_are_frozen_and_prequalify_construction_details() -> (
+    None
+):
+    class Dependency:
+        pass
+
+    class Consumer:
+        def __init__(
+            self,
+            dependency: Dependency,
+            scopes: WorkScopeFactory,
+        ) -> None:
+            self.dependency = dependency
+            self.scopes = scopes
+
+    def make_sync(dependency: Dependency) -> str:
+        return str(dependency)
+
+    async def make_async() -> str:
+        return "async"
+
+    value = object()
+
+    @module(
+        providers=[
+            ValueProvider("value", value, manage=True),
+            ClassProvider(Dependency, manage=False),
+            ClassProvider(Consumer),
+            FactoryProvider("sync", make_sync, manage=False),
+            FactoryProvider("async", make_async),
+            AliasProvider("alias", Dependency),
+        ]
+    )
+    class Root:
+        pass
+
+    graph = await compile_root(Root)
+    plans = {ref.token: plan for ref, plan in graph.providers.items()}
+
+    assert plans["value"].recipe.invoker is not None
+    assert plans["value"].recipe.await_policy is AwaitPolicy.NEVER
+    assert plans["value"].recipe.manage is True
+    assert plans[Dependency].recipe.manage is False
+    assert plans["sync"].recipe.await_policy is AwaitPolicy.IF_AWAITABLE
+    assert plans["async"].recipe.await_policy is AwaitPolicy.ALWAYS
+    assert plans["alias"].recipe is plans[Dependency].recipe
+    assert plans[Consumer].recipe.dependencies[0].provider_ref == plans[Dependency].key
+    assert plans[Consumer].recipe.dependencies[0].intrinsic is None
+    assert plans[Consumer].recipe.dependencies[1].provider_ref is None
+    assert plans[Consumer].recipe.dependencies[1].intrinsic is WorkScopeFactory
+    with pytest.raises((AttributeError, TypeError)):
+        plans["async"].recipe.manage = False  # type: ignore[misc]
 
 
 @pytest.mark.asyncio

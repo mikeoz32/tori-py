@@ -758,6 +758,51 @@ async def test_raw_annotation_is_not_converted_without_validation_pipe(
 
 
 @pytest.mark.asyncio
+async def test_route_without_execution_pipeline_bypasses_generic_dispatch(
+    call_http,
+    message_body,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    @controller()
+    class Controller:
+        @get("/fast-path")
+        async def fast_path(self) -> dict[str, str]:
+            return {"path": "fast"}
+
+    @module(controllers=[Controller])
+    class Root:
+        pass
+
+    application = await TestingModule.create(Root).compile(adapter=StarletteAdapter())
+    binder = cast(Any, application.get_adapter(StarletteAdapter))._binder
+
+    async def fail_generic_dispatch(*args, **kwargs):
+        del args, kwargs
+        raise AssertionError("empty routes must bypass generic pipeline dispatch")
+
+    def fail_awaitable_check(value):
+        del value
+        raise AssertionError(
+            "compiled async handlers must not be inspected per request"
+        )
+
+    async def fail_argument_binding(*args, **kwargs):
+        del args, kwargs
+        raise AssertionError("zero-argument handlers must not run generic binding")
+
+    monkeypatch.setattr(binder.pipeline, "_run_middleware", fail_generic_dispatch)
+    monkeypatch.setattr(
+        "tori_py.http.pipeline.inspect.isawaitable", fail_awaitable_check
+    )
+    monkeypatch.setattr(routes_module, "_bind_arguments", fail_argument_binding)
+    messages = await call_http(_asgi(application), path="/fast-path")
+
+    assert messages[0]["status"] == 200
+    assert json.loads(message_body(messages[1])) == {"path": "fast"}
+    await application.close()
+
+
+@pytest.mark.asyncio
 async def test_application_global_methods_reach_starlette_pipeline(
     call_http,
     message_body,

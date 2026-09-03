@@ -16,10 +16,17 @@ stream attempt ends:
 - a repository tied to an invocation-local Unit of Work;
 - an active SQLAlchemy transaction context.
 
-Detached use is not made safe by Python `ContextVar` inheritance. Tori Py
+Detached use is not made safe by Python `ContextVar` inheritance. Tori Py binds
+each request/work resolver to the task that enters its scope, so another task's
+resolution fails with `ScopeError` even before scope completion. Tori Py also
 invalidates the scope lease at completion, and SQLAlchemy guards transaction
 state by owner task. Store an immutable job DTO containing only the minimized
 identifiers and values needed to do later work.
+
+You may pass an already resolved value to a child task when that value is safe
+for the intended concurrent use, but the scope owner must join every such task
+before scope exit. Use a fresh work scope instead when the work has an
+independent lifetime.
 
 Avoid this controller pattern:
 

@@ -1,8 +1,11 @@
 """Framework-agnostic ToriPy declarations."""
 
 from tori_py.core.compiler import (
+    AwaitPolicy,
     CompiledGraph,
+    ConstructionRecipe,
     DependencyPlan,
+    DependencySource,
     GraphShape,
     ModuleId,
     ModulePlan,
@@ -57,7 +60,6 @@ from tori_py.core.metadata import (
     interceptors,
     middleware,
     no_body,
-    options,
     patch,
     pipes,
     post,
@@ -74,6 +76,9 @@ from tori_py.core.metadata import (
     use_pipe,
     use_pipes,
     websocket_gateway,
+)
+from tori_py.core.metadata import (
+    options as _route_options,
 )
 from tori_py.core.modules import (
     DeferredModule,
@@ -130,8 +135,12 @@ from tori_py.core.reflection import (
 )
 from tori_py.core.runtime import ApplicationState, RequestScope
 
+# Loading tori_py.core.options replaces the package attribute with that module.
+options = _route_options
+
 __all__ = [
     "AliasProvider",
+    "AwaitPolicy",
     "ApplicationOptions",
     "ApplicationState",
     "ApplicationStateError",
@@ -141,6 +150,7 @@ __all__ = [
     "BootstrapError",
     "ClassProvider",
     "CompiledGraph",
+    "ConstructionRecipe",
     "Codec",
     "Context",
     "ControllerMetadata",
@@ -148,6 +158,7 @@ __all__ = [
     "DIAGNOSTIC_CODES",
     "DeferredModule",
     "DependencyPlan",
+    "DependencySource",
     "Diagnostic",
     "DiagnosticCode",
     "DiscoveryService",

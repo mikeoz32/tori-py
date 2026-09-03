@@ -20,6 +20,7 @@ from tori_py import (
     Header,
     Inject,
     ModuleId,
+    NestApplication,
     Path,
     PipelineOptions,
     PipelineResult,
@@ -545,6 +546,38 @@ async def test_websocket_guard_denies_before_handshake_acceptance() -> None:
     assert sent == [{"type": "websocket.close", "code": 1008, "reason": ""}]
     assert events == ["websocket"]
     await application.close()
+
+
+@pytest.mark.asyncio
+async def test_websocket_global_guard_added_before_start_is_applied() -> None:
+    events: list[str] = []
+
+    class DenyGuard:
+        async def can_activate(self, context) -> bool:
+            events.append(context.execution_kind)
+            return False
+
+    @websocket_gateway("/guarded")
+    class Gateway:
+        async def handle(
+            self,
+            socket: Annotated[WebSocket, Socket()],
+        ) -> None:
+            events.append("handler")
+            await socket.accept()
+
+    @module(providers=[Gateway])
+    class Root:
+        pass
+
+    application = await NestApplication.create(Root, adapter=StarletteAdapter())
+    application.use_global_guard(DenyGuard())
+    await application.start()
+    sent = await _call_websocket(_asgi(application), "/guarded")
+
+    assert sent == [{"type": "websocket.close", "code": 1008, "reason": ""}]
+    assert events == ["websocket"]
+    await application.shutdown()
 
 
 @pytest.mark.asyncio

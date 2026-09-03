@@ -15,6 +15,11 @@ from tori_py.http.context import (
     current_http_context,
 )
 
+_APPLICATION_ID_KEY = "tori_py_application_id"
+_CONTEXT_TOKEN_KEY = "tori_py_context_token"
+_REQUEST_SCOPE_KEY = "tori_py_request_scope"
+_ROOT_MODULE_KEY = "tori_py_root_module"
+
 
 @dataclass(frozen=True, slots=True)
 class RequestContext(HttpContext):
@@ -68,6 +73,10 @@ def _set_context(
     context: RequestContext,
 ) -> contextvars.Token[HttpContext | None]:
     return _set_http_context(context)
+
+
+def _clear_context() -> contextvars.Token[HttpContext | None]:
+    return _set_http_context(None)
 
 
 def _reset_context(token: contextvars.Token[HttpContext | None]) -> None:

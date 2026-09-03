@@ -183,21 +183,25 @@ task that eventually happens to reference the object.
 
 ## Scope Closing and Stale Resolvers
 
-A request/work resolver has an invalidatable lease:
+A request/work scope belongs to the task that enters it. Its resolver checks
+that owner identity and an invalidatable lease on every resolution:
 
 ```text
 open -> closing -> closed
 ```
 
-Open permits resolution. Closing and closed reject new resolution with
-`ScopeClosedError`. Resolution already in progress is tracked; normal scope exit
-waits for active resolver users before cancelling remaining in-flight
-construction and closing resources.
+Open permits resolution by the owner task. Another task receives `ScopeError`
+before cache access or construction, including when the owner is awaiting that
+task. Closing and closed reject new resolution with `ScopeClosedError`.
+Cancellation of owner-task construction unwinds that construction inline, and
+normal scope exit then closes acquired resources.
 
 Do not retain a request resolver, request context, entered scoped resource, or
-request provider in detached tasks. After scope exit, stale resolution fails
-deterministically rather than silently constructing a dependency against a dead
-request.
+request provider in detached tasks. You may pass an already resolved value to a
+child task only if that value is safe for the intended concurrent use, and the
+owner must join the child before scope exit. After scope exit, stale resolution
+fails deterministically rather than silently constructing a dependency against
+a dead request.
 
 ## Exception-Aware Unwinding
 

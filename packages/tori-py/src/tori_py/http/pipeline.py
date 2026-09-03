@@ -89,18 +89,25 @@ class PipelineExecutor:
 
     def qualify(self, plans: Sequence[RoutePlan]) -> tuple[RoutePlan, ...]:
         self.configure_global(self.global_tokens)
-        return tuple(
-            replace(
-                plan,
-                controller_pipeline=self._qualify_pipeline(
-                    plan.controller_pipeline, plan.module_id
-                ),
-                route_pipeline=self._qualify_pipeline(
-                    plan.route_pipeline, plan.module_id
-                ),
+        qualified: list[RoutePlan] = []
+        for plan in plans:
+            controller_pipeline = self._qualify_pipeline(
+                plan.controller_pipeline, plan.module_id
             )
-            for plan in plans
-        )
+            route_pipeline = self._qualify_pipeline(plan.route_pipeline, plan.module_id)
+            qualified.append(
+                replace(
+                    plan,
+                    controller_pipeline=controller_pipeline,
+                    route_pipeline=route_pipeline,
+                    has_execution_pipeline=_has_execution_pipeline(
+                        self.global_pipeline,
+                        controller_pipeline,
+                        route_pipeline,
+                    ),
+                )
+            )
+        return tuple(qualified)
 
     async def run(
         self,
@@ -113,11 +120,15 @@ class PipelineExecutor:
         validate_result: Callable[[], Awaitable[None]] | None = None,
     ) -> object:
         try:
-            result = await self._run_middleware(
-                plan,
-                context,
-                scope,
-                bind_arguments=bind_arguments,
+            result = (
+                await self._run_middleware(
+                    plan,
+                    context,
+                    scope,
+                    bind_arguments=bind_arguments,
+                )
+                if plan.has_execution_pipeline
+                else await self._run_handler(plan, bind_arguments)
             )
             if validate_result is not None:
                 await validate_result()
@@ -139,6 +150,13 @@ class PipelineExecutor:
             return await self._render_exception(
                 error, plan, context, scope, encode_result
             )
+
+    async def _run_handler(
+        self,
+        plan: RoutePlan,
+        bind_arguments: Callable[[], Awaitable[dict[str, object]]],
+    ) -> PipelineResult:
+        return await _handler_result(plan, await bind_arguments())
 
     async def handle_routing_error(
         self,
@@ -466,8 +484,10 @@ async def _handler_result(
     plan: RoutePlan,
     arguments: dict[str, object],
 ) -> PipelineResult:
-    result = plan.handler(**arguments)
-    if inspect.isawaitable(result):
+    result = plan.handler(**arguments) if arguments else plan.handler()
+    if plan.handler_is_async:
+        result = await cast(Awaitable[object], result)
+    elif inspect.isawaitable(result):
         result = await result
     return PipelineResult.from_value(result)
 
@@ -475,6 +495,13 @@ async def _handler_result(
 def _module_label(module_id: ModuleId) -> str:
     label = module_id.module.__qualname__
     return label if module_id.key is None else f"{label}[{module_id.key}]"
+
+
+def _has_execution_pipeline(*groups: PipelineBindings) -> bool:
+    return any(
+        group.middleware or group.guards or group.pipes or group.interceptors
+        for group in groups
+    )
 
 
 __all__ = ["HttpPipelineAdapter", "PipelineExecutor"]

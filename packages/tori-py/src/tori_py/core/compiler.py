@@ -5,6 +5,7 @@ from __future__ import annotations
 import inspect
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, replace
+from enum import StrEnum
 from types import MappingProxyType
 from typing import Annotated, cast, get_args, get_origin, get_type_hints
 
@@ -20,6 +21,7 @@ from tori_py.core.protocols import DiscoveryService, ModulesContainer, WorkScope
 from tori_py.core.providers import (
     AliasProvider,
     ClassProvider,
+    FactoryProvider,
     Inject,
     ProviderDeclaration,
     Scope,
@@ -67,6 +69,33 @@ class DependencyPlan:
     provider_ref: ProviderRef | None = None
 
 
+class AwaitPolicy(StrEnum):
+    """How a compiled provider result becomes its resolved value."""
+
+    NEVER = "never"
+    ALWAYS = "always"
+    IF_AWAITABLE = "if_awaitable"
+
+
+@dataclass(frozen=True, slots=True)
+class DependencySource:
+    """A dependency resolved without reinterpreting its declaration token."""
+
+    parameter_name: str
+    provider_ref: ProviderRef | None = None
+    intrinsic: Token | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ConstructionRecipe:
+    """Immutable runtime recipe for one provider declaration."""
+
+    invoker: Callable[..., object]
+    dependencies: tuple[DependencySource, ...]
+    await_policy: AwaitPolicy
+    manage: bool
+
+
 @dataclass(frozen=True, slots=True)
 class ProviderPlan:
     """Immutable provider declaration and its compiled dependencies."""
@@ -76,6 +105,7 @@ class ProviderPlan:
     dependencies: tuple[DependencyPlan, ...]
     scope: Scope
     canonical: ProviderRef
+    recipe: ConstructionRecipe
 
 
 @dataclass(frozen=True, slots=True)
@@ -335,6 +365,7 @@ class _Compiler:
                             else Scope.SINGLETON
                         ),
                         canonical=ref,
+                        recipe=_compile_recipe(declaration, declaration_dependencies),
                     )
                 )
             local_refs[module_id] = refs
@@ -365,16 +396,18 @@ class _Compiler:
                     ):
                         continue
                     ref = ProviderRef(module_id, token)
+                    declaration_dependencies = _compile_dependencies(declaration)
                     plan = ProviderPlan(
                         key=ref,
                         declaration=declaration,
-                        dependencies=_compile_dependencies(declaration),
+                        dependencies=declaration_dependencies,
                         scope=(
                             declaration.scope
                             if not isinstance(declaration, AliasProvider)
                             else Scope.SINGLETON
                         ),
                         canonical=ref,
+                        recipe=_compile_recipe(declaration, declaration_dependencies),
                     )
                     local_refs[module_id][token] = ref
                     module_plans[module_id] = replace(
@@ -426,7 +459,15 @@ class _Compiler:
                 dependencies=compiled_dependencies,
                 scope=canonical_plan.scope,
                 canonical=canonical,
+                recipe=_compile_recipe(plan.declaration, compiled_dependencies),
             )
+
+        for ref, plan in tuple(provider_map.items()):
+            if plan.canonical != ref:
+                provider_map[ref] = replace(
+                    plan,
+                    recipe=provider_map[plan.canonical].recipe,
+                )
 
         edges = _provider_edges(provider_map, visibility, self.order)
         _validate_provider_cycles(edges, provider_map)
@@ -613,6 +654,69 @@ def _compile_dependencies(
             )
         )
     return tuple(plans)
+
+
+def _compile_recipe(
+    declaration: ProviderDeclaration,
+    dependencies: tuple[DependencyPlan, ...],
+) -> ConstructionRecipe:
+    """Compile declaration dispatch and qualified runtime dependency sources."""
+
+    sources = tuple(
+        DependencySource(
+            parameter_name=dependency.parameter_name,
+            provider_ref=dependency.provider_ref,
+            intrinsic=(
+                dependency.token
+                if dependency.token in _INTRINSIC_DEPENDENCIES
+                else None
+            ),
+        )
+        for dependency in dependencies
+    )
+    if isinstance(declaration, ValueProvider):
+        return ConstructionRecipe(
+            invoker=lambda value=declaration.value: value,
+            dependencies=sources,
+            await_policy=AwaitPolicy.NEVER,
+            manage=declaration.manage,
+        )
+    if isinstance(declaration, ClassProvider):
+        target = cast(type[object], declaration.use_class)
+        return ConstructionRecipe(
+            invoker=target,
+            dependencies=sources,
+            await_policy=AwaitPolicy.NEVER,
+            manage=declaration.manage,
+        )
+    if isinstance(declaration, FactoryProvider):
+        factory = declaration.factory
+        return ConstructionRecipe(
+            invoker=factory,
+            dependencies=sources,
+            await_policy=(
+                AwaitPolicy.ALWAYS
+                if inspect.iscoroutinefunction(factory)
+                else AwaitPolicy.IF_AWAITABLE
+            ),
+            manage=declaration.manage,
+        )
+    if isinstance(declaration, AliasProvider):
+        return ConstructionRecipe(
+            invoker=_uncanonicalized_alias,
+            dependencies=(),
+            await_policy=AwaitPolicy.NEVER,
+            manage=False,
+        )
+    raise BootstrapError(
+        "unsupported provider declaration",
+        code="provider.invalid_declaration",
+    )
+
+
+def _uncanonicalized_alias(**arguments: object) -> object:
+    del arguments
+    raise RuntimeError("alias construction recipe was not canonicalized")
 
 
 def _validate_provider_token(token: Token) -> None:
@@ -930,12 +1034,15 @@ def _provider_label(ref: ProviderRef) -> str:
 
 __all__ = [
     "CompiledGraph",
+    "ConstructionRecipe",
     "DependencyPlan",
+    "DependencySource",
     "GraphShape",
     "ModuleId",
     "ModulePlan",
     "ProviderKey",
     "ProviderPlan",
     "ProviderRef",
+    "AwaitPolicy",
     "compile_graph",
 ]

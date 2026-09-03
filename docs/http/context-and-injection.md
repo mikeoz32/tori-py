@@ -159,9 +159,13 @@ The HTTP context and request scope stay active through:
 
 After completion, the scope closes, its resolver is invalidated, and the
 current-context variable is reset. Retaining `HttpContext`, `RequestContext`, a
-resolver, or a request-scoped provider for detached work is unsafe. A retained
-resolver raises `ScopeClosedError` after request cleanup, and a provider may
-already have released its managed resource.
+resolver, or a request-scoped provider for detached work is unsafe. The resolver
+is bound to the request task: another task receives `ScopeError` even while the
+request is active, and resolution after cleanup raises `ScopeClosedError`. A
+provider may already have released its managed resource after cleanup.
+
+An already resolved value may be passed to a child task only when the value is
+safe for that use and the request task joins the child before returning.
 
 For work that must outlive a response, copy only immutable application data and
 hand it to an application-owned queue or use a fresh `WorkScopeFactory` work
