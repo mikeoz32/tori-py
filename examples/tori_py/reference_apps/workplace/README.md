@@ -69,11 +69,18 @@ application process. The local-only application credentials are:
 | Bookings | `bookings_demo` | `bookings-demo-only` |
 | Notifications | `notifications_demo` | `notifications-demo-only` |
 
-The browser provides day/week calendar views in a selectable IANA timezone,
-loads the displayed interval through bounded booking pages, and supports daily
-or weekly recurring reservations. Resource discovery combines location, kind,
-equipment, capacity, and availability filters; resource metadata filters run
-in the Spaces database before stable bounded pagination. Bookings remain UTC on
+The browser is organized as three task-focused workspaces: **Reserve space**
+combines the live floor plan, directory, availability, and booking composer;
+**My schedule** combines day/week calendar views with booking actions; and the
+role-gated **Facilities** workbench separates policy, delivery health, audit,
+and resource management from employee booking flows. The floor plan places
+markers from live resource coordinates rather than a fixed resource list.
+
+Calendar views use a selectable IANA timezone and load the displayed interval
+through bounded booking pages. Daily and weekly recurring reservations are
+supported. Resource discovery combines location, kind, equipment, capacity,
+and availability filters; resource metadata filters run in the Spaces database
+before stable bounded pagination. Bookings remain UTC on
 the wire and in storage, while recurring occurrences preserve office-local wall
 time across offset changes. Facilities administrators can edit each tenant
 office's IANA timezone, local working days, and opening interval. Create,
@@ -103,8 +110,9 @@ the startup realm import. Never copy them into a deployed realm.
 | `tenant-south` | employee | `south.employee` | `south-employee-demo-only` |
 | `tenant-south` | facilities admin | `south.admin` | `south-admin-demo-only` |
 
-The `tenant_id` user attribute is mapped to an access-token claim. Roles are
-client roles on `tori-space-web`: `employee` and `facilities-admin`. The web client is public,
+The `tenant_id` user attribute and preferred username are mapped to access-token
+claims. Roles are client roles on `tori-space-web`: `employee` and
+`facilities-admin`. The web client is public,
 permits **Standard Flow only**, and has exact local redirect/web-origin entries
 for `http://localhost:8010` and `http://127.0.0.1:8010`. It requests the
 `tori-space-api` audience through a dedicated client scope.

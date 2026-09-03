@@ -1,6 +1,7 @@
 import {html} from "/assets/lit-core.min.js";
 
 import {
+  bookingResourceName,
   bookingTouchesDay,
   calendarDateKey,
   calendarFirstDate,
@@ -23,7 +24,7 @@ function dayTemplate(host, day) {
       ${rows.length
         ? rows.map((booking) => html`
             <div class="calendar-entry">
-              <strong>${booking.resource_name ?? booking.resource_id ?? "Resource"}</strong>
+              <strong>${bookingResourceName(booking, host.resources)}</strong>
               <span>${formatRange(
                 new Date(booking.starts_at),
                 new Date(booking.ends_at),
@@ -60,8 +61,8 @@ export function bookingCalendarTemplate(host) {
     <section class="calendar-section" aria-labelledby="calendar-title">
       <div class="section-heading">
         <div>
-          <p class="eyebrow">Interval register</p>
-          <h2 id="calendar-title">Booking calendar</h2>
+          <p class="eyebrow">Calendar</p>
+          <h2 id="calendar-title">Week at a glance</h2>
         </div>
         <div class="calendar-tools">
           <label>View

@@ -176,6 +176,45 @@ def test_admin_calendar_and_retry_idempotency_are_responsive(page: Page) -> None
         "window.workplaceLitInstance === document.querySelector('workplace-app')"
     )
     expect(page.locator("#identity-text")).to_contain_text("north.admin")
+    expect(page.locator("#workspace-navigation")).to_be_visible()
+    expect(page.get_by_role("button", name="Reserve space")).to_have_attribute(
+        "aria-current", "page"
+    )
+
+    page.get_by_role("button", name="Desk 17").last.click()
+    expect(page.locator(".inspector")).not_to_have_attribute("aria-live", "polite")
+    expect(page.locator("#resource-status")).to_have_attribute("role", "status")
+    page.locator("#starts-at").fill(start.astimezone().strftime("%Y-%m-%dT%H:%M"))
+    page.locator("#ends-at").fill(
+        (start + timedelta(hours=1)).astimezone().strftime("%Y-%m-%dT%H:%M")
+    )
+    page.get_by_role("button", name="Check availability").click()
+    expect(page.locator("#resource-status")).to_have_text("Available for this interval")
+
+    page.get_by_role("button", name="Reserve this time").click()
+    expect(page.locator("#booking-response")).to_contain_text("retry later")
+    page.get_by_role("button", name="Reserve this time").click()
+    expect(page.locator("#booking-response")).to_contain_text("retry later")
+    assert booking_attempts[0] == booking_attempts[1]
+
+    page.locator("#ends-at").fill(
+        (start + timedelta(hours=2)).astimezone().strftime("%Y-%m-%dT%H:%M")
+    )
+    page.get_by_role("button", name="Reserve this time").click()
+    expect(page.locator("#booking-response")).to_contain_text("accepted")
+    assert booking_attempts[2] != booking_attempts[1]
+
+    page.get_by_role("button", name="My schedule").click()
+    expect(page.get_by_role("button", name="My schedule")).to_have_attribute(
+        "aria-current", "page"
+    )
+    expect(page.locator("#schedule-workspace")).to_be_visible()
+    page.locator("#timezone").select_option("UTC")
+    expect(page.locator(".calendar-entry")).to_have_count(2)
+    expect(page.locator(".calendar-entry").first).to_contain_text("Desk 17")
+
+    page.get_by_role("button", name="Facilities").click()
+    expect(page.locator("#facilities-workspace")).to_be_visible()
     expect(page.locator("#admin-panel")).to_be_visible()
     expect(page.locator("#dashboard-metrics")).to_contain_text("Active")
     expect(page.locator("#audit-log")).to_contain_text("booking-created")
@@ -187,32 +226,17 @@ def test_admin_calendar_and_retry_idempotency_are_responsive(page: Page) -> None
     assert datetime.fromisoformat(
         cleanup_requests[0]["before"].replace("Z", "+00:00")
     ) == (datetime.fromisoformat(cleanup_before).astimezone(UTC))
-    page.locator("#timezone").select_option("UTC")
-    expect(page.locator(".calendar-entry")).to_have_count(2)
-
-    page.get_by_role("button", name="Desk 17").last.click()
-    page.locator("#starts-at").fill(start.astimezone().strftime("%Y-%m-%dT%H:%M"))
-    page.locator("#ends-at").fill(
-        (start + timedelta(hours=1)).astimezone().strftime("%Y-%m-%dT%H:%M")
-    )
-    page.get_by_role("button", name="Check availability").click()
-    expect(page.locator("#resource-status")).to_have_text("Available for this interval")
-
-    page.get_by_role("button", name="Mark this time").click()
-    expect(page.locator("#booking-response")).to_contain_text("retry later")
-    page.get_by_role("button", name="Mark this time").click()
-    expect(page.locator("#booking-response")).to_contain_text("retry later")
-    assert booking_attempts[0] == booking_attempts[1]
-
-    page.locator("#ends-at").fill(
-        (start + timedelta(hours=2)).astimezone().strftime("%Y-%m-%dT%H:%M")
-    )
-    page.get_by_role("button", name="Mark this time").click()
-    expect(page.locator("#booking-response")).to_contain_text("accepted")
-    assert booking_attempts[2] != booking_attempts[1]
 
     page.set_viewport_size({"width": 390, "height": 844})
     overflow: dict[str, Any] = page.evaluate(
+        """() => ({
+          documentWidth: document.documentElement.scrollWidth,
+          viewportWidth: window.innerWidth,
+        })"""
+    )
+    assert overflow["documentWidth"] <= overflow["viewportWidth"]
+    page.set_viewport_size({"width": 320, "height": 720})
+    overflow = page.evaluate(
         """() => ({
           documentWidth: document.documentElement.scrollWidth,
           viewportWidth: window.innerWidth,
@@ -227,6 +251,8 @@ def test_resource_extensions_use_filters_and_idempotent_booking_operations(
     base_url = os.environ["WORKPLACE_E2E_URL"].rstrip("/")
     start = datetime.now(UTC).replace(microsecond=0) + timedelta(hours=2)
     end = start + timedelta(hours=1)
+    past_start = start - timedelta(days=7)
+    past_end = end - timedelta(days=7)
     resource_queries: list[dict[str, list[str]]] = []
     recurring_keys: list[str] = []
     reschedule_keys: list[str] = []
@@ -337,7 +363,21 @@ def test_resource_extensions_use_filters_and_idempotent_booking_operations(
                         "status": "booked",
                         "series_id": "series-1",
                         "occurrence_index": 1,
-                    }
+                    },
+                    {
+                        "id": "booking-past",
+                        "resource_id": "desk-17",
+                        "starts_at": past_start.isoformat(),
+                        "ends_at": past_end.isoformat(),
+                        "status": "booked",
+                    },
+                    {
+                        "id": "booking-cancelled",
+                        "resource_id": "desk-17",
+                        "starts_at": past_start.isoformat(),
+                        "ends_at": past_end.isoformat(),
+                        "status": "cancelled",
+                    },
                 ]
             )
         elif path.startswith("availability?"):
@@ -351,6 +391,9 @@ def test_resource_extensions_use_filters_and_idempotent_booking_operations(
 
     page.route("**/api/**", api)
     page.goto(f"{base_url}/web/")
+    expect(page.get_by_role("button", name="Reserve space")).to_have_attribute(
+        "aria-current", "page"
+    )
     expect(page.locator("#resource-list")).to_contain_text("Desk 17")
     expect(page.locator("#floorplan [data-id='room-03']")).to_be_hidden()
 
@@ -393,6 +436,7 @@ def test_resource_extensions_use_filters_and_idempotent_booking_operations(
     page.get_by_role("button", name="Desk 17").last.click()
     page.locator("#starts-at").fill(start.astimezone().strftime("%Y-%m-%dT%H:%M"))
     page.locator("#ends-at").fill(end.astimezone().strftime("%Y-%m-%dT%H:%M"))
+    page.locator(".recurrence-panel summary").click()
     page.locator("#recurrence").select_option("weekly")
     page.locator("#recurrence-count").fill("2")
     page.get_by_role("button", name="Book recurring time").click()
@@ -400,6 +444,10 @@ def test_resource_extensions_use_filters_and_idempotent_booking_operations(
     page.get_by_role("button", name="Book recurring time").click()
     assert recurring_keys[0] == recurring_keys[1]
 
+    page.get_by_role("button", name="My schedule").click()
+    expect(page.locator("#schedule-workspace")).to_be_visible()
+    expect(page.locator(".booking-history summary")).to_contain_text("(2)")
+    expect(page.locator(".booking-history .booking-actions button")).to_have_count(0)
     page.get_by_role("button", name="Reschedule").click()
     reschedule_start = (
         (start + timedelta(days=1)).astimezone().strftime("%Y-%m-%dT%H:%M")
@@ -417,16 +465,22 @@ def test_resource_extensions_use_filters_and_idempotent_booking_operations(
     assert cancellation_requests[0][1] == {"scope": "entire-series"}
     assert cancellation_requests[0][0]
 
+    page.get_by_role("button", name="Facilities").click()
+    expect(page.locator("#facilities-workspace")).to_be_visible()
     page.locator("#office-policy-form input[name='opens_at']").fill("09:00")
     page.get_by_role("button", name="Save office policy").click()
     expect(page.locator("#office-policy-response")).to_contain_text("updated")
     assert policy_changes[0]["opens_at"] == "09:00"
 
+    desk_control = page.locator(".resource-control").filter(has_text="Desk 17")
+    desk_control.locator("summary").click()
     page.locator("#resource-edit-name-desk-17").fill("Desk 17A")
     page.get_by_role("button", name="Save Desk 17").click()
     expect(page.locator("#resource-response")).to_contain_text("updated")
     page.get_by_role("button", name="Deactivate Desk 17").click()
     expect(page.locator("#resource-response")).to_contain_text("deactivated")
+    room_control = page.locator(".resource-control").filter(has_text="Meet 03")
+    room_control.locator("summary").click()
     page.get_by_role("button", name="Reactivate Meet 03").click()
     expect(page.locator("#resource-response")).to_contain_text("reactivated")
     assert (
@@ -445,3 +499,93 @@ def test_resource_extensions_use_filters_and_idempotent_booking_operations(
     ) in resource_changes
     assert ("DELETE", "resources/desk-17", None) in resource_changes
     assert ("PATCH", "resources/room-03", {"active": True}) in resource_changes
+
+
+def test_latest_resource_and_availability_requests_own_the_view(page: Page) -> None:
+    base_url = os.environ["WORKPLACE_E2E_URL"].rstrip("/")
+    page.route(
+        "**/assets/keycloak.js",
+        lambda route: route.fulfill(
+            content_type="text/javascript",
+            body="""
+                export default class Keycloak {
+                  constructor() {
+                    this.token = "test-token";
+                    this.tokenParsed = {
+                      preferred_username: "north.employee",
+                      tenant_id: "tenant-north",
+                    };
+                    this.resourceAccess = {};
+                  }
+                  async init() { return true; }
+                  async updateToken() { return false; }
+                  logout() {}
+                }
+            """,
+        ),
+    )
+    page.route("**/api/**", lambda route: route.fulfill(json=[]))
+    page.goto(f"{base_url}/web/")
+    expect(page.locator("#api-status")).to_have_text("GATEWAY LINKED")
+    expect(page.locator("[data-workspace='facilities']")).to_be_hidden()
+    expect(page.locator("#facilities-workspace")).to_be_hidden()
+
+    resource_ids: list[str] = page.locator("workplace-app").evaluate(
+        """async (app) => {
+          const resolvers = [];
+          app.api.request = (path) => {
+            if (!path.startsWith("/api/resources")) return Promise.resolve([]);
+            return new Promise((resolve) => resolvers.push(resolve));
+          };
+          const older = app.loadResources();
+          const newer = app.loadResources();
+          resolvers[1]([{id: "newer", name: "Newer result", active: true}]);
+          await newer;
+          resolvers[0]([{id: "older", name: "Older result", active: true}]);
+          await older;
+          await app.updateComplete;
+          return app.resources.map((resource) => resource.id);
+        }"""
+    )
+    assert resource_ids == ["newer"]
+
+    availability_state: dict[str, Any] = page.locator("workplace-app").evaluate(
+        """async (app) => {
+          const first = {
+            id: "desk-a", name: "Desk A", office_id: "north", active: true,
+          };
+          const second = {
+            id: "desk-b", name: "Desk B", office_id: "north", active: true,
+          };
+          app.resources = [first, second];
+          app.selectResource(first);
+          app.bookingStarts = "2026-09-03T09:00";
+          app.bookingEnds = "2026-09-03T10:00";
+          let resolveAvailability;
+          app.api.request = (path) => {
+            if (path.startsWith("/api/availability")) {
+              return new Promise((resolve) => { resolveAvailability = resolve; });
+            }
+            return Promise.resolve({
+              opens_at: "08:00", closes_at: "18:00", time_zone: "UTC",
+            });
+          };
+          const pending = app.checkAvailability();
+          app.selectResource(second);
+          resolveAvailability([
+            {resource_id: "desk-a", available: true, conflicting_booking_ids: []},
+          ]);
+          await pending;
+          await app.updateComplete;
+          return {
+            selected: app.selected.id,
+            availability: app.availability,
+            busy: app.availabilityBusy,
+          };
+        }"""
+    )
+    assert availability_state == {
+        "selected": "desk-b",
+        "availability": None,
+        "busy": False,
+    }

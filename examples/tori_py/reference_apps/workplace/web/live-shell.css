@@ -48,9 +48,14 @@
 
 @media (max-width: 640px) {
   .liveview-bridge {
+    display: grid;
+    grid-template-columns: 1fr auto;
     gap: 0.45rem 0.75rem;
+    padding: 0.45rem 0.75rem;
   }
 
+  .liveview-bridge-label,
+  #liveview-bridge-checks,
   .liveview-bridge-detail {
     display: none;
   }

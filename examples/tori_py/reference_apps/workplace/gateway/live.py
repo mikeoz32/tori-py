@@ -41,7 +41,7 @@ class WorkplaceLive(LiveView):
         )
 
     def title(self) -> str:
-        return "Tori Space - workplace control desk"
+        return "Tori Space - workplace atlas"
 
     def render_document(self, live_root: str, client_script: str) -> str:
         return (

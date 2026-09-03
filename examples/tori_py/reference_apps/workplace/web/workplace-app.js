@@ -22,6 +22,23 @@ const EMPTY_RESOURCE_FILTERS = Object.freeze({
   availability_from: "",
   availability_to: "",
 });
+const WORKSPACES = Object.freeze({
+  reserve: {
+    eyebrow: "Building N / Level 03",
+    title: "Choose where work happens.",
+    description: "Find the right setting, check a time, and reserve it without leaving the floor plan.",
+  },
+  schedule: {
+    eyebrow: "Personal schedule",
+    title: "Make the week legible.",
+    description: "See every reservation in local time, then check in, reschedule, or cancel from one place.",
+  },
+  facilities: {
+    eyebrow: "Facilities operations",
+    title: "Keep the workplace moving.",
+    description: "Manage spaces and office policy while monitoring delivery health and the audit trail.",
+  },
+});
 
 function equipmentFrom(value) {
   return String(value ?? "")
@@ -85,6 +102,7 @@ export class WorkplaceApp extends LitElement {
     officePolicyMessage: {state: true},
     selectedOfficePolicy: {state: true},
     cancellationBusy: {state: true},
+    activeWorkspace: {state: true},
   };
 
   constructor(keycloak = createKeycloak()) {
@@ -145,11 +163,14 @@ export class WorkplaceApp extends LitElement {
     this.officePolicyMessage = {text: "", error: false};
     this.selectedOfficePolicy = null;
     this.cancellationBusy = false;
+    this.activeWorkspace = "reserve";
     this.drag = null;
     this.idempotency = null;
     this.recurringIdempotency = null;
     this.rescheduleIdempotency = null;
     this.cancellationIdempotency = null;
+    this.resourcesGeneration = 0;
+    this.availabilityGeneration = 0;
     this.bookingsGeneration = 0;
 
     for (const method of [
@@ -191,6 +212,7 @@ export class WorkplaceApp extends LitElement {
       "previousPeriod",
       "nextPeriod",
       "today",
+      "changeWorkspace",
     ]) {
       this[method] = this[method].bind(this);
     }
@@ -264,6 +286,7 @@ export class WorkplaceApp extends LitElement {
   }
 
   async loadResources() {
+    const generation = ++this.resourcesGeneration;
     this.resourcesLoading = true;
     this.resourcesError = "";
     try {
@@ -283,15 +306,19 @@ export class WorkplaceApp extends LitElement {
       query.set("offset", String(this.resourceOffset));
       query.set("limit", String(this.resourcePageSize));
       const result = await this.api.request(`/api/resources${query.size ? `?${query}` : ""}`);
+      if (generation !== this.resourcesGeneration) return;
       this.resources = Array.isArray(result) ? result : result.items ?? [];
       this.resourceHasNext = this.resources.length === this.resourcePageSize;
       if (this.selected) {
         this.selected = this.resources.find((item) => item.id === this.selected.id) ?? null;
       }
     } catch (error) {
+      if (generation !== this.resourcesGeneration) return;
       this.resourcesError = error.message;
     } finally {
-      this.resourcesLoading = false;
+      if (generation === this.resourcesGeneration) {
+        this.resourcesLoading = false;
+      }
     }
   }
 
@@ -365,7 +392,7 @@ export class WorkplaceApp extends LitElement {
   selectResource(resource) {
     if (!resource) return;
     this.selected = resource;
-    this.availability = null;
+    this.clearAvailability();
     this.bookingMessage = {text: "", error: false};
     this.loadOfficePolicy(resource.office_id);
     if (!this.bookingStarts) {
@@ -376,6 +403,12 @@ export class WorkplaceApp extends LitElement {
       this.bookingEnds = localDateTimeValue(end);
     }
     this.updateComplete.then(() => this.querySelector("#starts-at")?.focus());
+  }
+
+  clearAvailability() {
+    this.availabilityGeneration += 1;
+    this.availabilityBusy = false;
+    this.availability = null;
   }
 
   async loadOfficePolicy(officeId) {
@@ -402,6 +435,8 @@ export class WorkplaceApp extends LitElement {
 
   async checkAvailability() {
     if (!this.selected || !isBookable(this.selected)) return;
+    const generation = ++this.availabilityGeneration;
+    const resourceId = this.selected.id;
     this.availabilityBusy = true;
     this.availability = null;
     try {
@@ -409,18 +444,22 @@ export class WorkplaceApp extends LitElement {
       const query = new URLSearchParams({
         starts_at: startsAt.toISOString(),
         ends_at: endsAt.toISOString(),
-        resource_id: this.selected.id,
+        resource_id: resourceId,
       });
       const result = await this.api.request(`/api/availability?${query}`);
+      if (generation !== this.availabilityGeneration) return;
       const rows = Array.isArray(result) ? result : result.items ?? [];
-      const row = rows.find((item) => item.resource_id === this.selected.id) ?? rows[0];
+      const row = rows.find((item) => item.resource_id === resourceId) ?? rows[0];
       this.availability = row?.available
         ? {text: "Available for this interval", open: true}
         : {text: "Unavailable for this interval", open: false};
     } catch (error) {
+      if (generation !== this.availabilityGeneration) return;
       this.availability = {text: error.message, open: false, error: true};
     } finally {
-      this.availabilityBusy = false;
+      if (generation === this.availabilityGeneration) {
+        this.availabilityBusy = false;
+      }
     }
   }
 
@@ -803,6 +842,13 @@ export class WorkplaceApp extends LitElement {
     this.loadBookings();
   }
 
+  changeWorkspace(event) {
+    const workspace = event.currentTarget.dataset.workspace;
+    if (workspace in WORKSPACES && (workspace !== "facilities" || this.admin)) {
+      this.activeWorkspace = workspace;
+    }
+  }
+
   zoomOut() {
     this.mapScale = Math.max(0.75, this.mapScale - 0.2);
   }
@@ -834,157 +880,253 @@ export class WorkplaceApp extends LitElement {
   }
 
   render() {
+    const workspace = WORKSPACES[this.activeWorkspace];
     return html`
-      <a class="skip-link" href="#resource-list">Skip map and go to resource list</a>
-      <header class="masthead">
-        <div class="wordmark"><span aria-hidden="true">⌑</span> TORI / SPACE</div>
-        <p class="desk-label">Workplace control desk <span>·</span> live reference</p>
-        <div class="identity">
-          <span class="signal" aria-hidden="true"></span>
-          <span id="identity-text">${this.actor}${this.initialized ? ` / ${this.tenant}` : ""}</span>
-          <button class="quiet-button" id="logout" type="button" ?hidden=${!this.initialized} @click=${this.logout}>Sign out</button>
-        </div>
-      </header>
+      <a class="skip-link" href="#workspace-content">Skip to workspace</a>
+      <div class="workspace-shell">
+        <aside class="workspace-sidebar">
+          <header class="masthead">
+            <div class="wordmark"><span aria-hidden="true">⌑</span><strong>TORI</strong> SPACE</div>
+            <p class="desk-label">Workplace atlas <span>/</span> 03</p>
+          </header>
 
-      <main>
-        <section class="intro" aria-labelledby="page-title">
-          <p class="eyebrow">Building N / level 03</p>
-          <h1 id="page-title">Find your working ground.</h1>
-          <p>Reserve a desk, room, or focus booth from the floor plan. The gateway receives UTC; the desk displays your chosen browser timezone.</p>
-        </section>
-
-        <section class="control-desk" aria-label="Floor plan and selected resource">
-          ${floorPlanTemplate(this)}
-          <aside class="inspector" aria-live="polite">
-            <p class="eyebrow">Selected resource</p>
-            <div id="selection-empty" ?hidden=${Boolean(this.selected)}>
-              <h2>Choose a marker</h2>
-              <p>Select a room or workstation on the plan, or use the accessible list below.</p>
-            </div>
-            <div id="selection" ?hidden=${!this.selected}>
-              <p class="status ${this.availability?.open ? "available" : ""} ${this.availability?.error ? "error" : ""}" id="resource-status">
-                ${!isBookable(this.selected)
-                  ? "Inactive resources cannot be booked"
-                  : this.availability?.text ?? "Set an interval to check availability"}
-              </p>
-              <h2 id="resource-name">${this.selected?.name ?? "—"}</h2>
-              <p id="resource-kind">${this.selected?.kind ?? "—"}</p>
-              <dl>
-                <div><dt>Floor</dt><dd>${this.selected?.office_id ?? "—"} / ${this.selected?.floor_id ?? "—"}</dd></div>
-                <div><dt>Capacity</dt><dd id="resource-capacity">${this.selected?.capacity ?? 1}</dd></div>
-                <div><dt>Equipment</dt><dd id="resource-equipment">${this.selected?.equipment?.join(" · ") || "None listed"}</dd></div>
-                <div><dt>Office hours</dt><dd id="resource-office-hours">${this.selectedOfficePolicy
-                  ? `${this.selectedOfficePolicy.opens_at}-${this.selectedOfficePolicy.closes_at} ${this.selectedOfficePolicy.time_zone}`
-                  : "Loading policy"}</dd></div>
-              </dl>
-              <form id="booking-form" @submit=${this.requestBooking}>
-                <label>Start (browser local time)
-                  <input
-                    id="starts-at"
-                    type="datetime-local"
-                    required
-                    .value=${this.bookingStarts}
-                    @input=${(event) => {
-                      this.bookingStarts = event.currentTarget.value;
-                      this.availability = null;
-                    }}
-                  >
-                </label>
-                <label>End (browser local time)
-                  <input
-                    id="ends-at"
-                    type="datetime-local"
-                    required
-                    .value=${this.bookingEnds}
-                    @input=${(event) => {
-                      this.bookingEnds = event.currentTarget.value;
-                      this.availability = null;
-                    }}
-                  >
-                </label>
-                <button
-                  class="secondary-button"
-                  id="availability-check"
-                  type="button"
-                  ?disabled=${this.availabilityBusy || !isBookable(this.selected)}
-                  @click=${this.checkAvailability}
-                >${this.availabilityBusy ? "Checking…" : "Check availability"}</button>
-                <button class="action-button" id="booking-submit" type="submit" ?disabled=${this.bookingBusy || !isBookable(this.selected)}>
-                  ${this.bookingBusy ? "Submitting…" : "Mark this time"}
-                </button>
-              </form>
-              <form id="recurring-booking-form" @submit=${this.requestRecurringBooking}>
-                <fieldset>
-                  <legend>Repeat this interval</legend>
-                  <label>Frequency
-                    <select id="recurrence" name="recurrence">
-                      <option value="daily">Daily</option>
-                      <option value="weekly">Weekly</option>
-                    </select>
-                  </label>
-                  <label>Occurrences (2–52)
-                    <input id="recurrence-count" name="occurrence_count" type="number" min="2" max="52" value="2" required>
-                  </label>
-                  <button class="secondary-button" type="submit" ?disabled=${this.recurringBusy || !isBookable(this.selected)}>
-                    ${this.recurringBusy ? "Submitting…" : "Book recurring time"}
-                  </button>
-                </fieldset>
-              </form>
-            </div>
-            <p class="response ${this.bookingMessage.error ? "error" : ""}" id="booking-response" role="status">${this.bookingMessage.text}</p>
-            ${adminPanelTemplate(this)}
-          </aside>
-        </section>
-
-        ${bookingCalendarTemplate(this)}
-        <section class="list-section" aria-labelledby="resource-list-title">
-          <div>
-            <p class="eyebrow">No-map alternative</p>
-            <h2 id="resource-list-title">Resource register</h2>
-          </div>
-          <form class="resource-filters" id="resource-filters" @submit=${this.applyResourceFilters}>
-            <label>Office<input id="resource-office-filter" .value=${this.resourceFilters.office_id} @input=${(event) => this.setResourceFilter("office_id", event)}></label>
-            <label>Floor<input id="resource-floor-filter" .value=${this.resourceFilters.floor_id} @input=${(event) => this.setResourceFilter("floor_id", event)}></label>
-            <label>Kind<select id="resource-kind-filter" .value=${this.resourceFilters.kind} @change=${(event) => this.setResourceFilter("kind", event)}><option value="">Any</option><option value="desk">Desk</option><option value="room">Room</option></select></label>
-            <label>Equipment<input id="resource-equipment-filter" placeholder="monitor, screen" .value=${this.resourceFilters.equipment} @input=${(event) => this.setResourceFilter("equipment", event)}></label>
-            <label>Minimum capacity<input id="resource-min-capacity-filter" type="number" min="1" .value=${this.resourceFilters.min_capacity} @input=${(event) => this.setResourceFilter("min_capacity", event)}></label>
-            <label>Available from<input id="availability-from-filter" type="datetime-local" .value=${this.resourceFilters.availability_from} @input=${(event) => this.setResourceFilter("availability_from", event)}></label>
-            <label>Available to<input id="availability-to-filter" type="datetime-local" .value=${this.resourceFilters.availability_to} @input=${(event) => this.setResourceFilter("availability_to", event)}></label>
-            <button class="secondary-button" type="submit">Apply resource filters</button>
-            <button class="secondary-button" id="clear-resource-filters" type="button" @click=${this.clearResourceFilters}>Clear resource filters</button>
-          </form>
-          <ul id="resource-list" aria-label="Workplace resources">
-            ${this.resourcesLoading
-              ? html`<li class="list-message">Loading resources…</li>`
-              : this.resourcesError
-                ? html`<li class="list-message error">Could not load resources: ${this.resourcesError}</li>`
-                : this.resources.length
-                  ? this.resources.map((resource) => html`
-                      <li class="resource-item">
-                        <button type="button" @click=${() => this.selectResource(resource)}>${resource.name ?? resource.id}</button>
-                        <small>${resource.kind ?? "resource"} · ${resource.office_id ?? "—"} / ${resource.floor_id ?? "—"} · ${resource.capacity ?? 1} seats · ${resource.equipment?.join(", ") || "no equipment"}${resource.active === false ? " · inactive" : ""}</small>
-                      </li>
-                    `)
-                  : html`<li class="list-message">No resources are registered for this tenant yet.</li>`}
-          </ul>
-          <nav class="resource-pagination" aria-label="Resource pages">
-            <button class="secondary-button" type="button" ?disabled=${this.resourceOffset === 0} @click=${this.previousResourcePage}>Previous resources</button>
-            <span>Page ${Math.floor(this.resourceOffset / this.resourcePageSize) + 1}</span>
-            <button class="secondary-button" type="button" ?disabled=${!this.resourceHasNext} @click=${this.nextResourcePage}>Next resources</button>
+          <nav id="workspace-navigation" class="workspace-navigation" aria-label="Workspace">
+            <p class="navigation-label">Workspace</p>
+            <button
+              type="button"
+              data-workspace="reserve"
+              aria-current=${this.activeWorkspace === "reserve" ? "page" : "false"}
+              @click=${this.changeWorkspace}
+            ><span>01</span><strong>Reserve space</strong><small>Map and availability</small></button>
+            <button
+              type="button"
+              data-workspace="schedule"
+              aria-current=${this.activeWorkspace === "schedule" ? "page" : "false"}
+              @click=${this.changeWorkspace}
+            ><span>02</span><strong>My schedule</strong><small>Calendar and bookings</small></button>
+            <button
+              type="button"
+              data-workspace="facilities"
+              aria-current=${this.activeWorkspace === "facilities" ? "page" : "false"}
+              ?hidden=${!this.admin}
+              @click=${this.changeWorkspace}
+            ><span>03</span><strong>Facilities</strong><small>Spaces and operations</small></button>
           </nav>
-        </section>
-        ${bookingListTemplate(this)}
-      </main>
 
-      <footer>
+          <div class="sidebar-status">
+            <span class="signal ${this.offline ? "offline" : ""}" aria-hidden="true"></span>
+            <div>
+              <small>${this.offline ? "Connection paused" : "Connected workspace"}</small>
+              <strong id="identity-text">${this.actor}</strong>
+              <span>${this.initialized ? this.tenant : "Checking identity"}</span>
+            </div>
+          </div>
+          <button class="sidebar-signout" id="logout" type="button" ?hidden=${!this.initialized} @click=${this.logout}>Sign out</button>
+        </aside>
+
+        <main id="workspace-content" class="workspace-content">
+          <header class="workspace-intro" aria-labelledby="page-title">
+            <div>
+              <p class="eyebrow">${workspace.eyebrow}</p>
+              <h1 id="page-title">${workspace.title}</h1>
+              <p>${workspace.description}</p>
+            </div>
+            <dl class="workspace-context" aria-label="Current workspace context">
+              <div><dt>Office</dt><dd>Building N</dd></div>
+              <div><dt>Floor</dt><dd>Level 03</dd></div>
+              <div><dt>Timezone</dt><dd>${this.timeZone}</dd></div>
+            </dl>
+          </header>
+
+          <section
+            id="reserve-workspace"
+            class="workspace-view reserve-workspace"
+            aria-label="Reserve a workplace resource"
+            ?hidden=${this.activeWorkspace !== "reserve"}
+          >
+            <div class="workspace-toolbar">
+              <div><span class="toolbar-kicker">Live floor</span><strong>N.03 workplace plan</strong></div>
+              <p>${this.resourcesLoading ? "Loading spaces" : `${this.resources.length} spaces in this view`}</p>
+            </div>
+            <section class="control-desk" aria-label="Floor plan and selected resource">
+              ${floorPlanTemplate(this)}
+              <aside class="inspector">
+                <p class="eyebrow">Reservation composer</p>
+                <div id="selection-empty" class="selection-empty" ?hidden=${Boolean(this.selected)}>
+                  <span class="selection-number" aria-hidden="true">01</span>
+                  <h2>Start with a space.</h2>
+                  <p>Choose a marker on the plan or select a result from the directory below.</p>
+                  <ol>
+                    <li>Pick a desk or room</li>
+                    <li>Set your local time</li>
+                    <li>Check and reserve</li>
+                  </ol>
+                </div>
+                <div id="selection" ?hidden=${!this.selected}>
+                  <p class="status ${this.availability?.open ? "available" : ""} ${this.availability?.error ? "error" : ""}" id="resource-status" role="status">
+                    ${!isBookable(this.selected)
+                      ? "Inactive resources cannot be booked"
+                      : this.availability?.text ?? "Set a time to check availability"}
+                  </p>
+                  <div class="resource-title-row">
+                    <div>
+                      <h2 id="resource-name">${this.selected?.name ?? "—"}</h2>
+                      <p id="resource-kind">${this.selected?.kind ?? "—"}</p>
+                    </div>
+                    <span>${this.selected?.capacity ?? 1} seat${this.selected?.capacity === 1 ? "" : "s"}</span>
+                  </div>
+                  <dl class="resource-facts">
+                    <div><dt>Location</dt><dd>${this.selected?.office_id ?? "—"} / ${this.selected?.floor_id ?? "—"}</dd></div>
+                    <div><dt>Capacity</dt><dd id="resource-capacity">${this.selected?.capacity ?? 1}</dd></div>
+                    <div><dt>Equipment</dt><dd id="resource-equipment">${this.selected?.equipment?.join(" · ") || "None listed"}</dd></div>
+                    <div><dt>Office hours</dt><dd id="resource-office-hours">${this.selectedOfficePolicy
+                      ? `${this.selectedOfficePolicy.opens_at}-${this.selectedOfficePolicy.closes_at} ${this.selectedOfficePolicy.time_zone}`
+                      : "Loading policy"}</dd></div>
+                  </dl>
+                  <form id="booking-form" class="booking-form" @submit=${this.requestBooking}>
+                    <label>Starts
+                      <input
+                        id="starts-at"
+                        type="datetime-local"
+                        required
+                        .value=${this.bookingStarts}
+                        @input=${(event) => {
+                          this.bookingStarts = event.currentTarget.value;
+                          this.clearAvailability();
+                        }}
+                      >
+                    </label>
+                    <label>Ends
+                      <input
+                        id="ends-at"
+                        type="datetime-local"
+                        required
+                        .value=${this.bookingEnds}
+                        @input=${(event) => {
+                          this.bookingEnds = event.currentTarget.value;
+                          this.clearAvailability();
+                        }}
+                      >
+                    </label>
+                    <button
+                      class="secondary-button"
+                      id="availability-check"
+                      type="button"
+                      ?disabled=${this.availabilityBusy || !isBookable(this.selected)}
+                      @click=${this.checkAvailability}
+                    >${this.availabilityBusy ? "Checking…" : "Check availability"}</button>
+                    <button class="action-button" id="booking-submit" type="submit" ?disabled=${this.bookingBusy || !isBookable(this.selected)}>
+                      ${this.bookingBusy ? "Reserving…" : "Reserve this time"}
+                    </button>
+                  </form>
+                  <details class="recurrence-panel">
+                    <summary>Make it recurring</summary>
+                    <form id="recurring-booking-form" @submit=${this.requestRecurringBooking}>
+                      <fieldset>
+                        <legend>Repeat this interval</legend>
+                        <label>Frequency
+                          <select id="recurrence" name="recurrence">
+                            <option value="daily">Daily</option>
+                            <option value="weekly">Weekly</option>
+                          </select>
+                        </label>
+                        <label>Occurrences (2–52)
+                          <input id="recurrence-count" name="occurrence_count" type="number" min="2" max="52" value="2" required>
+                        </label>
+                        <button class="secondary-button" type="submit" ?disabled=${this.recurringBusy || !isBookable(this.selected)}>
+                          ${this.recurringBusy ? "Submitting…" : "Book recurring time"}
+                        </button>
+                      </fieldset>
+                    </form>
+                  </details>
+                </div>
+                <p class="response ${this.bookingMessage.error ? "error" : ""}" id="booking-response" role="status">${this.bookingMessage.text}</p>
+              </aside>
+            </section>
+
+            <section class="list-section" aria-labelledby="resource-list-title">
+              <div class="section-heading">
+                <div>
+                  <p class="eyebrow">Space directory</p>
+                  <h2 id="resource-list-title">Find by what you need.</h2>
+                </div>
+                <p>Filter across location, capacity, equipment, and a precise availability window.</p>
+              </div>
+              <details class="filter-drawer" open>
+                <summary>Search filters</summary>
+                <form class="resource-filters" id="resource-filters" @submit=${this.applyResourceFilters}>
+                  <label>Office<input id="resource-office-filter" .value=${this.resourceFilters.office_id} @input=${(event) => this.setResourceFilter("office_id", event)}></label>
+                  <label>Floor<input id="resource-floor-filter" .value=${this.resourceFilters.floor_id} @input=${(event) => this.setResourceFilter("floor_id", event)}></label>
+                  <label>Kind<select id="resource-kind-filter" .value=${this.resourceFilters.kind} @change=${(event) => this.setResourceFilter("kind", event)}><option value="">Any</option><option value="desk">Desk</option><option value="room">Room</option></select></label>
+                  <label>Equipment<input id="resource-equipment-filter" placeholder="monitor, screen" .value=${this.resourceFilters.equipment} @input=${(event) => this.setResourceFilter("equipment", event)}></label>
+                  <label>Minimum capacity<input id="resource-min-capacity-filter" type="number" min="1" .value=${this.resourceFilters.min_capacity} @input=${(event) => this.setResourceFilter("min_capacity", event)}></label>
+                  <label>Available from<input id="availability-from-filter" type="datetime-local" .value=${this.resourceFilters.availability_from} @input=${(event) => this.setResourceFilter("availability_from", event)}></label>
+                  <label>Available to<input id="availability-to-filter" type="datetime-local" .value=${this.resourceFilters.availability_to} @input=${(event) => this.setResourceFilter("availability_to", event)}></label>
+                  <button class="action-button" type="submit">Apply resource filters</button>
+                  <button class="quiet-button" id="clear-resource-filters" type="button" @click=${this.clearResourceFilters}>Clear resource filters</button>
+                </form>
+              </details>
+              <ul id="resource-list" aria-label="Workplace resources">
+                ${this.resourcesLoading
+                  ? html`<li class="list-message">Loading resources…</li>`
+                  : this.resourcesError
+                    ? html`<li class="list-message error">Could not load resources: ${this.resourcesError}</li>`
+                    : this.resources.length
+                      ? this.resources.map((resource) => html`
+                          <li class="resource-item ${resource.active === false ? "inactive" : ""}">
+                            <button
+                              type="button"
+                              aria-label=${resource.name ?? resource.id}
+                              @click=${() => this.selectResource(resource)}
+                            >
+                              <span class="resource-kind-badge">${resource.kind ?? "space"}</span>
+                              <strong>${resource.name ?? resource.id}</strong>
+                              <small>${resource.office_id ?? "—"} / ${resource.floor_id ?? "—"}</small>
+                              <span class="resource-capacity">${resource.capacity ?? 1} seat${resource.capacity === 1 ? "" : "s"}</span>
+                              <span class="resource-equipment">${resource.equipment?.join(" · ") || "No equipment listed"}${resource.active === false ? " · inactive" : ""}</span>
+                            </button>
+                          </li>
+                        `)
+                      : html`<li class="list-message">No resources match this view.</li>`}
+              </ul>
+              <nav class="resource-pagination" aria-label="Resource pages">
+                <button class="secondary-button" type="button" ?disabled=${this.resourceOffset === 0} @click=${this.previousResourcePage}>Previous resources</button>
+                <span>Page ${Math.floor(this.resourceOffset / this.resourcePageSize) + 1}</span>
+                <button class="secondary-button" type="button" ?disabled=${!this.resourceHasNext} @click=${this.nextResourcePage}>Next resources</button>
+              </nav>
+            </section>
+          </section>
+
+          <section
+            id="schedule-workspace"
+            class="workspace-view schedule-workspace"
+            aria-label="My booking schedule"
+            ?hidden=${this.activeWorkspace !== "schedule"}
+          >
+            ${bookingCalendarTemplate(this)}
+            ${bookingListTemplate(this)}
+          </section>
+
+          <section
+            id="facilities-workspace"
+            class="workspace-view facilities-workspace"
+            aria-label="Facilities workspace"
+            ?hidden=${this.activeWorkspace !== "facilities" || !this.admin}
+          >
+            ${adminPanelTemplate(this)}
+          </section>
+        </main>
+      </div>
+
+      <footer class="workspace-footer">
         <span>TORI SPACE / LOCAL REFERENCE</span>
         <span id="api-status" role="status">${this.offline
-          ? "OFFLINE — CHANGES PAUSED"
+          ? "OFFLINE / CHANGES PAUSED"
           : this.resourcesError
             ? "GATEWAY UNAVAILABLE"
             : this.initialized
               ? "GATEWAY LINKED"
-              : "Awaiting gateway"}</span>
+              : "AWAITING GATEWAY"}</span>
         <span>NOT A BUILDING SAFETY SYSTEM</span>
       </footer>
     `;

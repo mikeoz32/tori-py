@@ -11,6 +11,13 @@ export function formatRange(start, end, timeZone) {
   })}-${formatDate(end, timeZone, { hour: "numeric", minute: "2-digit" })}`;
 }
 
+export function bookingResourceName(booking, resources) {
+  return booking.resource_name
+    ?? resources.find((resource) => resource.id === booking.resource_id)?.name
+    ?? booking.resource_id
+    ?? "Resource";
+}
+
 function zonedParts(date, timeZone) {
   return Object.fromEntries(
     new Intl.DateTimeFormat("en", {
