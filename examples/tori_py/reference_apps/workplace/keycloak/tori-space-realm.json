@@ -90,7 +90,12 @@
       "directAccessGrantsEnabled": false,
       "serviceAccountsEnabled": false,
       "authorizationServicesEnabled": false,
-      "redirectUris": ["http://localhost:8010/web/", "http://127.0.0.1:8010/web/"],
+      "redirectUris": [
+        "http://localhost:8010/web/",
+        "http://127.0.0.1:8010/web/",
+        "http://localhost:8010/live/workplace",
+        "http://127.0.0.1:8010/live/workplace"
+      ],
       "webOrigins": ["http://localhost:8010", "http://127.0.0.1:8010"],
       "defaultClientScopes": ["profile", "email", "roles", "tenant-id", "tori-space-api-audience"],
       "optionalClientScopes": []
