@@ -5,11 +5,348 @@ from typing import Any, cast
 
 import pytest
 from tori_py_liveview import html, raw
-from tori_py_liveview_ui import alert, badge, button, card, grid, stack
+from tori_py_liveview_ui import (
+    alert,
+    badge,
+    button,
+    card,
+    checkbox,
+    field,
+    field_error,
+    form,
+    grid,
+    input,
+    select,
+    stack,
+    textarea,
+)
 
 
 def _render(template: Template) -> str:
     return html(template).to_html()
+
+
+def test_form_renders_phoenix_events_target_and_escaped_content() -> None:
+    result = _render(
+        form(
+            "<fields>",
+            id="profile-form",
+            change_event="validate",
+            submit_event="save",
+            target=7,
+        )
+    )
+
+    assert result == (
+        '<form id="profile-form" method="post" class="tori-ui-form" '
+        'phx-change="validate" phx-submit="save" phx-target="7">'
+        "&lt;fields&gt;</form>"
+    )
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "error", "message"),
+    [
+        ({"id": ""}, ValueError, "form id cannot be empty"),
+        ({"id": "profile form"}, ValueError, "form id cannot contain whitespace"),
+        (
+            {"id": "profile", "change_event": ""},
+            ValueError,
+            "form change event cannot be empty",
+        ),
+        (
+            {"id": "profile", "submit_event": ""},
+            ValueError,
+            "form submit event cannot be empty",
+        ),
+        (
+            {"id": "profile", "target": 1},
+            ValueError,
+            "form target requires an event",
+        ),
+        (
+            {"id": "profile", "submit_event": "save", "target": 0},
+            ValueError,
+            "form target must be a positive safe integer",
+        ),
+        ({"id": 1}, TypeError, "form id must be a string"),
+        (
+            {"id": "profile", "submit_event": 1},
+            TypeError,
+            "form submit event must be a string or None",
+        ),
+    ],
+)
+def test_form_rejects_invalid_bindings(
+    kwargs: dict[str, Any], error: type[Exception], message: str
+) -> None:
+    with pytest.raises(error, match=message):
+        form("Fields", **kwargs)
+
+
+def test_field_composes_an_accessible_label_help_and_error() -> None:
+    control = (
+        t'<input id="email" required aria-invalid="true" '
+        t'aria-describedby="email-help email-error">'
+    )
+
+    assert _render(
+        field(
+            "Email <address>",
+            control,
+            control_id="email",
+            help_text="Used for notices",
+            error="Enter a valid address",
+            required=True,
+        )
+    ) == (
+        '<div class="tori-ui-field tori-ui-field--invalid">'
+        '<label class="tori-ui-field__label" for="email">'
+        'Email &lt;address&gt;<span class="tori-ui-field__required" '
+        'aria-hidden="true"> *</span></label>'
+        '<input id="email" required aria-invalid="true" '
+        'aria-describedby="email-help email-error">'
+        '<p id="email-help" class="tori-ui-field__help">Used for notices</p>'
+        '<p id="email-error" class="tori-ui-field__error" role="alert">'
+        "Enter a valid address</p></div>"
+    )
+
+
+def test_field_error_renders_escaped_live_validation_feedback() -> None:
+    assert _render(field_error("Name must not contain <", id="name-error")) == (
+        '<p id="name-error" class="tori-ui-field__error" role="alert">'
+        "Name must not contain &lt;</p>"
+    )
+
+
+def test_input_renders_a_complete_accessible_live_field() -> None:
+    assert _render(
+        input(
+            "Email",
+            id="profile-email",
+            name="profile[email]",
+            value='person@example.test"',
+            input_type="email",
+            placeholder="you@example.test",
+            autocomplete="email",
+            help_text="Where notices are sent",
+            error="Address is invalid",
+            required=True,
+            change_event="validate",
+            blur_event="validate",
+            target=4,
+        )
+    ) == (
+        '<div class="tori-ui-field tori-ui-field--invalid">'
+        '<label class="tori-ui-field__label" for="profile-email">Email'
+        '<span class="tori-ui-field__required" aria-hidden="true"> *</span></label>'
+        '<input type="email" id="profile-email" name="profile[email]" '
+        'class="tori-ui-input" value="person@example.test&quot;" '
+        'placeholder="you@example.test" autocomplete="email" required '
+        'aria-invalid="true" '
+        'aria-describedby="profile-email-help profile-email-error" '
+        'phx-change="validate" phx-blur="validate" phx-target="4">'
+        '<p id="profile-email-help" class="tori-ui-field__help">'
+        "Where notices are sent</p>"
+        '<p id="profile-email-error" class="tori-ui-field__error" role="alert">'
+        "Address is invalid</p></div>"
+    )
+
+
+def test_textarea_renders_rows_value_and_accessible_help() -> None:
+    assert _render(
+        textarea(
+            "Biography",
+            id="profile-bio",
+            name="profile[bio]",
+            value="<builder>",
+            rows=6,
+            placeholder="Tell us about yourself",
+            help_text="Plain text only",
+            blur_event="validate",
+        )
+    ) == (
+        '<div class="tori-ui-field"><label class="tori-ui-field__label" '
+        'for="profile-bio">Biography</label>'
+        '<textarea id="profile-bio" name="profile[bio]" '
+        'class="tori-ui-textarea" rows="6" placeholder="Tell us about yourself" '
+        'aria-describedby="profile-bio-help" phx-blur="validate">'
+        "&lt;builder&gt;</textarea>"
+        '<p id="profile-bio-help" class="tori-ui-field__help">'
+        "Plain text only</p></div>"
+    )
+
+
+def test_select_renders_prompt_options_and_selected_value() -> None:
+    assert _render(
+        select(
+            "Role",
+            [("member", "Member"), ("admin", "<Administrator>")],
+            id="profile-role",
+            name="profile[role]",
+            value="admin",
+            prompt="Choose a role",
+            required=True,
+            change_event="validate",
+        )
+    ) == (
+        '<div class="tori-ui-field"><label class="tori-ui-field__label" '
+        'for="profile-role">Role<span class="tori-ui-field__required" '
+        'aria-hidden="true"> *</span></label>'
+        '<select id="profile-role" name="profile[role]" class="tori-ui-select" '
+        'required phx-change="validate">'
+        '<option value="">Choose a role</option>'
+        '<option value="member">Member</option>'
+        '<option value="admin" selected>&lt;Administrator&gt;</option>'
+        "</select></div>"
+    )
+
+
+def test_checkbox_renders_checked_value_and_accessible_label() -> None:
+    assert _render(
+        checkbox(
+            "Accept terms",
+            id="profile-terms",
+            name="profile[terms]",
+            value="accepted",
+            checked=True,
+            help_text="Required to continue",
+            required=True,
+            change_event="validate",
+        )
+    ) == (
+        '<div class="tori-ui-field"><div class="tori-ui-checkbox">'
+        '<input type="checkbox" id="profile-terms" name="profile[terms]" '
+        'class="tori-ui-checkbox__control" value="accepted" checked required '
+        'aria-describedby="profile-terms-help" phx-change="validate">'
+        '<label class="tori-ui-checkbox__label" for="profile-terms">'
+        'Accept terms<span class="tori-ui-field__required" '
+        'aria-hidden="true"> *</span></label></div>'
+        '<p id="profile-terms-help" class="tori-ui-field__help">'
+        "Required to continue</p></div>"
+    )
+
+
+@pytest.mark.parametrize(
+    ("component", "args", "kwargs", "error", "message"),
+    [
+        (field, ("", "Control"), {"control_id": "name"}, ValueError, "field label"),
+        (
+            field,
+            ("   ", "Control"),
+            {"control_id": "name"},
+            ValueError,
+            "field label",
+        ),
+        (
+            field,
+            ("Name", "Control"),
+            {"control_id": "name", "required": 1},
+            TypeError,
+            "field required must be a boolean",
+        ),
+        (
+            field_error,
+            ("",),
+            {"id": "name-error"},
+            ValueError,
+            "field error message",
+        ),
+        (
+            input,
+            ("Name",),
+            {"id": "name", "name": "", "input_type": "text"},
+            ValueError,
+            "input name",
+        ),
+        (
+            input,
+            ("Name",),
+            {"id": "name", "name": "name", "input_type": "color"},
+            ValueError,
+            "input type",
+        ),
+        (
+            input,
+            ("Name",),
+            {"id": "name", "name": "name", "disabled": 1},
+            TypeError,
+            "input disabled must be a boolean",
+        ),
+        (
+            input,
+            ("Name",),
+            {"id": "name", "name": "name", "value": object()},
+            TypeError,
+            "input value must be a string, number, or None",
+        ),
+        (
+            input,
+            ("Name",),
+            {"id": "name", "name": "name", "error": ""},
+            ValueError,
+            "input error cannot be empty",
+        ),
+        (
+            textarea,
+            ("Biography",),
+            {"id": "bio", "name": "bio", "rows": 0},
+            ValueError,
+            "textarea rows must be between 1 and 100",
+        ),
+        (
+            textarea,
+            ("Biography",),
+            {"id": "bio", "name": "bio", "rows": True},
+            TypeError,
+            "textarea rows must be an integer",
+        ),
+        (
+            textarea,
+            ("Biography",),
+            {"id": "bio", "name": "bio", "value": None},
+            TypeError,
+            "textarea value must be a string",
+        ),
+        (
+            select,
+            ("Role", [(1, "Admin")]),
+            {"id": "role", "name": "role"},
+            TypeError,
+            "select option values must be strings",
+        ),
+        (
+            select,
+            ("Role", [("admin",)]),
+            {"id": "role", "name": "role"},
+            TypeError,
+            "select options must be two-item tuples",
+        ),
+        (
+            checkbox,
+            ("Terms",),
+            {"id": "terms", "name": "terms", "checked": 1},
+            TypeError,
+            "checkbox checked must be a boolean",
+        ),
+        (
+            checkbox,
+            ("Terms",),
+            {"id": "terms", "name": "terms", "target": 1},
+            ValueError,
+            "checkbox target requires an event",
+        ),
+    ],
+)
+def test_form_components_reject_invalid_contract_values(
+    component: Any,
+    args: tuple[Any, ...],
+    kwargs: dict[str, Any],
+    error: type[Exception],
+    message: str,
+) -> None:
+    with pytest.raises(error, match=message):
+        component(*args, **kwargs)
 
 
 def test_button_renders_closed_options_events_and_escaped_content() -> None:
@@ -146,6 +483,17 @@ def test_layout_components_reject_open_ended_options(
 
 
 def test_every_component_returns_a_template() -> None:
+    assert isinstance(form("Fields", id="profile"), Template)
+    assert isinstance(field("Name", "Control", control_id="profile-name"), Template)
+    assert isinstance(field_error("Required", id="profile-name-error"), Template)
+    assert isinstance(input("Name", id="profile-name", name="profile[name]"), Template)
+    assert isinstance(textarea("Bio", id="profile-bio", name="profile[bio]"), Template)
+    assert isinstance(
+        select("Role", [], id="profile-role", name="profile[role]"), Template
+    )
+    assert isinstance(
+        checkbox("Terms", id="profile-terms", name="profile[terms]"), Template
+    )
     assert isinstance(button("Save"), Template)
     assert isinstance(badge("Ready"), Template)
     assert isinstance(alert("Ready"), Template)

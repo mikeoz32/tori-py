@@ -1,4 +1,4 @@
-/* Tori UI: an editorial instrument panel for server-rendered interfaces. */
+/* Tori UI: a skinnable foundation for server-rendered interfaces. */
 :root,
 [data-tori-ui-theme="light"],
 [data-tori-ui-theme="auto"] {
@@ -17,13 +17,6 @@
   --tori-ui-success: #2f7450;
   --tori-ui-warning: #9a640b;
   --tori-ui-shadow-color: rgb(45 36 24 / 0.16);
-  --tori-ui-shadow: 4px 4px 0 var(--tori-ui-shadow-color);
-  --tori-ui-font-display: "Iowan Old Style", "Palatino Linotype",
-    "Book Antiqua", Georgia, serif;
-  --tori-ui-font-body: "Avenir Next", Avenir, "Century Gothic",
-    "Trebuchet MS", sans-serif;
-  --tori-ui-font-code: "Cascadia Code", "IBM Plex Mono", Consolas,
-    monospace;
 }
 
 [data-tori-ui-theme="dark"] {
@@ -42,7 +35,6 @@
   --tori-ui-success: #79d3a1;
   --tori-ui-warning: #efbd5c;
   --tori-ui-shadow-color: rgb(0 0 0 / 0.42);
-  --tori-ui-shadow: 4px 4px 0 var(--tori-ui-shadow-color);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -62,8 +54,168 @@
     --tori-ui-success: #79d3a1;
     --tori-ui-warning: #efbd5c;
     --tori-ui-shadow-color: rgb(0 0 0 / 0.42);
-    --tori-ui-shadow: 4px 4px 0 var(--tori-ui-shadow-color);
   }
+}
+
+:root,
+[data-tori-ui-skin="editorial"] {
+  --tori-ui-space-xs: 0.25rem;
+  --tori-ui-space-sm: 0.5rem;
+  --tori-ui-space-md: 1rem;
+  --tori-ui-space-lg: 1.5rem;
+  --tori-ui-space-xl: 2.5rem;
+  --tori-ui-radius-control: 0.28rem;
+  --tori-ui-radius-surface: 0;
+  --tori-ui-radius-surface-inner: max(
+    0px,
+    calc(var(--tori-ui-radius-surface) - var(--tori-ui-border-width))
+  );
+  --tori-ui-radius-pill: 999px;
+  --tori-ui-control-height-sm: 2rem;
+  --tori-ui-control-height-md: 2.5rem;
+  --tori-ui-control-height-lg: 3rem;
+  --tori-ui-field-control-height: 2.75rem;
+  --tori-ui-control-padding-block: 0.7rem;
+  --tori-ui-control-padding-inline: 1rem;
+  --tori-ui-button-padding-sm: 0.5rem 0.72rem;
+  --tori-ui-button-padding-lg: 0.9rem 1.25rem;
+  --tori-ui-alert-padding: 1rem 1.1rem;
+  --tori-ui-card-header-padding: 1.15rem 1.2rem 0.95rem;
+  --tori-ui-card-body-padding: 1.2rem;
+  --tori-ui-card-footer-padding: 0.75rem 1.2rem;
+  --tori-ui-form-gap: 1.15rem;
+  --tori-ui-field-gap: 0.42rem;
+  --tori-ui-field-control-radius: 0.22rem;
+  --tori-ui-field-control-padding-block: 0.68rem;
+  --tori-ui-field-control-padding-inline: 0.75rem;
+  --tori-ui-border-width: 1px;
+  --tori-ui-accent-border-width: 5px;
+  --tori-ui-font-display: "Iowan Old Style", "Palatino Linotype",
+    "Book Antiqua", Georgia, serif;
+  --tori-ui-font-body: "Avenir Next", Avenir, "Century Gothic",
+    "Trebuchet MS", sans-serif;
+  --tori-ui-font-code: "Cascadia Code", "IBM Plex Mono", Consolas,
+    monospace;
+  --tori-ui-control-font-weight: 750;
+  --tori-ui-control-letter-spacing: 0.075em;
+  --tori-ui-control-text-transform: uppercase;
+  --tori-ui-label-font-weight: 700;
+  --tori-ui-label-letter-spacing: 0.055em;
+  --tori-ui-label-text-transform: uppercase;
+  --tori-ui-shadow-x: 4px;
+  --tori-ui-shadow-y: 4px;
+  --tori-ui-shadow-blur: 0;
+  --tori-ui-shadow-spread: 0;
+  --tori-ui-shadow: var(--tori-ui-shadow-x) var(--tori-ui-shadow-y)
+    var(--tori-ui-shadow-blur) var(--tori-ui-shadow-spread)
+    var(--tori-ui-shadow-color);
+  --tori-ui-focus-width: 3px;
+  --tori-ui-focus-offset: 3px;
+  --tori-ui-field-focus-offset: 2px;
+  --tori-ui-disabled-opacity: 0.46;
+  --tori-ui-field-disabled-opacity: 0.52;
+  --tori-ui-grid-min: 16rem;
+  --tori-ui-checkbox-size: 1.15rem;
+  --tori-ui-checkbox-gap: 0.65rem;
+  --tori-ui-hover-translate: -1px;
+}
+
+[data-tori-ui-skin="minimal"] {
+  --tori-ui-space-xs: 0.2rem;
+  --tori-ui-space-sm: 0.4rem;
+  --tori-ui-space-md: 0.8rem;
+  --tori-ui-space-lg: 1.2rem;
+  --tori-ui-space-xl: 2rem;
+  --tori-ui-radius-control: 0.15rem;
+  --tori-ui-radius-surface: 0.15rem;
+  --tori-ui-control-height-sm: 1.9rem;
+  --tori-ui-control-height-md: 2.35rem;
+  --tori-ui-control-height-lg: 2.75rem;
+  --tori-ui-field-control-height: 2.55rem;
+  --tori-ui-control-padding-block: 0.6rem;
+  --tori-ui-control-padding-inline: 0.85rem;
+  --tori-ui-button-padding-sm: 0.4rem 0.6rem;
+  --tori-ui-button-padding-lg: 0.75rem 1.1rem;
+  --tori-ui-alert-padding: 0.8rem;
+  --tori-ui-card-header-padding: 0.8rem;
+  --tori-ui-card-body-padding: 0.8rem;
+  --tori-ui-card-footer-padding: 0.4rem 0.8rem;
+  --tori-ui-form-gap: 0.8rem;
+  --tori-ui-field-gap: 0.4rem;
+  --tori-ui-field-control-radius: 0.15rem;
+  --tori-ui-field-control-padding-block: 0.6rem;
+  --tori-ui-field-control-padding-inline: 0.75rem;
+  --tori-ui-accent-border-width: 3px;
+  --tori-ui-font-display: ui-sans-serif, system-ui, sans-serif;
+  --tori-ui-font-body: ui-sans-serif, system-ui, sans-serif;
+  --tori-ui-font-code: ui-monospace, "Cascadia Code", Consolas, monospace;
+  --tori-ui-control-font-weight: 650;
+  --tori-ui-control-letter-spacing: 0.01em;
+  --tori-ui-control-text-transform: none;
+  --tori-ui-label-font-weight: 650;
+  --tori-ui-label-letter-spacing: 0.01em;
+  --tori-ui-label-text-transform: none;
+  --tori-ui-shadow-x: 0;
+  --tori-ui-shadow-y: 1px;
+  --tori-ui-shadow-blur: 2px;
+  --tori-ui-shadow-spread: 0;
+  --tori-ui-focus-offset: 2px;
+  --tori-ui-field-focus-offset: 2px;
+  --tori-ui-disabled-opacity: 0.5;
+  --tori-ui-field-disabled-opacity: 0.5;
+  --tori-ui-grid-min: 15rem;
+  --tori-ui-checkbox-size: 1.05rem;
+  --tori-ui-checkbox-gap: 0.4rem;
+  --tori-ui-hover-translate: 0;
+}
+
+[data-tori-ui-skin="rounded"] {
+  --tori-ui-space-xs: 0.3rem;
+  --tori-ui-space-sm: 0.65rem;
+  --tori-ui-space-md: 1.1rem;
+  --tori-ui-space-lg: 1.75rem;
+  --tori-ui-space-xl: 2.75rem;
+  --tori-ui-radius-control: 0.75rem;
+  --tori-ui-radius-surface: 1rem;
+  --tori-ui-control-height-sm: 2.25rem;
+  --tori-ui-control-height-md: 2.75rem;
+  --tori-ui-control-height-lg: 3.25rem;
+  --tori-ui-field-control-height: 3rem;
+  --tori-ui-control-padding-block: 0.72rem;
+  --tori-ui-control-padding-inline: 1.05rem;
+  --tori-ui-button-padding-sm: 0.6rem 0.85rem;
+  --tori-ui-button-padding-lg: 0.95rem 1.35rem;
+  --tori-ui-alert-padding: 1.1rem 1.25rem;
+  --tori-ui-card-header-padding: 1.2rem 1.35rem;
+  --tori-ui-card-body-padding: 1.25rem 1.35rem;
+  --tori-ui-card-footer-padding: 0.65rem 1.35rem;
+  --tori-ui-form-gap: 1.1rem;
+  --tori-ui-field-gap: 0.65rem;
+  --tori-ui-field-control-radius: 0.75rem;
+  --tori-ui-field-control-padding-block: 0.72rem;
+  --tori-ui-field-control-padding-inline: 0.9rem;
+  --tori-ui-accent-border-width: 4px;
+  --tori-ui-font-display: ui-rounded, "Avenir Next", system-ui, sans-serif;
+  --tori-ui-font-body: "Avenir Next", system-ui, sans-serif;
+  --tori-ui-font-code: ui-monospace, "Cascadia Code", Consolas, monospace;
+  --tori-ui-control-font-weight: 700;
+  --tori-ui-control-letter-spacing: 0.015em;
+  --tori-ui-control-text-transform: none;
+  --tori-ui-label-font-weight: 700;
+  --tori-ui-label-letter-spacing: 0.025em;
+  --tori-ui-label-text-transform: none;
+  --tori-ui-shadow-x: 0;
+  --tori-ui-shadow-y: 12px;
+  --tori-ui-shadow-blur: 32px;
+  --tori-ui-shadow-spread: -20px;
+  --tori-ui-focus-offset: 3px;
+  --tori-ui-field-focus-offset: 3px;
+  --tori-ui-disabled-opacity: 0.48;
+  --tori-ui-field-disabled-opacity: 0.48;
+  --tori-ui-grid-min: 17rem;
+  --tori-ui-checkbox-size: 1.2rem;
+  --tori-ui-checkbox-gap: 0.65rem;
+  --tori-ui-hover-translate: -1px;
 }
 
 :where(
@@ -72,7 +224,9 @@
     .tori-ui-alert,
     .tori-ui-card,
     .tori-ui-stack,
-    .tori-ui-grid
+    .tori-ui-grid,
+    .tori-ui-form,
+    .tori-ui-field
   ),
 :where(
     .tori-ui-button,
@@ -80,7 +234,9 @@
     .tori-ui-alert,
     .tori-ui-card,
     .tori-ui-stack,
-    .tori-ui-grid
+    .tori-ui-grid,
+    .tori-ui-form,
+    .tori-ui-field
   ) *,
 :where(
     .tori-ui-button,
@@ -88,7 +244,9 @@
     .tori-ui-alert,
     .tori-ui-card,
     .tori-ui-stack,
-    .tori-ui-grid
+    .tori-ui-grid,
+    .tori-ui-form,
+    .tori-ui-field
   ) *::before,
 :where(
     .tori-ui-button,
@@ -96,7 +254,9 @@
     .tori-ui-alert,
     .tori-ui-card,
     .tori-ui-stack,
-    .tori-ui-grid
+    .tori-ui-grid,
+    .tori-ui-form,
+    .tori-ui-field
   ) *::after {
   box-sizing: border-box;
 }
@@ -105,17 +265,21 @@
   appearance: none;
   align-items: center;
   background: var(--tori-ui-accent);
-  border: 1px solid var(--tori-ui-line-strong);
-  border-radius: 0.28rem;
+  border: var(--tori-ui-border-width) solid var(--tori-ui-line-strong);
+  border-radius: var(--tori-ui-radius-control);
   color: var(--tori-ui-accent-ink);
   cursor: pointer;
   display: inline-flex;
-  font: 750 0.8rem/1.1 var(--tori-ui-font-body);
+  font-family: var(--tori-ui-font-body);
+  font-size: 0.8rem;
+  font-weight: var(--tori-ui-control-font-weight);
   justify-content: center;
-  letter-spacing: 0.075em;
-  min-height: 2.5rem;
-  padding: 0.7rem 1rem;
-  text-transform: uppercase;
+  letter-spacing: var(--tori-ui-control-letter-spacing);
+  line-height: 1.1;
+  min-height: var(--tori-ui-control-height-md);
+  padding: var(--tori-ui-control-padding-block)
+    var(--tori-ui-control-padding-inline);
+  text-transform: var(--tori-ui-control-text-transform);
   transition:
     background-color 140ms ease,
     box-shadow 140ms ease,
@@ -124,7 +288,10 @@
 
 .tori-ui-button:hover:not(:disabled) {
   box-shadow: var(--tori-ui-shadow);
-  transform: translate(-1px, -1px);
+  transform: translate(
+    var(--tori-ui-hover-translate),
+    var(--tori-ui-hover-translate)
+  );
 }
 
 .tori-ui-button:active:not(:disabled) {
@@ -133,13 +300,13 @@
 }
 
 .tori-ui-button:focus-visible {
-  outline: 3px solid var(--tori-ui-accent);
-  outline-offset: 3px;
+  outline: var(--tori-ui-focus-width) solid var(--tori-ui-accent);
+  outline-offset: var(--tori-ui-focus-offset);
 }
 
 .tori-ui-button:disabled {
   cursor: not-allowed;
-  opacity: 0.46;
+  opacity: var(--tori-ui-disabled-opacity);
 }
 
 .tori-ui-button--secondary {
@@ -160,26 +327,26 @@
 
 .tori-ui-button--sm {
   font-size: 0.7rem;
-  min-height: 2rem;
-  padding: 0.5rem 0.72rem;
+  min-height: var(--tori-ui-control-height-sm);
+  padding: var(--tori-ui-button-padding-sm);
 }
 
 .tori-ui-button--lg {
   font-size: 0.9rem;
-  min-height: 3rem;
-  padding: 0.9rem 1.25rem;
+  min-height: var(--tori-ui-control-height-lg);
+  padding: var(--tori-ui-button-padding-lg);
 }
 
 .tori-ui-badge {
   align-items: center;
-  border: 1px solid currentcolor;
-  border-radius: 999px;
+  border: var(--tori-ui-border-width) solid currentcolor;
+  border-radius: var(--tori-ui-radius-pill);
   color: var(--tori-ui-muted);
   display: inline-flex;
   font: 700 0.67rem/1 var(--tori-ui-font-code);
   letter-spacing: 0.08em;
   padding: 0.38rem 0.55rem;
-  text-transform: uppercase;
+  text-transform: var(--tori-ui-label-text-transform);
 }
 
 .tori-ui-badge--info {
@@ -200,14 +367,15 @@
 
 .tori-ui-alert {
   background: var(--tori-ui-panel);
-  border: 1px solid var(--tori-ui-line);
-  border-left: 5px solid var(--tori-ui-muted);
+  border: var(--tori-ui-border-width) solid var(--tori-ui-line);
+  border-left: var(--tori-ui-accent-border-width) solid var(--tori-ui-muted);
+  border-radius: var(--tori-ui-radius-surface);
   box-shadow: var(--tori-ui-shadow);
   color: var(--tori-ui-ink);
 }
 
 .tori-ui-alert__content {
-  padding: 1rem 1.1rem;
+  padding: var(--tori-ui-alert-padding);
 }
 
 .tori-ui-alert__title {
@@ -239,15 +407,18 @@
 
 .tori-ui-card {
   background: var(--tori-ui-panel);
-  border: 1px solid var(--tori-ui-line-strong);
+  border: var(--tori-ui-border-width) solid var(--tori-ui-line-strong);
+  border-radius: var(--tori-ui-radius-surface);
   box-shadow: var(--tori-ui-shadow);
   color: var(--tori-ui-ink);
 }
 
 .tori-ui-card__header {
   background: var(--tori-ui-panel-raised);
-  border-bottom: 1px solid var(--tori-ui-line);
-  padding: 1.15rem 1.2rem 0.95rem;
+  border-bottom: var(--tori-ui-border-width) solid var(--tori-ui-line);
+  border-radius: var(--tori-ui-radius-surface-inner)
+    var(--tori-ui-radius-surface-inner) 0 0;
+  padding: var(--tori-ui-card-header-padding);
 }
 
 .tori-ui-card__eyebrow {
@@ -255,7 +426,7 @@
   font: 700 0.67rem/1 var(--tori-ui-font-code);
   letter-spacing: 0.12em;
   margin: 0 0 0.45rem;
-  text-transform: uppercase;
+  text-transform: var(--tori-ui-label-text-transform);
 }
 
 .tori-ui-card__title {
@@ -265,14 +436,16 @@
 
 .tori-ui-card__body {
   font: 500 0.97rem/1.65 var(--tori-ui-font-body);
-  padding: 1.2rem;
+  padding: var(--tori-ui-card-body-padding);
 }
 
 .tori-ui-card__footer {
-  border-top: 1px solid var(--tori-ui-line);
+  border-top: var(--tori-ui-border-width) solid var(--tori-ui-line);
+  border-radius: 0 0 var(--tori-ui-radius-surface-inner)
+    var(--tori-ui-radius-surface-inner);
   color: var(--tori-ui-muted);
   font: 650 0.72rem/1.35 var(--tori-ui-font-code);
-  padding: 0.75rem 1.2rem;
+  padding: var(--tori-ui-card-footer-padding);
 }
 
 .tori-ui-stack {
@@ -282,27 +455,27 @@
 
 .tori-ui-stack--gap-xs,
 .tori-ui-grid--gap-xs {
-  gap: 0.25rem;
+  gap: var(--tori-ui-space-xs);
 }
 
 .tori-ui-stack--gap-sm,
 .tori-ui-grid--gap-sm {
-  gap: 0.5rem;
+  gap: var(--tori-ui-space-sm);
 }
 
 .tori-ui-stack--gap-md,
 .tori-ui-grid--gap-md {
-  gap: 1rem;
+  gap: var(--tori-ui-space-md);
 }
 
 .tori-ui-stack--gap-lg,
 .tori-ui-grid--gap-lg {
-  gap: 1.5rem;
+  gap: var(--tori-ui-space-lg);
 }
 
 .tori-ui-stack--gap-xl,
 .tori-ui-grid--gap-xl {
-  gap: 2.5rem;
+  gap: var(--tori-ui-space-xl);
 }
 
 .tori-ui-stack--align-start {
@@ -323,7 +496,10 @@
 
 .tori-ui-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr));
+  grid-template-columns: repeat(
+    auto-fit,
+    minmax(min(100%, var(--tori-ui-grid-min)), 1fr)
+  );
 }
 
 .tori-ui-grid--columns-1 {
@@ -340,6 +516,115 @@
 
 .tori-ui-grid--columns-4 {
   grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.tori-ui-form {
+  color: var(--tori-ui-ink);
+  display: grid;
+  font-family: var(--tori-ui-font-body);
+  gap: var(--tori-ui-form-gap);
+}
+
+.tori-ui-field {
+  display: grid;
+  gap: var(--tori-ui-field-gap);
+  min-width: 0;
+}
+
+.tori-ui-field__label,
+.tori-ui-checkbox__label {
+  color: var(--tori-ui-ink);
+  font-family: var(--tori-ui-font-body);
+  font-size: 0.78rem;
+  font-weight: var(--tori-ui-label-font-weight);
+  letter-spacing: var(--tori-ui-label-letter-spacing);
+  line-height: 1.3;
+  text-transform: var(--tori-ui-label-text-transform);
+}
+
+.tori-ui-field__required {
+  color: var(--tori-ui-danger);
+}
+
+.tori-ui-field__help,
+.tori-ui-field__error {
+  font: 500 0.78rem/1.45 var(--tori-ui-font-body);
+  margin: 0;
+}
+
+.tori-ui-field__help {
+  color: var(--tori-ui-muted);
+}
+
+.tori-ui-field__error {
+  color: var(--tori-ui-danger);
+  font-weight: 700;
+}
+
+.tori-ui-input,
+.tori-ui-textarea,
+.tori-ui-select {
+  background: var(--tori-ui-panel);
+  border: var(--tori-ui-border-width) solid var(--tori-ui-line-strong);
+  border-radius: var(--tori-ui-field-control-radius);
+  color: var(--tori-ui-ink);
+  font: 500 0.95rem/1.35 var(--tori-ui-font-body);
+  min-height: var(--tori-ui-field-control-height);
+  padding: var(--tori-ui-field-control-padding-block)
+    var(--tori-ui-field-control-padding-inline);
+  width: 100%;
+}
+
+.tori-ui-textarea {
+  min-height: 6.5rem;
+  resize: vertical;
+}
+
+.tori-ui-input::placeholder,
+.tori-ui-textarea::placeholder {
+  color: var(--tori-ui-muted);
+  opacity: 1;
+}
+
+:where(.tori-ui-input, .tori-ui-textarea, .tori-ui-select):focus-visible,
+.tori-ui-checkbox__control:focus-visible {
+  outline: var(--tori-ui-focus-width) solid var(--tori-ui-accent);
+  outline-offset: var(--tori-ui-field-focus-offset);
+}
+
+.tori-ui-field--invalid
+  :where(.tori-ui-input, .tori-ui-textarea, .tori-ui-select) {
+  border-color: var(--tori-ui-danger);
+}
+
+.tori-ui-field--invalid .tori-ui-checkbox__control {
+  border-radius: calc(var(--tori-ui-field-control-radius) / 3);
+  box-shadow: 0 0 0 2px var(--tori-ui-danger);
+}
+
+:where(.tori-ui-input, .tori-ui-textarea, .tori-ui-select):disabled,
+.tori-ui-checkbox__control:disabled {
+  cursor: not-allowed;
+  opacity: var(--tori-ui-field-disabled-opacity);
+}
+
+.tori-ui-checkbox {
+  align-items: start;
+  display: grid;
+  gap: var(--tori-ui-checkbox-gap);
+  grid-template-columns: auto minmax(0, 1fr);
+}
+
+.tori-ui-checkbox__control {
+  accent-color: var(--tori-ui-accent);
+  height: var(--tori-ui-checkbox-size);
+  margin: 0.05rem 0 0;
+  width: var(--tori-ui-checkbox-size);
+}
+
+.tori-ui-checkbox__control:disabled + .tori-ui-checkbox__label {
+  color: var(--tori-ui-muted);
+  cursor: not-allowed;
 }
 
 @media (max-width: 42rem) {

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 from importlib.resources import files
 from typing import Literal
 
@@ -24,6 +25,7 @@ _STYLESHEET_HEADERS = {
 }
 type UiTheme = Literal["auto", "light", "dark"]
 _THEMES = frozenset({"auto", "light", "dark"})
+_SKIN_NAME = re.compile(r"[a-z][a-z0-9-]{0,63}")
 
 
 @controller()
@@ -58,15 +60,23 @@ class UiLiveView(LiveView):
     def ui_theme(self) -> UiTheme:
         return "auto"
 
+    def ui_skin(self) -> str:
+        return "editorial"
+
     def render_document(self, live_root: str, client_script: str) -> str:
         theme = self.ui_theme()
         if theme not in _THEMES:
             choices = ", ".join(sorted(_THEMES))
             raise ValueError(f"LiveView UI theme must be one of: {choices}")
+        skin = self.ui_skin()
+        if not isinstance(skin, str):
+            raise TypeError("LiveView UI skin must be a string")
+        if _SKIN_NAME.fullmatch(skin) is None:
+            raise ValueError("LiveView UI skin must match [a-z][a-z0-9-]{0,63}")
         document = super().render_document(live_root, client_script)
         document = document.replace(
             "<html>",
-            f'<html data-tori-ui-theme="{theme}">',
+            f'<html data-tori-ui-theme="{theme}" data-tori-ui-skin="{skin}">',
             1,
         )
         return document.replace(

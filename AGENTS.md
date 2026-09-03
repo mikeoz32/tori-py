@@ -40,4 +40,4 @@
 ## Tori Py LiveView UI
 - The optional UI package is governed by `TORI_PY_LIVEVIEW_UI_ARCHITECTURE.md`, `TORI_PY_LIVEVIEW_UI_IMPLEMENTATION_PLAN.md`, and `spec/tori-py-liveview-ui/README.md`.
 - Keep `tori-py-liveview-ui` separately installable and limited to stateless Template helpers plus document and stylesheet integration. It must reuse LiveView's Phoenix `phx-*`, escaping, render-tree, and component-target contracts rather than adding a client runtime or state model.
-- Keep assets local and content-addressed, selectors prefixed, theme tokens overridable, and keyboard/reduced-motion behavior explicit. Do not add a CDN, Node tooling, external fonts, a global reset, arbitrary caller-controlled attributes/classes, or widget-owned state.
+- Keep assets local and content-addressed, selectors prefixed, theme and skin tokens overridable, and keyboard/reduced-motion behavior explicit. Keep color theme and visual skin selection separate; application-owned skins remain CSS-only. Do not add a CDN, Node tooling, external fonts, a global reset, arbitrary caller-controlled attributes/classes, or widget-owned state.

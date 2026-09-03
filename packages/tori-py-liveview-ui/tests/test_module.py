@@ -126,9 +126,7 @@ def test_stylesheet_link_is_local_and_uses_the_public_path() -> None:
     )
 
 
-def test_ui_liveview_injects_the_stylesheet_and_theme_into_the_normal_document() -> (
-    None
-):
+def test_ui_liveview_injects_stylesheet_theme_and_skin_into_document() -> None:
     class Page(UiLiveView):
         def render(self) -> str:
             return "<p>Dashboard</p>"
@@ -141,7 +139,10 @@ def test_ui_liveview_injects_the_stylesheet_and_theme_into_the_normal_document()
         '<script defer src="/_tori/live/client.js"></script>',
     )
 
-    assert document.startswith('<!doctype html><html data-tori-ui-theme="auto"><head>')
+    assert document.startswith(
+        '<!doctype html><html data-tori-ui-theme="auto" '
+        'data-tori-ui-skin="editorial"><head>'
+    )
     assert document.count(stylesheet_link().value) == 1
     assert stylesheet_link().value in document.split("</head>", 1)[0]
     assert '<title data-default="">Dashboard</title>' in document
@@ -170,6 +171,58 @@ def test_ui_liveview_supports_explicit_themes_and_rejects_unknown_values() -> No
         InvalidPage().render_document("", "")
 
 
+def test_ui_liveview_supports_bundled_and_application_owned_skins() -> None:
+    class MinimalPage(UiLiveView):
+        def render(self) -> str:
+            return ""
+
+        def ui_theme(self):
+            return "dark"
+
+        def ui_skin(self) -> str:
+            return "minimal"
+
+    class BrandPage(UiLiveView):
+        def render(self) -> str:
+            return ""
+
+        def ui_skin(self) -> str:
+            return "brand-2026"
+
+    minimal_document = MinimalPage().render_document("", "")
+    assert 'data-tori-ui-theme="dark"' in minimal_document
+    assert 'data-tori-ui-skin="minimal"' in minimal_document
+    assert 'data-tori-ui-skin="brand-2026"' in BrandPage().render_document("", "")
+
+
+@pytest.mark.parametrize("skin", ["", "Rounded", "two words", "-leading", "a" * 65])
+def test_ui_liveview_rejects_invalid_skin_names(skin: str) -> None:
+    class InvalidPage(UiLiveView):
+        def render(self) -> str:
+            return ""
+
+        def ui_skin(self) -> str:
+            return skin
+
+    with pytest.raises(
+        ValueError,
+        match=re.escape("skin must match [a-z][a-z0-9-]{0,63}"),
+    ):
+        InvalidPage().render_document("", "")
+
+
+def test_ui_liveview_rejects_non_string_skin_names() -> None:
+    class InvalidPage(UiLiveView):
+        def render(self) -> str:
+            return ""
+
+        def ui_skin(self):
+            return 1
+
+    with pytest.raises(TypeError, match="skin must be a string"):
+        InvalidPage().render_document("", "")
+
+
 def test_stylesheet_contains_the_foundation_contract_without_remote_assets() -> None:
     stylesheet = (
         files("tori_py_liveview_ui")
@@ -184,14 +237,146 @@ def test_stylesheet_contains_the_foundation_contract_without_remote_assets() -> 
         ".tori-ui-card",
         ".tori-ui-stack",
         ".tori-ui-grid",
+        ".tori-ui-form",
+        ".tori-ui-field",
+        ".tori-ui-input",
+        ".tori-ui-textarea",
+        ".tori-ui-select",
+        ".tori-ui-checkbox",
         '[data-tori-ui-theme="dark"]',
         '[data-tori-ui-theme="auto"]',
+        '[data-tori-ui-skin="editorial"]',
+        '[data-tori-ui-skin="minimal"]',
+        '[data-tori-ui-skin="rounded"]',
         ":focus-visible",
         "prefers-reduced-motion",
     ):
         assert selector in stylesheet
     assert "@import" not in stylesheet
     assert "url(" not in stylesheet
+
+
+def test_stylesheet_exposes_the_public_skin_token_contract() -> None:
+    stylesheet = (
+        files("tori_py_liveview_ui")
+        .joinpath("static", "tori_liveview_ui.css")
+        .read_text(encoding="utf-8")
+    )
+    editorial = re.search(
+        r':root,\s*\[data-tori-ui-skin="editorial"\]\s*\{(?P<body>.*?)\}',
+        stylesheet,
+        re.DOTALL,
+    )
+    assert editorial is not None
+
+    for token in (
+        "space-xs",
+        "space-sm",
+        "space-md",
+        "space-lg",
+        "space-xl",
+        "radius-control",
+        "radius-surface",
+        "radius-surface-inner",
+        "radius-pill",
+        "control-height-sm",
+        "control-height-md",
+        "control-height-lg",
+        "field-control-height",
+        "control-padding-block",
+        "control-padding-inline",
+        "button-padding-sm",
+        "button-padding-lg",
+        "alert-padding",
+        "card-header-padding",
+        "card-body-padding",
+        "card-footer-padding",
+        "form-gap",
+        "field-gap",
+        "field-control-radius",
+        "field-control-padding-block",
+        "field-control-padding-inline",
+        "border-width",
+        "accent-border-width",
+        "font-display",
+        "font-body",
+        "font-code",
+        "control-font-weight",
+        "control-letter-spacing",
+        "control-text-transform",
+        "label-font-weight",
+        "label-letter-spacing",
+        "label-text-transform",
+        "shadow-x",
+        "shadow-y",
+        "shadow-blur",
+        "shadow-spread",
+        "shadow",
+        "focus-width",
+        "focus-offset",
+        "field-focus-offset",
+        "disabled-opacity",
+        "field-disabled-opacity",
+        "grid-min",
+        "checkbox-size",
+        "checkbox-gap",
+        "hover-translate",
+    ):
+        assert f"--tori-ui-{token}:" in editorial.group("body")
+
+
+def test_bundled_skins_define_distinct_geometry_and_typography() -> None:
+    stylesheet = (
+        files("tori_py_liveview_ui")
+        .joinpath("static", "tori_liveview_ui.css")
+        .read_text(encoding="utf-8")
+    )
+
+    editorial = re.search(
+        r':root,\s*\[data-tori-ui-skin="editorial"\]\s*\{(?P<body>.*?)\}',
+        stylesheet,
+        re.DOTALL,
+    )
+    minimal = re.search(
+        r'\[data-tori-ui-skin="minimal"\]\s*\{(?P<body>.*?)\}',
+        stylesheet,
+        re.DOTALL,
+    )
+    rounded = re.search(
+        r'\[data-tori-ui-skin="rounded"\]\s*\{(?P<body>.*?)\}',
+        stylesheet,
+        re.DOTALL,
+    )
+    assert editorial is not None
+    assert minimal is not None
+    assert rounded is not None
+
+    assert "--tori-ui-radius-control: 0.28rem" in editorial.group("body")
+    assert "--tori-ui-control-text-transform: uppercase" in editorial.group("body")
+    assert "--tori-ui-alert-padding: 1rem 1.1rem" in editorial.group("body")
+    assert "--tori-ui-card-header-padding: 1.15rem 1.2rem 0.95rem" in editorial.group(
+        "body"
+    )
+    assert "--tori-ui-form-gap: 1.15rem" in editorial.group("body")
+    assert "--tori-ui-field-gap: 0.42rem" in editorial.group("body")
+    assert "--tori-ui-field-control-radius: 0.22rem" in editorial.group("body")
+    assert "--tori-ui-radius-control: 0.15rem" in minimal.group("body")
+    assert "--tori-ui-shadow-x: 0" in minimal.group("body")
+    assert "--tori-ui-font-display: ui-sans-serif" in minimal.group("body")
+    assert "--tori-ui-radius-control: 0.75rem" in rounded.group("body")
+    assert "--tori-ui-shadow-y: 12px" in rounded.group("body")
+    assert "--tori-ui-font-display: ui-rounded" in rounded.group("body")
+
+
+def test_stylesheet_preserves_invalid_native_checkbox_affordance() -> None:
+    stylesheet = (
+        files("tori_py_liveview_ui")
+        .joinpath("static", "tori_liveview_ui.css")
+        .read_text(encoding="utf-8")
+    )
+
+    assert ".tori-ui-field--invalid .tori-ui-checkbox__control" in stylesheet
+    assert "box-shadow: 0 0 0 2px var(--tori-ui-danger)" in stylesheet
 
 
 def test_light_primary_button_meets_wcag_aa_contrast() -> None:
@@ -205,3 +390,18 @@ def test_light_primary_button_meets_wcag_aa_contrast() -> None:
     accent_ink = _light_theme_color(stylesheet, "accent-ink")
 
     assert _contrast_ratio(accent, accent_ink) >= 4.5
+
+
+def test_light_form_placeholder_meets_wcag_aa_contrast() -> None:
+    stylesheet = (
+        files("tori_py_liveview_ui")
+        .joinpath("static", "tori_liveview_ui.css")
+        .read_text(encoding="utf-8")
+    )
+
+    muted = _light_theme_color(stylesheet, "muted")
+    panel = _light_theme_color(stylesheet, "panel")
+
+    assert _contrast_ratio(muted, panel) >= 4.5
+    assert "opacity: 0.75" not in stylesheet
+    assert "opacity: 1;" in stylesheet

@@ -2,7 +2,8 @@
 
 ## Status
 
-Foundation slice (LVUI0) and family acceptance (LVUI1) are complete.
+Foundation slice (LVUI0), initial family acceptance (LVUI1), forms slice
+(LVUI2), and skinning slice (LVUI3) are complete.
 
 Architecture:
 [`TORI_PY_LIVEVIEW_UI_ARCHITECTURE.md`](TORI_PY_LIVEVIEW_UI_ARCHITECTURE.md).
@@ -32,9 +33,38 @@ Architecture:
 - [x] Complete independent architecture, accessibility, security, and release
   review across the resolved package family.
 
+## LVUI2: Forms and Validation Presentation - Complete
+
+- [x] Add stateless `form`, `field`, `field_error`, `input`, `textarea`,
+  `select`, and `checkbox` Template helpers with closed form-control options.
+- [x] Preserve Phoenix `phx-change`, `phx-submit`, `phx-blur`, and `phx-target`
+  routing without adding client-side state or behavior.
+- [x] Generate native labels, required and disabled states, help/error
+  descriptions, `aria-invalid`, and live validation alerts.
+- [x] Style form controls within the prefixed local stylesheet with explicit
+  focus, invalid, disabled, light/dark, and responsive behavior.
+- [x] Exercise server-owned validation and submission through the pinned
+  official Phoenix browser client.
+
+## LVUI3: Skinning - Complete
+
+- [x] Keep stable `tori-ui-*` semantic markup and separate color theme selection
+  from document-level visual skin selection.
+- [x] Add the bundled `editorial`, `minimal`, and `rounded` skins, retaining
+  `editorial` as the compatibility default.
+- [x] Expand public CSS tokens for spacing, radii, control heights, borders,
+  typography, shadows, focus geometry, density, and layout.
+- [x] Allow validated application-owned skin names and application stylesheet
+  token overrides without mutating the immutable package asset.
+- [x] Exercise a non-default skin and post-package token override in the official
+  Phoenix browser acceptance test.
+
 ## Deferred
 
-- Form controls and validation presentation.
+- Radio groups, multiple selects, file inputs, upload integration, and
+  application form-model or coercion abstractions.
 - Modal, navigation, menu, toast, and upload families.
+- An optional separately distributed precompiled Tailwind skin adapter; Tailwind
+  remains outside the core package and runtime dependency graph.
 - Any JavaScript widget behavior or state-owning component abstraction.
 - Arbitrary attribute/class extension APIs and a global design reset.

@@ -15,9 +15,16 @@ def test_public_facade_is_explicit() -> None:
         "badge",
         "button",
         "card",
+        "checkbox",
+        "field",
+        "field_error",
+        "form",
         "grid",
+        "input",
+        "select",
         "stack",
         "stylesheet_link",
+        "textarea",
     ]
 
 

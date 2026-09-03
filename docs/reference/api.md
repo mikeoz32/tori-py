@@ -336,14 +336,19 @@ are not part of the current server surface.
 
 The public facade is limited to:
 
-- Components: `button`, `badge`, `alert`, `card`, `stack`, `grid`.
+- Display and layout: `button`, `badge`, `alert`, `card`, `stack`, `grid`.
+- Forms: `form`, `field`, `field_error`, `input`, `textarea`, `select`,
+  `checkbox`.
 - Composition and documents: `LiveViewUiModule`, `UiLiveView`,
   `STYLESHEET_PATH`, `stylesheet_link`.
 
 The components are stateless Python 3.14 Template helpers. They reuse LiveView's
-escaping, Phoenix render-tree, `phx-click`, and `phx-target` contracts and ship
-one local content-addressed stylesheet; they do not add a client runtime or
-state model.
+escaping, Phoenix render-tree, `phx-click`, `phx-change`, `phx-submit`,
+`phx-blur`, and `phx-target` contracts and ship one local content-addressed
+stylesheet; they do not add a client runtime, validation engine, or state model.
+`UiLiveView.ui_theme()` selects `auto`, `light`, or `dark` color mode, while
+`ui_skin()` independently selects the default `editorial`, bundled `minimal` or
+`rounded`, or a validated application-owned CSS skin name.
 
 ## Reading generated reference
 

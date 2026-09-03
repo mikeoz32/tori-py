@@ -78,9 +78,57 @@ def test_counter_updates_and_recovers_after_reconnect(
 
     expect(root).to_have_class("phx-connected")
     expect(page.locator("html")).to_have_attribute("data-tori-ui-theme", "auto")
+    expect(page.locator("html")).to_have_attribute("data-tori-ui-skin", "rounded")
     expect(page.locator(f'link[href="{STYLESHEET_PATH}"]')).to_have_count(1)
     expect(increment).to_have_class(
         "tori-ui-button tori-ui-button--primary tori-ui-button--md"
+    )
+    accent_background = increment.evaluate(
+        "element => getComputedStyle(element).backgroundColor"
+    )
+    assert increment.evaluate("element => getComputedStyle(element).borderRadius") == (
+        "12px"
+    )
+    page.locator("html").evaluate(
+        "element => element.setAttribute('data-tori-ui-skin', 'minimal')"
+    )
+    assert increment.evaluate("element => getComputedStyle(element).borderRadius") == (
+        "2.4px"
+    )
+    assert (
+        increment.evaluate("element => getComputedStyle(element).backgroundColor")
+        == accent_background
+    )
+    page.locator("html").evaluate(
+        "element => element.setAttribute('data-tori-ui-skin', 'editorial')"
+    )
+    assert increment.evaluate("element => getComputedStyle(element).borderRadius") == (
+        "4.48px"
+    )
+    assert increment.evaluate("element => getComputedStyle(element).textTransform") == (
+        "uppercase"
+    )
+    page.add_style_tag(
+        content=('[data-tori-ui-skin="acme"] { --tori-ui-radius-control: 1.25rem; }')
+    )
+    page.locator("html").evaluate(
+        "element => element.setAttribute('data-tori-ui-skin', 'acme')"
+    )
+    assert increment.evaluate("element => getComputedStyle(element).borderRadius") == (
+        "20px"
+    )
+    assert (
+        increment.evaluate("element => getComputedStyle(element).backgroundColor")
+        == accent_background
+    )
+    page.emulate_media(reduced_motion="reduce")
+    assert (
+        increment.evaluate("element => getComputedStyle(element).transitionDuration")
+        == "0s"
+    )
+    page.emulate_media(reduced_motion="no-preference")
+    page.locator("html").evaluate(
+        "element => element.setAttribute('data-tori-ui-skin', 'rounded')"
     )
     expect(output).to_have_text("2")
     expect(left_output).to_have_text("0")
@@ -94,9 +142,16 @@ def test_counter_updates_and_recovers_after_reconnect(
     assert any("/_tori/live/websocket?vsn=2.0.0" in url for url in websocket_urls)
 
     count_input = page.get_by_label("Set page count")
+    expect(count_input).to_have_class("tori-ui-input")
+    count_input.fill("")
+    expect(page.get_by_role("alert")).to_have_text("Enter a whole number.")
+    expect(count_input).to_have_attribute("aria-invalid", "true")
     count_input.fill("5")
+    expect(page.get_by_role("alert")).to_have_count(0)
     expect(output).to_have_text("5")
     expect(page).to_have_title("Counter: 5")
+    page.get_by_role("button", name="Apply count").click()
+    expect(page.locator("output[data-form-submission]")).to_have_text("Applied 5")
     count_input.fill("2")
     expect(output).to_have_text("2")
 

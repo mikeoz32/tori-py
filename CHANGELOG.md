@@ -26,9 +26,10 @@ one package does not require the same change in every package.
   connection-local stateful component CIDs, targeted component events, and
   browser-owned bounded streams, plus serialized connection-local server
   updates through `send_info` and `handle_info`.
-- Separately installable `tori-py-liveview-ui` foundation with six typed
-  stateless component helpers, a content-addressed immutable local stylesheet,
-  and `UiLiveView` document theming for Phoenix LiveView pages.
+- Separately installable `tori-py-liveview-ui` foundation with typed stateless
+  display, layout, form, and validation-presentation helpers, a
+  content-addressed immutable local stylesheet, and `UiLiveView` document
+  theming plus editorial/minimal/rounded skinning for Phoenix LiveView pages.
 
 ### Fixed
 

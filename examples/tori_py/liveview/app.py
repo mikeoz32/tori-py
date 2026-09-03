@@ -18,7 +18,9 @@ from tori_py_liveview_ui import (
     badge,
     button,
     card,
+    form,
     grid,
+    input,
     stack,
 )
 
@@ -61,6 +63,8 @@ class CounterComponent(LiveComponent):
 class CounterLive(UiLiveView):
     def __init__(self) -> None:
         self.count = 0
+        self.count_error: str | None = None
+        self.last_submitted_count: int | None = None
         self.next_activity = 3
         self.show_title = True
         self.tasks: set[asyncio.Task[None]] = set()
@@ -80,14 +84,21 @@ class CounterLive(UiLiveView):
             task.add_done_callback(self.tasks.discard)
         elif event == "clear_title":
             self.show_title = False
-        elif event == "set_count":
+        elif event in {"set_count", "submit_count"}:
             if (
                 not isinstance(value, dict)
                 or not isinstance(counter := value.get("counter"), dict)
                 or not isinstance(raw_count := counter.get("value"), str)
             ):
                 raise UnknownEventError(event)
-            self.count = int(raw_count)
+            try:
+                self.count = int(raw_count)
+            except ValueError:
+                self.count_error = "Enter a whole number."
+                return
+            self.count_error = None
+            if event == "submit_count":
+                self.last_submitted_count = self.count
         elif event == "prepend_activity":
             sequence = self.next_activity
             self.next_activity += 1
@@ -134,14 +145,43 @@ class CounterLive(UiLiveView):
             {"label": "Right"},
         )
         activities = self.stream_contents("activity-stream")
-        form = (
-            t'<form id="page-counter-form" phx-change="set_count">'
-            t'<label>Set page count <input type="number" '
-            t'name="counter[value]" value="{self.count}"></label></form>'
+        count_control = input(
+            "Set page count",
+            id="page-counter-input",
+            name="counter[value]",
+            value=self.count,
+            input_type="number",
+            help_text="Changes are validated by the LiveView process.",
+            error=self.count_error,
+            required=True,
+        )
+        submission = (
+            f"Applied {self.last_submitted_count}"
+            if self.last_submitted_count is not None
+            else "Not applied"
+        )
+        counter_form = form(
+            stack(
+                [
+                    count_control,
+                    button(
+                        "Apply count",
+                        variant="secondary",
+                        size="sm",
+                        button_type="submit",
+                    ),
+                    t"<output data-form-submission>{submission}</output>",
+                ],
+                gap="sm",
+                align="start",
+            ),
+            id="page-counter-form",
+            change_event="set_count",
+            submit_event="submit_count",
         )
         page_controls = stack(
             [
-                form,
+                counter_form,
                 button("Increment page", event="increment"),
                 button(
                     "Increment later",
@@ -184,6 +224,9 @@ class CounterLive(UiLiveView):
 
     def title(self) -> str | None:
         return f"Counter: {self.count}" if self.show_title else None
+
+    def ui_skin(self) -> str:
+        return "rounded"
 
     async def _increment_later(self) -> None:
         await asyncio.sleep(0.1)

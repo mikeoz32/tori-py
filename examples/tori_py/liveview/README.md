@@ -13,10 +13,12 @@ counter, targeted component events preserve isolated left/right state, and
 bounded stream operations prepend or delete activity items without rerendering
 retained children.
 
-The page demonstrates all six stateless `tori-py-liveview-ui` helpers: buttons,
-badges, alerts, cards, stacks, and responsive grids. `UiLiveView` adds the local
-content-addressed stylesheet and automatic light/dark theme without a second
-browser runtime.
+The page demonstrates stateless `tori-py-liveview-ui` display, layout, and form
+helpers. Its counter form uses server-owned validation through `phx-change` and
+explicit submission through `phx-submit`; native labels, help text, and error
+relationships remain accessible. `UiLiveView` adds the local content-addressed
+stylesheet and automatic light/dark theme without a second browser runtime. The
+page independently selects the bundled `rounded` visual skin.
 
 The delayed increment starts a background task and wakes the connected page
 through `send_info()`/`handle_info()`; the update remains serialized with normal
@@ -38,7 +40,9 @@ The test exercises the real vendored official Phoenix and Phoenix LiveView
 clients against a local ASGI server. It verifies HTTP rendering, Channels page
 and targeted component events, component-state isolation, bounded stream
 insertion/deletion, retained DOM identity, title changes, reconnect state, and
-browser console errors. It also verifies the document theme, immutable UI
-stylesheet link, and component class contract. The file is named outside normal
-pytest discovery so browser installation remains an explicit local gate rather
-than an implicit CI requirement.
+browser console errors. It also verifies form change/submission events, live
+validation feedback, independent theme/skin attributes, immutable UI stylesheet
+link, bundled rounded geometry, an application-owned CSS token override, and the
+component class contract. The file is named outside normal pytest discovery so
+browser installation remains an explicit local gate rather than an implicit CI
+requirement.
