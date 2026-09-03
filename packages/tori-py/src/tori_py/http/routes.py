@@ -7,7 +7,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, replace
 from typing import Annotated, cast, get_args, get_origin, get_type_hints
 
-from tori_py.core.compiler import CompiledGraph, ModuleId
+from tori_py.core.compiler import CompiledGraph, ModuleId, ProviderRef
 from tori_py.core.errors import BootstrapError
 from tori_py.core.metadata import (
     Body,
@@ -41,6 +41,7 @@ class ParameterPlan:
     default: object
     has_default: bool
     max_bytes: int | None = None
+    provider_ref: ProviderRef | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -59,6 +60,8 @@ class RoutePlan:
     return_annotation: object = inspect.Signature.empty
     response_headers: tuple[ResponseHeaderMetadata, ...] = ()
     rejects_body: bool = False
+    has_execution_pipeline: bool = False
+    handler_is_async: bool = False
 
 
 def compile_routes(graph: CompiledGraph) -> tuple[RoutePlan, ...]:
@@ -69,8 +72,35 @@ def compile_routes(graph: CompiledGraph) -> tuple[RoutePlan, ...]:
             controller_plans = compile_controller_routes(module.module_id, controller)
             for plan in controller_plans:
                 _reserve_route(plan.method, plan.path, reserved)
-            plans.extend(controller_plans)
+                plans.append(_qualify_route_injections(graph, plan))
     return tuple(plans)
+
+
+def _qualify_route_injections(
+    graph: CompiledGraph,
+    plan: RoutePlan,
+) -> RoutePlan:
+    parameters: list[ParameterPlan] = []
+    for parameter in plan.parameters:
+        if parameter.kind != "inject":
+            parameters.append(parameter)
+            continue
+        token = cast(Token, parameter.token)
+        visible = graph.visibility.get((plan.module_id, token))
+        if visible is None:
+            raise BootstrapError(
+                f"route dependency token {token!r} is not visible from module "
+                f"{plan.module_id.module.__qualname__}",
+                code="provider.unresolved",
+                details={"route": plan.route_id, "parameter": parameter.name},
+            )
+        parameters.append(
+            replace(
+                parameter,
+                provider_ref=graph.providers[visible].canonical,
+            )
+        )
+    return replace(plan, parameters=tuple(parameters))
 
 
 def compile_controller_routes(
@@ -160,7 +190,13 @@ async def bind_routes(
                 code="controller.invalid_signature",
                 details={"controller": plan.controller.__qualname__},
             )
-        bound.append(replace(plan, handler=handler))
+        bound.append(
+            replace(
+                plan,
+                handler=handler,
+                handler_is_async=inspect.iscoroutinefunction(handler),
+            )
+        )
     return tuple(bound)
 
 

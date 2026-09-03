@@ -9,6 +9,11 @@ import msgspec
 
 type Identifier = Annotated[str, msgspec.Meta(min_length=1, max_length=128)]
 type GeometryCoordinate = Annotated[int, msgspec.Meta(ge=0, le=1000)]
+type Capacity = Annotated[int, msgspec.Meta(ge=1, le=1000)]
+type OccurrenceCount = Annotated[int, msgspec.Meta(ge=2, le=52)]
+type Weekday = Annotated[int, msgspec.Meta(ge=0, le=6)]
+MAX_RESOURCE_OFFSET = 10_000
+type ResourceOffset = Annotated[int, msgspec.Meta(ge=0, le=MAX_RESOURCE_OFFSET)]
 
 
 class Principal(msgspec.Struct, frozen=True, forbid_unknown_fields=True):
@@ -30,6 +35,9 @@ class Resource(msgspec.Struct, frozen=True):
     kind: str
     x: int
     y: int
+    equipment: tuple[str, ...] = ()
+    capacity: int = 1
+    active: bool = True
 
 
 class CreateResource(msgspec.Struct, forbid_unknown_fields=True):
@@ -39,6 +47,8 @@ class CreateResource(msgspec.Struct, forbid_unknown_fields=True):
     kind: Literal["desk", "room"]
     x: GeometryCoordinate
     y: GeometryCoordinate
+    equipment: tuple[Identifier, ...] = ()
+    capacity: Capacity = 1
 
 
 class CreateResourceRequest(CreateResource, forbid_unknown_fields=True):
@@ -50,14 +60,70 @@ class CreateResourceRpc(msgspec.Struct, forbid_unknown_fields=True):
     resource: CreateResource
 
 
+class UpdateResource(msgspec.Struct, forbid_unknown_fields=True):
+    office_id: Identifier | None = None
+    floor_id: Identifier | None = None
+    name: Identifier | None = None
+    kind: Literal["desk", "room"] | None = None
+    x: GeometryCoordinate | None = None
+    y: GeometryCoordinate | None = None
+    equipment: tuple[Identifier, ...] | None = None
+    capacity: Capacity | None = None
+    active: bool | None = None
+
+
+class UpdateResourceRpc(msgspec.Struct, forbid_unknown_fields=True):
+    principal: Principal
+    resource_id: Identifier
+    resource: UpdateResource
+
+
 class GetResource(msgspec.Struct, forbid_unknown_fields=True):
     principal: Principal
     resource_id: Identifier
 
 
+class GetResources(msgspec.Struct, forbid_unknown_fields=True):
+    principal: Principal
+    resource_ids: tuple[Identifier, ...]
+
+
 class ListResources(msgspec.Struct, forbid_unknown_fields=True):
     principal: Principal
-    floor_id: str | None = None
+    office_id: Identifier | None = None
+    floor_id: Identifier | None = None
+    kind: Literal["desk", "room"] | None = None
+    equipment: tuple[Identifier, ...] = ()
+    min_capacity: Capacity | None = None
+    include_inactive: bool = False
+    offset: ResourceOffset = 0
+    limit: Annotated[int, msgspec.Meta(ge=1, le=100)] = 50
+
+
+class OfficePolicy(msgspec.Struct, frozen=True):
+    office_id: str
+    time_zone: str
+    opens_at: str
+    closes_at: str
+    weekdays: tuple[int, ...]
+
+
+class OfficePolicyUpdate(msgspec.Struct, forbid_unknown_fields=True):
+    time_zone: Identifier
+    opens_at: Identifier
+    closes_at: Identifier
+    weekdays: tuple[Weekday, ...]
+
+
+class GetOfficePolicy(msgspec.Struct, forbid_unknown_fields=True):
+    principal: Principal
+    office_id: Identifier
+
+
+class UpdateOfficePolicyRpc(msgspec.Struct, forbid_unknown_fields=True):
+    principal: Principal
+    office_id: Identifier
+    policy: OfficePolicyUpdate
 
 
 class Booking(msgspec.Struct, frozen=True):
@@ -69,6 +135,8 @@ class Booking(msgspec.Struct, frozen=True):
     ends_at: datetime
     status: str
     idempotency_key: str
+    series_id: str | None = None
+    occurrence_index: int | None = None
 
 
 class CreateBookingRequest(msgspec.Struct, forbid_unknown_fields=True):
@@ -82,6 +150,37 @@ class CreateBooking(msgspec.Struct, forbid_unknown_fields=True):
     resource_id: Identifier
     starts_at: datetime
     ends_at: datetime
+    idempotency_key: Identifier
+
+
+class RescheduleBookingRequest(msgspec.Struct, forbid_unknown_fields=True):
+    starts_at: datetime
+    ends_at: datetime
+
+
+class RescheduleBooking(msgspec.Struct, forbid_unknown_fields=True):
+    principal: Principal
+    booking_id: Identifier
+    starts_at: datetime
+    ends_at: datetime
+    idempotency_key: Identifier
+
+
+class CreateRecurringBookingRequest(msgspec.Struct, forbid_unknown_fields=True):
+    resource_id: Identifier
+    starts_at: datetime
+    ends_at: datetime
+    recurrence: Literal["daily", "weekly"]
+    occurrence_count: OccurrenceCount
+
+
+class CreateRecurringBooking(msgspec.Struct, forbid_unknown_fields=True):
+    principal: Principal
+    resource_id: Identifier
+    starts_at: datetime
+    ends_at: datetime
+    recurrence: Literal["daily", "weekly"]
+    occurrence_count: OccurrenceCount
     idempotency_key: Identifier
 
 
@@ -104,6 +203,7 @@ class AvailabilityQuery(msgspec.Struct, forbid_unknown_fields=True):
     starts_at: datetime
     ends_at: datetime
     resource_id: str | None = None
+    resource_ids: tuple[Identifier, ...] = ()
 
 
 class Availability(msgspec.Struct, frozen=True):
@@ -161,8 +261,15 @@ class CleanupOutboxRequest(msgspec.Struct, forbid_unknown_fields=True):
     before: datetime
 
 
-class CancelBooking(GetBooking):
-    pass
+class CancelBookingRequest(msgspec.Struct, forbid_unknown_fields=True):
+    scope: Literal["one", "this-and-following", "entire-series"] = "one"
+
+
+class CancelBooking(msgspec.Struct, forbid_unknown_fields=True):
+    principal: Principal
+    booking_id: Identifier
+    scope: Literal["one", "this-and-following", "entire-series"]
+    idempotency_key: Identifier
 
 
 class CheckInBooking(GetBooking):
@@ -182,6 +289,15 @@ class BookingLifecycleEvent(msgspec.Struct, frozen=True):
     actor_id: str
     resource_id: str
     status: Literal["cancelled", "checked_in", "no_show", "completed"]
+
+
+class BookingRescheduled(msgspec.Struct, frozen=True):
+    tenant_id: str
+    booking_id: str
+    actor_id: str
+    resource_id: str
+    starts_at: datetime
+    ends_at: datetime
 
 
 class Notification(msgspec.Struct, frozen=True):

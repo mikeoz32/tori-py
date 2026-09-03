@@ -6,7 +6,9 @@ from contextlib import asynccontextmanager
 from typing import Annotated, Any, cast
 
 import pytest
+import tori_py.core.runtime as runtime_module
 import tori_py.http.routes as routes_module
+import tori_py.starlette.application as starlette_application
 from starlette.background import BackgroundTask
 from starlette.requests import ClientDisconnect
 from starlette.responses import Response
@@ -76,6 +78,73 @@ def _http_scope(
         "client": ("test", 1),
         "server": ("test", 80),
     }
+
+
+@pytest.mark.asyncio
+async def test_starlette_endpoint_execution_is_compiled_during_binding_not_per_request(
+    monkeypatch, call_http
+) -> None:
+    @controller()
+    class Controller:
+        @get("/compiled")
+        async def compiled(self) -> str:
+            return "ok"
+
+    @module(controllers=[Controller])
+    class Root:
+        pass
+
+    compiled = 0
+    compile_endpoint = starlette_application.compile_endpoint
+
+    def count_compilations(*args, **kwargs):
+        nonlocal compiled
+        compiled += 1
+        return compile_endpoint(*args, **kwargs)
+
+    monkeypatch.setattr(starlette_application, "compile_endpoint", count_compilations)
+    application = await TestingModule.create(Root).compile(adapter=StarletteAdapter())
+
+    assert compiled == 1
+    await call_http(_asgi(application), path="/compiled")
+    await call_http(_asgi(application), path="/compiled")
+    assert compiled == 1
+    await application.close()
+
+
+@pytest.mark.asyncio
+async def test_starlette_injection_uses_provider_reference_compiled_for_the_route(
+    monkeypatch: pytest.MonkeyPatch,
+    call_http,
+    message_body,
+) -> None:
+    @controller()
+    class Controller:
+        @get("/compiled-injection")
+        async def compiled_injection(
+            self,
+            value: Annotated[str, Inject("value")],
+        ) -> str:
+            return value
+
+    @module(
+        controllers=[Controller],
+        providers=[FactoryProvider("value", lambda: "compiled")],
+    )
+    class Root:
+        pass
+
+    application = await TestingModule.create(Root).compile(adapter=StarletteAdapter())
+
+    async def fail_token_resolution(*args, **kwargs):
+        del args, kwargs
+        raise AssertionError("route injection must use its compiled provider ref")
+
+    monkeypatch.setattr(runtime_module._Resolver, "resolve", fail_token_resolution)
+    response = await call_http(_asgi(application), path="/compiled-injection")
+
+    assert json.loads(message_body(response[1])) == "compiled"
+    await application.close()
 
 
 @pytest.mark.asyncio
@@ -1373,6 +1442,43 @@ async def test_response_and_request_cleanup_keep_matched_context(call_http) -> N
         ("GET /context-lifetime", "context-lifetime"),
     ]
     assert current_request_context() is None
+    await application.close()
+
+
+@pytest.mark.asyncio
+async def test_matched_request_creates_one_request_context(
+    call_http,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import tori_py.starlette.application as application_module
+    import tori_py.starlette.routes as routes_module
+
+    @controller()
+    class Controller:
+        @get("/one-context")
+        async def one_context(self) -> str:
+            return "ok"
+
+    @module(controllers=[Controller])
+    class Root:
+        pass
+
+    application = await TestingModule.create(Root).compile(adapter=StarletteAdapter())
+    original = routes_module.RequestContext
+    contexts_created = 0
+
+    def counted_context(*args, **kwargs):
+        nonlocal contexts_created
+        contexts_created += 1
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(application_module, "RequestContext", counted_context)
+    monkeypatch.setattr(routes_module, "RequestContext", counted_context)
+
+    messages = await call_http(_asgi(application), path="/one-context")
+
+    assert messages[0]["status"] == 200
+    assert contexts_created == 1
     await application.close()
 
 

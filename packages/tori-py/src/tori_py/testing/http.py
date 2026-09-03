@@ -23,7 +23,7 @@ async def http_client(
     raise_app_exceptions: bool = False,
     client_address: tuple[str, int] = ("testclient", 50000),
 ) -> AsyncIterator[httpx.AsyncClient]:
-    """Yield an HTTPX client for an already-started Starlette application."""
+    """Yield an HTTPX client for an already-started HTTP application."""
 
     nest_application = (
         application.application
@@ -42,10 +42,16 @@ async def http_client(
             code="testing.httpx_unavailable",
         ) from error
 
-    from tori_py.starlette import StarletteAdapter
+    from tori_py.asgi import AsgiAdapter
 
+    try:
+        app = nest_application.get_adapter(AsgiAdapter).app
+    except ApplicationStateError:
+        from tori_py.starlette import StarletteAdapter
+
+        app = nest_application.get_adapter(StarletteAdapter).app
     transport = httpx.ASGITransport(
-        app=nest_application.get_adapter(StarletteAdapter).app,
+        app=app,
         raise_app_exceptions=raise_app_exceptions,
         client=client_address,
     )

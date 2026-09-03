@@ -16,11 +16,15 @@ from examples.tori_py.reference_apps.workplace.common.contracts import (
     CheckInBooking,
     CleanupOutbox,
     CreateBooking,
+    CreateRecurringBooking,
     GetBooking,
     ListAudit,
     ListBookings,
+    ListResources,
     Principal,
+    RescheduleBooking,
 )
+from examples.tori_py.reference_apps.workplace.spaces.app import SpacesController
 
 
 @pytest.fixture
@@ -45,10 +49,14 @@ def _normal_payloads() -> tuple[object, ...]:
     ends_at = datetime(2026, 9, 2, 10, tzinfo=UTC)
     return (
         CreateBooking(principal, "desk-17", starts_at, ends_at, "request-1"),
+        CreateRecurringBooking(
+            principal, "desk-17", starts_at, ends_at, "weekly", 2, "series-1"
+        ),
+        RescheduleBooking(principal, "booking-1", starts_at, ends_at, "reschedule-1"),
         GetBooking(principal, "booking-1"),
         ListBookings(principal),
         AvailabilityQuery(principal, starts_at, ends_at),
-        CancelBooking(principal, "booking-1"),
+        CancelBooking(principal, "booking-1", "one", "cancel-1"),
         CheckInBooking(principal, "booking-1"),
     )
 
@@ -57,9 +65,13 @@ def _normal_payloads() -> tuple[object, ...]:
 async def test_forged_principal_without_workplace_role_is_rejected_by_booking_endpoints(
     controller: BookingsController,
 ) -> None:
-    create, get, listing, availability, cancel, check_in = _normal_payloads()
+    create, recurring, reschedule, get, listing, availability, cancel, check_in = (
+        _normal_payloads()
+    )
     operations = (
         controller.create_booking(create),
+        controller.create_recurring_booking(recurring),
+        controller.reschedule_booking(reschedule),
         controller.get_booking(get),
         controller.list_bookings(listing),
         controller.availability(availability),
@@ -71,6 +83,19 @@ async def test_forged_principal_without_workplace_role_is_rejected_by_booking_en
         with pytest.raises(PublicRpcError, match="workplace role") as error:
             await operation
         assert error.value.code == "forbidden"
+
+
+@pytest.mark.asyncio
+async def test_non_admin_rpc_cannot_list_inactive_resources() -> None:
+    controller = SpacesController(
+        SimpleNamespace(), SimpleNamespace(), SimpleNamespace()
+    )
+    principal = Principal("tenant-north", "employee-1", ("employee",))
+
+    with pytest.raises(PublicRpcError, match="Facilities administrator") as error:
+        await controller.list_resources(ListResources(principal, include_inactive=True))
+
+    assert error.value.code == "forbidden"
 
 
 @pytest.mark.asyncio

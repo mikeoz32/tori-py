@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager, contextmanager
 from typing import Annotated, cast
 
 import pytest
+import tori_py.core.runtime as runtime_module
 from tori_py import (
     AliasProvider,
     ApplicationOptions,
@@ -117,16 +118,29 @@ async def test_resolve_ref_requires_the_exact_ref_to_be_visible() -> None:
 
 
 @pytest.mark.asyncio
-async def test_concurrent_request_resolution_shares_one_inflight_creation() -> None:
+async def test_empty_request_scope_closes_without_a_cleanup_task() -> None:
+    @module(providers=[ValueProvider("singleton", "value")])
+    class Root:
+        pass
+
+    graph = await graph_for(Root)
+    container = Container(graph)
+    scope = RequestScope(container, graph.root)
+
+    async with scope as resolver:
+        assert await resolver.resolve("singleton") == "value"
+
+    assert scope._cleanup_task is None
+    await container.close()
+
+
+@pytest.mark.asyncio
+async def test_live_request_resolver_rejects_cross_task_use() -> None:
     created = 0
-    started = asyncio.Event()
-    release = asyncio.Event()
 
     async def make_value() -> object:
         nonlocal created
         created += 1
-        started.set()
-        await release.wait()
         return object()
 
     @module(providers=[FactoryProvider("request", make_value, scope=Scope.REQUEST)])
@@ -136,12 +150,102 @@ async def test_concurrent_request_resolution_shares_one_inflight_creation() -> N
     graph = await graph_for(Root)
     container = Container(graph)
     async with RequestScope(container, graph.root) as resolver:
-        first = asyncio.create_task(resolver.resolve("request"))
-        second = asyncio.create_task(resolver.resolve("request"))
-        await started.wait()
-        assert created == 1
-        release.set()
-        assert await first is await second
+        task = asyncio.create_task(resolver.resolve("request"))
+        with pytest.raises(ScopeError, match="owner task"):
+            await task
+
+    assert created == 0
+    await container.close()
+
+
+@pytest.mark.asyncio
+async def test_request_scope_resolve_ref_rejects_cross_task_use() -> None:
+    @module(providers=[ValueProvider("value", object())])
+    class Root:
+        pass
+
+    graph = await graph_for(Root)
+    container = Container(graph)
+    ref = graph.visibility[(graph.root, "value")]
+    scope = RequestScope(container, graph.root)
+    async with scope:
+        task = asyncio.create_task(scope.resolve_ref(ref))
+        with pytest.raises(ScopeError, match="owner task"):
+            await task
+
+    await container.close()
+
+
+@pytest.mark.asyncio
+async def test_application_resolver_shares_eager_singletons_across_tasks() -> None:
+    value = object()
+
+    @module(providers=[ValueProvider("singleton", value)])
+    class Root:
+        pass
+
+    graph = await graph_for(Root)
+    kernel = ApplicationKernel(graph)
+    await kernel.start()
+    resolver = kernel.resolver(graph.root)
+
+    first, second = await asyncio.gather(
+        asyncio.create_task(resolver.resolve("singleton")),
+        asyncio.create_task(resolver.resolve("singleton")),
+    )
+
+    assert first is value
+    assert second is value
+    await kernel.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_concurrent_request_tasks_own_separate_scopes() -> None:
+    async def make_value() -> object:
+        await asyncio.sleep(0)
+        return object()
+
+    @module(providers=[FactoryProvider("request", make_value, scope=Scope.REQUEST)])
+    class Root:
+        pass
+
+    graph = await graph_for(Root)
+    container = Container(graph)
+
+    async def resolve_in_scope() -> object:
+        async with RequestScope(container, graph.root) as resolver:
+            value = await resolver.resolve("request")
+            assert await resolver.resolve("request") is value
+            return value
+
+    first, second = await asyncio.gather(
+        asyncio.create_task(resolve_in_scope()),
+        asyncio.create_task(resolve_in_scope()),
+    )
+
+    assert first is not second
+    await container.close()
+
+
+@pytest.mark.asyncio
+async def test_declared_async_factory_does_not_check_awaitability_at_runtime(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def make_value() -> str:
+        return "value"
+
+    @module(providers=[FactoryProvider("value", make_value)])
+    class Root:
+        pass
+
+    graph = await graph_for(Root)
+    container = Container(graph)
+
+    def fail_awaitable_check(value: object) -> bool:
+        raise AssertionError(f"unexpected awaitability check for {value!r}")
+
+    monkeypatch.setattr(runtime_module.inspect, "isawaitable", fail_awaitable_check)
+    assert await container.resolver(graph.root).resolve("value") == "value"
     await container.close()
 
 
@@ -452,31 +556,29 @@ async def test_request_lease_closes_and_kernel_admission_is_bounded() -> None:
 
 
 @pytest.mark.asyncio
-async def test_request_scope_waits_for_detached_resolver_use_before_cleanup() -> None:
-    started = asyncio.Event()
-    release = asyncio.Event()
+async def test_request_scope_rejects_detached_use_of_a_cached_resource() -> None:
+    closed = asyncio.Event()
 
-    async def make_resource() -> str:
-        started.set()
-        await release.wait()
-        return "value"
+    @asynccontextmanager
+    async def resource() -> AsyncIterator[str]:
+        try:
+            yield "value"
+        finally:
+            closed.set()
 
-    @module(providers=[FactoryProvider("resource", make_resource, scope=Scope.REQUEST)])
+    @module(providers=[FactoryProvider("resource", resource, scope=Scope.REQUEST)])
     class Root:
         pass
 
     graph = await graph_for(Root)
     container = Container(graph)
-    scope = RequestScope(container, graph.root)
-    resolver = await scope.__aenter__()
-    task = asyncio.create_task(resolver.resolve("resource"))
-    await started.wait()
-    close_task = asyncio.create_task(scope.__aexit__(None, None, None))
-    await asyncio.sleep(0)
-    assert close_task.done() is False
-    release.set()
-    assert await task == "value"
-    await close_task
+    async with RequestScope(container, graph.root) as resolver:
+        assert await resolver.resolve("resource") == "value"
+        detached = asyncio.create_task(resolver.resolve("resource"))
+        with pytest.raises(ScopeError, match="owner task"):
+            await detached
+
+    assert closed.is_set()
     await container.close()
 
 
@@ -545,6 +647,44 @@ async def test_work_scope_factory_uses_module_identity_and_scoped_providers() ->
     await kernel.shutdown()
     with pytest.raises(ApplicationStateError, match="work scopes"):
         await consumer.scopes.open().__aenter__()
+
+
+@pytest.mark.asyncio
+async def test_work_scope_resolver_rejects_child_task_use() -> None:
+    created = 0
+
+    class RequestValue:
+        def __init__(self) -> None:
+            nonlocal created
+            created += 1
+
+    class Consumer:
+        def __init__(self, scopes: WorkScopeFactory) -> None:
+            self.scopes = scopes
+
+    @module(
+        providers=[
+            ClassProvider(Consumer),
+            ClassProvider(RequestValue, scope=Scope.REQUEST),
+        ]
+    )
+    class Root:
+        pass
+
+    graph = await graph_for(Root)
+    kernel = ApplicationKernel(graph)
+    await kernel.start()
+    consumer = cast(Consumer, await kernel.resolver(graph.root).resolve(Consumer))
+
+    async def operation(resolver) -> None:
+        task = asyncio.create_task(resolver.resolve(RequestValue))
+        with pytest.raises(ScopeError, match="owner task"):
+            await task
+
+    await consumer.scopes.run(operation)
+
+    assert created == 0
+    await kernel.shutdown()
 
 
 @pytest.mark.asyncio
@@ -650,6 +790,7 @@ async def test_quiescence_keeps_work_open_after_request_admission_closes() -> No
 @pytest.mark.asyncio
 async def test_cancelled_scope_waiter_does_not_cancel_cleanup() -> None:
     cleanup_started = asyncio.Event()
+    cleanup_finished = asyncio.Event()
     release_cleanup = asyncio.Event()
     cleanup_count = 0
 
@@ -669,35 +810,50 @@ async def test_cancelled_scope_waiter_does_not_cancel_cleanup() -> None:
 
     graph = await graph_for(Root)
     container = Container(graph)
-    scope = RequestScope(container, graph.root)
-    resolver = await scope.__aenter__()
-    assert await resolver.resolve("resource") == "resource"
-    close = asyncio.create_task(scope.__aexit__(None, None, None))
+    resolver = None
+
+    async def use_scope() -> None:
+        nonlocal resolver
+        scope = RequestScope(
+            container,
+            graph.root,
+            on_close=lambda _: cleanup_finished.set(),
+        )
+        async with scope as resolver:
+            assert await resolver.resolve("resource") == "resource"
+
+    owner = asyncio.create_task(use_scope())
     await cleanup_started.wait()
-    close.cancel()
+    owner.cancel()
     with pytest.raises(asyncio.CancelledError):
-        await close
+        await owner
     release_cleanup.set()
-    await scope.__aexit__(None, None, None)
+    await cleanup_finished.wait()
     assert cleanup_count == 1
+    assert resolver is not None
     with pytest.raises(ScopeClosedError):
         await resolver.resolve("resource")
     await container.close()
 
 
 @pytest.mark.asyncio
-async def test_cancelled_resolver_waiter_keeps_inflight_construction_owned() -> None:
+async def test_cancelled_owner_resolution_rolls_back_and_allows_retry() -> None:
     construction_started = asyncio.Event()
-    release_construction = asyncio.Event()
-    constructed = 0
+    construction_cancelled = asyncio.Event()
+    attempts = 0
     closed = 0
 
     @asynccontextmanager
     async def resource() -> AsyncIterator[str]:
-        nonlocal constructed, closed
-        construction_started.set()
-        await release_construction.wait()
-        constructed += 1
+        nonlocal attempts, closed
+        attempts += 1
+        if attempts == 1:
+            construction_started.set()
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                construction_cancelled.set()
+                raise
         try:
             yield "resource"
         finally:
@@ -711,18 +867,23 @@ async def test_cancelled_resolver_waiter_keeps_inflight_construction_owned() -> 
     container = Container(graph)
     scope = RequestScope(container, graph.root)
     resolver = await scope.__aenter__()
-    cancelled = asyncio.create_task(resolver.resolve("resource"))
-    await construction_started.wait()
-    cancelled.cancel()
-    with pytest.raises(asyncio.CancelledError):
-        await cancelled
+    try:
+        owner = asyncio.current_task()
+        assert owner is not None
+        asyncio.get_running_loop().call_soon(owner.cancel)
+        with pytest.raises(asyncio.CancelledError):
+            await resolver.resolve("resource")
+        owner.uncancel()
 
-    release_construction.set()
-    assert await resolver.resolve("resource") == "resource"
-    await scope.__aexit__(None, None, None)
-    assert constructed == 1
+        assert construction_started.is_set()
+        assert construction_cancelled.is_set()
+        assert await resolver.resolve("resource") == "resource"
+    finally:
+        await scope.__aexit__(None, None, None)
+        await container.close()
+
+    assert attempts == 2
     assert closed == 1
-    await container.close()
 
 
 @pytest.mark.asyncio

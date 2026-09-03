@@ -29,13 +29,19 @@ from tori_py.core.errors import ApplicationStateError, BootstrapError
 from tori_py.core.modules import ModuleSpec
 from tori_py.core.options import PipelineOptions
 from tori_py.core.providers import ProviderDeclaration
+from tori_py.core.runtime import RequestScope
 from tori_py.http._observability import log_http_emergency
 from tori_py.http.errors import HttpException
 from tori_py.http.pipeline import PipelineExecutor
 from tori_py.http.routes import bind_routes, compile_routes
 from tori_py.logging import use_log_context
 from tori_py.starlette.context import (
+    _APPLICATION_ID_KEY,
+    _CONTEXT_TOKEN_KEY,
+    _REQUEST_SCOPE_KEY,
+    _ROOT_MODULE_KEY,
     RequestContext,
+    _clear_context,
     _reset_context,
     _set_context,
     current_request_context,
@@ -43,7 +49,11 @@ from tori_py.starlette.context import (
 from tori_py.starlette.errors import problem_response
 from tori_py.starlette.options import StarletteOptions
 from tori_py.starlette.pipeline import StarlettePipelineAdapter
-from tori_py.starlette.routes import build_starlette_routes, validate_context_bindings
+from tori_py.starlette.routes import (
+    build_starlette_routes,
+    compile_endpoint,
+    validate_context_bindings,
+)
 from tori_py.starlette.websockets import (
     StarletteWebSocketPipelineAdapter,
     build_starlette_websocket_routes,
@@ -90,19 +100,22 @@ class _StarletteBinder:
                 "Starlette pipeline cannot be configured after binding"
             )
         self.pipeline.configure_global(pipeline)
+        self.plans = self.pipeline.qualify(self.plans)
         self.websocket_pipeline.configure_global(pipeline)
 
     async def bind(self, runtime: ApplicationRuntime) -> None:
         application_id = graph_label(self.graph)
         plans = await bind_routes(self.plans, runtime.resolver)
-        routes: list[BaseRoute] = list(
-            build_starlette_routes(
-                plans,
+        endpoints = tuple(
+            compile_endpoint(
+                plan,
                 self.pipeline,
                 application_id=application_id,
                 body_size_limit=self.http_options.body_size_limit,
             )
+            for plan in plans
         )
+        routes: list[BaseRoute] = list(build_starlette_routes(endpoints))
         websocket_plans = await bind_websocket_routes(
             self.websocket_plans,
             runtime.resolver,
@@ -204,7 +217,10 @@ class RequestScopeMiddleware:
         request_id = request_id_from_scope(scope)
         scope["tori_py_request_id"] = request_id
         request_scope = self.runtime.request_scope(self.root_module)
-        context_token = None
+        scope[_REQUEST_SCOPE_KEY] = request_scope
+        scope[_ROOT_MODULE_KEY] = self.root_module
+        scope[_APPLICATION_ID_KEY] = self.application_id
+        baseline_context_token = _clear_context()
         with use_log_context(
             application=self.application_id,
             request_id=request_id,
@@ -243,18 +259,8 @@ class RequestScopeMiddleware:
                             monitor = asyncio.create_task(monitor_disconnect())
                         return message
 
-                    request = Request(scope, direct_receive)
-                    context_token = _set_context(
-                        RequestContext(
-                            request=request,
-                            scope=request_scope,
-                            module_identity=self.root_module,
-                            application=self.application_id,
-                            route=None,
-                            request_id_value=request_id,
-                        )
-                    )
                     response_started = False
+                    request_id_bytes = request_id.encode("ascii")
 
                     async def tracked_send(
                         message: MutableMapping[str, Any],
@@ -262,15 +268,17 @@ class RequestScopeMiddleware:
                         nonlocal response_started
                         if message.get("type") == "http.response.start":
                             response_started = True
-                            headers = [
-                                (name, value)
-                                for name, value in message.get("headers", [])
-                                if name.lower() != b"x-request-id"
-                            ]
-                            headers.append(
-                                (b"x-request-id", request_id.encode("ascii"))
-                            )
-                            message["headers"] = headers
+                            headers = message.get("headers", [])
+                            if any(
+                                name.lower() == b"x-request-id" for name, _ in headers
+                            ):
+                                headers = [
+                                    (name, value)
+                                    for name, value in headers
+                                    if name.lower() != b"x-request-id"
+                                ]
+                                message["headers"] = headers
+                            headers.append((b"x-request-id", request_id_bytes))
                         elif message.get(
                             "type"
                         ) == "http.response.body" and not message.get(
@@ -302,8 +310,10 @@ class RequestScopeMiddleware:
                             monitor.cancel()
                             await asyncio.gather(monitor, return_exceptions=True)
             finally:
+                context_token = scope.pop(_CONTEXT_TOKEN_KEY, None)
                 if context_token is not None:
                     _reset_context(context_token)
+                _reset_context(baseline_context_token)
 
 
 class _ASGIState(StrEnum):
@@ -458,13 +468,34 @@ async def _pipeline_error_response(
 ):
     context = current_request_context()
     if context is None:
-        if isinstance(error, HttpException):
-            return problem_response(error.status_code, error.detail, request=request)
-        return problem_response(500, "Internal server error.", request=request)
+        request_scope = request.scope.get(_REQUEST_SCOPE_KEY)
+        root_module = request.scope.get(_ROOT_MODULE_KEY)
+        application_id = request.scope.get(_APPLICATION_ID_KEY)
+        request_id = request.scope.get("tori_py_request_id")
+        if (
+            not isinstance(request_scope, RequestScope)
+            or not isinstance(root_module, ModuleId)
+            or not isinstance(application_id, str)
+            or not isinstance(request_id, str)
+        ):
+            if isinstance(error, HttpException):
+                return problem_response(
+                    error.status_code, error.detail, request=request
+                )
+            return problem_response(500, "Internal server error.", request=request)
+        context = RequestContext(
+            request=request,
+            scope=request_scope,
+            module_identity=root_module,
+            application=application_id,
+            route=None,
+            request_id_value=request_id,
+        )
+        request.scope[_CONTEXT_TOKEN_KEY] = _set_context(context)
     from tori_py.starlette.routes import _encode_pipeline_result
 
     async def encode(result: object):
-        return await _encode_pipeline_result(result, 200, request)
+        return await _encode_pipeline_result(result, 200)
 
     return await pipeline.handle_routing_error(
         error,

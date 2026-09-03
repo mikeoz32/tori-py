@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import cast
 
 import msgspec
@@ -14,34 +14,30 @@ from starlette.routing import Route
 
 from tori_py.core.errors import BootstrapError
 from tori_py.core.protocols import PipelineResult
-from tori_py.core.providers import Token
-from tori_py.http.context import current_request_scope
+from tori_py.core.runtime import RequestScope
+from tori_py.http.endpoints import CompiledEndpoint
 from tori_py.http.errors import HttpException
 from tori_py.http.pipeline import PipelineExecutor
 from tori_py.http.response import HttpResponse, ResponseHeaderMetadata
 from tori_py.http.routes import ParameterPlan, RoutePlan
-from tori_py.starlette.context import RequestContext, _set_context
+from tori_py.starlette.context import (
+    _CONTEXT_TOKEN_KEY,
+    _REQUEST_SCOPE_KEY,
+    RequestContext,
+    _set_context,
+)
 
 
 def build_starlette_routes(
-    plans: tuple[RoutePlan, ...],
-    pipeline: PipelineExecutor,
-    *,
-    application_id: str,
-    body_size_limit: int,
+    endpoints: tuple[CompiledEndpoint[Response], ...],
 ) -> list[Route]:
     return [
         Route(
-            plan.path,
-            endpoint=_endpoint(
-                plan,
-                pipeline,
-                application_id=application_id,
-                body_size_limit=body_size_limit,
-            ),
-            methods=[plan.method],
+            endpoint.plan.path,
+            endpoint=endpoint.execute,
+            methods=[endpoint.plan.method],
         )
-        for plan in plans
+        for endpoint in endpoints
     ]
 
 
@@ -63,27 +59,72 @@ def validate_context_bindings(plans: tuple[RoutePlan, ...]) -> None:
                 )
 
 
-def _endpoint(
+def compile_endpoint(
     plan: RoutePlan,
     pipeline: PipelineExecutor,
     *,
     application_id: str,
     body_size_limit: int,
-):
-    async def handle(request: Request) -> Response:
-        request_scope = current_request_scope()
-        if request_scope is None:
-            raise HttpException(500, "Request scope is unavailable.")
-        context = RequestContext(
-            request=request,
-            scope=request_scope,
-            module_identity=plan.module_id,
-            application=application_id,
-            route=plan.route_id,
-            request_id_value=cast(str, request.scope["tori_py_request_id"]),
+) -> CompiledEndpoint[Response]:
+    uses_simple_binding = not plan.parameters and not plan.rejects_body
+    uses_body_stream = any(
+        parameter.kind == "body_stream" for parameter in plan.parameters
+    )
+
+    async def encode_result(result: object) -> Response:
+        return await _encode_pipeline_result(
+            result,
+            plan.status_code,
+            plan.response_headers,
         )
-        # RequestScopeMiddleware owns the final reset after response and cleanup.
-        _set_context(context)
+
+    async def run(
+        context: RequestContext,
+        request_scope: RequestScope,
+        bind_arguments: Callable[[], Awaitable[dict[str, object]]],
+        encode_result: Callable[[object], Awaitable[Response]],
+        validate_result: Callable[[], Awaitable[None]] | None = None,
+    ) -> Response:
+        result = await pipeline.run(
+            plan,
+            context,
+            request_scope,
+            bind_arguments=bind_arguments,
+            encode_result=encode_result,
+            validate_result=validate_result,
+        )
+        if not isinstance(result, Response):
+            raise HttpException(500, "Pipeline did not produce a response.")
+        return result
+
+    if uses_simple_binding:
+
+        async def execute(request: Request) -> Response:
+            request_scope = request.scope.get(_REQUEST_SCOPE_KEY)
+            if not isinstance(request_scope, RequestScope):
+                raise HttpException(500, "Request scope is unavailable.")
+            context = _request_context(request, request_scope, plan, application_id)
+            request.scope[_CONTEXT_TOKEN_KEY] = _set_context(context)
+            return await run(
+                context,
+                request_scope,
+                _empty_arguments,
+                encode_result,
+            )
+
+        return CompiledEndpoint(plan, execute)
+
+    validation_factory = (
+        _body_stream_validation if uses_body_stream else _no_result_validation
+    )
+
+    async def execute(request: Request) -> Response:
+        request_scope = request.scope.get(_REQUEST_SCOPE_KEY)
+        if not isinstance(request_scope, RequestScope):
+            raise HttpException(500, "Request scope is unavailable.")
+        context = _request_context(request, request_scope, plan, application_id)
+        # RequestScopeMiddleware resets this after response work and scope cleanup.
+        request.scope[_CONTEXT_TOKEN_KEY] = _set_context(context)
         body_stream: _StarletteBodyStream | None = None
 
         def bind_body_stream(max_bytes: int) -> _StarletteBodyStream:
@@ -100,35 +141,62 @@ def _endpoint(
                 bind_body_stream=bind_body_stream,
             )
 
-        async def validate_result() -> None:
-            if body_stream is not None and not body_stream.complete:
-                raise HttpException(400, "Request body stream was not fully consumed.")
-
-        async def encode_result(result: object) -> Response:
-            return await _encode_pipeline_result(
-                result,
-                plan.status_code,
-                request,
-                plan.response_headers,
-            )
+        validate = validation_factory(lambda: body_stream)
 
         try:
-            result = await pipeline.run(
-                plan,
+            return await run(
                 context,
                 request_scope,
-                bind_arguments=bind_arguments,
-                encode_result=encode_result,
-                validate_result=validate_result,
+                bind_arguments,
+                encode_result,
+                validate,
             )
-            if not isinstance(result, Response):
-                raise HttpException(500, "Pipeline did not produce a response.")
-            return result
         finally:
             if body_stream is not None:
                 await body_stream.aclose()
 
-    return handle
+    return CompiledEndpoint(plan, execute)
+
+
+def _request_context(
+    request: Request,
+    request_scope: RequestScope,
+    plan: RoutePlan,
+    application_id: str,
+) -> RequestContext:
+    return RequestContext(
+        request=request,
+        scope=request_scope,
+        module_identity=plan.module_id,
+        application=application_id,
+        route=plan.route_id,
+        request_id_value=cast(str, request.scope["tori_py_request_id"]),
+    )
+
+
+_EMPTY_ARGUMENTS: dict[str, object] = {}
+
+
+async def _empty_arguments() -> dict[str, object]:
+    return _EMPTY_ARGUMENTS
+
+
+def _body_stream_validation(
+    body_stream: Callable[[], _StarletteBodyStream | None],
+) -> Callable[[], Awaitable[None]]:
+    async def validate_result() -> None:
+        stream = body_stream()
+        if stream is not None and not stream.complete:
+            raise HttpException(400, "Request body stream was not fully consumed.")
+
+    return validate_result
+
+
+def _no_result_validation(
+    body_stream: Callable[[], _StarletteBodyStream | None],
+) -> None:
+    del body_stream
+    return None
 
 
 async def _bind_arguments(
@@ -146,7 +214,10 @@ async def _bind_arguments(
     body_value: object = None
     for parameter in plan.parameters:
         if parameter.kind == "inject":
-            value = await context.resolver.resolve(cast(Token, parameter.token))
+            provider_ref = parameter.provider_ref
+            if provider_ref is None:
+                raise HttpException(500, "Route dependency was not compiled.")
+            value = await context.scope.resolve_ref(provider_ref)
         elif parameter.kind == "context":
             value = context
         elif parameter.kind == "body":
@@ -278,27 +349,20 @@ class _StarletteBodyStream:
 async def _encode_result(
     result: object,
     status_code: int,
-    request: Request,
     response_headers: tuple[ResponseHeaderMetadata, ...] = (),
 ) -> Response:
     if isinstance(result, HttpResponse):
-        request_id = request.scope.get("tori_py_request_id")
         headers = {
             name: value
             for name, value in result.headers.items()
             if name.casefold() != "x-request-id"
         }
-        if isinstance(request_id, str):
-            headers["X-Request-ID"] = request_id
         return Response(
             result.content,
             status_code=result.status_code,
             headers=headers,
         )
     if isinstance(result, Response):
-        request_id = request.scope.get("tori_py_request_id")
-        if isinstance(request_id, str):
-            result.headers["X-Request-ID"] = request_id
         return result
     try:
         content = msgspec.json.encode(result)
@@ -311,9 +375,6 @@ async def _encode_result(
         for header in response_headers
         if header.name.casefold() != "x-request-id"
     }
-    request_id = request.scope.get("tori_py_request_id")
-    if isinstance(request_id, str):
-        headers["X-Request-ID"] = request_id
     return Response(
         content,
         status_code=status_code,
@@ -325,7 +386,6 @@ async def _encode_result(
 async def _encode_pipeline_result(
     result: object,
     status_code: int,
-    request: Request,
     response_headers: tuple[ResponseHeaderMetadata, ...] = (),
 ) -> Response:
     if isinstance(result, PipelineResult):
@@ -334,7 +394,7 @@ async def _encode_pipeline_result(
         ):
             raise HttpException(500, "Pipeline response is not an HTTP response.")
         result = result.value
-    return await _encode_result(result, status_code, request, response_headers)
+    return await _encode_result(result, status_code, response_headers)
 
 
 def _collapse_values(values: list[str]) -> object:

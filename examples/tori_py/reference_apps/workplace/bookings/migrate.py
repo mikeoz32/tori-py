@@ -23,6 +23,13 @@ async def migrate() -> None:
                 )
                 await connection.execute(
                     text("""
+                    ALTER TABLE bookings
+                      ADD COLUMN IF NOT EXISTS series_id VARCHAR(36),
+                      ADD COLUMN IF NOT EXISTS occurrence_index INTEGER;
+                    """)
+                )
+                await connection.execute(
+                    text("""
                     ALTER TABLE outbox
                       ADD COLUMN IF NOT EXISTS tenant_id VARCHAR(128),
                       ADD COLUMN IF NOT EXISTS next_attempt_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -74,7 +81,11 @@ async def migrate() -> None:
                 await connection.execute(
                     text("""
                     DO $$ BEGIN
-                      IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'bookings_no_overlap') THEN
+                      IF NOT EXISTS (
+                        SELECT 1 FROM pg_constraint
+                        WHERE conname = 'bookings_no_overlap'
+                          AND conrelid = 'bookings'::regclass
+                      ) THEN
                         ALTER TABLE bookings ADD CONSTRAINT bookings_no_overlap
                         EXCLUDE USING gist (tenant_id WITH =, resource_id WITH =,
                         tstzrange(starts_at, ends_at, '[)') WITH &&)
@@ -84,6 +95,20 @@ async def migrate() -> None:
                 """)
                 )
             elif connection.dialect.name == "sqlite":
+                booking_columns = {
+                    row[1]
+                    for row in (
+                        await connection.execute(text("PRAGMA table_info(bookings)"))
+                    )
+                }
+                if "series_id" not in booking_columns:
+                    await connection.execute(
+                        text("ALTER TABLE bookings ADD COLUMN series_id VARCHAR(36)")
+                    )
+                if "occurrence_index" not in booking_columns:
+                    await connection.execute(
+                        text("ALTER TABLE bookings ADD COLUMN occurrence_index INTEGER")
+                    )
                 columns = {
                     row[1]
                     for row in (

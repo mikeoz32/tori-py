@@ -38,10 +38,11 @@ Resolution uses precompiled provider keys:
 - transient: new instance on every resolution;
 - alias: canonical target cache and identity.
 
-Request cache creation is concurrency-safe. Concurrent resolution of one
-request provider shares an in-flight future and creates one instance.
-Cancelling one waiter does not remove or cancel authoritative in-flight
-construction; the owning scope observes and closes it exactly once.
+Request and work scopes are task-affine. Entering a scope binds it to the
+current task, and only that owner task may resolve from it. Cross-task
+resolution fails with `ScopeError` before reading the cache or starting
+construction. The owner resolves request providers sequentially, so request
+cache creation requires no lock or in-flight construction registry.
 
 Transient resources inherit the current owner:
 
@@ -51,16 +52,19 @@ Transient resources inherit the current owner:
 
 ## Scope Lease
 
-Each resolver checks a `ScopeLease` before resolution. Lease states are open,
-closing, and closed.
+Each request/work resolver checks both task ownership and a `ScopeLease` before
+resolution. Lease states are open, closing, and closed.
 
-- open permits resolution;
+- open permits resolution by the owner task;
 - closing rejects new resolution but allows task-owned cleanup;
 - closed rejects all use with `ScopeClosedError`.
 
 Request completion invalidates the lease exactly once and resets framework
-context variables. Detached tasks retaining a resolver cannot acquire new
-request providers after closure.
+context variables. A detached task retaining a resolver is rejected with
+`ScopeError` even while the scope remains open; after closure, stale resolution
+fails with `ScopeClosedError`. An already resolved value may be passed to a
+child task only when the value itself supports that use and the owner joins the
+child before closing the scope.
 
 `WorkScopeFactory` is a reserved intrinsic dependency available to providers
 without a declaration or export. It is bound to the receiving provider's exact
@@ -139,7 +143,7 @@ If construction, resource enter, driver binding, or a hook fails:
 N2 provides driver-neutral request/work scope primitives:
 
 - separate normal-request and internal-work admission gates;
-- active task registry;
+- one owner task per active scope;
 - shared active-scope registry;
 - scope context manager;
 - active/closing/closed state transitions.
@@ -226,7 +230,7 @@ Tests MUST cover:
 1. eager singleton construction order;
 2. module classes with required constructor arguments are rejected;
 3. request cache identity and transient non-caching;
-4. concurrent request resolution creates one cached instance;
+4. request/work resolvers reject cross-task resolution before construction;
 5. alias identity/cache/resource ownership;
 6. runtime resolution of value, class, sync factory, async factory, and alias
    providers;

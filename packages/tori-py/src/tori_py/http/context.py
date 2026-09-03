@@ -66,7 +66,7 @@ def current_request_scope() -> RequestScope | None:
 
 
 def _set_http_context(
-    context: HttpContext,
+    context: HttpContext | None,
 ) -> contextvars.Token[HttpContext | None]:
     return _CURRENT_CONTEXT.set(context)
 

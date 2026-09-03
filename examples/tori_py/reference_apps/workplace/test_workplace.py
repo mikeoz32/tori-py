@@ -74,6 +74,8 @@ from examples.tori_py.reference_apps.workplace.spaces.app import (
     CreateResourceHandler,
     ListResourcesHandler,
     ListResourcesQuery,
+    ResourceEquipmentRepository,
+    ResourceEquipmentRow,
     ResourceRepository,
     ResourceRow,
 )
@@ -110,9 +112,10 @@ async def space_components():
         await connection.run_sync(SpacesBase.metadata.create_all)
     entities = EntityManager(async_sessionmaker(engine, expire_on_commit=False))
     resources = ResourceRepository(ResourceRow, entities)
+    equipment = ResourceEquipmentRepository(ResourceEquipmentRow, entities)
     try:
         yield (
-            CreateResourceHandler(entities, resources),
+            CreateResourceHandler(entities, resources, equipment),
             ListResourcesHandler(resources),
         )
     finally:

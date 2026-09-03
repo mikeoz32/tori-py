@@ -18,5 +18,6 @@ release-digests.json
 site/
 *.egg-info/
 **/*.egg-info/
+benchmarks/results/
 
 .agents/

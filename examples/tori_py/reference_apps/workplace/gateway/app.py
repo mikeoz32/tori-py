@@ -21,9 +21,11 @@ from tori_py import (
     Query,
     ValueProvider,
     controller,
+    delete,
     get,
     injectable,
     module,
+    patch,
     post,
     status,
     use_guard,
@@ -39,17 +41,24 @@ from tori_py_microservices import (
 )
 
 from ..common.contracts import (
+    MAX_RESOURCE_OFFSET,
     AuditEntry,
     Availability,
     Booking,
+    CancelBookingRequest,
     CleanupOutboxRequest,
     CreateBookingRequest,
+    CreateRecurringBookingRequest,
     CreateResource,
     FacilityDashboard,
     Notification,
+    OfficePolicy,
+    OfficePolicyUpdate,
     OutboxDiagnostics,
     Principal,
+    RescheduleBookingRequest,
     Resource,
+    UpdateResource,
 )
 from ..common.infrastructure import rabbitmq_url
 from ..common.security import has_workplace_role, is_facilities_admin
@@ -174,9 +183,107 @@ class GatewayController:
 
     @get("/resources")
     async def list_resources(
-        self, context: Annotated[RequestContext, Context()]
+        self,
+        context: Annotated[RequestContext, Context()],
+        office_id: Annotated[str | None, Query("office_id")] = None,
+        floor_id: Annotated[str | None, Query("floor_id")] = None,
+        kind: Annotated[str | None, Query("kind")] = None,
+        equipment: Annotated[str | tuple[str, ...], Query("equipment")] = (),
+        min_capacity: Annotated[int | None, Query("min_capacity")] = None,
+        include_inactive: Annotated[bool, Query("include_inactive")] = False,
+        availability_from: Annotated[
+            datetime | None, Query("availability_from")
+        ] = None,
+        availability_to: Annotated[datetime | None, Query("availability_to")] = None,
+        offset: Annotated[int, Query("offset")] = 0,
+        limit: Annotated[int, Query("limit")] = 50,
     ) -> list[Resource]:
-        return await _dispatch(self._spaces.list_resources(_principal(context)))
+        principal = _principal(context)
+        if not 0 <= offset <= MAX_RESOURCE_OFFSET or not 1 <= limit <= 100:
+            raise HttpException(400, "Resource page is outside the supported range.")
+        if include_inactive:
+            _require_admin(principal)
+        if (availability_from is None) != (availability_to is None):
+            raise HttpException(400, "Availability interval requires both timestamps.")
+        if availability_from is not None and availability_to is not None:
+            _validate_availability_interval(availability_from, availability_to)
+        equipment_filter = (equipment,) if isinstance(equipment, str) else equipment
+        if availability_from is None or availability_to is None:
+            return await _dispatch(
+                self._spaces.list_resources(
+                    principal,
+                    office_id,
+                    floor_id,
+                    kind,
+                    equipment_filter,
+                    min_capacity,
+                    include_inactive,
+                    offset,
+                    limit,
+                )
+            )
+        available_resources: list[Resource] = []
+        candidate_offset = 0
+        batch_size = 100
+        page_end = offset + limit
+        while len(available_resources) < page_end:
+            candidates = await _dispatch(
+                self._spaces.list_resources(
+                    principal,
+                    office_id,
+                    floor_id,
+                    kind,
+                    equipment_filter,
+                    min_capacity,
+                    include_inactive,
+                    candidate_offset,
+                    batch_size,
+                )
+            )
+            if not candidates:
+                break
+            availability = await _dispatch(
+                self._bookings.availability(
+                    principal,
+                    availability_from,
+                    availability_to,
+                    None,
+                    tuple(resource.id for resource in candidates),
+                )
+            )
+            available_ids = {
+                item.resource_id for item in availability if item.available
+            }
+            available_resources.extend(
+                resource for resource in candidates if resource.id in available_ids
+            )
+            candidate_offset += len(candidates)
+            if len(candidates) < batch_size:
+                break
+        return available_resources[offset:page_end]
+
+    @get("/offices/{office_id}/policy")
+    async def get_office_policy(
+        self,
+        office_id: Annotated[str, Path("office_id")],
+        context: Annotated[RequestContext, Context()],
+    ) -> OfficePolicy:
+        return await _dispatch(
+            self._spaces.get_office_policy(_principal(context), office_id)
+        )
+
+    @patch("/offices/{office_id}/policy")
+    async def update_office_policy(
+        self,
+        office_id: Annotated[str, Path("office_id")],
+        body: Annotated[OfficePolicyUpdate, Body()],
+        context: Annotated[RequestContext, Context()],
+    ) -> OfficePolicy:
+        principal = _principal(context)
+        _require_admin(principal)
+        return await _dispatch(
+            self._spaces.update_office_policy(principal, office_id, body)
+        )
 
     @post("/resources")
     @status(201)
@@ -188,6 +295,33 @@ class GatewayController:
         principal = _principal(context)
         _require_admin(principal)
         return await _dispatch(self._spaces.create_resource(principal, body))
+
+    @patch("/resources/{resource_id}")
+    async def update_resource(
+        self,
+        resource_id: Annotated[str, Path("resource_id")],
+        body: Annotated[UpdateResource, Body()],
+        context: Annotated[RequestContext, Context()],
+    ) -> Resource:
+        principal = _principal(context)
+        _require_admin(principal)
+        return await _dispatch(
+            self._spaces.update_resource(principal, resource_id, body)
+        )
+
+    @delete("/resources/{resource_id}")
+    async def deactivate_resource(
+        self,
+        resource_id: Annotated[str, Path("resource_id")],
+        context: Annotated[RequestContext, Context()],
+    ) -> Resource:
+        principal = _principal(context)
+        _require_admin(principal)
+        return await _dispatch(
+            self._spaces.update_resource(
+                principal, resource_id, UpdateResource(active=False)
+            )
+        )
 
     @get("/bookings")
     async def list_bookings(
@@ -293,14 +427,62 @@ class GatewayController:
             )
         )
 
+    @post("/bookings/recurring")
+    @status(201)
+    async def create_recurring_booking(
+        self,
+        body: Annotated[CreateRecurringBookingRequest, Body()],
+        context: Annotated[RequestContext, Context()],
+    ) -> list[Booking]:
+        idempotency_key = context.headers.get("idempotency-key", "")
+        if not idempotency_key:
+            raise HttpException(400, "Idempotency-Key is required.")
+        return await _dispatch(
+            self._bookings.create_recurring_booking(
+                _principal(context),
+                body.resource_id,
+                body.starts_at,
+                body.ends_at,
+                body.recurrence,
+                body.occurrence_count,
+                idempotency_key,
+            )
+        )
+
+    @post("/bookings/{booking_id}/reschedule")
+    async def reschedule_booking(
+        self,
+        booking_id: Annotated[str, Path("booking_id")],
+        body: Annotated[RescheduleBookingRequest, Body()],
+        context: Annotated[RequestContext, Context()],
+    ) -> Booking:
+        idempotency_key = context.headers.get("idempotency-key", "")
+        if not idempotency_key:
+            raise HttpException(400, "Idempotency-Key is required.")
+        return await _dispatch(
+            self._bookings.reschedule_booking(
+                _principal(context),
+                booking_id,
+                body.starts_at,
+                body.ends_at,
+                idempotency_key,
+            )
+        )
+
     @post("/bookings/{booking_id}/cancel")
     async def cancel_booking(
         self,
         booking_id: Annotated[str, Path("booking_id")],
+        body: Annotated[CancelBookingRequest, Body()],
         context: Annotated[RequestContext, Context()],
-    ) -> Booking:
+    ) -> list[Booking]:
+        idempotency_key = context.headers.get("idempotency-key", "")
+        if not idempotency_key:
+            raise HttpException(400, "Idempotency-Key is required.")
         return await _dispatch(
-            self._bookings.cancel_booking(_principal(context), booking_id)
+            self._bookings.cancel_booking(
+                _principal(context), booking_id, body.scope, idempotency_key
+            )
         )
 
     @post("/bookings/{booking_id}/check-in")

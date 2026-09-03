@@ -291,8 +291,8 @@ def test_workflows_pin_release_toolchain_and_reject_prerelease_python() -> None:
     workflows = Path(__file__).parents[1] / ".github/workflows"
     contents = [(workflows / "ci.yml").read_text(encoding="utf-8")]
 
-    assert sum(content.count('version: "0.11.28"') for content in contents) == 3
-    assert sum(content.count("releaselevel == 'final'") for content in contents) == 3
+    assert sum(content.count('version: "0.11.28"') for content in contents) == 4
+    assert sum(content.count("releaselevel == 'final'") for content in contents) == 4
 
 
 def test_local_publish_uses_verified_pairs_and_idempotent_index_checks(

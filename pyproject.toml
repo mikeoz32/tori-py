@@ -1,4 +1,5 @@
 [tool.uv.workspace]
+exclude = ["benchmarks"]
 members = [
     "packages/tori-py-cqrs-core",
     "packages/tori-py-cqrs-event-sourcing-core",
@@ -55,6 +56,7 @@ dev = [
     "pytest-playwright>=0.7,<1",
     "websockets>=17,<18",
     "uvicorn>=0.41,<1",
+    "tzdata>=2026.3",
 ]
 docs = [
     "mkdocs>=1.6.1,<2",
@@ -78,7 +80,7 @@ indent-style = "space"
 python-version = "3.14"
 
 [tool.pytest.ini_options]
-addopts = "--import-mode=importlib"
+addopts = "--import-mode=importlib --ignore=benchmarks"
 pythonpath = ["."]
 markers = [
     "rabbitmq: integration tests requiring Docker and RabbitMQ",

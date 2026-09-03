@@ -1,0 +1,13 @@
+services:
+  benchmark:
+    build:
+      context: ..
+      dockerfile: benchmarks/Dockerfile
+    init: true
+    cpus: 2.0
+    mem_limit: 2g
+    network_mode: none
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      - ./results:/results

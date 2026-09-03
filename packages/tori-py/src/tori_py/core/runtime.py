@@ -16,7 +16,9 @@ from types import TracebackType
 from typing import Protocol, cast, runtime_checkable
 
 from tori_py.core.compiler import (
+    AwaitPolicy,
     CompiledGraph,
+    ConstructionRecipe,
     ModuleId,
     ProviderRef,
 )
@@ -41,11 +43,7 @@ from tori_py.core.protocols import (
     WorkScopeFactory,
 )
 from tori_py.core.providers import (
-    AliasProvider,
-    ClassProvider,
-    FactoryProvider,
     Scope,
-    ValueProvider,
 )
 from tori_py.core.reflection import Reflector
 
@@ -271,46 +269,23 @@ class _ScopeState:
     kind: str
     lease: ScopeLease | None
     cache: dict[ProviderRef, object] = field(default_factory=dict)
-    inflight: dict[ProviderRef, asyncio.Future[object]] = field(default_factory=dict)
     resources: _ResourceStack | None = None
-    active_users: dict[asyncio.Task[object], int] = field(default_factory=dict)
-    users_empty: asyncio.Event = field(default_factory=asyncio.Event)
+    owner_task: asyncio.Task[object] | None = None
 
-    def __post_init__(self) -> None:
-        self.users_empty.set()
-
-    def enter_user(self) -> None:
-        task = asyncio.current_task()
+    def bind_owner(self) -> None:
+        task = cast(asyncio.Task[object] | None, asyncio.current_task())
         if task is None:
-            raise ScopeError("scope resolution requires an asyncio task")
-        if self.lease is not None:
-            self.lease.check()
-        self.active_users[task] = self.active_users.get(task, 0) + 1
-        self.users_empty.clear()
+            raise ScopeError("request/work scope requires an asyncio task")
+        self.owner_task = task
 
-    def exit_user(self) -> None:
-        task = asyncio.current_task()
-        if task is None or task not in self.active_users:
+    def check_access(self) -> None:
+        if self.lease is None:
             return
-        count = self.active_users[task] - 1
-        if count:
-            self.active_users[task] = count
-        else:
-            self.active_users.pop(task, None)
-        if not self.active_users:
-            self.users_empty.set()
-
-    def cancel_inflight(self) -> None:
-        for future in tuple(self.inflight.values()):
-            if not future.done():
-                future.cancel()
-
-    async def wait_users(self, *, exclude: asyncio.Task[object] | None = None) -> None:
-        while True:
-            users = {task for task in self.active_users if task is not exclude}
-            if not users:
-                return
-            await asyncio.sleep(0)
+        self.lease.check()
+        if asyncio.current_task() is not self.owner_task:
+            raise ScopeError(
+                "request/work scope resolver can only be used by its owner task"
+            )
 
 
 class _Resolver:
@@ -327,28 +302,20 @@ class _Resolver:
     async def resolve(self, token: object) -> object:
         if not isinstance(token, (str, type)):
             raise ScopeError("resolver token must be a class or string")
-        self._scope.enter_user()
-        try:
-            return await self._container.resolve_token(
-                self._module_id,
-                token,
-                scope=self._scope,
-            )
-        finally:
-            self._scope.exit_user()
+        return await self._container.resolve_token(
+            self._module_id,
+            token,
+            scope=self._scope,
+        )
 
     async def resolve_ref(self, ref: ProviderRef) -> object:
-        self._scope.enter_user()
-        try:
-            visible = self._container.graph.visibility.get((self._module_id, ref.token))
-            if visible != ref:
-                raise ScopeError(
-                    "provider reference is not visible from module "
-                    f"{self._module_id.module.__qualname__}"
-                )
-            return await self._container.resolve_ref(ref, scope=self._scope)
-        finally:
-            self._scope.exit_user()
+        visible = self._container.graph.visibility.get((self._module_id, ref.token))
+        if visible != ref:
+            raise ScopeError(
+                "provider reference is not visible from module "
+                f"{self._module_id.module.__qualname__}"
+            )
+        return await self._container.resolve_ref(ref, scope=self._scope)
 
 
 class Container:
@@ -379,11 +346,7 @@ class Container:
         return _Resolver(self, module_id, self._application)
 
     def new_request_scope(self, kind: str = "request") -> _ScopeState:
-        return _ScopeState(
-            kind,
-            ScopeLease(),
-            resources=_ResourceStack(self._executor),
-        )
+        return _ScopeState(kind, ScopeLease())
 
     async def resolve_token(
         self,
@@ -400,14 +363,15 @@ class Container:
         return await self.resolve_ref(ref, scope=scope)
 
     async def resolve_ref(self, ref: ProviderRef, *, scope: _ScopeState) -> object:
+        scope.check_access()
+        return await self._resolve_ref(ref, scope=scope)
+
+    async def _resolve_ref(self, ref: ProviderRef, *, scope: _ScopeState) -> object:
         if self._closed:
             raise ScopeClosedError("container is closed")
-        if scope.lease is not None:
-            scope.lease.check()
         plan = self.graph.providers[ref]
         canonical = plan.canonical
-        canonical_plan = self.graph.providers[canonical]
-        effective_scope = canonical_plan.scope
+        effective_scope = plan.scope
         if effective_scope is Scope.SINGLETON:
             owner = self._application
         elif effective_scope is Scope.REQUEST:
@@ -417,54 +381,44 @@ class Container:
         else:
             owner = scope
         if effective_scope is Scope.TRANSIENT:
-            return await self._construct(canonical, scope=scope, owner=owner)
-        return await self._resolve_cached(canonical, scope=owner)
+            return await self._construct(
+                canonical,
+                plan.recipe,
+                scope=scope,
+                owner=owner,
+            )
+        return await self._resolve_cached(canonical, plan.recipe, scope=owner)
 
     async def _resolve_cached(
         self,
         ref: ProviderRef,
+        recipe: ConstructionRecipe,
         *,
         scope: _ScopeState,
     ) -> object:
         if ref in scope.cache:
             return scope.cache[ref]
-        pending = scope.inflight.get(ref)
-        if pending is None:
-            pending = asyncio.create_task(
-                self._construct(ref, scope=scope, owner=scope)
-            )
-            scope.inflight[ref] = pending
-        try:
-            value = await asyncio.shield(pending)
-        except BaseException:
-            if pending.done() and scope.inflight.get(ref) is pending:
-                scope.inflight.pop(ref, None)
-            raise
-        if scope.inflight.get(ref) is pending:
-            scope.inflight.pop(ref, None)
-            scope.cache[ref] = value
+        value = await self._construct(ref, recipe, scope=scope, owner=scope)
+        scope.cache[ref] = value
         return value
 
     async def _construct(
         self,
         ref: ProviderRef,
+        recipe: ConstructionRecipe,
         *,
         scope: _ScopeState,
         owner: _ScopeState,
     ) -> object:
-        plan = self.graph.providers[ref]
-        declaration = plan.declaration
-        if isinstance(declaration, AliasProvider):
-            return await self.resolve_ref(plan.canonical, scope=scope)
         resources = owner.resources
         if resources is None:
-            raise ResourceError("provider scope has no resource stack")
+            resources = owner.resources = _ResourceStack(self._executor)
         mark = resources.mark()
         initial_cache = set(owner.cache)
         try:
             arguments: dict[str, object] = {}
-            for dependency in plan.dependencies:
-                if dependency.token is WorkScopeFactory:
+            for dependency in recipe.dependencies:
+                if dependency.intrinsic is WorkScopeFactory:
                     if self._work_scope_factory is None:
                         raise ScopeError(
                             "WorkScopeFactory requires an application runtime"
@@ -472,44 +426,31 @@ class Container:
                     arguments[dependency.parameter_name] = self._work_scope_factory(
                         ref.module_id
                     )
-                elif dependency.token in {
-                    ModulesContainer,
-                    DiscoveryService,
-                    Reflector,
-                }:
+                elif dependency.intrinsic is not None:
                     if self._intrinsic_provider is None:
                         name = getattr(
-                            dependency.token,
+                            dependency.intrinsic,
                             "__name__",
                             "framework dependency",
                         )
                         raise ScopeError(f"{name} requires an application runtime")
                     arguments[dependency.parameter_name] = self._intrinsic_provider(
-                        dependency.token
+                        dependency.intrinsic
                     )
                 elif dependency.provider_ref is not None:
-                    arguments[dependency.parameter_name] = await self.resolve_ref(
+                    arguments[dependency.parameter_name] = await self._resolve_ref(
                         dependency.provider_ref,
                         scope=scope,
                     )
-            if isinstance(declaration, ValueProvider):
-                value = declaration.value
-                manage = declaration.manage
-            elif isinstance(declaration, ClassProvider):
-                class_target = cast(type[object], declaration.use_class)
-                value = class_target(**arguments)
-                manage = declaration.manage
-            elif isinstance(declaration, FactoryProvider):
-                value = declaration.factory(**arguments)
-                if inspect.isawaitable(value):
-                    value = await value
-                manage = declaration.manage
-            else:
-                raise ResourceError(
-                    "unknown provider declaration",
-                    code="resource.acquire_error",
-                )
-            if manage:
+            value = recipe.invoker(**arguments)
+            if recipe.await_policy is AwaitPolicy.ALWAYS:
+                value = await cast(Awaitable[object], value)
+            elif (
+                recipe.await_policy is AwaitPolicy.IF_AWAITABLE
+                and inspect.isawaitable(value)
+            ):
+                value = await value
+            if recipe.manage:
                 value = await resources.enter(
                     value,
                     label=f"{ref.module_id.module.__qualname__}:{ref.token!r}",
@@ -533,27 +474,6 @@ class Container:
         if self._closed:
             return None
         self._closed = True
-        self._application.cancel_inflight()
-        inflight = tuple(self._application.inflight.values())
-        if inflight:
-            if deadline is None:
-                await asyncio.gather(*inflight, return_exceptions=True)
-                pending: set[asyncio.Future[object]] = set()
-            else:
-                _, pending = await asyncio.wait(
-                    inflight,
-                    timeout=_remaining(deadline),
-                )
-            if pending:
-                for task in pending:
-                    task.add_done_callback(_observe_bounded_task)
-                logger.error(
-                    "Application provider construction exceeded shutdown deadline",
-                    extra={"code": "resource.lingering_resource"},
-                )
-                return TimeoutError("application provider construction did not stop")
-            await asyncio.gather(*inflight, return_exceptions=True)
-            self._application.inflight.clear()
         resources = self._application.resources
         if resources is None:
             return None
@@ -584,7 +504,6 @@ class RequestScope(AbstractAsyncContextManager[ScopedResolver]):
         self._on_close = on_close
         self._entered = False
         self._closed = False
-        self._task: asyncio.Task[object] | None = None
         self._cleanup_task: asyncio.Task[BaseException | None] | None = None
         self._exc_info: _ExceptionInfo = (None, None, None)
 
@@ -592,7 +511,7 @@ class RequestScope(AbstractAsyncContextManager[ScopedResolver]):
         if self._entered:
             raise ScopeError("request scope cannot be entered twice")
         self._entered = True
-        self._task = cast(asyncio.Task[object] | None, asyncio.current_task())
+        self.state.bind_owner()
         if self._on_open is not None:
             self._on_open(self)
         return self.resolver
@@ -602,6 +521,7 @@ class RequestScope(AbstractAsyncContextManager[ScopedResolver]):
 
         if not self._entered or self._closed:
             raise ScopeError("request scope is not open")
+        self.state.check_access()
         return _Resolver(self._container, module_id, self.state)
 
     async def resolve_ref(self, ref: ProviderRef) -> object:
@@ -617,10 +537,15 @@ class RequestScope(AbstractAsyncContextManager[ScopedResolver]):
         exc: BaseException | None,
         tb: TracebackType | None,
     ) -> None:
+        if self._closed:
+            return
         if self._cleanup_task is None:
             self._exc_info = (exc_type, exc, tb)
             if self.state.lease is not None:
                 self.state.lease.begin_close()
+            if self._can_close_inline():
+                self._finish_close()
+                return
             self._cleanup_task = asyncio.create_task(self._close())
         task = self._cleanup_task
         try:
@@ -633,11 +558,6 @@ class RequestScope(AbstractAsyncContextManager[ScopedResolver]):
 
     async def _close(self) -> BaseException | None:
         try:
-            await self.state.wait_users(exclude=self._task)
-            self.state.cancel_inflight()
-            pending = tuple(self.state.inflight.values())
-            if pending:
-                await asyncio.gather(*pending, return_exceptions=True)
             resources = self.state.resources
             cleanup_errors = (
                 () if resources is None else await resources.close(self._exc_info)
@@ -653,11 +573,18 @@ class RequestScope(AbstractAsyncContextManager[ScopedResolver]):
                 return _scope_cleanup_error(body_error, cleanup_errors)
             return None
         finally:
-            if self.state.lease is not None:
-                self.state.lease.close()
-            self._closed = True
-            if self._on_close is not None:
-                self._on_close(self)
+            self._finish_close()
+
+    def _can_close_inline(self) -> bool:
+        resources = self.state.resources
+        return resources is None or resources.pending_count == 0
+
+    def _finish_close(self) -> None:
+        if self.state.lease is not None:
+            self.state.lease.close()
+        self._closed = True
+        if self._on_close is not None:
+            self._on_close(self)
 
 
 class _ModuleWorkScopeFactory:
@@ -1004,7 +931,6 @@ class ApplicationKernel:
                 owner_task = _scope_task(scope)
                 if owner_task is not None:
                     tasks.add(owner_task)
-                tasks.update(scope.state.active_users)
             tasks.discard(cast(asyncio.Task[object] | None, current_task))
             for task in tasks:
                 if not task.done():
@@ -1024,9 +950,7 @@ class ApplicationKernel:
                 )
             for scope in tuple(self._active_scopes):
                 resources = scope.state.resources
-                if resources is not None and (
-                    resources.pending_count or scope.state.inflight
-                ):
+                if resources is not None and resources.pending_count:
                     logger.error(
                         "Request scope resources remained open after shutdown grace",
                         extra={"code": "resource.lingering_resource"},
@@ -1400,10 +1324,7 @@ def _observe_scope_cleanup(
 
 
 def _scope_task(scope: RequestScope) -> asyncio.Task[object] | None:
-    task = getattr(scope, "_task", None)
-    if isinstance(task, asyncio.Task):
-        return task
-    return None
+    return scope.state.owner_task
 
 
 def _deadline(timeout: float | None) -> float | None:

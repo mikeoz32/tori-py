@@ -219,11 +219,10 @@ or repeating unqualified visibility lookup.
 Singleton providers and controllers are resolved eagerly during application
 startup in topological dependency order. Request providers are created on first
 use in each request/work scope. Transient providers are created for each
-resolution. Concurrent requests for the same cached provider within one scope
-share one authoritative in-flight construction.
-
-If one waiter is cancelled, the scope still owns that in-flight construction and
-will observe and clean it up exactly once.
+resolution. A request/work scope belongs to the task that enters it, so its
+provider cache is accessed sequentially and does not need construction locks.
+Using its resolver from another task raises `ScopeError`, even if the requested
+provider is already cached.
 
 See [Modules](modules.md) for local/direct/global visibility and
 [Scopes and Resources](scopes-and-resources.md) for lifetime rules.

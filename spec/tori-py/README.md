@@ -46,8 +46,9 @@ invariants, tests, and exit criteria.
    exports. Same-level ambiguity is an error.
 8. Singleton providers cannot reach request-scoped providers through any
    dependency path.
-9. Request resources are owned by their request task. Shutdown does not close a
-   resource concurrently with code still using it.
+9. Request/work scopes and their resolvers are bound to one owner task.
+   Cross-task resolution is rejected, and shutdown does not close a request
+   resource concurrently with its owner task.
 10. `CancelledError`, `KeyboardInterrupt`, and `SystemExit` are never converted
     into HTTP responses by exception filters.
 11. One monotonic deadline controls shutdown. Awaitable cleanup is bounded;
