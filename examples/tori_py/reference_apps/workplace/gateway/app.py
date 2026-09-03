@@ -32,6 +32,7 @@ from tori_py import (
 )
 from tori_py.http import HttpException, MsgspecValidationPipe
 from tori_py.starlette import RequestContext, StarletteAdapter
+from tori_py_liveview import LiveViewModule, LiveViewOptions
 from tori_py_microservices import (
     ClientsModule,
     RabbitMqModule,
@@ -63,6 +64,7 @@ from ..common.contracts import (
 from ..common.infrastructure import rabbitmq_url
 from ..common.security import has_workplace_role, is_facilities_admin
 from ..common.services import BookingsService, NotificationsService, SpacesService
+from .live import WorkplaceLive
 
 WEB_ROOT = FilePath(__file__).resolve().parents[1] / "web"
 WEB_ASSETS = frozenset(
@@ -75,6 +77,7 @@ WEB_ASSETS = frozenset(
         "booking-list.js",
         "calendar.js",
         "floor-plan.js",
+        "live-shell.css",
         "styles.css",
         "workplace-app.js",
     }
@@ -540,10 +543,21 @@ gateway_clients = ClientsModule.register_cluster(
     imports=(gateway_rabbit,),
     contracts=(SpacesService, BookingsService, NotificationsService),
 )
+gateway_liveview = LiveViewModule.for_root(
+    LiveViewOptions(
+        secret=os.getenv(
+            "WORKPLACE_LIVEVIEW_SECRET",
+            "workplace-liveview-demo-secret-000000",
+        )
+    ),
+    pages=(WorkplaceLive,),
+    imports=(gateway_clients,),
+    key="workplace",
+)
 
 
 @module(
-    imports=(gateway_clients,),
+    imports=(gateway_clients, gateway_liveview),
     providers=(
         ValueProvider("validation", MsgspecValidationPipe()),
         KeycloakBearerGuard,

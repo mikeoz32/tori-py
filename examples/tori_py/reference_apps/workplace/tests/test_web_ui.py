@@ -157,12 +157,23 @@ def test_admin_calendar_and_retry_idempotency_are_responsive(page: Page) -> None
             route.fulfill(json=[])
 
     page.route("**/api/**", api)
-    page.goto(f"{base_url}/web/")
+    page.goto(f"{base_url}/live/workplace")
 
+    expect(page.locator(".liveview-bridge")).to_have_attribute(
+        "data-live-state", "connected"
+    )
     expect(page.locator("workplace-app")).to_have_count(1)
     assert (
         page.locator("workplace-app").evaluate("element => element.constructor.name")
         == "WorkplaceApp"
+    )
+    page.locator("workplace-app").evaluate(
+        "element => { window.workplaceLitInstance = element; }"
+    )
+    page.get_by_role("button", name="Check LiveView bridge").click()
+    expect(page.locator("#liveview-bridge-checks")).to_have_text("Patch 1")
+    assert page.evaluate(
+        "window.workplaceLitInstance === document.querySelector('workplace-app')"
     )
     expect(page.locator("#identity-text")).to_contain_text("north.admin")
     expect(page.locator("#admin-panel")).to_be_visible()

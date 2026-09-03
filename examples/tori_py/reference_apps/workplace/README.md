@@ -35,7 +35,8 @@ docker compose -f compose.yaml up --build
 
 Open:
 
-- Web: http://localhost:8010/web/
+- Lit web app: http://localhost:8010/web/
+- LiveView + Lit shell: http://localhost:8010/live/workplace
 - API gateway: http://localhost:8010/api/
 - Keycloak admin: http://localhost:8080/admin/ (admin / `keycloak-admin-demo-only`)
 - RabbitMQ management: http://localhost:15672/ (`rabbitmq_demo` / `rabbitmq-demo-only`)
@@ -120,6 +121,14 @@ booking views, and facilities controls remain separate ES modules under
 `web/`. Light DOM intentionally keeps the existing global stylesheet and
 accessibility selectors effective. The gateway serves only an explicit
 allowlist of those modules and generated vendor assets.
+
+`/live/workplace` mounts that same `<workplace-app>` custom element inside a
+ToriPy LiveView served by the gateway process. The custom element has a stable
+DOM ID and `phx-update="ignore"`: LiveView owns and patches only the surrounding
+connection shell, while Lit exclusively owns the element's light-DOM subtree.
+Authentication and application requests therefore keep the existing in-memory
+Keycloak and bearer-token flow. Set `WORKPLACE_LIVEVIEW_SECRET` to the same
+strong value on every gateway replica outside this local demo.
 
 Official references:
 

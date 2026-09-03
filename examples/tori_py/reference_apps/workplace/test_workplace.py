@@ -7,11 +7,15 @@ from sqlite3 import IntegrityError as SQLiteIntegrityError
 from types import SimpleNamespace
 from typing import cast
 
+import httpx
 import pytest
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from tori_py import NestApplication, module
 from tori_py.http import HttpException
+from tori_py.starlette import StarletteAdapter
+from tori_py_liveview import LiveViewModule, LiveViewOptions, MountContext, html
 from tori_py_microservices import EventDispatcher, PublicRpcError
 from tori_py_sqlalchemy import EntityManager
 
@@ -63,6 +67,7 @@ from examples.tori_py.reference_apps.workplace.gateway.app import (
 from examples.tori_py.reference_apps.workplace.gateway.app import (
     create_application as create_gateway_application,
 )
+from examples.tori_py.reference_apps.workplace.gateway.live import WorkplaceLive
 from examples.tori_py.reference_apps.workplace.notifications.app import (
     create_application as create_notifications_application,
 )
@@ -343,6 +348,61 @@ async def test_each_workplace_process_has_an_independent_application_root(
 
 
 @pytest.mark.asyncio
+async def test_gateway_mounts_lit_workplace_inside_liveview_shell() -> None:
+    liveview_module = LiveViewModule.for_root(
+        LiveViewOptions(secret="s" * 32),
+        pages=(WorkplaceLive,),
+        key="workplace-test",
+    )
+
+    @module(imports=(liveview_module,))
+    class TestAppModule:
+        pass
+
+    application = await NestApplication.create(
+        TestAppModule,
+        adapter=StarletteAdapter(),
+    )
+    await application.start()
+    adapter = application.get_adapter(StarletteAdapter)
+    transport = httpx.ASGITransport(app=adapter.app)
+
+    try:
+        async with httpx.AsyncClient(
+            transport=transport,
+            base_url="http://testserver",
+        ) as client:
+            response = await client.get("/live/workplace")
+    finally:
+        await application.shutdown()
+
+    assert response.status_code == 200
+    assert '<html lang="en">' in response.text
+    assert '<link rel="stylesheet" href="/web/styles.css">' in response.text
+    assert '<link rel="stylesheet" href="/web/live-shell.css">' in response.text
+    assert 'data-live-state="disconnected"' in response.text
+    assert (
+        '<workplace-app id="workplace-lit-app" phx-update="ignore" '
+        'style="display:block"></workplace-app>'
+    ) in response.text
+    assert '<script defer src="/_tori/live.js"></script>' in response.text
+    assert '<script type="module" src="/web/app.js"></script>' in response.text
+
+
+@pytest.mark.asyncio
+async def test_workplace_liveview_reports_connected_mount_state() -> None:
+    page = WorkplaceLive()
+
+    await page.mount(cast(MountContext, SimpleNamespace(connected=True)))
+    await page.handle_event("check_bridge", {})
+
+    markup = html(page.render()).to_html()
+    assert 'data-live-state="connected"' in markup
+    assert "LiveView connected" in markup
+    assert "Patch 1" in markup
+
+
+@pytest.mark.asyncio
 async def test_availability_excludes_active_overlaps_and_is_tenant_scoped(
     booking_components,
 ) -> None:
@@ -615,6 +675,7 @@ async def test_static_controller_allows_only_declared_component_assets() -> None
         "booking-list.js",
         "calendar.js",
         "floor-plan.js",
+        "live-shell.css",
         "styles.css",
         "workplace-app.js",
     ):

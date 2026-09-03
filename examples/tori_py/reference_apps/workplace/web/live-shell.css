@@ -1,0 +1,63 @@
+.liveview-bridge {
+  position: relative;
+  z-index: 6;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1rem;
+  min-height: 32px;
+  padding: 0.35rem clamp(1rem, 4vw, 4rem);
+  color: #f2ead9;
+  background: #06182b;
+  border-bottom: 1px solid #40556b;
+  font: 700 0.64rem/1.2 ui-monospace, Consolas, monospace;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+}
+
+.liveview-bridge output {
+  color: #ffd5bf;
+}
+
+.liveview-bridge button {
+  padding: 0.18rem 0.45rem;
+  color: inherit;
+  background: transparent;
+  border: 1px solid #718297;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+}
+
+.liveview-bridge button:hover,
+.liveview-bridge button:focus-visible {
+  color: #06182b;
+  background: #f2ead9;
+  outline: none;
+}
+
+.liveview-bridge[data-live-state="connected"] output {
+  color: #9fe3ba;
+}
+
+.liveview-bridge-detail {
+  margin-left: auto;
+  justify-self: end;
+  color: #a9b8c8;
+}
+
+@media (max-width: 640px) {
+  .liveview-bridge {
+    gap: 0.45rem 0.75rem;
+  }
+
+  .liveview-bridge-detail {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .liveview-bridge output {
+    transition: color 160ms ease-out;
+  }
+}
