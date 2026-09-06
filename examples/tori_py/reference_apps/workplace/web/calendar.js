@@ -32,6 +32,68 @@ function zonedParts(date, timeZone) {
   );
 }
 
+const WEEKDAY_INDEX = Object.freeze({
+  Mon: 0,
+  Tue: 1,
+  Wed: 2,
+  Thu: 3,
+  Fri: 4,
+  Sat: 5,
+  Sun: 6,
+});
+
+function zonedTimeParts(date, timeZone) {
+  return Object.fromEntries(
+    new Intl.DateTimeFormat("en-US", {
+      timeZone,
+      weekday: "short",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      hourCycle: "h23",
+    })
+      .formatToParts(date)
+      .filter((part) => part.type !== "literal")
+      .map((part) => [part.type, part.value]),
+  );
+}
+
+function minutesFromTime(value) {
+  const [hours, minutes] = value.split(":").map(Number);
+  return hours * 60 + minutes;
+}
+
+export function nextPolicyInterval(policy, now = new Date()) {
+  const opensAt = minutesFromTime(policy.opens_at);
+  const closesAt = minutesFromTime(policy.closes_at);
+  const duration = Math.min(60, closesAt - opensAt);
+  const step = 15 * 60 * 1000;
+  const earliest = now.getTime() + 60 * 60 * 1000;
+  const candidate = new Date(Math.ceil(earliest / step) * step);
+
+  for (let index = 0; index < 14 * 24 * 4; index += 1) {
+    const startsAt = new Date(candidate.getTime() + index * step);
+    const endsAt = new Date(startsAt.getTime() + duration * 60 * 1000);
+    const start = zonedTimeParts(startsAt, policy.time_zone);
+    const end = zonedTimeParts(endsAt, policy.time_zone);
+    const sameDay = start.year === end.year
+      && start.month === end.month
+      && start.day === end.day;
+    const startMinute = Number(start.hour) * 60 + Number(start.minute);
+    const endMinute = Number(end.hour) * 60 + Number(end.minute);
+
+    if (sameDay
+      && policy.weekdays.includes(WEEKDAY_INDEX[start.weekday])
+      && startMinute >= opensAt
+      && endMinute <= closesAt) {
+      return {startsAt, endsAt};
+    }
+  }
+  throw new Error("Office policy has no bookable interval in the next two weeks.");
+}
+
 export function calendarDateFromInstant(date, timeZone) {
   const parts = zonedParts(date, timeZone);
   return new Date(Date.UTC(

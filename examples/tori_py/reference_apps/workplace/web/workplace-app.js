@@ -9,6 +9,7 @@ import {
   bookingQuery,
   calendarDateFromInstant,
   localDateTimeValue,
+  nextPolicyInterval,
 } from "/web/calendar.js";
 import {floorPlanTemplate} from "/web/floor-plan.js";
 
@@ -273,9 +274,12 @@ export class WorkplaceApp extends LitElement {
       this.admin = (access["tori-space-web"]?.roles ?? []).includes(ADMIN_ROLE);
       this.keycloak.onTokenExpired = () => this.keycloak.updateToken(30);
       this.initialized = true;
-      await Promise.all(this.isFacilitiesApplication
-        ? this.admin ? [this.loadResources(), this.loadAdmin()] : []
-        : [this.loadResources(), this.loadBookings()]);
+      if (this.isFacilitiesApplication) {
+        if (this.admin) await Promise.all([this.loadResources(), this.loadAdmin()]);
+      } else {
+        await this.alignBookingIntervalToPolicy();
+        await Promise.all([this.loadResources(), this.loadBookings()]);
+      }
     } catch (error) {
       this.actor = "Authentication unavailable";
       this.resourcesLoading = false;
@@ -286,6 +290,19 @@ export class WorkplaceApp extends LitElement {
 
   logout() {
     return this.keycloak.logout({redirectUri: window.location.origin});
+  }
+
+  async alignBookingIntervalToPolicy() {
+    try {
+      const policy = await this.api.request(
+        `/api/offices/${encodeURIComponent(this.policyOfficeId)}/policy`,
+      );
+      const {startsAt, endsAt} = nextPolicyInterval(policy);
+      this.bookingStarts = localDateTimeValue(startsAt);
+      this.bookingEnds = localDateTimeValue(endsAt);
+    } catch {
+      // Keep the generic one-hour default if policy discovery is unavailable.
+    }
   }
 
   async loadResources() {

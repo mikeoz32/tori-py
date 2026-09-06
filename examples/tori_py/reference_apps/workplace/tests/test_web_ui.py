@@ -718,12 +718,45 @@ def test_latest_resource_and_availability_requests_own_the_view(page: Page) -> N
     )
 
     def empty_api(route: Route) -> None:
-        api_requests.append(route.request.url.split("/api/", 1)[1])
-        route.fulfill(json=[])
+        path = route.request.url.split("/api/", 1)[1]
+        api_requests.append(path)
+        if path == "offices/building-n/policy":
+            route.fulfill(
+                json={
+                    "office_id": "building-n",
+                    "time_zone": "UTC",
+                    "opens_at": "08:00",
+                    "closes_at": "18:00",
+                    "weekdays": [0, 1, 2, 3, 4],
+                }
+            )
+        else:
+            route.fulfill(json=[])
 
     page.route("**/api/**", empty_api)
+    page.clock.set_fixed_time(datetime(2026, 9, 6, 21, 45, tzinfo=UTC))
     page.goto(f"{base_url}/web/")
+    policy_interval: list[str] = page.evaluate(
+        """async () => {
+          const {nextPolicyInterval} = await import("/web/calendar.js");
+          const interval = nextPolicyInterval({
+            time_zone: "UTC",
+            opens_at: "08:00",
+            closes_at: "18:00",
+            weekdays: [0, 1, 2, 3, 4],
+          }, new Date("2026-09-06T21:45:00Z"));
+          return [interval.startsAt.toISOString(), interval.endsAt.toISOString()];
+        }"""
+    )
+    assert policy_interval == ["2026-09-07T08:00:00.000Z", "2026-09-07T09:00:00.000Z"]
     expect(page.locator("#api-status")).to_have_text("GATEWAY LINKED")
+    resource_query = parse_qs(
+        urlsplit(
+            next(path for path in api_requests if path.startswith("resources?"))
+        ).query
+    )
+    assert resource_query["availability_from"] == ["2026-09-07T08:00:00.000Z"]
+    assert resource_query["availability_to"] == ["2026-09-07T09:00:00.000Z"]
     expect(page.locator("[data-workspace='facilities']")).to_have_count(0)
     expect(page.locator("#facilities-workspace")).to_have_count(0)
 
