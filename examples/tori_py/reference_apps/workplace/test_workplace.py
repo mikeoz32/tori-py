@@ -715,6 +715,7 @@ async def test_static_controller_allows_only_declared_component_assets() -> None
         "booking-calendar.js",
         "booking-list.js",
         "calendar.js",
+        "facilities-app.js",
         "floor-plan.js",
         "live-shell.css",
         "styles.css",

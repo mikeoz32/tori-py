@@ -76,6 +76,7 @@ WEB_ASSETS = frozenset(
         "booking-calendar.js",
         "booking-list.js",
         "calendar.js",
+        "facilities-app.js",
         "floor-plan.js",
         "live-shell.css",
         "styles.css",

@@ -695,6 +695,8 @@ def test_resource_extensions_use_filters_and_idempotent_booking_operations(
 def test_latest_resource_and_availability_requests_own_the_view(page: Page) -> None:
     base_url = os.environ["WORKPLACE_E2E_URL"].rstrip("/")
     api_requests: list[str] = []
+    web_requests: list[str] = []
+    page.on("request", lambda request: web_requests.append(request.url))
     page.route(
         "**/assets/keycloak.js",
         lambda route: route.fulfill(
@@ -750,6 +752,11 @@ def test_latest_resource_and_availability_requests_own_the_view(page: Page) -> N
     )
     assert policy_interval == ["2026-09-07T08:00:00.000Z", "2026-09-07T09:00:00.000Z"]
     expect(page.locator("#api-status")).to_have_text("GATEWAY LINKED")
+    assert not any(url.endswith("/web/facilities-app.js") for url in web_requests)
+    assert not any(url.endswith("/web/admin-panel.js") for url in web_requests)
+    expect(page.locator("#resource-list")).to_contain_text(
+        "No resources match this view."
+    )
     resource_query = parse_qs(
         urlsplit(
             next(path for path in api_requests if path.startswith("resources?"))
