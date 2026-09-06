@@ -64,7 +64,7 @@ from ..common.contracts import (
 from ..common.infrastructure import rabbitmq_url
 from ..common.security import has_workplace_role, is_facilities_admin
 from ..common.services import BookingsService, NotificationsService, SpacesService
-from .live import WorkplaceLive
+from .live import FacilitiesLive, WorkplaceLive
 
 WEB_ROOT = FilePath(__file__).resolve().parents[1] / "web"
 WEB_ASSETS = frozenset(
@@ -550,7 +550,7 @@ gateway_liveview = LiveViewModule.for_root(
             "workplace-liveview-demo-secret-000000",
         )
     ),
-    pages=(WorkplaceLive,),
+    pages=(WorkplaceLive, FacilitiesLive),
     imports=(gateway_clients,),
     key="workplace",
 )

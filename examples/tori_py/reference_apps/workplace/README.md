@@ -8,7 +8,9 @@ this directory are original to this demo.
 ## Architecture
 
 ```text
-browser (/web) ── Authorization Code + PKCE ──> Keycloak 26.7.3
+browser (/web, /live/workplace, /live/facilities)
+       │ Authorization Code + PKCE
+       ├──────────────────────────────────────> Keycloak 26.7.3
        │ Bearer token
        v
 api-gateway (:8010) ──> spaces / bookings / notifications
@@ -36,7 +38,8 @@ docker compose -f compose.yaml up --build
 Open:
 
 - Lit web app: http://localhost:8010/web/
-- LiveView + Lit shell: http://localhost:8010/live/workplace
+- Employee LiveView + Lit app: http://localhost:8010/live/workplace
+- Facilities LiveView + Lit app: http://localhost:8010/live/facilities
 - API gateway: http://localhost:8010/api/
 - Keycloak admin: http://localhost:8080/admin/ (admin / `keycloak-admin-demo-only`)
 - RabbitMQ management: http://localhost:15672/ (`rabbitmq_demo` / `rabbitmq-demo-only`)
@@ -69,12 +72,13 @@ application process. The local-only application credentials are:
 | Bookings | `bookings_demo` | `bookings-demo-only` |
 | Notifications | `notifications_demo` | `notifications-demo-only` |
 
-The browser is organized as three task-focused workspaces: **Reserve space**
-combines the live floor plan, directory, availability, and booking composer;
-**My schedule** combines day/week calendar views with booking actions; and the
-role-gated **Facilities** workbench separates policy, delivery health, audit,
-and resource management from employee booking flows. The floor plan places
-markers from live resource coordinates rather than a fixed resource list.
+The browser is organized as two role-specific applications. The employee app
+contains **Reserve space**, which combines a time-first availability search,
+synchronized floor plan and result list, and one booking composer, plus **My
+schedule** for calendar and booking actions. The role-gated Facilities app has
+separate Overview, Spaces, Policies, Audit, and System health sections. The
+floor plan places markers from live resource coordinates rather than a fixed
+resource list.
 
 Calendar views use a selectable IANA timezone and load the displayed interval
 through bounded booking pages. Daily and weekly recurring reservations are
@@ -130,13 +134,15 @@ booking views, and facilities controls remain separate ES modules under
 accessibility selectors effective. The gateway serves only an explicit
 allowlist of those modules and generated vendor assets.
 
-`/live/workplace` mounts that same `<workplace-app>` custom element inside a
-ToriPy LiveView served by the gateway process. The custom element has a stable
-DOM ID and `phx-update="ignore"`: LiveView owns and patches only the surrounding
-connection shell, while Lit exclusively owns the element's light-DOM subtree.
-Authentication and application requests therefore keep the existing in-memory
-Keycloak and bearer-token flow. Set `WORKPLACE_LIVEVIEW_SECRET` to the same
-strong value on every gateway replica outside this local demo.
+`/live/workplace` mounts the employee `<workplace-app>` custom element and
+`/live/facilities` mounts the role-gated `<facilities-app>` custom element inside
+separate ToriPy LiveViews served by the gateway process. Each custom element has
+a stable DOM ID and `phx-update="ignore"`: LiveView owns and patches only the
+surrounding connection shell, while Lit exclusively owns the element's
+light-DOM subtree. Authentication and application requests therefore keep the
+existing in-memory Keycloak and bearer-token flow. Set
+`WORKPLACE_LIVEVIEW_SECRET` to the same strong value on every gateway replica
+outside this local demo.
 
 Official references:
 

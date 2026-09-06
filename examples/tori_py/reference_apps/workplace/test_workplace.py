@@ -67,7 +67,10 @@ from examples.tori_py.reference_apps.workplace.gateway.app import (
 from examples.tori_py.reference_apps.workplace.gateway.app import (
     create_application as create_gateway_application,
 )
-from examples.tori_py.reference_apps.workplace.gateway.live import WorkplaceLive
+from examples.tori_py.reference_apps.workplace.gateway.live import (
+    FacilitiesLive,
+    WorkplaceLive,
+)
 from examples.tori_py.reference_apps.workplace.notifications.app import (
     create_application as create_notifications_application,
 )
@@ -387,6 +390,44 @@ async def test_gateway_mounts_lit_workplace_inside_liveview_shell() -> None:
     ) in response.text
     assert '<script defer src="/_tori/live.js"></script>' in response.text
     assert '<script type="module" src="/web/app.js"></script>' in response.text
+
+
+@pytest.mark.asyncio
+async def test_gateway_mounts_facilities_as_a_separate_liveview_application() -> None:
+    liveview_module = LiveViewModule.for_root(
+        LiveViewOptions(secret="s" * 32),
+        pages=(WorkplaceLive, FacilitiesLive),
+        key="facilities-test",
+    )
+
+    @module(imports=(liveview_module,))
+    class TestAppModule:
+        pass
+
+    application = await NestApplication.create(
+        TestAppModule,
+        adapter=StarletteAdapter(),
+    )
+    await application.start()
+    adapter = application.get_adapter(StarletteAdapter)
+    transport = httpx.ASGITransport(app=adapter.app)
+
+    try:
+        async with httpx.AsyncClient(
+            transport=transport,
+            base_url="http://testserver",
+        ) as client:
+            response = await client.get("/live/facilities")
+    finally:
+        await application.shutdown()
+
+    assert response.status_code == 200
+    assert "Tori Space - facilities operations" in response.text
+    assert (
+        '<facilities-app id="facilities-lit-app" phx-update="ignore" '
+        'style="display:block"></facilities-app>'
+    ) in response.text
+    assert "<workplace-app" not in response.text
 
 
 @pytest.mark.asyncio

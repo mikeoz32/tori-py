@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
@@ -14,6 +15,185 @@ pytestmark = pytest.mark.skipif(
     not os.getenv("WORKPLACE_E2E_URL"),
     reason="set WORKPLACE_E2E_URL to a running workplace gateway",
 )
+
+
+def test_facilities_uses_a_separate_role_gated_application(page: Page) -> None:
+    base_url = os.environ["WORKPLACE_E2E_URL"].rstrip("/")
+    page.route(
+        "**/assets/keycloak.js",
+        lambda route: route.fulfill(
+            content_type="text/javascript",
+            body="""
+                export default class Keycloak {
+                  constructor() {
+                    this.token = "test-token";
+                    this.tokenParsed = {
+                      preferred_username: "north.admin", tenant_id: "tenant-north",
+                    };
+                    this.resourceAccess = {
+                      "tori-space-web": {roles: ["facilities-admin"]},
+                    };
+                  }
+                  async init() { return true; }
+                  async updateToken() { return false; }
+                  logout() {}
+                }
+            """,
+        ),
+    )
+
+    def api(route: Route) -> None:
+        path = route.request.url.split("/api/", 1)[1]
+        if path.startswith("resources"):
+            query = parse_qs(urlsplit(route.request.url).query)
+            offset = int(query.get("offset", ["0"])[0])
+            count = 20 if offset == 0 else 1
+            route.fulfill(
+                json=[
+                    {
+                        "id": f"space-{offset + index + 1}",
+                        "name": f"Space {offset + index + 1}",
+                        "kind": "desk",
+                        "office_id": "building-n",
+                        "floor_id": "level-03",
+                        "x": 160,
+                        "y": 580,
+                        "capacity": 1,
+                        "equipment": ["monitor"],
+                        "active": True,
+                    }
+                    for index in range(count)
+                ]
+            )
+        elif path == "facilities/dashboard":
+            route.fulfill(
+                json={
+                    "active_bookings": 8,
+                    "no_shows": 2,
+                    "outbox_pending": 3,
+                    "outbox_dead_letter": 1,
+                    "outbox_failures": 1,
+                    "outbox_lag_seconds": 12,
+                }
+            )
+        elif path == "outbox/diagnostics":
+            route.fulfill(
+                json={"pending": 3, "dead_letter": 1, "failures": 1, "lag_seconds": 12}
+            )
+        elif path == "offices/building-n/policy":
+            route.fulfill(
+                json={
+                    "office_id": "building-n",
+                    "time_zone": "UTC",
+                    "opens_at": "08:00",
+                    "closes_at": "18:00",
+                    "weekdays": [0, 1, 2, 3, 4],
+                }
+            )
+        else:
+            route.fulfill(json=[])
+
+    page.route("**/api/**", api)
+    page.goto(f"{base_url}/live/facilities")
+
+    expect(page.locator("facilities-app")).to_have_count(1)
+    expect(page.locator("workplace-app")).to_have_count(0)
+    assert (
+        page.locator("facilities-app").evaluate("element => element.constructor.name")
+        == "FacilitiesApp"
+    )
+    expect(page.locator("#facilities-navigation")).to_be_visible()
+    expect(page.get_by_role("button", name="Overview", exact=True)).to_have_attribute(
+        "aria-current", "page"
+    )
+    expect(page.locator("#facilities-overview")).to_contain_text("Needs attention")
+    expect(page.locator("#facilities-overview")).to_contain_text("2 no-shows")
+    expect(page.get_by_role("button", name="Reserve space")).to_have_count(0)
+
+    page.get_by_role("button", name="Spaces", exact=True).click()
+    expect(page.locator("#facilities-spaces")).to_be_visible()
+    expect(page.get_by_role("button", name="Next resources")).to_be_enabled()
+    page.get_by_role("button", name="Next resources").click()
+    expect(page.get_by_label("Facilities resource pages")).to_contain_text("Page 2")
+    expect(page.locator("#facilities-spaces")).to_contain_text("Space 21")
+    page.get_by_role("button", name="Policies", exact=True).click()
+    expect(page.locator("#facilities-policies")).to_be_visible()
+    page.get_by_role("button", name="Audit", exact=True).click()
+    expect(page.locator("#facilities-audit")).to_be_visible()
+    page.get_by_role("button", name="System health", exact=True).click()
+    expect(page.locator("#facilities-system")).to_be_visible()
+    expect(page.locator("#outbox-metrics")).to_contain_text("Dead letter")
+
+    admin_state: dict[str, Any] = page.locator("facilities-app").evaluate(
+        """async (app) => {
+          const requests = [];
+          app.api.request = (path) => new Promise((resolve) => {
+            requests.push({path, resolve});
+          });
+          const response = (path, marker) => {
+            if (path === "/api/facilities/dashboard") {
+              return {active_bookings: marker};
+            }
+            if (path === "/api/audit") return [{id: marker}];
+            if (path.startsWith("/api/offices/")) {
+              return {office_id: "building-n", time_zone: "UTC", weekdays: []};
+            }
+            return {pending: marker};
+          };
+          const older = app.loadAdmin();
+          const newer = app.loadAdmin();
+          requests.slice(4).forEach(({path, resolve}) => resolve(response(path, 2)));
+          await newer;
+          requests.slice(0, 4).forEach(({path, resolve}) => resolve(response(path, 1)));
+          await older;
+          return {
+            activeBookings: app.dashboard.active_bookings,
+            pending: app.diagnostics.pending,
+            auditId: app.auditEntries[0].id,
+            loading: app.adminLoading,
+          };
+        }"""
+    )
+    assert admin_state == {
+        "activeBookings": 2,
+        "pending": 2,
+        "auditId": 2,
+        "loading": False,
+    }
+
+    policy_state: dict[str, Any] = page.locator("facilities-app").evaluate(
+        """async (app) => {
+          let resolveOlderPolicy;
+          let policyCalls = 0;
+          app.api.request = (path) => {
+            if (path.startsWith("/api/offices/")) {
+              policyCalls += 1;
+              if (policyCalls === 1) {
+                return new Promise((resolve) => { resolveOlderPolicy = resolve; });
+              }
+              return Promise.resolve({
+                office_id: "building-n", time_zone: "UTC", opens_at: "10:00",
+                closes_at: "18:00", weekdays: [],
+              });
+            }
+            if (path === "/api/audit") return Promise.resolve([]);
+            return Promise.resolve({});
+          };
+          const olderPolicy = app.loadAdminOfficePolicy();
+          const overview = app.loadAdmin();
+          await overview;
+          resolveOlderPolicy({
+            office_id: "building-n", time_zone: "UTC", opens_at: "08:00",
+            closes_at: "18:00", weekdays: [],
+          });
+          await olderPolicy;
+          return {
+            opensAt: app.officePolicy.opens_at,
+            busy: app.officePolicyBusy,
+          };
+        }"""
+    )
+    assert policy_state == {"opensAt": "10:00", "busy": False}
 
 
 def test_admin_calendar_and_retry_idempotency_are_responsive(page: Page) -> None:
@@ -170,6 +350,7 @@ def test_admin_calendar_and_retry_idempotency_are_responsive(page: Page) -> None
     page.locator("workplace-app").evaluate(
         "element => { window.workplaceLitInstance = element; }"
     )
+    page.locator(".live-diagnostics > summary").click()
     page.get_by_role("button", name="Check LiveView bridge").click()
     expect(page.locator("#liveview-bridge-checks")).to_have_text("Patch 1")
     assert page.evaluate(
@@ -188,7 +369,7 @@ def test_admin_calendar_and_retry_idempotency_are_responsive(page: Page) -> None
     page.locator("#ends-at").fill(
         (start + timedelta(hours=1)).astimezone().strftime("%Y-%m-%dT%H:%M")
     )
-    page.get_by_role("button", name="Check availability").click()
+    page.get_by_role("button", name="Recheck availability").click()
     expect(page.locator("#resource-status")).to_have_text("Available for this interval")
 
     page.get_by_role("button", name="Reserve this time").click()
@@ -213,13 +394,16 @@ def test_admin_calendar_and_retry_idempotency_are_responsive(page: Page) -> None
     expect(page.locator(".calendar-entry")).to_have_count(2)
     expect(page.locator(".calendar-entry").first).to_contain_text("Desk 17")
 
-    page.get_by_role("button", name="Facilities").click()
-    expect(page.locator("#facilities-workspace")).to_be_visible()
+    page.goto(f"{base_url}/live/facilities")
+    expect(page.locator("facilities-app")).to_be_visible()
     expect(page.locator("#admin-panel")).to_be_visible()
     expect(page.locator("#dashboard-metrics")).to_contain_text("Active")
+    page.get_by_role("button", name="Audit", exact=True).click()
     expect(page.locator("#audit-log")).to_contain_text("booking-created")
+    page.get_by_role("button", name="System health", exact=True).click()
     cleanup_before = "2026-08-01T12:30"
     page.on("dialog", lambda dialog: dialog.accept())
+    page.locator(".maintenance-panel > summary").click()
     page.locator("#outbox-cleanup-before").fill(cleanup_before)
     page.get_by_role("button", name="Clean delivered outbox records").click()
     expect(page.locator("#outbox-response")).to_contain_text("Removed 2")
@@ -394,20 +578,21 @@ def test_resource_extensions_use_filters_and_idempotent_booking_operations(
     expect(page.get_by_role("button", name="Reserve space")).to_have_attribute(
         "aria-current", "page"
     )
+    expect(page.locator(".availability-search")).to_be_visible()
+    expect(
+        page.locator(".resource-filters input[type='datetime-local']")
+    ).to_have_count(0)
     expect(page.locator("#resource-list")).to_contain_text("Desk 17")
     expect(page.locator("#floorplan [data-id='room-03']")).to_be_hidden()
 
+    page.locator(".filter-drawer > summary").click()
     page.locator("#resource-office-filter").fill("building-n")
     page.locator("#resource-floor-filter").fill("level-03")
     page.locator("#resource-kind-filter").select_option("desk")
     page.locator("#resource-equipment-filter").fill("monitor, power")
     page.locator("#resource-min-capacity-filter").fill("1")
-    page.locator("#availability-from-filter").fill(
-        start.astimezone().strftime("%Y-%m-%dT%H:%M")
-    )
-    page.locator("#availability-to-filter").fill(
-        end.astimezone().strftime("%Y-%m-%dT%H:%M")
-    )
+    page.locator("#starts-at").fill(start.astimezone().strftime("%Y-%m-%dT%H:%M"))
+    page.locator("#ends-at").fill(end.astimezone().strftime("%Y-%m-%dT%H:%M"))
     page.get_by_role("button", name="Apply resource filters").click()
     expect(page.locator("#resource-list")).to_contain_text("monitor")
     query = resource_queries[-1]
@@ -422,11 +607,15 @@ def test_resource_extensions_use_filters_and_idempotent_booking_operations(
 
     page.get_by_role("button", name="Clear resource filters").click()
     expect(page.locator("#resource-office-filter")).to_have_value("")
-    assert resource_queries[-1] == {
-        "include_inactive": ["true"],
-        "offset": ["0"],
-        "limit": ["20"],
-    }
+    assert (
+        resource_queries[-1].keys()
+        == {
+            "availability_from": ["value checked separately"],
+            "availability_to": ["value checked separately"],
+            "offset": ["0"],
+            "limit": ["20"],
+        }.keys()
+    )
     page.get_by_role("button", name="Meet 03", exact=True).click()
     expect(page.locator("#resource-status")).to_have_text(
         "Inactive resources cannot be booked"
@@ -465,13 +654,15 @@ def test_resource_extensions_use_filters_and_idempotent_booking_operations(
     assert cancellation_requests[0][1] == {"scope": "entire-series"}
     assert cancellation_requests[0][0]
 
-    page.get_by_role("button", name="Facilities").click()
-    expect(page.locator("#facilities-workspace")).to_be_visible()
+    page.goto(f"{base_url}/live/facilities")
+    expect(page.locator("facilities-app")).to_be_visible()
+    page.get_by_role("button", name="Policies", exact=True).click()
     page.locator("#office-policy-form input[name='opens_at']").fill("09:00")
     page.get_by_role("button", name="Save office policy").click()
     expect(page.locator("#office-policy-response")).to_contain_text("updated")
     assert policy_changes[0]["opens_at"] == "09:00"
 
+    page.get_by_role("button", name="Spaces", exact=True).click()
     desk_control = page.locator(".resource-control").filter(has_text="Desk 17")
     desk_control.locator("summary").click()
     page.locator("#resource-edit-name-desk-17").fill("Desk 17A")
@@ -503,6 +694,7 @@ def test_resource_extensions_use_filters_and_idempotent_booking_operations(
 
 def test_latest_resource_and_availability_requests_own_the_view(page: Page) -> None:
     base_url = os.environ["WORKPLACE_E2E_URL"].rstrip("/")
+    api_requests: list[str] = []
     page.route(
         "**/assets/keycloak.js",
         lambda route: route.fulfill(
@@ -524,11 +716,43 @@ def test_latest_resource_and_availability_requests_own_the_view(page: Page) -> N
             """,
         ),
     )
-    page.route("**/api/**", lambda route: route.fulfill(json=[]))
+
+    def empty_api(route: Route) -> None:
+        api_requests.append(route.request.url.split("/api/", 1)[1])
+        route.fulfill(json=[])
+
+    page.route("**/api/**", empty_api)
     page.goto(f"{base_url}/web/")
     expect(page.locator("#api-status")).to_have_text("GATEWAY LINKED")
-    expect(page.locator("[data-workspace='facilities']")).to_be_hidden()
-    expect(page.locator("#facilities-workspace")).to_be_hidden()
+    expect(page.locator("[data-workspace='facilities']")).to_have_count(0)
+    expect(page.locator("#facilities-workspace")).to_have_count(0)
+
+    page.locator("workplace-app").evaluate(
+        """async (app) => {
+          app.resources = [{
+            id: "desk-a", name: "Desk A", kind: "desk", office_id: "north",
+            floor_id: "one", x: 100, y: 100, active: true,
+          }];
+          await app.updateComplete;
+        }"""
+    )
+    page.set_viewport_size({"width": 320, "height": 720})
+    expect(page.get_by_role("button", name="List view")).to_have_attribute(
+        "aria-pressed", "true"
+    )
+    expect(page.locator(".results-list")).to_be_visible()
+    expect(page.locator(".results-map")).to_be_hidden()
+    page.locator(".results-list button[aria-label='Desk A']").click()
+    expect(page.locator(".results-list .resource-item.selected")).to_have_count(1)
+    page.get_by_role("button", name="Map view").click()
+    expect(page.get_by_role("button", name="Map view")).to_have_attribute(
+        "aria-pressed", "true"
+    )
+    expect(page.locator(".results-map")).to_be_visible()
+    expect(page.locator(".results-list")).to_be_hidden()
+    expect(page.locator(".results-map [data-id='desk-a']")).to_have_class(
+        re.compile(r"\bselected\b")
+    )
 
     resource_ids: list[str] = page.locator("workplace-app").evaluate(
         """async (app) => {
@@ -589,3 +813,12 @@ def test_latest_resource_and_availability_requests_own_the_view(page: Page) -> N
         "availability": None,
         "busy": False,
     }
+
+    request_count = len(api_requests)
+    page.goto(f"{base_url}/live/facilities")
+    expect(page.locator(".access-denied")).to_contain_text(
+        "Facilities administrator role required"
+    )
+    expect(page.locator("#admin-panel")).to_have_count(0)
+    expect(page.get_by_role("button", name="Overview", exact=True)).to_be_disabled()
+    assert len(api_requests) == request_count

@@ -19,8 +19,6 @@ const EMPTY_RESOURCE_FILTERS = Object.freeze({
   kind: "",
   equipment: "",
   min_capacity: "",
-  availability_from: "",
-  availability_to: "",
 });
 const WORKSPACES = Object.freeze({
   reserve: {
@@ -32,11 +30,6 @@ const WORKSPACES = Object.freeze({
     eyebrow: "Personal schedule",
     title: "Make the week legible.",
     description: "See every reservation in local time, then check in, reschedule, or cancel from one place.",
-  },
-  facilities: {
-    eyebrow: "Facilities operations",
-    title: "Keep the workplace moving.",
-    description: "Manage spaces and office policy while monitoring delivery health and the audit trail.",
   },
 });
 
@@ -103,6 +96,8 @@ export class WorkplaceApp extends LitElement {
     selectedOfficePolicy: {state: true},
     cancellationBusy: {state: true},
     activeWorkspace: {state: true},
+    activeFacility: {state: true},
+    resultView: {state: true},
   };
 
   constructor(keycloak = createKeycloak()) {
@@ -120,8 +115,10 @@ export class WorkplaceApp extends LitElement {
     this.selected = null;
     this.availability = null;
     this.availabilityBusy = false;
-    this.bookingStarts = "";
-    this.bookingEnds = "";
+    const bookingStart = new Date(Date.now() + 60 * 60 * 1000);
+    bookingStart.setMinutes(Math.ceil(bookingStart.getMinutes() / 15) * 15, 0, 0);
+    this.bookingStarts = localDateTimeValue(bookingStart);
+    this.bookingEnds = localDateTimeValue(new Date(bookingStart.getTime() + 60 * 60 * 1000));
     this.bookingBusy = false;
     this.bookingMessage = {text: "", error: false};
     this.bookings = [];
@@ -164,6 +161,8 @@ export class WorkplaceApp extends LitElement {
     this.selectedOfficePolicy = null;
     this.cancellationBusy = false;
     this.activeWorkspace = "reserve";
+    this.activeFacility = "overview";
+    this.resultView = "list";
     this.drag = null;
     this.idempotency = null;
     this.recurringIdempotency = null;
@@ -172,6 +171,8 @@ export class WorkplaceApp extends LitElement {
     this.resourcesGeneration = 0;
     this.availabilityGeneration = 0;
     this.bookingsGeneration = 0;
+    this.adminGeneration = 0;
+    this.officePolicyGeneration = 0;
 
     for (const method of [
       "logout",
@@ -213,6 +214,8 @@ export class WorkplaceApp extends LitElement {
       "nextPeriod",
       "today",
       "changeWorkspace",
+      "openFacilitySection",
+      "changeResultView",
     ]) {
       this[method] = this[method].bind(this);
     }
@@ -220,11 +223,9 @@ export class WorkplaceApp extends LitElement {
     this.handleOnline = async () => {
       this.offline = false;
       if (this.initialized) {
-        await Promise.all([
-          this.loadResources(),
-          this.loadBookings(),
-          this.admin ? this.loadAdmin() : Promise.resolve(),
-        ]);
+        await Promise.all(this.isFacilitiesApplication
+          ? this.admin ? [this.loadResources(), this.loadAdmin()] : []
+          : [this.loadResources(), this.loadBookings()]);
       }
     };
     this.handleOffline = () => {
@@ -234,6 +235,10 @@ export class WorkplaceApp extends LitElement {
 
   createRenderRoot() {
     return this;
+  }
+
+  get isFacilitiesApplication() {
+    return false;
   }
 
   connectedCallback() {
@@ -268,11 +273,9 @@ export class WorkplaceApp extends LitElement {
       this.admin = (access["tori-space-web"]?.roles ?? []).includes(ADMIN_ROLE);
       this.keycloak.onTokenExpired = () => this.keycloak.updateToken(30);
       this.initialized = true;
-      await Promise.all([
-        this.loadResources(),
-        this.loadBookings(),
-        this.admin ? this.loadAdmin() : Promise.resolve(),
-      ]);
+      await Promise.all(this.isFacilitiesApplication
+        ? this.admin ? [this.loadResources(), this.loadAdmin()] : []
+        : [this.loadResources(), this.loadBookings()]);
     } catch (error) {
       this.actor = "Authentication unavailable";
       this.resourcesLoading = false;
@@ -298,11 +301,12 @@ export class WorkplaceApp extends LitElement {
       for (const equipment of equipmentFrom(filters.equipment)) {
         query.append("equipment", equipment);
       }
-      if (filters.availability_from && filters.availability_to) {
-        query.set("availability_from", new Date(filters.availability_from).toISOString());
-        query.set("availability_to", new Date(filters.availability_to).toISOString());
+      if (!this.isFacilitiesApplication) {
+        const {startsAt, endsAt} = this.interval();
+        query.set("availability_from", startsAt.toISOString());
+        query.set("availability_to", endsAt.toISOString());
       }
-      if (this.admin) query.set("include_inactive", "true");
+      if (this.isFacilitiesApplication && this.admin) query.set("include_inactive", "true");
       query.set("offset", String(this.resourceOffset));
       query.set("limit", String(this.resourcePageSize));
       const result = await this.api.request(`/api/resources${query.size ? `?${query}` : ""}`);
@@ -352,19 +356,33 @@ export class WorkplaceApp extends LitElement {
 
   async loadAdmin() {
     if (!this.admin) return;
+    const generation = ++this.adminGeneration;
+    const policyGeneration = ++this.officePolicyGeneration;
+    const officeId = this.policyOfficeId;
+    this.officePolicyBusy = false;
     this.adminLoading = true;
     this.adminError = "";
     try {
-      [this.dashboard, this.diagnostics, this.auditEntries, this.officePolicy] = await Promise.all([
+      const [dashboard, diagnostics, auditEntries, officePolicy] = await Promise.all([
         this.api.request("/api/facilities/dashboard"),
         this.api.request("/api/outbox/diagnostics"),
         this.api.request("/api/audit"),
-        this.api.request(`/api/offices/${encodeURIComponent(this.policyOfficeId)}/policy`),
+        this.api.request(`/api/offices/${encodeURIComponent(officeId)}/policy`),
       ]);
+      if (generation !== this.adminGeneration) return;
+      this.dashboard = dashboard;
+      this.diagnostics = diagnostics;
+      this.auditEntries = auditEntries;
+      if (policyGeneration === this.officePolicyGeneration && officeId === this.policyOfficeId) {
+        this.officePolicy = officePolicy;
+      }
     } catch (error) {
+      if (generation !== this.adminGeneration) return;
       this.adminError = error.message;
     } finally {
-      this.adminLoading = false;
+      if (generation === this.adminGeneration) {
+        this.adminLoading = false;
+      }
     }
   }
 
@@ -375,17 +393,23 @@ export class WorkplaceApp extends LitElement {
   async loadAdminOfficePolicy() {
     const officeId = this.policyOfficeId.trim();
     if (!officeId) return;
+    const generation = ++this.officePolicyGeneration;
     this.officePolicyBusy = true;
     this.officePolicyMessage = {text: "", error: false};
     try {
-      this.officePolicy = await this.api.request(
+      const officePolicy = await this.api.request(
         `/api/offices/${encodeURIComponent(officeId)}/policy`,
       );
+      if (generation !== this.officePolicyGeneration || officeId !== this.policyOfficeId.trim()) return;
+      this.officePolicy = officePolicy;
     } catch (error) {
+      if (generation !== this.officePolicyGeneration) return;
       this.officePolicy = null;
       this.officePolicyMessage = {text: error.message, error: true};
     } finally {
-      this.officePolicyBusy = false;
+      if (generation === this.officePolicyGeneration) {
+        this.officePolicyBusy = false;
+      }
     }
   }
 
@@ -395,14 +419,7 @@ export class WorkplaceApp extends LitElement {
     this.clearAvailability();
     this.bookingMessage = {text: "", error: false};
     this.loadOfficePolicy(resource.office_id);
-    if (!this.bookingStarts) {
-      const start = new Date(Date.now() + 60 * 60 * 1000);
-      start.setMinutes(Math.ceil(start.getMinutes() / 15) * 15, 0, 0);
-      const end = new Date(start.getTime() + 60 * 60 * 1000);
-      this.bookingStarts = localDateTimeValue(start);
-      this.bookingEnds = localDateTimeValue(end);
-    }
-    this.updateComplete.then(() => this.querySelector("#starts-at")?.focus());
+    this.updateComplete.then(() => this.querySelector("#booking-submit")?.focus());
   }
 
   clearAvailability() {
@@ -488,7 +505,7 @@ export class WorkplaceApp extends LitElement {
       });
       this.bookingMessage = {text: `Booking ${booking.id} accepted.`, error: false};
       this.idempotency = null;
-      await Promise.all([this.loadBookings(), this.admin ? this.loadAdmin() : Promise.resolve()]);
+      await this.loadBookings();
     } catch (error) {
       this.bookingMessage = {text: error.message, error: true};
     } finally {
@@ -529,7 +546,7 @@ export class WorkplaceApp extends LitElement {
       });
       this.bookingMessage = {text: `${Array.isArray(bookings) ? bookings.length : "Recurring"} booking(s) accepted.`, error: false};
       this.recurringIdempotency = null;
-      await Promise.all([this.loadBookings(), this.admin ? this.loadAdmin() : Promise.resolve()]);
+      await this.loadBookings();
     } catch (error) {
       this.bookingMessage = {text: error.message, error: true};
     } finally {
@@ -541,7 +558,7 @@ export class WorkplaceApp extends LitElement {
     if (needsConfirmation && !window.confirm(`Cancel booking ${booking.id}?`)) return;
     try {
       await this.api.request(`/api/bookings/${encodeURIComponent(booking.id)}/${action}`, {method: "POST"});
-      await Promise.all([this.loadBookings(), this.admin ? this.loadAdmin() : Promise.resolve()]);
+      await this.loadBookings();
     } catch (error) {
       this.bookingsError = error.message;
     }
@@ -572,7 +589,7 @@ export class WorkplaceApp extends LitElement {
       const count = Array.isArray(result) ? result.length : 1;
       this.bookingsMessage = {text: `Cancelled ${count} booking(s).`, error: false};
       this.cancellationIdempotency = null;
-      await Promise.all([this.loadBookings(), this.admin ? this.loadAdmin() : Promise.resolve()]);
+      await this.loadBookings();
     } catch (error) {
       this.bookingsMessage = {text: error.message, error: true};
     } finally {
@@ -623,7 +640,7 @@ export class WorkplaceApp extends LitElement {
       this.bookingsMessage = {text: `Booking ${booking.id} rescheduled.`, error: false};
       this.rescheduling = null;
       this.rescheduleIdempotency = null;
-      await Promise.all([this.loadBookings(), this.admin ? this.loadAdmin() : Promise.resolve()]);
+      await this.loadBookings();
     } catch (error) {
       this.bookingsMessage = {text: error.message, error: true};
     } finally {
@@ -633,10 +650,7 @@ export class WorkplaceApp extends LitElement {
 
   applyResourceFilters(event) {
     event.preventDefault();
-    if (Boolean(this.resourceFilters.availability_from) !== Boolean(this.resourceFilters.availability_to)) {
-      this.resourcesError = "Availability filtering needs both a start and end.";
-      return;
-    }
+    this.clearAvailability();
     this.resourceOffset = 0;
     this.loadResources();
   }
@@ -844,9 +858,21 @@ export class WorkplaceApp extends LitElement {
 
   changeWorkspace(event) {
     const workspace = event.currentTarget.dataset.workspace;
-    if (workspace in WORKSPACES && (workspace !== "facilities" || this.admin)) {
+    if (workspace === "reserve" || workspace === "schedule") {
       this.activeWorkspace = workspace;
     }
+  }
+
+  openFacilitySection(value) {
+    const section = typeof value === "string" ? value : value.currentTarget.dataset.facility;
+    if (["overview", "spaces", "policies", "audit", "system"].includes(section)) {
+      this.activeFacility = section;
+    }
+  }
+
+  changeResultView(event) {
+    const view = event.currentTarget.dataset.resultView;
+    if (view === "list" || view === "map") this.resultView = view;
   }
 
   zoomOut() {
@@ -904,13 +930,6 @@ export class WorkplaceApp extends LitElement {
               aria-current=${this.activeWorkspace === "schedule" ? "page" : "false"}
               @click=${this.changeWorkspace}
             ><span>02</span><strong>My schedule</strong><small>Calendar and bookings</small></button>
-            <button
-              type="button"
-              data-workspace="facilities"
-              aria-current=${this.activeWorkspace === "facilities" ? "page" : "false"}
-              ?hidden=${!this.admin}
-              @click=${this.changeWorkspace}
-            ><span>03</span><strong>Facilities</strong><small>Spaces and operations</small></button>
           </nav>
 
           <div class="sidebar-status">
@@ -925,7 +944,7 @@ export class WorkplaceApp extends LitElement {
         </aside>
 
         <main id="workspace-content" class="workspace-content">
-          <header class="workspace-intro" aria-labelledby="page-title">
+          <header class="workspace-intro compact-intro" aria-labelledby="page-title">
             <div>
               <p class="eyebrow">${workspace.eyebrow}</p>
               <h1 id="page-title">${workspace.title}</h1>
@@ -944,29 +963,64 @@ export class WorkplaceApp extends LitElement {
             aria-label="Reserve a workplace resource"
             ?hidden=${this.activeWorkspace !== "reserve"}
           >
+            <form class="availability-search" aria-label="Find available spaces" @submit=${this.applyResourceFilters}>
+              <div>
+                <p class="toolbar-kicker">When do you need a space?</p>
+                <strong>Choose an interval before browsing</strong>
+              </div>
+              <label>Starts
+                <input
+                  id="starts-at"
+                  type="datetime-local"
+                  required
+                  .value=${this.bookingStarts}
+                  @input=${(event) => {
+                    this.bookingStarts = event.currentTarget.value;
+                    this.clearAvailability();
+                  }}
+                >
+              </label>
+              <label>Ends
+                <input
+                  id="ends-at"
+                  type="datetime-local"
+                  required
+                  .value=${this.bookingEnds}
+                  @input=${(event) => {
+                    this.bookingEnds = event.currentTarget.value;
+                    this.clearAvailability();
+                  }}
+                >
+              </label>
+              <button class="action-button" type="submit">Find available spaces</button>
+            </form>
             <div class="workspace-toolbar">
               <div><span class="toolbar-kicker">Live floor</span><strong>N.03 workplace plan</strong></div>
-              <p>${this.resourcesLoading ? "Loading spaces" : `${this.resources.length} spaces in this view`}</p>
+              <p>${this.resourcesLoading ? "Loading spaces" : `${this.resources.length} available spaces`}</p>
+            </div>
+            <div class="result-view-switcher" aria-label="Results view">
+              <button type="button" data-result-view="list" aria-pressed=${this.resultView === "list"} @click=${this.changeResultView}>List view</button>
+              <button type="button" data-result-view="map" aria-pressed=${this.resultView === "map"} @click=${this.changeResultView}>Map view</button>
             </div>
             <section class="control-desk" aria-label="Floor plan and selected resource">
-              ${floorPlanTemplate(this)}
+              <div class="results-map ${this.resultView === "map" ? "mobile-active" : ""}">${floorPlanTemplate(this)}</div>
               <aside class="inspector">
                 <p class="eyebrow">Reservation composer</p>
                 <div id="selection-empty" class="selection-empty" ?hidden=${Boolean(this.selected)}>
-                  <span class="selection-number" aria-hidden="true">01</span>
-                  <h2>Start with a space.</h2>
-                  <p>Choose a marker on the plan or select a result from the directory below.</p>
-                  <ol>
-                    <li>Pick a desk or room</li>
-                    <li>Set your local time</li>
-                    <li>Check and reserve</li>
-                  </ol>
+                   <span class="selection-number" aria-hidden="true">01</span>
+                   <h2>Choose an available space.</h2>
+                   <p>The list and plan show spaces available for the interval above.</p>
+                   <ol>
+                     <li>Compare the filtered results</li>
+                     <li>Pick a desk or room</li>
+                     <li>Review and reserve</li>
+                   </ol>
                 </div>
                 <div id="selection" ?hidden=${!this.selected}>
                   <p class="status ${this.availability?.open ? "available" : ""} ${this.availability?.error ? "error" : ""}" id="resource-status" role="status">
                     ${!isBookable(this.selected)
                       ? "Inactive resources cannot be booked"
-                      : this.availability?.text ?? "Set a time to check availability"}
+                       : this.availability?.text ?? "Available for the selected interval"}
                   </p>
                   <div class="resource-title-row">
                     <div>
@@ -984,37 +1038,14 @@ export class WorkplaceApp extends LitElement {
                       : "Loading policy"}</dd></div>
                   </dl>
                   <form id="booking-form" class="booking-form" @submit=${this.requestBooking}>
-                    <label>Starts
-                      <input
-                        id="starts-at"
-                        type="datetime-local"
-                        required
-                        .value=${this.bookingStarts}
-                        @input=${(event) => {
-                          this.bookingStarts = event.currentTarget.value;
-                          this.clearAvailability();
-                        }}
-                      >
-                    </label>
-                    <label>Ends
-                      <input
-                        id="ends-at"
-                        type="datetime-local"
-                        required
-                        .value=${this.bookingEnds}
-                        @input=${(event) => {
-                          this.bookingEnds = event.currentTarget.value;
-                          this.clearAvailability();
-                        }}
-                      >
-                    </label>
+                    <p class="selected-interval">${this.bookingStarts || "Start not set"}<span aria-hidden="true">→</span>${this.bookingEnds || "End not set"}</p>
                     <button
-                      class="secondary-button"
+                      class="quiet-button"
                       id="availability-check"
                       type="button"
                       ?disabled=${this.availabilityBusy || !isBookable(this.selected)}
                       @click=${this.checkAvailability}
-                    >${this.availabilityBusy ? "Checking…" : "Check availability"}</button>
+                    >${this.availabilityBusy ? "Checking…" : "Recheck availability"}</button>
                     <button class="action-button" id="booking-submit" type="submit" ?disabled=${this.bookingBusy || !isBookable(this.selected)}>
                       ${this.bookingBusy ? "Reserving…" : "Reserve this time"}
                     </button>
@@ -1044,24 +1075,22 @@ export class WorkplaceApp extends LitElement {
               </aside>
             </section>
 
-            <section class="list-section" aria-labelledby="resource-list-title">
+            <section class="list-section results-list ${this.resultView === "list" ? "mobile-active" : ""}" aria-labelledby="resource-list-title">
               <div class="section-heading">
                 <div>
                   <p class="eyebrow">Space directory</p>
                   <h2 id="resource-list-title">Find by what you need.</h2>
                 </div>
-                <p>Filter across location, capacity, equipment, and a precise availability window.</p>
+                <p>Refine the available results without changing the selected interval.</p>
               </div>
-              <details class="filter-drawer" open>
-                <summary>Search filters</summary>
+              <details class="filter-drawer">
+                <summary>Advanced filters</summary>
                 <form class="resource-filters" id="resource-filters" @submit=${this.applyResourceFilters}>
                   <label>Office<input id="resource-office-filter" .value=${this.resourceFilters.office_id} @input=${(event) => this.setResourceFilter("office_id", event)}></label>
                   <label>Floor<input id="resource-floor-filter" .value=${this.resourceFilters.floor_id} @input=${(event) => this.setResourceFilter("floor_id", event)}></label>
                   <label>Kind<select id="resource-kind-filter" .value=${this.resourceFilters.kind} @change=${(event) => this.setResourceFilter("kind", event)}><option value="">Any</option><option value="desk">Desk</option><option value="room">Room</option></select></label>
                   <label>Equipment<input id="resource-equipment-filter" placeholder="monitor, screen" .value=${this.resourceFilters.equipment} @input=${(event) => this.setResourceFilter("equipment", event)}></label>
                   <label>Minimum capacity<input id="resource-min-capacity-filter" type="number" min="1" .value=${this.resourceFilters.min_capacity} @input=${(event) => this.setResourceFilter("min_capacity", event)}></label>
-                  <label>Available from<input id="availability-from-filter" type="datetime-local" .value=${this.resourceFilters.availability_from} @input=${(event) => this.setResourceFilter("availability_from", event)}></label>
-                  <label>Available to<input id="availability-to-filter" type="datetime-local" .value=${this.resourceFilters.availability_to} @input=${(event) => this.setResourceFilter("availability_to", event)}></label>
                   <button class="action-button" type="submit">Apply resource filters</button>
                   <button class="quiet-button" id="clear-resource-filters" type="button" @click=${this.clearResourceFilters}>Clear resource filters</button>
                 </form>
@@ -1073,10 +1102,11 @@ export class WorkplaceApp extends LitElement {
                     ? html`<li class="list-message error">Could not load resources: ${this.resourcesError}</li>`
                     : this.resources.length
                       ? this.resources.map((resource) => html`
-                          <li class="resource-item ${resource.active === false ? "inactive" : ""}">
+                          <li class="resource-item ${this.selected?.id === resource.id ? "selected" : ""} ${resource.active === false ? "inactive" : ""}">
                             <button
                               type="button"
                               aria-label=${resource.name ?? resource.id}
+                              aria-pressed=${this.selected?.id === resource.id}
                               @click=${() => this.selectResource(resource)}
                             >
                               <span class="resource-kind-badge">${resource.kind ?? "space"}</span>
@@ -1107,28 +1137,103 @@ export class WorkplaceApp extends LitElement {
             ${bookingListTemplate(this)}
           </section>
 
-          <section
-            id="facilities-workspace"
-            class="workspace-view facilities-workspace"
-            aria-label="Facilities workspace"
-            ?hidden=${this.activeWorkspace !== "facilities" || !this.admin}
-          >
-            ${adminPanelTemplate(this)}
-          </section>
         </main>
       </div>
 
-      <footer class="workspace-footer">
-        <span>TORI SPACE / LOCAL REFERENCE</span>
-        <span id="api-status" role="status">${this.offline
-          ? "OFFLINE / CHANGES PAUSED"
-          : this.resourcesError
-            ? "GATEWAY UNAVAILABLE"
-            : this.initialized
-              ? "GATEWAY LINKED"
-              : "AWAITING GATEWAY"}</span>
-        <span>NOT A BUILDING SAFETY SYSTEM</span>
-      </footer>
+      <details class="developer-drawer app-diagnostics">
+        <summary>Developer diagnostics</summary>
+        <footer class="workspace-footer">
+          <span>TORI SPACE / LOCAL REFERENCE</span>
+          <span id="api-status" role="status">${this.offline
+            ? "OFFLINE / CHANGES PAUSED"
+            : this.resourcesError
+              ? "GATEWAY UNAVAILABLE"
+              : this.initialized
+                ? "GATEWAY LINKED"
+                : "AWAITING GATEWAY"}</span>
+          <span>NOT A BUILDING SAFETY SYSTEM</span>
+        </footer>
+      </details>
+    `;
+  }
+}
+
+const FACILITY_SECTIONS = Object.freeze({
+  overview: {label: "Overview", description: "Exceptions and current signals"},
+  spaces: {label: "Spaces", description: "Inventory and lifecycle"},
+  policies: {label: "Policies", description: "Hours and booking rules"},
+  audit: {label: "Audit", description: "Booking transitions"},
+  system: {label: "System health", description: "Persistent delivery"},
+});
+
+export class FacilitiesApp extends WorkplaceApp {
+  get isFacilitiesApplication() {
+    return true;
+  }
+
+  render() {
+    const section = FACILITY_SECTIONS[this.activeFacility] ?? FACILITY_SECTIONS.overview;
+    const denied = this.initialized && !this.admin;
+    return html`
+      <a class="skip-link" href="#facilities-content">Skip to facilities workspace</a>
+      <div class="workspace-shell facilities-shell">
+        <aside class="workspace-sidebar">
+          <header class="masthead">
+            <div class="wordmark"><span aria-hidden="true">⌑</span><strong>TORI</strong> SPACE</div>
+            <p class="desk-label">Facilities operations <span>/</span> N</p>
+          </header>
+          <nav id="facilities-navigation" class="workspace-navigation facilities-navigation" aria-label="Facilities">
+            <p class="navigation-label">Facilities</p>
+            ${Object.entries(FACILITY_SECTIONS).map(([key, item], index) => html`
+              <button
+                type="button"
+                data-facility=${key}
+                aria-label=${item.label}
+                aria-current=${this.activeFacility === key ? "page" : "false"}
+                ?disabled=${!this.admin}
+                @click=${this.openFacilitySection}
+              ><span>0${index + 1}</span><strong>${item.label}</strong><small>${item.description}</small></button>
+            `)}
+          </nav>
+          <div class="sidebar-status">
+            <span class="signal ${this.offline ? "offline" : ""}" aria-hidden="true"></span>
+            <div>
+              <small>${this.offline ? "Connection paused" : "Facilities workspace"}</small>
+              <strong id="identity-text">${this.actor}</strong>
+              <span>${this.initialized ? this.tenant : "Checking identity"}</span>
+            </div>
+          </div>
+          <a class="sidebar-app-link" href="/live/workplace">Employee workspace</a>
+          <button class="sidebar-signout" id="logout" type="button" ?hidden=${!this.initialized} @click=${this.logout}>Sign out</button>
+        </aside>
+        <main id="facilities-content" class="workspace-content facilities-content">
+          <header class="workspace-intro compact-intro" aria-labelledby="page-title">
+            <div>
+              <p class="eyebrow">Building N / Facilities</p>
+              <h1 id="page-title">${section.label}</h1>
+              <p>${section.description}</p>
+            </div>
+            <dl class="workspace-context" aria-label="Current facilities context">
+              <div><dt>Office</dt><dd>Building N</dd></div>
+              <div><dt>Tenant</dt><dd>${this.tenant || "-"}</dd></div>
+              <div><dt>Timezone</dt><dd>${this.timeZone}</dd></div>
+            </dl>
+          </header>
+          ${denied
+            ? html`<section class="access-denied"><p class="eyebrow">Access restricted</p><h2>Facilities administrator role required</h2><p>Use the employee workspace or sign in with an authorized facilities account.</p><a class="action-button" href="/live/workplace">Open employee workspace</a></section>`
+            : this.admin
+              ? html`<section class="workspace-view admin-panel" id="admin-panel">${adminPanelTemplate(this)}</section>`
+              : html`<p class="list-message">Checking facilities access...</p>`}
+        </main>
+      </div>
+      <details class="developer-drawer app-diagnostics">
+        <summary>Developer diagnostics</summary>
+        <footer class="workspace-footer">
+          <span>TORI SPACE / FACILITIES REFERENCE</span>
+          <span id="api-status" role="status">${this.offline ? "OFFLINE / CHANGES PAUSED" : this.initialized ? "GATEWAY LINKED" : "AWAITING GATEWAY"}</span>
+          <span>NOT A BUILDING SAFETY SYSTEM</span>
+        </footer>
+      </details>
     `;
   }
 }

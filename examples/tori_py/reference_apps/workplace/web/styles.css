@@ -1471,6 +1471,10 @@ select:hover {
   color: var(--red);
 }
 
+.resource-control-list {
+  min-width: 0;
+}
+
 .workspace-footer {
   display: flex;
   justify-content: space-between;
@@ -1803,5 +1807,369 @@ select:hover {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+  }
+}
+
+/* Task-first application layout */
+.workspace-content {
+  padding-top: clamp(1.5rem, 3vw, 3rem);
+}
+
+.compact-intro {
+  align-items: center;
+  margin-bottom: clamp(1.5rem, 3vw, 2.5rem);
+}
+
+.compact-intro h1 {
+  max-width: none;
+  font-size: clamp(2.3rem, 4vw, 4.2rem);
+  line-height: 0.95;
+}
+
+.compact-intro > div > p:last-child {
+  margin-top: 0.7rem;
+}
+
+.reserve-workspace {
+  display: grid;
+  grid-template-columns: minmax(17rem, 0.7fr) minmax(30rem, 1.45fr) minmax(20rem, 0.85fr);
+  gap: 1rem;
+  align-items: stretch;
+}
+
+.availability-search {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: minmax(15rem, 1fr) minmax(12rem, 0.65fr) minmax(12rem, 0.65fr) auto;
+  gap: 0.8rem;
+  align-items: end;
+  padding: 1rem;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  box-shadow: 0 8px 24px rgb(7 29 48 / 5%);
+}
+
+.availability-search p,
+.availability-search strong {
+  display: block;
+  margin: 0;
+}
+
+.availability-search strong {
+  font: 500 1.25rem/1.2 var(--display);
+}
+
+.reserve-workspace > .workspace-toolbar {
+  grid-column: 1 / -1;
+}
+
+.control-desk {
+  display: contents;
+}
+
+.results-map {
+  grid-column: 2;
+  grid-row: 4;
+  min-width: 0;
+  min-height: 42rem;
+}
+
+.results-map .map-panel {
+  min-height: 100%;
+  border: 1px solid var(--navy);
+}
+
+.reserve-workspace .inspector {
+  grid-column: 3;
+  grid-row: 4;
+  min-height: 42rem;
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow);
+}
+
+.reserve-workspace .list-section {
+  grid-column: 1;
+  grid-row: 4;
+  min-width: 0;
+  margin-top: 0;
+  padding: 1rem;
+  background: var(--paper-deep);
+  border: 1px solid var(--line);
+}
+
+.reserve-workspace .section-heading {
+  display: grid;
+  gap: 0.55rem;
+  margin-bottom: 0.8rem;
+}
+
+.reserve-workspace .section-heading h2 {
+  font-size: 1.75rem;
+}
+
+.filter-drawer {
+  padding: 0 0.75rem;
+  background: var(--surface);
+}
+
+.filter-drawer summary,
+.maintenance-panel summary {
+  padding: 0.8rem 0;
+  color: var(--ink);
+  cursor: pointer;
+  font: 700 0.66rem/1 var(--mono);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.resource-filters {
+  grid-template-columns: 1fr;
+}
+
+#resource-list {
+  grid-template-columns: 1fr;
+  max-height: 27rem;
+  overflow: auto;
+}
+
+.resource-item > button {
+  min-height: 7.4rem;
+}
+
+.resource-item.selected > button {
+  border-color: var(--orange-dark);
+  box-shadow: inset 4px 0 0 var(--orange);
+}
+
+.result-view-switcher {
+  display: none;
+}
+
+.booking-form {
+  grid-template-columns: 1fr;
+}
+
+.selected-interval {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  gap: 0.45rem;
+  align-items: center;
+  margin: 0;
+  padding: 0.75rem;
+  color: var(--ink-soft);
+  background: var(--paper-deep);
+  font: 600 0.68rem/1.4 var(--mono);
+  overflow-wrap: anywhere;
+}
+
+.selected-interval span {
+  color: var(--orange-dark);
+}
+
+.sidebar-app-link {
+  margin-top: 0.8rem;
+  color: #adbeca;
+  font: 700 0.64rem/1 var(--mono);
+  letter-spacing: 0.08em;
+  text-decoration: none;
+  text-transform: uppercase;
+}
+
+.sidebar-app-link:hover {
+  color: #fff9ed;
+}
+
+.facilities-content .admin-panel,
+.facility-view,
+.facility-view.resource-management {
+  margin-top: 0;
+}
+
+.issue-queue {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.issue-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 1rem;
+  align-items: center;
+  padding: 1rem;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--orange);
+}
+
+.issue-row h3,
+.issue-row p,
+.clear-state p,
+.data-boundary-note {
+  margin: 0;
+}
+
+.issue-row h3 {
+  font: 500 1.25rem/1.1 var(--display);
+}
+
+.issue-row p,
+.clear-state p,
+.data-boundary-note {
+  margin-top: 0.3rem;
+  color: var(--muted);
+  font-size: 0.75rem;
+  line-height: 1.45;
+}
+
+.issue-count {
+  display: grid;
+  width: 2.7rem;
+  height: 2.7rem;
+  color: var(--orange-dark);
+  background: #f6dfd5;
+  border-radius: 50%;
+  font: 700 0.82rem/1 var(--mono);
+  place-items: center;
+}
+
+.clear-state,
+.access-denied {
+  padding: clamp(1.5rem, 4vw, 3rem);
+  background: var(--surface);
+  border: 1px solid var(--line);
+}
+
+.data-boundary-note {
+  max-width: 48rem;
+  margin-top: 1rem;
+}
+
+.maintenance-panel {
+  margin-top: 1rem;
+  padding: 0 1rem 1rem;
+  background: var(--paper-deep);
+  border: 1px solid var(--line);
+}
+
+.developer-drawer {
+  color: #9fb1be;
+  background: #051725;
+  border-top: 1px solid #29465b;
+}
+
+.developer-drawer > summary {
+  padding: 0.55rem clamp(1rem, 3vw, 2.5rem);
+  cursor: pointer;
+  font: 600 0.58rem/1.2 var(--mono);
+  letter-spacing: 0.08em;
+  text-align: right;
+  text-transform: uppercase;
+}
+
+.app-diagnostics .workspace-footer {
+  border-top: 1px solid #29465b;
+}
+
+@media (max-width: 1220px) {
+  .reserve-workspace {
+    grid-template-columns: minmax(16rem, 0.75fr) minmax(0, 1.25fr);
+  }
+
+  .results-map {
+    grid-column: 2;
+  }
+
+  .reserve-workspace .inspector {
+    grid-column: 1 / -1;
+    grid-row: 5;
+    min-height: 0;
+  }
+}
+
+@media (max-width: 900px) {
+  .availability-search {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .availability-search > div,
+  .availability-search > button {
+    grid-column: 1 / -1;
+  }
+
+  .facilities-navigation {
+    justify-content: start;
+    overflow-x: auto;
+  }
+
+  .facilities-navigation button {
+    flex: 0 0 auto;
+  }
+}
+
+@media (max-width: 700px) {
+  .compact-intro h1 {
+    font-size: clamp(2.2rem, 12vw, 3.2rem);
+  }
+
+  .reserve-workspace {
+    display: block;
+  }
+
+  .reserve-workspace > * + * {
+    margin-top: 0.8rem;
+  }
+
+  .result-view-switcher {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    padding: 0.25rem;
+    background: var(--paper-deep);
+    border: 1px solid var(--line);
+  }
+
+  .result-view-switcher button {
+    min-height: 2.7rem;
+    color: var(--ink-soft);
+    background: transparent;
+    border: 0;
+    font: 700 0.68rem/1 var(--mono);
+    text-transform: uppercase;
+  }
+
+  .result-view-switcher button[aria-pressed="true"] {
+    color: var(--surface);
+    background: var(--navy);
+  }
+
+  .results-map,
+  .results-list {
+    display: none;
+  }
+
+  .results-map.mobile-active,
+  .results-list.mobile-active {
+    display: block;
+  }
+
+  .results-map,
+  .reserve-workspace .inspector {
+    min-height: 0;
+  }
+
+  .availability-search {
+    grid-template-columns: 1fr;
+  }
+
+  .availability-search > div,
+  .availability-search > button {
+    grid-column: auto;
+  }
+
+  .issue-row {
+    grid-template-columns: auto 1fr;
+  }
+
+  .issue-row button {
+    grid-column: 1 / -1;
   }
 }

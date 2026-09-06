@@ -61,6 +61,21 @@
   }
 }
 
+.live-diagnostics {
+  color: #a9b8c8;
+  background: #06182b;
+  border-bottom: 1px solid #40556b;
+}
+
+.live-diagnostics > summary {
+  padding: 0.35rem clamp(1rem, 4vw, 4rem);
+  cursor: pointer;
+  font: 700 0.58rem/1.2 ui-monospace, Consolas, monospace;
+  letter-spacing: 0.09em;
+  text-align: right;
+  text-transform: uppercase;
+}
+
 @media (prefers-reduced-motion: no-preference) {
   .liveview-bridge output {
     transition: color 160ms ease-out;

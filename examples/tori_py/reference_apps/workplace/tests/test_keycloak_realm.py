@@ -18,6 +18,8 @@ def test_web_client_accepts_every_published_browser_route() -> None:
         "http://127.0.0.1:8010/web/",
         "http://localhost:8010/live/workplace",
         "http://127.0.0.1:8010/live/workplace",
+        "http://localhost:8010/live/facilities",
+        "http://127.0.0.1:8010/live/facilities",
     }
 
 

@@ -29,13 +29,16 @@ class WorkplaceLive(LiveView):
         state = "connected" if self.connected else "disconnected"
         status = "LiveView connected" if self.connected else "LiveView connecting"
         return (
-            t'<aside class="liveview-bridge" data-live-state="{state}" '
+            t'<details class="developer-drawer live-diagnostics"><summary>'
+            t'Developer diagnostics</summary><aside class="liveview-bridge" '
+            t'data-live-state="{state}" '
             t'aria-label="Frontend runtime"><span class="liveview-bridge-label">'
             t'ToriPy LiveView</span><output role="status">{status}</output>'
             t'<button type="button" phx-click="check_bridge">Check LiveView bridge'
             t'</button><output id="liveview-bridge-checks">'
             t"Patch {self.bridge_checks}</output>"
             t'<span class="liveview-bridge-detail">Lit web component</span></aside>'
+            t"</details>"
             t'<workplace-app id="workplace-lit-app" phx-update="ignore" '
             t'style="display:block"></workplace-app>'
         )
@@ -56,4 +59,30 @@ class WorkplaceLive(LiveView):
         )
 
 
-__all__ = ["WorkplaceLive"]
+@live_view("/live/facilities")
+class FacilitiesLive(WorkplaceLive):
+    """Mount the role-gated facilities application in its own shell."""
+
+    def render(self) -> Template:
+        state = "connected" if self.connected else "disconnected"
+        status = "LiveView connected" if self.connected else "LiveView connecting"
+        return (
+            t'<details class="developer-drawer live-diagnostics"><summary>'
+            t'Developer diagnostics</summary><aside class="liveview-bridge" '
+            t'data-live-state="{state}" '
+            t'aria-label="Frontend runtime"><span class="liveview-bridge-label">'
+            t'ToriPy LiveView</span><output role="status">{status}</output>'
+            t'<button type="button" phx-click="check_bridge">Check LiveView bridge'
+            t'</button><output id="liveview-bridge-checks">'
+            t"Patch {self.bridge_checks}</output>"
+            t'<span class="liveview-bridge-detail">Lit web component</span></aside>'
+            t"</details>"
+            t'<facilities-app id="facilities-lit-app" phx-update="ignore" '
+            t'style="display:block"></facilities-app>'
+        )
+
+    def title(self) -> str:
+        return "Tori Space - facilities operations"
+
+
+__all__ = ["FacilitiesLive", "WorkplaceLive"]
