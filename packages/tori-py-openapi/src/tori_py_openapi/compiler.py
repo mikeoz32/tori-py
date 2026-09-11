@@ -262,6 +262,8 @@ def compile_openapi_document(
         compiled_paths.append(path_plan)
         if metadata.excluded:
             continue
+        if _is_filtered_by_options(path_plan.normalized, options):
+            continue
         if plan.method not in _OPENAPI_METHODS:
             raise OpenApiSchemaError(
                 f"unsupported OpenAPI method {plan.method!r}", details=context.details()
@@ -356,6 +358,27 @@ def _compile_route_path(plan: RoutePlan, context: _RouteContext) -> _PathPlan:
             "route path could not be compiled by Starlette", details=context.details()
         ) from error
     return _PathPlan(normalized, regex, tuple(converters))
+
+
+def _matches_path_prefix(normalized_path: str, prefix: str) -> bool:
+    if prefix == "/":
+        return True
+    stripped = prefix.rstrip("/")
+    return normalized_path == stripped or normalized_path.startswith(stripped + "/")
+
+
+def _is_filtered_by_options(normalized_path: str, options: OpenApiOptions) -> bool:
+    if any(
+        _matches_path_prefix(normalized_path, prefix)
+        for prefix in options.exclude_paths
+    ):
+        return True
+    if not options.include_paths:
+        return False
+    return not any(
+        _matches_path_prefix(normalized_path, prefix)
+        for prefix in options.include_paths
+    )
 
 
 def _validate_path_bindings(
@@ -753,6 +776,8 @@ def _walk_annotation(annotation: object, seen: set[int]) -> None:
         raise NameError("unresolved forward reference")
     if isinstance(annotation, TypeVar):
         raise TypeError("unresolved type variable")
+    if _is_unset_annotation(annotation):
+        raise TypeError("UnsetType must appear in a union with a documented type")
     if isinstance(annotation, TypeAliasType):
         identity = id(annotation)
         if identity in seen:
@@ -771,6 +796,8 @@ def _walk_annotation(annotation: object, seen: set[int]) -> None:
         arguments = get_args(annotation)
         _validate_union(arguments)
         for argument in arguments:
+            if _is_unset_annotation(argument):
+                continue
             _walk_annotation(argument, seen)
         return
     if origin is not None:
@@ -795,18 +822,60 @@ def _walk_annotation(annotation: object, seen: set[int]) -> None:
         _walk_annotation(field_annotation, seen)
 
 
+def _is_none_annotation(annotation: object) -> bool:
+    return _unwrap_annotation(annotation) is type(None)
+
+
+def _is_unset_annotation(annotation: object) -> bool:
+    return _unwrap_annotation(annotation) is msgspec.UnsetType
+
+
+def _without_unset(arguments: tuple[object, ...]) -> tuple[object, ...]:
+    return tuple(
+        argument for argument in arguments if not _is_unset_annotation(argument)
+    )
+
+
+def _is_container_annotation(annotation: object) -> bool:
+    annotation = _unwrap_annotation(annotation)
+    return get_origin(annotation) in {
+        list,
+        dict,
+        tuple,
+        set,
+        frozenset,
+    } or annotation in {list, dict, tuple, set, frozenset}
+
+
 def _validate_union(arguments: tuple[object, ...]) -> None:
-    non_null = tuple(argument for argument in arguments if argument is not type(None))
+    effective = _without_unset(arguments)
+    if not effective:
+        raise TypeError("unsupported union shape")
+    if len(effective) == 1:
+        single = _unwrap_annotation(effective[0])
+        if single is object or single is Any:
+            raise TypeError("unsupported union shape")
+        return
+    non_null = tuple(
+        argument for argument in effective if not _is_none_annotation(argument)
+    )
+    if not non_null:
+        # Only None values (e.g. None | None collapses, but keep fail-closed).
+        raise TypeError("unsupported union shape")
     if all(_is_scalar_annotation(argument) for argument in non_null):
         return
-    if len(arguments) == 2 and len(non_null) == 1 and _is_model_annotation(non_null[0]):
-        return
+    has_null = len(non_null) != len(effective)
     if (
-        len(non_null) >= 2
-        and len(non_null) == len(arguments)
-        and all(_is_tagged_struct(argument) for argument in non_null)
+        len(effective) == 2
+        and len(non_null) == 1
+        and (_is_model_annotation(non_null[0]) or _is_container_annotation(non_null[0]))
     ):
         return
+    if len(non_null) >= 2 and all(_is_tagged_struct(argument) for argument in non_null):
+        if len(non_null) == len(effective):
+            return
+        if has_null and len(non_null) + 1 == len(effective):
+            return
     raise TypeError("unsupported union shape")
 
 
@@ -816,7 +885,10 @@ def _is_scalar_annotation(annotation: object) -> bool:
     if origin is Literal:
         return True
     if origin in {types.UnionType, Union}:
-        return all(_is_scalar_annotation(argument) for argument in get_args(annotation))
+        effective = _without_unset(get_args(annotation))
+        if not effective:
+            return False
+        return all(_is_scalar_annotation(argument) for argument in effective)
     if origin is not None or not isinstance(annotation, type):
         return False
     return not _is_model_type(annotation) and (

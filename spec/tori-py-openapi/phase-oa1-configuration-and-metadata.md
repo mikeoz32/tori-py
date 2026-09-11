@@ -11,6 +11,8 @@
 
 - Inputs are validated and defensively frozen.
 - Paths are absolute and static.
+- `include_paths` and `exclude_paths` are absolute static path prefixes used for
+  segment-aware route filtering; invalid prefixes fail eagerly.
 - Swagger assets are HTTPS or root-relative; document source keys are reserved.
 - Metadata is direct, immutable, and performs no registration.
 - Route metadata overrides controller defaults according to architecture.

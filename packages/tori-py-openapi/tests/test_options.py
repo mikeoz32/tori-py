@@ -230,3 +230,34 @@ def test_wrong_option_types_are_rejected(
     values[field] = value
     with pytest.raises(OpenApiConfigurationError, match=message):
         OpenApiOptions(**cast(Any, values))
+
+
+@pytest.mark.parametrize(
+    "prefix",
+    ["", "api", "//api", "/api?x=1", "/api#frag", "/api/{id}", "/api\\x", "/api x"],
+)
+def test_invalid_path_prefixes_are_rejected(prefix: object) -> None:
+    with pytest.raises(OpenApiConfigurationError):
+        OpenApiOptions(
+            OpenApiInfo("Example", "1.0"), include_paths=cast(Any, (prefix,))
+        )
+    with pytest.raises(OpenApiConfigurationError):
+        OpenApiOptions(
+            OpenApiInfo("Example", "1.0"), exclude_paths=cast(Any, (prefix,))
+        )
+
+
+def test_path_prefixes_are_copied_and_frozen() -> None:
+    included = ["/api"]
+    excluded = ["/workspace"]
+    options = OpenApiOptions(
+        OpenApiInfo("Example", "1.0"),
+        include_paths=cast(Any, included),
+        exclude_paths=cast(Any, excluded),
+    )
+    included.append("/other")
+    excluded.append("/other")
+    assert options.include_paths == ("/api",)
+    assert options.exclude_paths == ("/workspace",)
+    with pytest.raises(OpenApiConfigurationError):
+        OpenApiOptions(OpenApiInfo("Example", "1.0"), include_paths=cast(Any, "/api"))

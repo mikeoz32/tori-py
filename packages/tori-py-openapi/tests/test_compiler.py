@@ -1314,3 +1314,133 @@ def test_schema_generation_and_document_encoding_each_run_once(
 
     assert schema_calls == 1
     assert encode_calls == 1
+
+
+def test_nullable_containers_are_supported() -> None:
+    class Controller:
+        async def read(self) -> object:
+            raise NotImplementedError
+
+    options = OpenApiOptions(OpenApiInfo("Example", "1.0"))
+    for annotation in (
+        list[str] | None,
+        dict[str, int] | None,
+        tuple[int, str] | None,
+        set[str] | None,
+    ):
+        document = _json(
+            compile_openapi_document(
+                (_plan(Controller, "read", return_annotation=annotation),),
+                options,
+            )
+        )
+        schema = document["paths"]["/items"]["get"]["responses"]["200"]["content"][
+            "application/json"
+        ]["schema"]
+        assert schema["anyOf"][1] == {"type": "null"}
+
+
+def test_unset_marker_makes_unions_optional_and_nullable() -> None:
+    class Patch(msgspec.Struct):
+        blocked_reason: str | None | msgspec.UnsetType = msgspec.UNSET
+        required_skills: list[str] | None | msgspec.UnsetType = msgspec.UNSET
+
+    class MixedModel(msgspec.Struct):
+        value: str
+
+    class Controller:
+        async def read(self) -> object:
+            raise NotImplementedError
+
+    options = OpenApiOptions(OpenApiInfo("Example", "1.0"))
+    document = _json(
+        compile_openapi_document(
+            (_plan(Controller, "read", return_annotation=Patch),),
+            options,
+        )
+    )
+    patch = document["components"]["schemas"]["Patch"]
+    assert patch["required"] == []
+    assert patch["properties"]["blocked_reason"] == {
+        "anyOf": [{"type": "string"}, {"type": "null"}]
+    }
+    assert patch["properties"]["required_skills"]["anyOf"][0] == {
+        "type": "array",
+        "items": {"type": "string"},
+    }
+
+    for annotation in (
+        str | msgspec.UnsetType,
+        list[str] | msgspec.UnsetType,
+        int | str | msgspec.UnsetType,
+    ):
+        compile_openapi_document(
+            (_plan(Controller, "read", return_annotation=annotation),),
+            options,
+        )
+    for annotation in (
+        msgspec.UnsetType,
+        list[msgspec.UnsetType],
+        int | MixedModel | msgspec.UnsetType,
+    ):
+        with pytest.raises(OpenApiSchemaError, match="unresolved or unsupported"):
+            compile_openapi_document(
+                (_plan(Controller, "read", return_annotation=annotation),),
+                options,
+            )
+
+
+def test_nullable_tagged_union_is_supported() -> None:
+    class Cat(msgspec.Struct, tag="cat"):
+        lives: int
+
+    class Dog(msgspec.Struct, tag="dog"):
+        bark: bool
+
+    class Controller:
+        async def read(self) -> object:
+            raise NotImplementedError
+
+    options = OpenApiOptions(OpenApiInfo("Example", "1.0"))
+    document = _json(
+        compile_openapi_document(
+            (_plan(Controller, "read", return_annotation=Cat | Dog | None),),
+            options,
+        )
+    )
+    schema = document["paths"]["/items"]["get"]["responses"]["200"]["content"][
+        "application/json"
+    ]["schema"]
+    assert {"type": "null"} in schema["anyOf"]
+
+
+def test_include_and_exclude_paths_filter_documented_routes() -> None:
+    class Controller:
+        async def health(self) -> object:
+            raise NotImplementedError
+
+        async def workspace(self) -> object:
+            raise NotImplementedError
+
+    options = OpenApiOptions(OpenApiInfo("Example", "1.0"))
+    excluded = OpenApiOptions(
+        OpenApiInfo("Example", "1.0"), exclude_paths=("/workspace",)
+    )
+    included = OpenApiOptions(OpenApiInfo("Example", "1.0"), include_paths=("/api",))
+    plans = (
+        _plan(Controller, "health", path="/api/health"),
+        _plan(Controller, "workspace", path="/workspace"),
+    )
+    assert set(_json(compile_openapi_document(plans, options))["paths"]) == {
+        "/api/health",
+        "/workspace",
+    }
+    assert set(_json(compile_openapi_document(plans, excluded))["paths"]) == {
+        "/api/health"
+    }
+    assert set(_json(compile_openapi_document(plans, included))["paths"]) == {
+        "/api/health"
+    }
+    # Segment-aware: /api must not match /apiary.
+    apiary = (_plan(Controller, "health", path="/apiary"),)
+    assert set(_json(compile_openapi_document(apiary, included))["paths"]) == set()

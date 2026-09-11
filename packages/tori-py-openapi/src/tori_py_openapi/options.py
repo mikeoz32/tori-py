@@ -70,6 +70,33 @@ def _validate_endpoint_path(value: object, name: str) -> str:
     return path
 
 
+def _validate_path_prefix(value: object, name: str) -> str:
+    path = _require_string(value, name, non_empty=True)
+    if (
+        not path.startswith("/")
+        or "//" in path
+        or "?" in path
+        or "#" in path
+        or "{" in path
+        or "}" in path
+        or "\\" in path
+        or any(character.isspace() or ord(character) < 32 for character in path)
+    ):
+        raise OpenApiConfigurationError(
+            f"{name} must be an absolute static path prefix without a query or fragment"
+        )
+    return path
+
+
+def _freeze_path_prefixes(value: object, *, name: str) -> tuple[str, ...]:
+    if isinstance(value, str) or not isinstance(value, Iterable):
+        raise OpenApiConfigurationError(f"{name} must be an iterable")
+    copied = tuple(value)
+    for item in copied:
+        _validate_path_prefix(item, f"{name} entry")
+    return cast(tuple[str, ...], copied)
+
+
 def _validate_asset_url(value: object, name: str) -> str:
     url = _require_string(value, name, non_empty=True)
     if (
@@ -247,6 +274,8 @@ class OpenApiOptions:
     servers: tuple[OpenApiServer, ...] = ()
     security_schemes: tuple[BearerSecurityScheme, ...] = ()
     swagger_ui: SwaggerUiOptions = SwaggerUiOptions()
+    include_paths: tuple[str, ...] = ()
+    exclude_paths: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if not isinstance(self.info, OpenApiInfo):
@@ -275,8 +304,12 @@ class OpenApiOptions:
             raise OpenApiConfigurationError(
                 "swagger_ui must be a SwaggerUiOptions instance"
             )
+        include_paths = _freeze_path_prefixes(self.include_paths, name="include_paths")
+        exclude_paths = _freeze_path_prefixes(self.exclude_paths, name="exclude_paths")
         object.__setattr__(self, "servers", servers)
         object.__setattr__(self, "security_schemes", security_schemes)
+        object.__setattr__(self, "include_paths", include_paths)
+        object.__setattr__(self, "exclude_paths", exclude_paths)
 
 
 __all__ = [

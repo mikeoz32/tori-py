@@ -12,7 +12,11 @@
 - The generated docs controller is excluded through normal metadata.
 - Schema generation uses one msgspec component pass.
 - `Any`, unresolved types, invalid mappings, collisions, non-native defaults,
-  and unsupported unions fail startup.
+  bare `UnsetType`, and unsupported unions fail startup.
+- Supported unions include scalar unions, nullable models, nullable containers,
+  nullable tagged structs, and `UnsetType` optional markers.
+- `include_paths`/`exclude_paths` skip non-matching routes like `api_exclude()`
+  while retaining runtime shadow detection.
 - Explicit operation descriptions override cleaned method docstrings; fallback
   descriptions stop at the first `\f`, and summaries are never inferred.
 - No adapter or native-route inspection occurs.

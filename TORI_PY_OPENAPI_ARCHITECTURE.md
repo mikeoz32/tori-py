@@ -175,7 +175,9 @@ The first slice exposes immutable `OpenApiInfo`, `OpenApiServer`,
 `BearerSecurityScheme`, `SwaggerUiOptions`, and `OpenApiOptions` values.
 Documentation paths are absolute static paths. Swagger assets are absolute HTTPS
 or root-relative URLs, and UI parameters cannot override `url`, `urls`, `spec`,
-or `dom_id`.
+or `dom_id`. `OpenApiOptions` also carries immutable `include_paths` and
+`exclude_paths` prefix tuples for documenting only a subset of routes (for
+example, to skip generated HTML or asset routes while keeping a JSON API).
 
 Metadata decorators attach immutable direct metadata without registration:
 
@@ -232,8 +234,18 @@ It MUST:
 
 Schemas use one `msgspec.json.schema_components()` call with references under
 `#/components/schemas/`. `Any` is rejected recursively. The supported union
-subset is scalar unions, nullable models, and tagged `msgspec.Struct` unions;
-unsupported untagged multi-object unions fail startup.
+subset is scalar unions, nullable models, nullable containers
+(`list`/`dict`/`tuple`/`set`/`frozenset` plus `None`), nullable tagged
+`msgspec.Struct` unions, and unions containing `msgspec.UnsetType` as an
+optional marker (emitted as optional and, when `None` is present, nullable,
+matching `msgspec` schema semantics for partial-update DTOs); bare `UnsetType`
+and unsupported untagged multi-object unions fail startup.
+
+Routes whose normalized OpenAPI path matches `exclude_paths`, or—when
+`include_paths` is non-empty—does not match `include_paths`, are skipped like
+`api_exclude()` routes but still participate in runtime shadow detection.
+Prefix matching is segment-aware (`/api` matches `/api/health` but not
+`/apiary`); prefixes are absolute static path prefixes.
 
 Route defaults are documented only when already strict native JSON values:
 `None`, booleans, integers, finite floats, strings, lists, and string-keyed
