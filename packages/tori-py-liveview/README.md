@@ -63,6 +63,46 @@ it does for other ToriPy providers. The disconnected HTTP mount and connected
 WebSocket mount use separate provider instances. `MountContext.connected`
 distinguishes them.
 
+## Routing and navigation
+
+```python
+from tori_py_liveview import LiveSession
+
+
+@live_view("/articles", action="index", session="team")
+@live_view("/articles/new", action="new", session="team")
+class ArticlesLive(LiveView):
+    async def handle_params(self, params: dict[str, str], uri: str) -> None:
+        del uri
+        self.page = int(params.get("page", "1"))
+
+    async def handle_event(self, event: str, value: object) -> None:
+        del value
+        if event == "next":
+            self.push_patch(f"/articles?page={self.page + 1}")
+        elif event == "new":
+            self.push_navigate("/articles/new")
+        else:
+            raise UnknownEventError(event)
+
+
+liveview_module = LiveViewModule.for_root(
+    LiveViewOptions(secret="replace-with-at-least-32-secret-bytes"),
+    pages=[ArticlesLive],
+    sessions=[LiveSession("team", on_mount=(require_team,))],
+)
+```
+
+One page class may serve several paths with different `action` values, exposed
+as `live_action`. `handle_params` runs after every `mount` and on every patch
+with merged path/query params. Client links use the official attributes
+(`data-phx-link="patch"` / `"redirect"`); the server resolves them against the
+same Starlette patterns. `push_navigate` works within one `LiveSession` and
+falls back to a full reload across sessions. Put authorization in `on_mount`,
+`mount`, and `handle_params`: live navigate rejoins over the socket and never
+passes the HTTP pipeline again. The LiveView integration requires the
+Starlette adapter.
+
 Ordinary Template interpolations and values passed to `rendered()` are HTML
 escaped. Template statics, explicit `rendered()` statics, direct `str` render
 returns, and values wrapped by `raw()` are trusted application HTML. Override

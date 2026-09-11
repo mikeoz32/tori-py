@@ -69,5 +69,5 @@
 
 ## Deferred
 
-- Evaluate nested components, uploads, navigation, and application hook/reply
-  APIs as separate contracts.
+- Evaluate nested components, uploads, and application hook/reply APIs as
+  separate contracts.

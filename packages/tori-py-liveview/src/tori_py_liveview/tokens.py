@@ -6,10 +6,20 @@ import hmac
 import json
 import re
 import time
+from dataclasses import dataclass
 
 
 class InvalidMountTokenError(ValueError):
     pass
+
+
+@dataclass(frozen=True, slots=True)
+class MountToken:
+    page: str
+    action: str | None
+    session: str
+    params: dict[str, str]
+    resource: str
 
 
 _B64 = re.compile(r"[A-Za-z0-9_-]+\Z")
@@ -30,12 +40,21 @@ class MountTokenCodec:
         page: str,
         params: dict[str, str],
         resource: str,
+        action: str | None = None,
+        session: str = "",
         *,
         now_ms: int | None = None,
     ) -> str:
         issued = self._clock() if now_ms is None else now_ms
         payload = json.dumps(
-            {"p": page, "a": params, "r": resource, "i": issued},
+            {
+                "p": page,
+                "g": action,
+                "s": session,
+                "a": params,
+                "r": resource,
+                "i": issued,
+            },
             separators=(",", ":"),
             ensure_ascii=False,
         ).encode()
@@ -43,9 +62,7 @@ class MountTokenCodec:
         signature = hmac.new(self._secret, encoded.encode(), hashlib.sha256).hexdigest()
         return f"{encoded}.{signature}"
 
-    def verify(
-        self, token: str, *, now_ms: int | None = None
-    ) -> tuple[str, dict[str, str], str]:
+    def verify(self, token: str, *, now_ms: int | None = None) -> MountToken:
         try:
             encoded, signature = token.split(".")
         except (AttributeError, ValueError) as error:
@@ -58,12 +75,21 @@ class MountTokenCodec:
         try:
             raw = base64.urlsafe_b64decode(encoded + "=" * (-len(encoded) % 4))
             data = json.loads(raw)
-            page, params, resource, issued = data["p"], data["a"], data["r"], data["i"]
+            page, action, session, params, resource, issued = (
+                data["p"],
+                data.get("g"),
+                data.get("s", ""),
+                data["a"],
+                data["r"],
+                data["i"],
+            )
         except (ValueError, KeyError, TypeError, json.JSONDecodeError) as error:
             raise InvalidMountTokenError("invalid mount token") from error
         now = self._clock() if now_ms is None else now_ms
         if (
             not isinstance(page, str)
+            or (action is not None and not isinstance(action, str))
+            or not isinstance(session, str)
             or not isinstance(resource, str)
             or type(issued) is not int
             or not isinstance(params, dict)
@@ -75,11 +101,11 @@ class MountTokenCodec:
             or now - issued > self._max_age_ms
         ):
             raise InvalidMountTokenError("expired or invalid mount token")
-        return page, params, resource
+        return MountToken(page, action, session, params, resource)
 
     @staticmethod
     def _clock() -> int:
         return time.time_ns() // 1_000_000
 
 
-__all__ = ["InvalidMountTokenError", "MountTokenCodec"]
+__all__ = ["InvalidMountTokenError", "MountToken", "MountTokenCodec"]

@@ -2,31 +2,50 @@ from __future__ import annotations
 
 import asyncio
 import html
+import inspect
 import json
 import logging
 import re
-from collections.abc import Mapping
-from dataclasses import dataclass
+import sys
+from collections.abc import Callable, Mapping
+from contextlib import AbstractAsyncContextManager
+from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Annotated, cast
-from urllib.parse import parse_qsl
+from urllib.parse import parse_qsl, urlsplit
 
 from starlette.datastructures import QueryParams
 from starlette.requests import Request
 from starlette.websockets import WebSocket, WebSocketDisconnect
-from tori_py import Context, Socket, WebSocketContext, websocket_gateway
+from tori_py import (
+    Context,
+    ScopedResolver,
+    Socket,
+    WebSocketContext,
+    WorkScopeFactory,
+    websocket_gateway,
+)
 from tori_py.http import HttpContext, HttpResponse
 
 from tori_py_liveview.errors import (
     LiveViewConfigurationError,
+    LiveViewError,
     UnknownEventError,
 )
+from tori_py_liveview.metadata import LiveViewMetadata
 from tori_py_liveview.options import LiveViewOptions, normalize_origin, websocket_path
 from tori_py_liveview.page import LiveView, MountContext, _Info, _UnknownComponentError
 from tori_py_liveview.rendering import (
     Rendered,
     _ComponentRendered,
     _StreamRendered,
+)
+from tori_py_liveview.routing import (
+    CompiledLiveRoute,
+    LiveRoute,
+    compile_live_routes,
+    match_live_url,
+    same_origin,
 )
 from tori_py_liveview.tokens import InvalidMountTokenError, MountTokenCodec
 
@@ -40,9 +59,16 @@ _MAX_SAFE_INTEGER = 2**53 - 1
 @dataclass(frozen=True, slots=True)
 class _Registry:
     pages: Mapping[str, type[LiveView]]
+    routes: tuple[LiveRoute, ...] = ()
+    sessions: Mapping[str, tuple[Callable[..., object], ...]] = field(
+        default_factory=dict
+    )
+    compiled: tuple[CompiledLiveRoute, ...] = ()
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "pages", MappingProxyType(dict(self.pages)))
+        object.__setattr__(self, "sessions", MappingProxyType(dict(self.sessions)))
+        object.__setattr__(self, "compiled", compile_live_routes(self.routes))
 
 
 @dataclass(frozen=True, slots=True)
@@ -136,21 +162,39 @@ async def initial_response(
     context: HttpContext,
     page_type: type[LiveView],
     options: LiveViewOptions,
+    route: LiveViewMetadata,
+    hooks: tuple[Callable[..., object], ...] = (),
+    compiled: tuple[CompiledLiveRoute, ...] = (),
 ) -> HttpResponse:
     request = cast(Request, context.request)
     page = cast(LiveView, await context.resolver.resolve(page_type))
-    resource = _resource(request)
-    params = dict(request.path_params)
-    await page._mount_liveview(
-        MountContext(
+    try:
+        page._liveview_action = route.action
+        resource = _resource(request)
+        params = {name: str(value) for name, value in request.path_params.items()}
+        mount_context = MountContext(
             request,
             params,
             resource,
             False,
             QueryParams(resource.partition("?")[2]),
         )
-    )
-    try:
+        await _run_on_mount(hooks, page, mount_context)
+        await page._mount_liveview(mount_context)
+        await page.handle_params(
+            {**dict(QueryParams(resource.partition("?")[2])), **params},
+            str(request.url),
+        )
+        drained = await _drain_navigation(
+            page,
+            compiled,
+            f"{page_type.__module__}.{page_type.__qualname__}",
+            route.session,
+            host=request.headers.get("host", ""),
+            scheme=request.url.scheme,
+        )
+        if drained is not None and drained[0] != "patch":
+            return HttpResponse(b"", status_code=302, headers={"location": drained[1]})
         token = MountTokenCodec(
             options.secret,
             max_age_ms=options.token_max_age_ms,
@@ -158,6 +202,8 @@ async def initial_response(
             f"{page_type.__module__}.{page_type.__qualname__}",
             params,
             resource,
+            route.action,
+            route.session,
         )
         root = (
             f'<div id="{_ROOT_ID}" data-phx-main '
@@ -404,6 +450,116 @@ def _destroyed_cids(payload: dict[str, object]) -> list[int]:
     return [_positive_int(cid) for cid in cids]
 
 
+def _resolve_navigate(
+    registry: _Registry, session: str, target: str
+) -> LiveRoute | None:
+    """Return the navigate target route, or None when a full reload applies."""
+    resolved = match_live_url(registry.compiled, target)
+    if resolved is None:
+        raise LiveViewError("unknown navigate target")
+    route = resolved[0]
+    return route if route.session == session else None
+
+
+def _url_allowed(socket: WebSocket, url: str) -> bool:
+    hosts = socket.headers.getlist("host")
+    scheme = "https" if socket.url.scheme == "wss" else "http"
+    return len(hosts) == 1 and same_origin(hosts[0], url, scheme=scheme)
+
+
+async def _disconnect_page(page: LiveView) -> None:
+    page._detach_liveview()
+    try:
+        await page._disconnect_liveview()
+    except Exception:
+        _LOGGER.exception("LiveView disconnect hook failed")
+
+
+async def _open_page(
+    scopes: WorkScopeFactory,
+    page_type: type[LiveView],
+) -> tuple[AbstractAsyncContextManager[ScopedResolver], LiveView]:
+    scope = scopes.open()
+    try:
+        resolver = await scope.__aenter__()
+        page = cast(LiveView, await resolver.resolve(page_type))
+    except BaseException:
+        await scope.__aexit__(*sys.exc_info())
+        raise
+    return scope, page
+
+
+async def _close_page(
+    page: LiveView | None,
+    scope: AbstractAsyncContextManager[ScopedResolver] | None,
+) -> None:
+    try:
+        if page is not None:
+            await _disconnect_page(page)
+    finally:
+        if scope is not None:
+            await scope.__aexit__(None, None, None)
+
+
+async def _drain_navigation(
+    page: LiveView,
+    compiled: tuple[CompiledLiveRoute, ...],
+    page_identity: str,
+    session: str,
+    *,
+    host: str,
+    scheme: str,
+) -> tuple[str, str, str] | None:
+    """Consume queued navigation; run handle_params for patch chains."""
+    pending = page._take_liveview_pending_redirect()
+    if pending is None:
+        return None
+    patch: tuple[str, str] | None = None
+    for _ in range(20):
+        navigation, target, kind = pending
+        if navigation in {"patch", "navigate"} and not same_origin(
+            host, target, scheme=scheme
+        ):
+            raise LiveViewError("live navigation target must be same-origin")
+        if navigation != "patch":
+            return (navigation, target, kind)
+        resolved = match_live_url(compiled, target)
+        if (
+            resolved is None
+            or resolved[0].page != page_identity
+            or resolved[0].session != session
+        ):
+            raise LiveViewError("push_patch target must resolve to the current page")
+        live_route, url_params, uri = resolved
+        page._liveview_action = live_route.action
+        await page.handle_params(url_params, uri)
+        patch = (target, kind)
+        pending = page._take_liveview_pending_redirect()
+        if pending is None:
+            if patch is None:
+                raise LiveViewError("patch navigation state was lost")
+            return ("patch", patch[0], patch[1])
+    raise LiveViewError("too many patch redirects")
+
+
+async def _run_on_mount(
+    hooks: tuple[Callable[..., object], ...],
+    page: LiveView,
+    mount_context: MountContext,
+) -> None:
+    for hook in hooks:
+        result = hook(page, mount_context)
+        if inspect.isawaitable(result):
+            await result
+
+
+def _url_resource(url: str) -> str:
+    split = urlsplit(url)
+    if split.query:
+        return f"{split.path}?{split.query}"
+    return split.path
+
+
 async def _close(socket: WebSocket, code: int) -> None:
     try:
         await socket.close(code)
@@ -413,6 +569,9 @@ async def _close(socket: WebSocket, code: int) -> None:
 
 def gateway_type(options: LiveViewOptions, registry: _Registry) -> type[object]:
     class LiveGateway:
+        def __init__(self, scopes: WorkScopeFactory) -> None:
+            self._scopes = scopes
+
         async def handle(
             self,
             socket: Annotated[WebSocket, Socket()],
@@ -422,179 +581,507 @@ def gateway_type(options: LiveViewOptions, registry: _Registry) -> type[object]:
                 await _close(socket, 1008)
                 return
             await socket.accept()
+            origin_host = socket.headers.get("host", "")
+            origin_scheme = "https" if socket.url.scheme == "wss" else "http"
             page: LiveView | None = None
+            page_scope: AbstractAsyncContextManager[ScopedResolver] | None = None
             incoming_task: asyncio.Task[_ChannelMessage] | None = None
             info_task: asyncio.Task[_Info] | None = None
+            join_source: asyncio.Task[_ChannelMessage] | None = None
+            first_join = True
+            name = ""
+            session = ""
             try:
-                join = await _message(
-                    socket,
-                    timeout=options.join_timeout_seconds,
-                    timeout_code=1008,
-                    max_message_bytes=options.max_message_bytes,
-                )
-                token = join.payload.get("session")
-                if (
-                    join.event != "phx_join"
-                    or join.topic != _TOPIC
-                    or join.join_ref is None
-                    or join.join_ref != join.ref
-                    or not isinstance(token, str)
-                ):
-                    raise _CloseConnection(1002)
-                try:
-                    name, params, resource = MountTokenCodec(
-                        options.secret,
-                        max_age_ms=options.token_max_age_ms,
-                    ).verify(token)
-                    page_type = registry.pages[name]
-                except InvalidMountTokenError, KeyError:
-                    await _reply(socket, join, "error", {"reason": "unauthorized"})
-                    return
+                while True:
+                    if join_source is None:
+                        join = await _message(
+                            socket,
+                            timeout=(
+                                options.join_timeout_seconds
+                                if first_join
+                                else options.idle_timeout_seconds
+                            ),
+                            timeout_code=1008 if first_join else 1001,
+                            max_message_bytes=options.max_message_bytes,
+                        )
+                    else:
+                        join = await join_source
+                        join_source = None
+                    first_join = False
+                    token = join.payload.get("session")
+                    redirect_url = join.payload.get("redirect")
+                    url = join.payload.get("url")
+                    if (
+                        join.event != "phx_join"
+                        or join.topic != _TOPIC
+                        or join.join_ref is None
+                        or join.join_ref != join.ref
+                        or not isinstance(token, str)
+                    ):
+                        raise _CloseConnection(1002)
+                    try:
+                        mounted = MountTokenCodec(
+                            options.secret,
+                            max_age_ms=options.token_max_age_ms,
+                        ).verify(token)
+                        if redirect_url is not None:
+                            if (
+                                not isinstance(redirect_url, str)
+                                or not redirect_url
+                                or not _url_allowed(socket, redirect_url)
+                            ):
+                                raise _CloseConnection(1002)
+                            resolved = match_live_url(registry.compiled, redirect_url)
+                            if (
+                                resolved is None
+                                or resolved[0].session != mounted.session
+                            ):
+                                raise InvalidMountTokenError("unauthorized navigate")
+                            live_route, mount_params, uri = resolved
+                            action = live_route.action
+                            resource = _url_resource(redirect_url)
+                            join_params = dict(mount_params)
+                        else:
+                            if not isinstance(url, str) or not _url_allowed(
+                                socket, url
+                            ):
+                                raise _CloseConnection(1002)
+                            resolved = match_live_url(registry.compiled, url)
+                            if resolved is None:
+                                raise InvalidMountTokenError("unknown live route")
+                            live_route, url_params, uri = resolved
+                            if (
+                                live_route.page != mounted.page
+                                or live_route.action != mounted.action
+                                or live_route.session != mounted.session
+                                or _url_resource(url) != mounted.resource
+                                or any(
+                                    url_params.get(name) != value
+                                    for name, value in mounted.params.items()
+                                )
+                            ):
+                                raise InvalidMountTokenError("stale live session")
+                            action = mounted.action
+                            mount_params = mounted.params
+                            resource = mounted.resource
+                            join_params = url_params
+                        page_type = registry.pages[live_route.page]
+                    except InvalidMountTokenError, KeyError:
+                        await _reply(socket, join, "error", {"reason": "unauthorized"})
+                        return
 
-                page = cast(LiveView, await context.resolver.resolve(page_type))
-                page._connect_liveview()
-                await page._mount_liveview(
-                    MountContext(
+                    name = live_route.page
+                    session = live_route.session
+                    page_scope, page = await _open_page(self._scopes, page_type)
+                    page._liveview_action = action
+                    page._connect_liveview()
+                    mount_context = MountContext(
                         socket,
-                        params,
+                        mount_params,
                         resource,
                         True,
                         QueryParams(resource.partition("?")[2]),
                     )
-                )
-                current = await _render(page)
-                rendered = _render_message(current, title=page.title())
-                page._clear_liveview_stream_operations()
-                await _reply(
-                    socket,
-                    join,
-                    "ok",
-                    {
+                    await _run_on_mount(
+                        registry.sessions.get(session, ()), page, mount_context
+                    )
+                    await page._mount_liveview(mount_context)
+                    await page.handle_params(join_params, uri)
+                    drained = await _drain_navigation(
+                        page,
+                        registry.compiled,
+                        name,
+                        session,
+                        host=origin_host,
+                        scheme=origin_scheme,
+                    )
+                    if drained is not None and drained[0] != "patch":
+                        navigation, target, kind = drained
+                        await _close_page(page, page_scope)
+                        page = None
+                        page_scope = None
+                        if navigation == "navigate":
+                            target_route = _resolve_navigate(registry, session, target)
+                            if target_route is not None and target_route.page != name:
+                                await _reply(
+                                    socket,
+                                    join,
+                                    "error",
+                                    {
+                                        "live_redirect": {
+                                            "kind": kind,
+                                            "to": target,
+                                        }
+                                    },
+                                )
+                                continue
+                        await _reply(
+                            socket, join, "error", {"redirect": {"to": target}}
+                        )
+                        return
+                    current = await _render(page)
+                    rendered = _render_message(current, title=page.title())
+                    page._clear_liveview_stream_operations()
+                    join_reply: dict[str, object] = {
                         "rendered": rendered,
                         "liveview_version": _LIVEVIEW_VERSION,
-                    },
-                )
+                    }
+                    if drained is not None:
+                        _, patch_to, patch_kind = drained
+                        join_reply["live_patch"] = {
+                            "kind": patch_kind,
+                            "to": patch_to,
+                        }
+                    await _reply(socket, join, "ok", join_reply)
 
-                incoming_task = asyncio.create_task(
-                    _message(
-                        socket,
-                        timeout=options.idle_timeout_seconds,
-                        timeout_code=1001,
-                        max_message_bytes=options.max_message_bytes,
-                    )
-                )
-                info_task = asyncio.create_task(page._receive_liveview_info())
-                while True:
-                    done, _ = await asyncio.wait(
-                        (incoming_task, info_task),
-                        return_when=asyncio.FIRST_COMPLETED,
-                    )
-                    if incoming_task in done:
-                        message = incoming_task.result()
-                        incoming_task = asyncio.create_task(
-                            _message(
-                                socket,
-                                timeout=options.idle_timeout_seconds,
-                                timeout_code=1001,
-                                max_message_bytes=options.max_message_bytes,
-                            )
-                        )
-                        if message.topic == "phoenix" and message.event == "heartbeat":
-                            if message.join_ref is not None or message.ref is None:
-                                raise _CloseConnection(1002)
-                            await _reply(socket, message, "ok", {})
-                            continue
-                        if (
-                            message.topic != _TOPIC
-                            or message.join_ref != join.join_ref
-                            or message.ref is None
-                        ):
-                            raise _CloseConnection(1002)
-                        if message.event == "phx_leave":
-                            await _reply(socket, message, "ok", {})
-                            return
-                        if message.event == "cids_will_destroy":
-                            page._prepare_liveview_component_destruction(
-                                _destroyed_cids(message.payload)
-                            )
-                            await _reply(socket, message, "ok", {})
-                            continue
-                        if message.event == "cids_destroyed":
-                            destroyed = await page._destroy_liveview_components(
-                                _destroyed_cids(message.payload)
-                            )
-                            await _reply(socket, message, "ok", {"cids": destroyed})
-                            continue
-                        if message.event != "event":
-                            raise _CloseConnection(1002)
-
-                        event = message.payload.get("event")
-                        event_type = message.payload.get("type")
-                        if (
-                            not isinstance(event, str)
-                            or not event
-                            or not isinstance(event_type, str)
-                            or not event_type
-                        ):
-                            raise _CloseConnection(1002)
-                        target_value = message.payload.get("cid")
-                        target = (
-                            None
-                            if target_value is None
-                            else _positive_int(target_value)
-                        )
-                        try:
-                            await page._handle_liveview_event(
-                                target,
-                                event,
-                                _event_value(message.payload),
-                            )
-                        except _UnknownComponentError:
-                            page._clear_liveview_stream_operations()
-                            await _reply(
-                                socket,
-                                message,
-                                "ok",
-                                {"reason": "unknown_target"},
-                            )
-                            continue
-                        except UnknownEventError:
-                            page._clear_liveview_stream_operations()
-                            await _reply(
-                                socket,
-                                message,
-                                "ok",
-                                {"reason": "unknown_event"},
-                            )
-                            continue
-
-                        updated = await _render(page)
-                        diff = _render_message(updated, title=page.title())
-                        page._clear_liveview_stream_operations()
-                        await _reply(socket, message, "ok", {"diff": diff})
-                    else:
-                        info = info_task.result()
-                        info_task = asyncio.create_task(page._receive_liveview_info())
-                        try:
-                            await page.handle_info(info.name, info.value)
-                        except Exception as error:
-                            _LOGGER.exception(
-                                "LiveView info failed: page=%s info=%s",
-                                type(page).__qualname__,
-                                info.name,
-                            )
-                            raise _CloseConnection(1011) from error
-                        updated = await _render(page)
-                        diff = _render_message(updated, title=page.title())
-                        page._clear_liveview_stream_operations()
-                        await _send(
+                    incoming_task = asyncio.create_task(
+                        _message(
                             socket,
-                            join.join_ref,
-                            None,
-                            join.topic,
-                            "diff",
-                            diff,
+                            timeout=options.idle_timeout_seconds,
+                            timeout_code=1001,
+                            max_message_bytes=options.max_message_bytes,
                         )
+                    )
+                    info_task = asyncio.create_task(page._receive_liveview_info())
+                    while True:
+                        done, _ = await asyncio.wait(
+                            (incoming_task, info_task),
+                            return_when=asyncio.FIRST_COMPLETED,
+                        )
+                        if incoming_task in done:
+                            message = incoming_task.result()
+                            incoming_task = asyncio.create_task(
+                                _message(
+                                    socket,
+                                    timeout=options.idle_timeout_seconds,
+                                    timeout_code=1001,
+                                    max_message_bytes=options.max_message_bytes,
+                                )
+                            )
+                            if (
+                                message.topic == "phoenix"
+                                and message.event == "heartbeat"
+                            ):
+                                if message.join_ref is not None or message.ref is None:
+                                    raise _CloseConnection(1002)
+                                await _reply(socket, message, "ok", {})
+                                continue
+                            if (
+                                message.topic != _TOPIC
+                                or message.join_ref != join.join_ref
+                                or message.ref is None
+                            ):
+                                raise _CloseConnection(1002)
+                            if message.event == "phx_leave":
+                                await _reply(socket, message, "ok", {})
+                                return
+                            if message.event == "cids_will_destroy":
+                                page._prepare_liveview_component_destruction(
+                                    _destroyed_cids(message.payload)
+                                )
+                                await _reply(socket, message, "ok", {})
+                                continue
+                            if message.event == "cids_destroyed":
+                                destroyed = await page._destroy_liveview_components(
+                                    _destroyed_cids(message.payload)
+                                )
+                                await _reply(socket, message, "ok", {"cids": destroyed})
+                                continue
+                            if message.event == "live_patch":
+                                patch_url = message.payload.get("url")
+                                if (
+                                    not isinstance(patch_url, str)
+                                    or not patch_url
+                                    or not _url_allowed(socket, patch_url)
+                                ):
+                                    raise _CloseConnection(1002)
+                                patch_resolved = match_live_url(
+                                    registry.compiled, patch_url
+                                )
+                                if (
+                                    patch_resolved is None
+                                    or patch_resolved[0].page != name
+                                    or patch_resolved[0].session != session
+                                ):
+                                    await _reply(
+                                        socket,
+                                        message,
+                                        "ok",
+                                        {"link_redirect": True},
+                                    )
+                                    continue
+                                patch_route, patch_params, patch_uri = patch_resolved
+                                page._liveview_action = patch_route.action
+                                await page.handle_params(patch_params, patch_uri)
+                                drained = await _drain_navigation(
+                                    page,
+                                    registry.compiled,
+                                    name,
+                                    session,
+                                    host=origin_host,
+                                    scheme=origin_scheme,
+                                )
+                                if drained is not None and drained[0] != "patch":
+                                    navigation, target, kind = drained
+                                    if navigation == "redirect":
+                                        await _reply(
+                                            socket,
+                                            message,
+                                            "ok",
+                                            {"redirect": {"to": target}},
+                                        )
+                                        return
+                                    target_route = _resolve_navigate(
+                                        registry, session, target
+                                    )
+                                    if (
+                                        target_route is None
+                                        or target_route.page == name
+                                    ):
+                                        await _reply(
+                                            socket,
+                                            message,
+                                            "ok",
+                                            {"redirect": {"to": target}},
+                                        )
+                                        return
+                                    await _reply(
+                                        socket,
+                                        message,
+                                        "ok",
+                                        {
+                                            "live_redirect": {
+                                                "kind": kind,
+                                                "to": target,
+                                            }
+                                        },
+                                    )
+                                    if info_task is None or incoming_task is None:
+                                        raise LiveViewError(
+                                            "LiveView receive tasks are missing"
+                                        )
+                                    join_source = incoming_task
+                                    incoming_task = None
+                                    info_task.cancel()
+                                    await asyncio.gather(
+                                        info_task, return_exceptions=True
+                                    )
+                                    info_task = None
+                                    await _close_page(page, page_scope)
+                                    page = None
+                                    page_scope = None
+                                    break
+                                updated = await _render(page)
+                                diff = _render_message(updated, title=page.title())
+                                page._clear_liveview_stream_operations()
+                                if drained is not None:
+                                    _, patch_to, patch_kind = drained
+                                    await _send(
+                                        socket,
+                                        join.join_ref,
+                                        None,
+                                        join.topic,
+                                        "live_patch",
+                                        {"kind": patch_kind, "to": patch_to},
+                                    )
+                                await _reply(socket, message, "ok", {"diff": diff})
+                                continue
+                            if message.event != "event":
+                                raise _CloseConnection(1002)
+
+                            event = message.payload.get("event")
+                            event_type = message.payload.get("type")
+                            if (
+                                not isinstance(event, str)
+                                or not event
+                                or not isinstance(event_type, str)
+                                or not event_type
+                            ):
+                                raise _CloseConnection(1002)
+                            target_value = message.payload.get("cid")
+                            target = (
+                                None
+                                if target_value is None
+                                else _positive_int(target_value)
+                            )
+                            try:
+                                await page._handle_liveview_event(
+                                    target,
+                                    event,
+                                    _event_value(message.payload),
+                                )
+                            except _UnknownComponentError:
+                                page._take_liveview_pending_redirect()
+                                page._clear_liveview_stream_operations()
+                                await _reply(
+                                    socket,
+                                    message,
+                                    "ok",
+                                    {"reason": "unknown_target"},
+                                )
+                                continue
+                            except UnknownEventError:
+                                page._take_liveview_pending_redirect()
+                                page._clear_liveview_stream_operations()
+                                await _reply(
+                                    socket,
+                                    message,
+                                    "ok",
+                                    {"reason": "unknown_event"},
+                                )
+                                continue
+
+                            drained = await _drain_navigation(
+                                page,
+                                registry.compiled,
+                                name,
+                                session,
+                                host=origin_host,
+                                scheme=origin_scheme,
+                            )
+                            if drained is None or drained[0] == "patch":
+                                updated = await _render(page)
+                                diff = _render_message(updated, title=page.title())
+                                page._clear_liveview_stream_operations()
+                                if drained is not None:
+                                    _, patch_to, patch_kind = drained
+                                    await _send(
+                                        socket,
+                                        join.join_ref,
+                                        None,
+                                        join.topic,
+                                        "live_patch",
+                                        {"kind": patch_kind, "to": patch_to},
+                                    )
+                                await _reply(socket, message, "ok", {"diff": diff})
+                                continue
+                            navigation, target, kind = drained
+                            if navigation == "redirect":
+                                await _reply(
+                                    socket,
+                                    message,
+                                    "ok",
+                                    {"redirect": {"to": target}},
+                                )
+                                return
+                            target_route = _resolve_navigate(registry, session, target)
+                            if target_route is None or target_route.page == name:
+                                await _reply(
+                                    socket,
+                                    message,
+                                    "ok",
+                                    {"redirect": {"to": target}},
+                                )
+                                return
+                            await _reply(
+                                socket,
+                                message,
+                                "ok",
+                                {"live_redirect": {"kind": kind, "to": target}},
+                            )
+                            if info_task is None or incoming_task is None:
+                                raise LiveViewError(
+                                    "LiveView receive tasks are missing"
+                                )
+                            info_task.cancel()
+                            await asyncio.gather(info_task, return_exceptions=True)
+                            info_task = None
+                            join_source = incoming_task
+                            incoming_task = None
+                            await _close_page(page, page_scope)
+                            page = None
+                            page_scope = None
+                            break
+                        else:
+                            if info_task is None:
+                                raise LiveViewError("LiveView info task is missing")
+                            info = info_task.result()
+                            info_task = asyncio.create_task(
+                                page._receive_liveview_info()
+                            )
+                            try:
+                                await page.handle_info(info.name, info.value)
+                            except Exception as error:
+                                _LOGGER.exception(
+                                    "LiveView info failed: page=%s info=%s",
+                                    type(page).__qualname__,
+                                    info.name,
+                                )
+                                raise _CloseConnection(1011) from error
+                            drained = await _drain_navigation(
+                                page,
+                                registry.compiled,
+                                name,
+                                session,
+                                host=origin_host,
+                                scheme=origin_scheme,
+                            )
+                            if drained is None or drained[0] == "patch":
+                                updated = await _render(page)
+                                diff = _render_message(updated, title=page.title())
+                                page._clear_liveview_stream_operations()
+                                if drained is not None:
+                                    _, patch_to, patch_kind = drained
+                                    await _send(
+                                        socket,
+                                        join.join_ref,
+                                        None,
+                                        join.topic,
+                                        "live_patch",
+                                        {"kind": patch_kind, "to": patch_to},
+                                    )
+                                await _send(
+                                    socket,
+                                    join.join_ref,
+                                    None,
+                                    join.topic,
+                                    "diff",
+                                    diff,
+                                )
+                                continue
+                            navigation, target, kind = drained
+                            if navigation == "redirect":
+                                await _send(
+                                    socket,
+                                    join.join_ref,
+                                    None,
+                                    join.topic,
+                                    "redirect",
+                                    {"to": target},
+                                )
+                                return
+                            target_route = _resolve_navigate(registry, session, target)
+                            if target_route is None or target_route.page == name:
+                                await _send(
+                                    socket,
+                                    join.join_ref,
+                                    None,
+                                    join.topic,
+                                    "redirect",
+                                    {"to": target},
+                                )
+                                return
+                            await _send(
+                                socket,
+                                join.join_ref,
+                                None,
+                                join.topic,
+                                "live_redirect",
+                                {"kind": kind, "to": target},
+                            )
+                            if incoming_task is None or info_task is None:
+                                raise LiveViewError(
+                                    "LiveView receive tasks are missing"
+                                )
+                            join_source = incoming_task
+                            incoming_task = None
+                            info_task.cancel()
+                            await asyncio.gather(info_task, return_exceptions=True)
+                            info_task = None
+                            await _close_page(page, page_scope)
+                            page = None
+                            page_scope = None
+                            break
             except _ClientDisconnected:
                 pass
             except _CloseConnection as error:
@@ -615,11 +1102,11 @@ def gateway_type(options: LiveViewOptions, registry: _Registry) -> type[object]:
                         task.cancel()
                 if tasks:
                     await asyncio.gather(*tasks, return_exceptions=True)
-                if page is not None:
+                if page is not None or page_scope is not None:
                     try:
-                        await page._disconnect_liveview()
+                        await _close_page(page, page_scope)
                     except Exception:
-                        _LOGGER.exception("LiveView disconnect hook failed")
+                        _LOGGER.exception("LiveView scope cleanup failed")
 
     LiveGateway.__module__ = __name__
     return websocket_gateway(websocket_path(options.socket_path))(LiveGateway)

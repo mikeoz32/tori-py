@@ -33,9 +33,17 @@ does not use a process-global page registry.
 ### 3.1 Pages
 
 `@live_view(path)` attaches immutable route metadata directly to one `LiveView`
-subclass. `LiveView` exposes:
+subclass. The decorator accepts an optional `action` and `session` name and may
+be stacked to map several paths to one page class. `LiveView` exposes:
 
 - `mount(context)` for disconnected and connected initialization;
+- `handle_params(params, uri)` after every mount and on every live patch, with
+  merged path/query params and the full client URL;
+- `live_action` carrying the matched route action;
+- `push_patch(to, kind="push")` for in-page navigation applied after render;
+- `push_navigate(to, kind="push")` for live navigation to another page in the
+  same session, falling back to a full reload across sessions;
+- `redirect(to)` for navigation with a full page reload;
 - `handle_event(event, value)` for connected browser events;
 - `handle_info(name, value)` for serialized timer and subscription messages;
 - `send_info(name, value=None)` for connection-local message delivery;
@@ -137,14 +145,22 @@ deadline.
 ### 3.6 Dynamic module
 
 `LiveViewModule.for_root(options, pages, imports=(), key="default")` returns a
-ToriPy `DeferredModule`. Materialization creates:
+ToriPy `DeferredModule`. It accepts explicit `LiveSession(name, on_mount)`
+values grouping routes into navigate boundaries with shared mount hooks.
+Pages without a session belong to one unnamed default session. Materialization
+creates:
 
-- one ordinary HTTP controller route per explicit page;
+- one ordinary HTTP controller route per explicit page path;
 - one JavaScript asset route containing the two official clients and a minimal
   ToriPy bootstrap;
 - one native WebSocket gateway at `<socket_path>/websocket`;
 - one request-scoped provider per page;
 - immutable options and page registry values.
+
+On-mount hooks run before `mount` on both HTTP and Channel joins. Authorization
+belongs in hooks, `mount`, and `handle_params`: live navigate rejoins on the
+existing socket and never passes the HTTP pipeline again. Navigating across
+sessions always falls back to a full page reload.
 
 The configured `socket_path` is the Phoenix endpoint base. Phoenix Socket adds
 `/websocket?vsn=2.0.0`. Page paths must not conflict with the endpoint base,
@@ -233,9 +249,10 @@ boundaries.
 ## 7. Mount Tokens
 
 Mount tokens use compact JSON, URL-safe Base64 without padding, and an
-HMAC-SHA256 hex signature. Payload fields are page identity, path params,
-resource, and issue time. Verification uses constant-time signature comparison,
-requires string params, rejects excessive clock skew, and enforces a finite age.
+HMAC-SHA256 hex signature. Payload fields are page identity, route action,
+session name, path params, resource, and issue time. Verification uses
+constant-time signature comparison, requires string params, rejects excessive
+clock skew, and enforces a finite age.
 
 Tokens provide integrity and expiry, not confidentiality, authentication,
 authorization, replay prevention, or durable session storage. Applications own
@@ -248,14 +265,19 @@ Before acceptance, the gateway validates Origin. It then:
 1. Accepts the socket.
 2. Requires a valid join within `join_timeout_seconds`.
 3. Verifies the mount token and resolves the registered page provider.
-4. Attaches the info queue and calls `mount` with `connected=True`.
-5. Sends the complete Phoenix join render tree.
-6. Waits concurrently for inbound frames and accepted info messages.
-7. Processes one event, heartbeat, component-destruction message, or info
-   callback at a time.
-8. Sends referenced `phx_reply` event diffs or unreferenced server `diff` pushes.
-9. Detaches the info queue, disconnects all remaining components, and calls page
-   `disconnect` exactly once when a connected page session ends.
+ 4. Attaches the info queue and calls `mount` with `connected=True`, then
+    `handle_params` with the join URL params.
+ 5. Sends the complete Phoenix join render tree.
+ 6. Waits concurrently for inbound frames and accepted info messages.
+ 7. Processes one event, heartbeat, component-destruction message, live patch,
+    or info callback at a time.
+ 8. Sends referenced `phx_reply` event diffs or unreferenced server `diff`
+    pushes. A queued `push_patch` adds an unreferenced `live_patch` push;
+    `push_navigate` replies `live_redirect` and the client rejoins on the same
+    socket; `redirect` replies `redirect` for a full page reload.
+ 9. Detaches the info queue, disconnects all remaining components, and calls page
+    `disconnect` exactly once when a connected page session ends. Live navigate
+    disconnects the outgoing page and mounts the new page on a fresh join.
 
 Reconnect creates a new connection scope and page instance and repeats a full
 snapshot join. The server does not retain disconnected page instances.
@@ -275,7 +297,9 @@ as `session`. A successful `phx_reply` has:
 ```
 
 Browser events use event name `event` and payload fields `type`, `event`,
-`value`, and optional numeric `cid`. Form values use Phoenix-compatible bracket
+`value`, and optional numeric `cid`. Client patch links send `live_patch` with
+the full URL; same-page targets run `handle_params` and reply a diff, while
+other targets reply `link_redirect` so the client rejoins. Form values use Phoenix-compatible bracket
 and list decoding, and their metadata is merged before application dispatch.
 Successful events receive `{status: "ok", response: {diff: tree}}`. Unknown
 events and CIDs receive successful no-render replies carrying a reason so the
@@ -320,9 +344,10 @@ expiry are abuse controls, not substitutes for rate limiting or authorization.
 
 ## 11. Deliberate Non-Goals
 
-The package does not implement nested components, upload transport, navigation,
-durable sessions, cross-replica session migration, background event delivery,
-or application hook/reply APIs.
+The package does not implement nested components, upload transport, durable
+sessions, cross-replica session migration, background event delivery, or
+application hook/reply APIs. The LiveView integration requires the Starlette
+adapter; the native ASGI adapter serves no WebSocket scopes.
 
 ## 12. Acceptance
 

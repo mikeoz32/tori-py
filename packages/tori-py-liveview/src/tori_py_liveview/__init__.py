@@ -21,6 +21,7 @@ from tori_py_liveview.rendering import (
     raw,
     rendered,
 )
+from tori_py_liveview.session import LiveSession
 
 __all__ = [
     "LiveComponent",
@@ -29,6 +30,7 @@ __all__ = [
     "LiveViewError",
     "LiveViewModule",
     "LiveViewOptions",
+    "LiveSession",
     "MountContext",
     "Rendered",
     "SafeHtml",

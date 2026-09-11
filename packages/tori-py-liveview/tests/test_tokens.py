@@ -2,7 +2,11 @@ from __future__ import annotations
 
 import pytest
 from tori_py_liveview import LiveViewConfigurationError, LiveViewOptions, live_view
-from tori_py_liveview.tokens import InvalidMountTokenError, MountTokenCodec
+from tori_py_liveview.tokens import (
+    InvalidMountTokenError,
+    MountToken,
+    MountTokenCodec,
+)
 
 
 def test_mount_tokens_round_trip_urlsafe_route_state() -> None:
@@ -18,10 +22,27 @@ def test_mount_tokens_round_trip_urlsafe_route_state() -> None:
     assert set(token) <= set(
         "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_."
     )
-    assert codec.verify(token, now_ms=1_030_000) == (
+    assert codec.verify(token, now_ms=1_030_000) == MountToken(
         "tests.CounterLive",
+        None,
+        "",
         {"member_id": "Mika/42?"},
         "/members/Mika%2F42?filter=%3Cactive%3E",
+    )
+
+
+def test_mount_tokens_round_trip_action() -> None:
+    codec = MountTokenCodec("s" * 32, max_age_ms=60_000)
+    token = codec.sign(
+        "tests.CounterLive", {}, "/counter", "index", "team", now_ms=1_000_000
+    )
+
+    assert codec.verify(token, now_ms=1_030_000) == MountToken(
+        "tests.CounterLive",
+        "index",
+        "team",
+        {},
+        "/counter",
     )
 
 

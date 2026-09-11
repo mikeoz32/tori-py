@@ -7,8 +7,9 @@ This directory records the executable contract for `tori-py-liveview`.
    process-global registries are forbidden.
 3. Every page is a request-scoped provider. HTTP and WebSocket mounts resolve
    through the owning module context and support normal DI.
-4. HTTP renders a complete document and signed mount token. A Channel join
-   creates a fresh connected page instance and sends a complete render tree.
+ 4. HTTP renders a complete document and signed mount token. A Channel join
+    creates a fresh connected page instance and sends a complete render tree.
+    `mount` runs before `handle_params` on every HTTP and Channel mount.
 5. Browser interoperability targets official `phoenix@1.8.13` and
    `phoenix_live_view@1.2.11`: Phoenix V2 arrays, Channels events and replies,
    `phx-*` bindings, and Phoenix render-tree semantics.
@@ -30,12 +31,19 @@ This directory records the executable contract for `tori-py-liveview`.
 12. Streams use `phx-update="stream"`, Phoenix keyed comprehensions, official
     insert/delete/reset tuples, browser-owned children, insertion and limit
     semantics, disconnected contents, one-shot delivery, and reconnect reset.
-13. `send_info` uses a bounded connection-local queue. Info callbacks, browser
+ 13. `send_info` uses a bounded connection-local queue. Info callbacks, browser
     events, renders, and outbound writes are serialized on the WebSocket task;
     successful callbacks emit unreferenced Phoenix `diff` pushes, and disconnect
     detaches the queue and rejects later sends.
-14. Nested components, uploads, navigation, and application hook/reply APIs
-    remain outside the current server surface.
+ 14. Nested components, uploads, and application hook/reply APIs remain outside
+    the current server surface.
+ 15. `@live_view` accepts `action` and `session` and may be stacked for several
+    paths on one page class. `mount` runs before `handle_params` on every HTTP
+    and Channel mount. `push_patch` navigates within the page, `push_navigate`
+    navigates within the session, and other sessions or unknown targets fall
+    back to a full reload. `LiveSession` groups routes with shared `on_mount`
+    hooks; authorization lives in hooks, `mount`, and `handle_params`, never in
+    the HTTP pipeline alone.
 
 The complete architectural and wire contract is maintained in
 `TORI_PY_LIVEVIEW_ARCHITECTURE.md`.

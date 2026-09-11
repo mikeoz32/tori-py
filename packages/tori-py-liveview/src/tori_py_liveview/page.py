@@ -151,8 +151,18 @@ class _Info:
 
 
 class LiveView(ABC):
+    _liveview_action: str | None = None
+    _liveview_pending_redirect: tuple[str, str, str] | None = None
+
     async def mount(self, context: MountContext) -> None:
         del context
+
+    async def handle_params(self, params: dict[str, str], uri: str) -> None:
+        del params, uri
+
+    @property
+    def live_action(self) -> str | None:
+        return self._liveview_action
 
     async def handle_event(self, event: str, value: object) -> None:
         del value
@@ -411,6 +421,33 @@ class LiveView(ABC):
         except asyncio.QueueFull:
             return False
         return True
+
+    def push_patch(self, to: str, *, kind: str = "push") -> None:
+        """Navigate within the current page; applied after the handler renders."""
+        if not isinstance(to, str) or not to:
+            raise LiveViewError("push_patch target must be a non-empty string")
+        if kind not in {"push", "replace"}:
+            raise LiveViewError("push_patch kind must be 'push' or 'replace'")
+        self._liveview_pending_redirect = ("patch", to, kind)
+
+    def push_navigate(self, to: str, *, kind: str = "push") -> None:
+        """Navigate to another page in the session; otherwise full reload."""
+        if not isinstance(to, str) or not to:
+            raise LiveViewError("push_navigate target must be a non-empty string")
+        if kind not in {"push", "replace"}:
+            raise LiveViewError("push_navigate kind must be 'push' or 'replace'")
+        self._liveview_pending_redirect = ("navigate", to, kind)
+
+    def redirect(self, to: str) -> None:
+        """Navigate with a full page reload; applied after the handler renders."""
+        if not isinstance(to, str) or not to:
+            raise LiveViewError("redirect target must be a non-empty string")
+        self._liveview_pending_redirect = ("redirect", to, "push")
+
+    def _take_liveview_pending_redirect(self) -> tuple[str, str, str] | None:
+        pending = self._liveview_pending_redirect
+        self._liveview_pending_redirect = None
+        return pending
 
     def _connect_liveview(self) -> None:
         self._liveview_info_queue: asyncio.Queue[_Info] | None = asyncio.Queue(

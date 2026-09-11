@@ -390,7 +390,9 @@ def _token(document: str) -> str:
     return match[1]
 
 
-def _join(token: str, *, ref: str = "1") -> Message:
+def _join(
+    token: str, *, ref: str = "1", url: str = "http://testserver/counter"
+) -> Message:
     return _receive_text(
         [
             ref,
@@ -398,7 +400,7 @@ def _join(token: str, *, ref: str = "1") -> Message:
             _TOPIC,
             "phx_join",
             {
-                "url": "http://testserver/counter",
+                "url": url,
                 "params": {"_mounts": 0, "_mount_attempts": 0},
                 "session": token,
                 "static": None,
@@ -855,7 +857,7 @@ async def test_phoenix_channel_connects_renders_and_correlates_events() -> None:
     sent = await _call_websocket(
         application,
         "/_tori/live/websocket",
-        _join(token),
+        _join(token, url="http://testserver/counter?start=2"),
         _event("2", "increment"),
         _disconnect(),
     )
@@ -907,7 +909,7 @@ async def test_phoenix_form_event_decodes_values_and_target_metadata() -> None:
     sent = await _call_websocket(
         application,
         "/_tori/live/websocket",
-        _join(_token(page.text)),
+        _join(_token(page.text), url="http://testserver/form"),
         _receive_text(
             [
                 "1",
@@ -965,7 +967,7 @@ async def test_send_info_serializes_with_events_and_closes_on_handler_failure(
 
     incoming: asyncio.Queue[Message] = asyncio.Queue()
     await incoming.put({"type": "websocket.connect"})
-    await incoming.put(_join(token))
+    await incoming.put(_join(token, url="http://testserver/server-updates"))
     await incoming.put(_event("2", "increment"))
     sent: list[Message] = []
     server_update_sent = asyncio.Event()
@@ -1068,7 +1070,7 @@ async def test_components_keep_state_route_targets_and_cleanup() -> None:
     sent = await _call_websocket(
         application,
         "/_tori/live/websocket",
-        _join(token),
+        _join(token, url="http://testserver/components"),
         _event("2", "increment", cid=1),
         _event("3", "increment", cid=2),
         _event("4", "increment", cid=999_999),
@@ -1143,7 +1145,7 @@ async def test_streams_render_initial_html_and_send_phoenix_stream_tuples() -> N
     sent = await _call_websocket(
         application,
         "/_tori/live/websocket",
-        _join(token),
+        _join(token, url="http://testserver/streams"),
         _event("2", "prepend"),
         _event("3", "update"),
         _event("4", "invalid_after_insert"),
@@ -1269,7 +1271,7 @@ async def test_phoenix_render_omits_an_absent_title() -> None:
     sent = await _call_websocket(
         application,
         "/_tori/live/websocket",
-        _join(token),
+        _join(token, url="http://testserver/untitled"),
         _disconnect(),
     )
     render_message = cast(
@@ -1416,7 +1418,7 @@ async def test_phoenix_channel_uses_policy_and_going_away_timeout_closes() -> No
     idle_timeout = await _call_websocket(
         idle_application,
         "/_tori/live/websocket",
-        _join(token),
+        _join(token, url="http://testserver/idle-info"),
     )
     assert idle_timeout[-1]["type"] == "websocket.close"
     assert idle_timeout[-1]["code"] == 1001
@@ -1531,7 +1533,7 @@ async def test_phoenix_channel_closes_on_unexpected_handler_failures() -> None:
     sent = await _call_websocket(
         application,
         "/_tori/live/websocket",
-        _join(token),
+        _join(token, url="http://testserver/crash"),
         _event("2", "crash"),
     )
     assert sent[-1]["type"] == "websocket.close"
@@ -1562,7 +1564,7 @@ async def test_phoenix_channel_cleans_up_after_component_handler_failures() -> N
     sent = await _call_websocket(
         application,
         "/_tori/live/websocket",
-        _join(token),
+        _join(token, url="http://testserver/component-crash"),
         _event("2", "crash", cid=1),
     )
     assert sent[-1]["type"] == "websocket.close"
