@@ -81,7 +81,9 @@ python-version = "3.14"
 
 [tool.pytest.ini_options]
 addopts = "--import-mode=importlib --ignore=benchmarks"
+asyncio_mode = "strict"
 pythonpath = ["."]
 markers = [
+    "browser: integration tests requiring a real Playwright browser",
     "rabbitmq: integration tests requiring Docker and RabbitMQ",
 ]

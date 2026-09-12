@@ -601,7 +601,7 @@ async def test_server_navigation_rejects_cross_origin_targets(event: str) -> Non
 
 
 @pytest.mark.asyncio
-async def test_same_page_push_navigate_uses_full_reload() -> None:
+async def test_same_page_push_navigate_uses_live_redirect() -> None:
     @live_view("/same-page", action="index")
     @live_view("/same-page/edit", action="edit")
     class SamePageLive(LiveView):
@@ -644,7 +644,7 @@ async def test_same_page_push_navigate_uses_full_reload() -> None:
         replies = _replies(sent)
         assert cast(dict[str, object], replies[1][4]) == {
             "status": "ok",
-            "response": {"redirect": {"to": "/same-page/edit"}},
+            "response": {"live_redirect": {"kind": "push", "to": "/same-page/edit"}},
         }
     finally:
         await application.shutdown()

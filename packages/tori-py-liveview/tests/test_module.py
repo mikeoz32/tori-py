@@ -1427,6 +1427,68 @@ async def test_phoenix_channel_uses_policy_and_going_away_timeout_closes() -> No
 
 
 @pytest.mark.asyncio
+async def test_slow_event_handler_does_not_consume_idle_timeout() -> None:
+    @live_view("/slow-event")
+    class SlowEventLive(LiveView):
+        async def handle_event(self, event: str, value: object) -> None:
+            del value
+            if event != "slow":
+                raise UnknownEventError(event)
+            await asyncio.sleep(0.08)
+
+        def render(self):
+            return "<div>slow</div>"
+
+    liveview_module = LiveViewModule.for_root(
+        LiveViewOptions(secret="s" * 32, idle_timeout_seconds=0.03),
+        pages=[SlowEventLive],
+        key="slow-event",
+    )
+
+    @module(imports=[liveview_module])
+    class Root:
+        pass
+
+    application = await NestApplication.create(Root, adapter=StarletteAdapter())
+    await application.start()
+    page = await _request(application, "/slow-event")
+    token = _token(page.text)
+    messages: asyncio.Queue[Message] = asyncio.Queue()
+    await messages.put({"type": "websocket.connect"})
+    await messages.put(_join(token, url="http://testserver/slow-event"))
+    await messages.put(_event("2", "slow"))
+    sent: list[Message] = []
+
+    async def receive() -> Message:
+        return await messages.get()
+
+    async def send(message: Message) -> None:
+        sent.append(message)
+
+    async def continue_session() -> None:
+        await asyncio.sleep(0.05)
+        await messages.put(_receive_text([None, "3", "phoenix", "heartbeat", {}]))
+        await asyncio.sleep(0.01)
+        await messages.put(_disconnect())
+
+    continuation = asyncio.create_task(continue_session())
+    try:
+        await _asgi(application)(
+            _websocket_scope("/_tori/live/websocket"), receive, send
+        )
+    finally:
+        await continuation
+        await application.shutdown()
+
+    frames = _decode_sent(sent)
+    assert _response(frames[1]) == {"diff": {"s": ["<div>slow</div>"], "t": ""}}
+    assert _reply_payload(frames[2]) == {"status": "ok", "response": {}}
+    assert [
+        message.get("code") for message in sent if message["type"] == "websocket.close"
+    ] == [1000]
+
+
+@pytest.mark.asyncio
 async def test_phoenix_channel_reports_unknown_events_and_targets() -> None:
     liveview_module = LiveViewModule.for_root(
         LiveViewOptions(secret="s" * 32),

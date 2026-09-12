@@ -591,6 +591,25 @@ def gateway_type(options: LiveViewOptions, registry: _Registry) -> type[object]:
             first_join = True
             name = ""
             session = ""
+
+            def incoming_message_task() -> asyncio.Task[_ChannelMessage]:
+                return asyncio.create_task(
+                    _message(
+                        socket,
+                        timeout=options.idle_timeout_seconds,
+                        timeout_code=1001,
+                        max_message_bytes=options.max_message_bytes,
+                    )
+                )
+
+            async def close_current_page() -> None:
+                nonlocal page, page_scope
+                closing_page = page
+                closing_scope = page_scope
+                page = None
+                page_scope = None
+                await _close_page(closing_page, closing_scope)
+
             try:
                 while True:
                     if join_source is None:
@@ -607,6 +626,18 @@ def gateway_type(options: LiveViewOptions, registry: _Registry) -> type[object]:
                     else:
                         join = await join_source
                         join_source = None
+                    if (
+                        not first_join
+                        and join.topic == _TOPIC
+                        and join.event == "phx_leave"
+                    ):
+                        await _reply(socket, join, "ok", {})
+                        join = await _message(
+                            socket,
+                            timeout=options.idle_timeout_seconds,
+                            timeout_code=1001,
+                            max_message_bytes=options.max_message_bytes,
+                        )
                     first_join = False
                     token = join.payload.get("session")
                     redirect_url = join.payload.get("redirect")
@@ -697,12 +728,10 @@ def gateway_type(options: LiveViewOptions, registry: _Registry) -> type[object]:
                     )
                     if drained is not None and drained[0] != "patch":
                         navigation, target, kind = drained
-                        await _close_page(page, page_scope)
-                        page = None
-                        page_scope = None
+                        await close_current_page()
                         if navigation == "navigate":
                             target_route = _resolve_navigate(registry, session, target)
-                            if target_route is not None and target_route.page != name:
+                            if target_route is not None:
                                 await _reply(
                                     socket,
                                     join,
@@ -734,30 +763,18 @@ def gateway_type(options: LiveViewOptions, registry: _Registry) -> type[object]:
                         }
                     await _reply(socket, join, "ok", join_reply)
 
-                    incoming_task = asyncio.create_task(
-                        _message(
-                            socket,
-                            timeout=options.idle_timeout_seconds,
-                            timeout_code=1001,
-                            max_message_bytes=options.max_message_bytes,
-                        )
-                    )
+                    incoming_task = incoming_message_task()
                     info_task = asyncio.create_task(page._receive_liveview_info())
                     while True:
+                        if incoming_task is None:
+                            incoming_task = incoming_message_task()
                         done, _ = await asyncio.wait(
                             (incoming_task, info_task),
                             return_when=asyncio.FIRST_COMPLETED,
                         )
                         if incoming_task in done:
                             message = incoming_task.result()
-                            incoming_task = asyncio.create_task(
-                                _message(
-                                    socket,
-                                    timeout=options.idle_timeout_seconds,
-                                    timeout_code=1001,
-                                    max_message_bytes=options.max_message_bytes,
-                                )
-                            )
+                            incoming_task = None
                             if (
                                 message.topic == "phoenix"
                                 and message.event == "heartbeat"
@@ -834,10 +851,7 @@ def gateway_type(options: LiveViewOptions, registry: _Registry) -> type[object]:
                                     target_route = _resolve_navigate(
                                         registry, session, target
                                     )
-                                    if (
-                                        target_route is None
-                                        or target_route.page == name
-                                    ):
+                                    if target_route is None:
                                         await _reply(
                                             socket,
                                             message,
@@ -856,20 +870,17 @@ def gateway_type(options: LiveViewOptions, registry: _Registry) -> type[object]:
                                             }
                                         },
                                     )
-                                    if info_task is None or incoming_task is None:
+                                    if info_task is None:
                                         raise LiveViewError(
                                             "LiveView receive tasks are missing"
                                         )
-                                    join_source = incoming_task
-                                    incoming_task = None
+                                    join_source = incoming_message_task()
                                     info_task.cancel()
                                     await asyncio.gather(
                                         info_task, return_exceptions=True
                                     )
                                     info_task = None
-                                    await _close_page(page, page_scope)
-                                    page = None
-                                    page_scope = None
+                                    await close_current_page()
                                     break
                                 updated = await _render(page)
                                 diff = _render_message(updated, title=page.title())
@@ -965,7 +976,7 @@ def gateway_type(options: LiveViewOptions, registry: _Registry) -> type[object]:
                                 )
                                 return
                             target_route = _resolve_navigate(registry, session, target)
-                            if target_route is None or target_route.page == name:
+                            if target_route is None:
                                 await _reply(
                                     socket,
                                     message,
@@ -979,18 +990,15 @@ def gateway_type(options: LiveViewOptions, registry: _Registry) -> type[object]:
                                 "ok",
                                 {"live_redirect": {"kind": kind, "to": target}},
                             )
-                            if info_task is None or incoming_task is None:
+                            if info_task is None:
                                 raise LiveViewError(
                                     "LiveView receive tasks are missing"
                                 )
                             info_task.cancel()
                             await asyncio.gather(info_task, return_exceptions=True)
                             info_task = None
-                            join_source = incoming_task
-                            incoming_task = None
-                            await _close_page(page, page_scope)
-                            page = None
-                            page_scope = None
+                            join_source = incoming_message_task()
+                            await close_current_page()
                             break
                         else:
                             if info_task is None:
@@ -1051,7 +1059,7 @@ def gateway_type(options: LiveViewOptions, registry: _Registry) -> type[object]:
                                 )
                                 return
                             target_route = _resolve_navigate(registry, session, target)
-                            if target_route is None or target_route.page == name:
+                            if target_route is None:
                                 await _send(
                                     socket,
                                     join.join_ref,
@@ -1069,18 +1077,21 @@ def gateway_type(options: LiveViewOptions, registry: _Registry) -> type[object]:
                                 "live_redirect",
                                 {"kind": kind, "to": target},
                             )
-                            if incoming_task is None or info_task is None:
+                            if info_task is None:
                                 raise LiveViewError(
                                     "LiveView receive tasks are missing"
                                 )
-                            join_source = incoming_task
-                            incoming_task = None
+                            if incoming_task is not None:
+                                incoming_task.cancel()
+                                await asyncio.gather(
+                                    incoming_task, return_exceptions=True
+                                )
+                                incoming_task = None
+                            join_source = incoming_message_task()
                             info_task.cancel()
                             await asyncio.gather(info_task, return_exceptions=True)
                             info_task = None
-                            await _close_page(page, page_scope)
-                            page = None
-                            page_scope = None
+                            await close_current_page()
                             break
             except _ClientDisconnected:
                 pass
@@ -1095,7 +1106,9 @@ def gateway_type(options: LiveViewOptions, registry: _Registry) -> type[object]:
                 if page is not None:
                     page._detach_liveview()
                 tasks = [
-                    task for task in (incoming_task, info_task) if task is not None
+                    task
+                    for task in (incoming_task, info_task, join_source)
+                    if task is not None
                 ]
                 for task in tasks:
                     if not task.done():
@@ -1104,7 +1117,7 @@ def gateway_type(options: LiveViewOptions, registry: _Registry) -> type[object]:
                     await asyncio.gather(*tasks, return_exceptions=True)
                 if page is not None or page_scope is not None:
                     try:
-                        await _close_page(page, page_scope)
+                        await close_current_page()
                     except Exception:
                         _LOGGER.exception("LiveView scope cleanup failed")
 
