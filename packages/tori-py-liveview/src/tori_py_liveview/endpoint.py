@@ -791,7 +791,16 @@ def gateway_type(options: LiveViewOptions, registry: _Registry) -> type[object]:
                                 raise _CloseConnection(1002)
                             if message.event == "phx_leave":
                                 await _reply(socket, message, "ok", {})
-                                return
+                                if info_task is None:
+                                    raise LiveViewError(
+                                        "LiveView receive tasks are missing"
+                                    )
+                                info_task.cancel()
+                                await asyncio.gather(info_task, return_exceptions=True)
+                                info_task = None
+                                join_source = incoming_message_task()
+                                await close_current_page()
+                                break
                             if message.event == "cids_will_destroy":
                                 page._prepare_liveview_component_destruction(
                                     _destroyed_cids(message.payload)

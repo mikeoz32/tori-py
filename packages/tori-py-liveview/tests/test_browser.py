@@ -56,6 +56,9 @@ class BrowserNavigationLive(LiveView):
         return (
             f'<output id="action">{self.live_action}</output>'
             '<button id="edit" phx-click="edit">Edit</button>'
+            '<a id="anchor-edit" data-phx-link="redirect" '
+            'data-phx-link-state="push" href="/browser-nav/edit">'
+            "Anchor edit</a>"
         )
 
     async def handle_event(self, event: str, value: object) -> None:
@@ -177,6 +180,31 @@ def test_browser_push_navigate_rejoins_without_document_reload(
     document_request_count = len(document_requests)
 
     page.locator("#edit").click()
+
+    expect(page).to_have_url(f"{live_server}/browser-nav/edit")
+    expect(page.locator("#action")).to_have_text("edit")
+    assert len(document_requests) == document_request_count
+
+
+def test_browser_anchor_redirect_rejoins_without_document_reload(
+    page: Page,
+    live_server: str,
+) -> None:
+    document_requests: list[str] = []
+    page.on(
+        "request",
+        lambda request: (
+            document_requests.append(request.url)
+            if request.is_navigation_request()
+            else None
+        ),
+    )
+    page.goto(f"{live_server}/browser-nav")
+
+    expect(page.locator("#action")).to_have_text("index")
+    document_request_count = len(document_requests)
+
+    page.locator("#anchor-edit").click()
 
     expect(page).to_have_url(f"{live_server}/browser-nav/edit")
     expect(page.locator("#action")).to_have_text("edit")
