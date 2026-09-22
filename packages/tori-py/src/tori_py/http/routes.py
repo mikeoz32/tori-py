@@ -24,7 +24,7 @@ from tori_py.core.metadata import (
     get_status_metadata,
 )
 from tori_py.core.pipeline import PipelineBindings
-from tori_py.core.protocols import ScopedResolver
+from tori_py.core.protocols import RouteParameterResolver, ScopedResolver
 from tori_py.core.providers import Inject, Token
 from tori_py.http.body import HttpBodyStream
 from tori_py.http.context import HttpContext
@@ -42,6 +42,7 @@ class ParameterPlan:
     has_default: bool
     max_bytes: int | None = None
     provider_ref: ProviderRef | None = None
+    resolver: RouteParameterResolver | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -200,6 +201,16 @@ async def bind_routes(
     return tuple(bound)
 
 
+async def _resolve_route_parameter(
+    resolver: RouteParameterResolver,
+    context: HttpContext,
+) -> object:
+    """Resolve a custom HTTP route parameter, allowing async resolvers."""
+
+    value = resolver.resolve(context)
+    return await value if inspect.isawaitable(value) else value
+
+
 def _compile_signature(
     handler: object,
 ) -> tuple[tuple[ParameterPlan, ...], object]:
@@ -232,7 +243,7 @@ def _compile_signature(
                 code="route.invalid_binding",
             )
         marker = markers[0]
-        kind, source, token, max_bytes = _marker_details(marker)
+        kind, source, token, max_bytes, resolver = _marker_details(marker)
         if kind in {"body", "body_stream"}:
             body_count += 1
         if kind in {"path", "query", "header", "cookie"} and source is None:
@@ -262,6 +273,7 @@ def _compile_signature(
                 default=parameter.default,
                 has_default=parameter.default is not inspect.Parameter.empty,
                 max_bytes=max_bytes,
+                resolver=resolver,
             )
         )
     if body_count > 1:
@@ -297,29 +309,48 @@ def _annotation_markers(annotation: object) -> tuple[object, list[object]]:
 
 def _marker_details(
     marker: object,
-) -> tuple[str, str | None, Token | None, int | None]:
+) -> tuple[
+    str,
+    str | None,
+    Token | None,
+    int | None,
+    RouteParameterResolver | None,
+]:
     if isinstance(marker, Body):
-        return "body", None, None, None
+        return "body", None, None, None, None
     if isinstance(marker, BodyStream):
-        return "body_stream", None, None, marker.max_bytes
+        return "body_stream", None, None, marker.max_bytes, None
     if isinstance(marker, Path):
-        return "path", marker.name, None, None
+        return "path", marker.name, None, None, None
     if isinstance(marker, Query):
-        return "query", marker.name, None, None
+        return "query", marker.name, None, None, None
     if isinstance(marker, Header):
-        return "header", marker.name, None, None
+        return "header", marker.name, None, None, None
     if isinstance(marker, Cookie):
-        return "cookie", marker.name, None, None
+        return "cookie", marker.name, None, None, None
     if isinstance(marker, Context):
-        return "context", None, None, None
+        return "context", None, None, None, None
     if isinstance(marker, Inject):
-        return "inject", None, marker.token, None
+        return "inject", None, marker.token, None, None
+    if isinstance(marker, RouteParameterResolver):
+        return "custom", None, None, None, marker
     raise BootstrapError("unknown route binding marker", code="route.invalid_binding")
 
 
 def _is_marker(value: object) -> bool:
     return isinstance(
-        value, (Body, BodyStream, Path, Query, Header, Cookie, Context, Inject)
+        value,
+        (
+            Body,
+            BodyStream,
+            Path,
+            Query,
+            Header,
+            Cookie,
+            Context,
+            Inject,
+            RouteParameterResolver,
+        ),
     )
 
 

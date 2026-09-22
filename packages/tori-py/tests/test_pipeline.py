@@ -280,6 +280,54 @@ async def test_pipeline_order_and_argument_metadata(call_http, message_body) -> 
 
 
 @pytest.mark.asyncio
+async def test_custom_route_parameter_resolver_reads_trusted_request_state(
+    call_http,
+    message_body,
+) -> None:
+    class TenantContext:
+        def __init__(self, tenant_id: str) -> None:
+            self.tenant_id = tenant_id
+
+    class Tenant:
+        async def resolve(self, context):
+            return context.request.state.tenant_context
+
+    class TenantGuard:
+        async def can_activate(self, context) -> bool:
+            context.request.state.tenant_context = TenantContext("raw-tenant-7")
+            return True
+
+    class TenantPipe:
+        async def transform(self, value, metadata):
+            assert metadata.binding_kind == "custom"
+            assert metadata.source_name is None
+            return TenantContext(value.tenant_id.removeprefix("raw-"))
+
+    @controller()
+    class Controller:
+        @get("/tenant")
+        async def tenant(self, value: Annotated[TenantContext, Tenant()]) -> str:
+            return value.tenant_id
+
+    @module(controllers=[Controller])
+    class Root:
+        pass
+
+    application = await TestingModule.create(Root).compile(
+        pipeline=PipelineOptions(
+            guards=(TenantGuard(),),
+            pipes=(TenantPipe(),),
+        ),
+        adapter=StarletteAdapter(),
+    )
+
+    response = await call_http(_asgi(application), path="/tenant")
+
+    assert json.loads(message_body(response[1])) == "tenant-7"
+    await application.close()
+
+
+@pytest.mark.asyncio
 async def test_validation_pipe_is_opt_in_and_context_inject_are_excluded(
     call_http,
     message_body,

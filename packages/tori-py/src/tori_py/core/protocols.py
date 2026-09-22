@@ -151,6 +151,17 @@ class ExecutionContext(Protocol):
 
 
 @runtime_checkable
+class RouteParameterResolver(Protocol):
+    """Resolve one custom route parameter from the current execution context."""
+
+    def resolve(
+        self,
+        context: ExecutionContext,
+    ) -> object | Awaitable[object]:
+        """Return the value passed to the route handler."""
+
+
+@runtime_checkable
 class Middleware(Protocol):
     async def handle(
         self,
@@ -283,6 +294,7 @@ __all__ = [
     "ModulesContainer",
     "Pipe",
     "PipelineResult",
+    "RouteParameterResolver",
     "ScopedResolver",
     "SettingsDecoder",
     "ShutdownContext",

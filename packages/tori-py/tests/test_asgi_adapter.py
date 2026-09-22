@@ -20,6 +20,7 @@ from tori_py import (
     Inject,
     NestApplication,
     Path,
+    PipelineOptions,
     Query,
     ValueProvider,
     controller,
@@ -43,6 +44,16 @@ from tori_py.http import HttpBodyStream
 from tori_py.testing import TestingModule
 
 type Message = MutableMapping[str, Any]
+
+
+class _TenantContext:
+    def __init__(self, tenant_id: str) -> None:
+        self.tenant_id = tenant_id
+
+
+class _Tenant:
+    def resolve(self, context):
+        return context.request.scope["tenant_context"]
 
 
 def _asgi(application):
@@ -104,6 +115,37 @@ async def test_asgi_adapter_binds_native_request_values(
         "path": "/items/42",
         "dependency": True,
     }
+    await application.close()
+
+
+@pytest.mark.asyncio
+async def test_asgi_adapter_resolves_custom_route_parameter_from_request_scope(
+    call_http,
+    message_body,
+) -> None:
+    class TenantGuard:
+        async def can_activate(self, context) -> bool:
+            context.request.scope["tenant_context"] = _TenantContext("tenant-8")
+            return True
+
+    @controller()
+    class Controller:
+        @get("/tenant")
+        async def tenant(self, value: Annotated[_TenantContext, _Tenant()]) -> str:
+            return value.tenant_id
+
+    @module(controllers=[Controller])
+    class Root:
+        pass
+
+    application = await TestingModule.create(Root).compile(
+        pipeline=PipelineOptions(guards=(TenantGuard(),)),
+        adapter=AsgiAdapter(),
+    )
+
+    response = await call_http(_asgi(application), path="/tenant")
+
+    assert json.loads(message_body(response[1])) == "tenant-8"
     await application.close()
 
 

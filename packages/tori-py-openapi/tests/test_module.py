@@ -1,6 +1,6 @@
 import json
 import re
-from typing import Any, cast
+from typing import Annotated, Any, cast
 
 import httpx
 import pytest
@@ -29,6 +29,12 @@ from tori_py_openapi import (
 )
 from tori_py_openapi.compiler import CompiledOpenApiDocument
 from tori_py_openapi.metadata import get_direct_metadata
+
+
+class _CustomRouteBinding:
+    def resolve(self, context):
+        del context
+        return "resolved"
 
 
 def _options(**changes: object) -> OpenApiOptions:
@@ -208,6 +214,32 @@ async def test_documentation_routes_participate_in_global_guard_pipeline() -> No
     docs = await _request(application, "GET", "/docs")
     assert openapi.status_code == docs.status_code == 403
     assert calls == ["GET /openapi.json", "GET /docs"]
+    await application.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_custom_route_bindings_are_omitted_from_openapi_parameters() -> None:
+    @controller()
+    class CustomBindingController:
+        @get("/tenant")
+        async def tenant(
+            self,
+            value: Annotated[str, _CustomRouteBinding()],
+        ) -> str:
+            return value
+
+    openapi_module = OpenApiModule.for_root(_options())
+
+    @module(imports=[openapi_module], controllers=[CustomBindingController])
+    class Root:
+        pass
+
+    application = await NestApplication.create(Root, adapter=StarletteAdapter())
+    await application.start()
+    response = await _request(application, "GET", "/openapi.json")
+
+    assert response.status_code == 200
+    assert "parameters" not in response.json()["paths"]["/tenant"]["get"]
     await application.shutdown()
 
 

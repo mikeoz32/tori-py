@@ -19,7 +19,11 @@ from tori_py.http.endpoints import CompiledEndpoint
 from tori_py.http.errors import HttpException
 from tori_py.http.pipeline import PipelineExecutor
 from tori_py.http.response import HttpResponse, ResponseHeaderMetadata
-from tori_py.http.routes import ParameterPlan, RoutePlan
+from tori_py.http.routes import (
+    ParameterPlan,
+    RoutePlan,
+    _resolve_route_parameter,
+)
 from tori_py.starlette.context import (
     _CONTEXT_TOKEN_KEY,
     _REQUEST_SCOPE_KEY,
@@ -220,6 +224,11 @@ async def _bind_arguments(
             value = await context.scope.resolve_ref(provider_ref)
         elif parameter.kind == "context":
             value = context
+        elif parameter.kind == "custom":
+            resolver = parameter.resolver
+            if resolver is None:
+                raise HttpException(500, "Custom route parameter was not compiled.")
+            value = await _resolve_route_parameter(resolver, context)
         elif parameter.kind == "body":
             if body_loaded:
                 raise HttpException(400, "A request body may only be bound once.")

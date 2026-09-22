@@ -28,7 +28,11 @@ from tori_py.http.endpoints import CompiledEndpoint
 from tori_py.http.errors import HttpException
 from tori_py.http.pipeline import PipelineExecutor
 from tori_py.http.response import HttpResponse, ResponseHeaderMetadata
-from tori_py.http.routes import ParameterPlan, RoutePlan
+from tori_py.http.routes import (
+    ParameterPlan,
+    RoutePlan,
+    _resolve_route_parameter,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -287,6 +291,11 @@ async def _bind_arguments(
             value = await context.scope.resolve_ref(provider_ref)
         elif parameter.kind == "context":
             value = context
+        elif parameter.kind == "custom":
+            resolver = parameter.resolver
+            if resolver is None:
+                raise HttpException(500, "Custom route parameter was not compiled.")
+            value = await _resolve_route_parameter(resolver, context)
         elif parameter.kind == "body":
             value = await _read_json_body(request, body_size_limit)
         elif parameter.kind == "body_stream":

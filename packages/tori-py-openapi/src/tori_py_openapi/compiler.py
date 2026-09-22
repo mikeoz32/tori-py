@@ -509,7 +509,7 @@ def _compile_operation(
     }
     body: ParameterPlan | None = None
     for parameter in plan.parameters:
-        if parameter.kind in {"context", "inject"}:
+        if parameter.kind in {"context", "inject", "custom"}:
             continue
         if parameter.kind in {"body", "body_stream"}:
             if body is not None:
