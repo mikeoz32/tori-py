@@ -4,20 +4,28 @@ from __future__ import annotations
 
 import inspect
 from collections.abc import Callable, Iterable, Mapping
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from enum import StrEnum
 from types import MappingProxyType
 from typing import Annotated, cast, get_args, get_origin, get_type_hints
 
 from tori_py.core.errors import BootstrapError, SettingsError
-from tori_py.core.metadata import get_websocket_gateway_metadata
+from tori_py.core.metadata import (
+    get_method_interceptors,
+    get_websocket_gateway_metadata,
+)
 from tori_py.core.modules import (
     DeferredModule,
     ModuleImport,
     ModuleSpec,
     get_module_metadata,
 )
-from tori_py.core.protocols import DiscoveryService, ModulesContainer, WorkScopeFactory
+from tori_py.core.protocols import (
+    DiscoveryService,
+    MethodInterceptor,
+    ModulesContainer,
+    WorkScopeFactory,
+)
 from tori_py.core.providers import (
     AliasProvider,
     ClassProvider,
@@ -106,6 +114,11 @@ class ProviderPlan:
     scope: Scope
     canonical: ProviderRef
     recipe: ConstructionRecipe
+    proxy: bool = False
+    method_interceptors: Mapping[
+        str,
+        tuple[ProviderRef | MethodInterceptor, ...],
+    ] = field(default_factory=lambda: MappingProxyType({}))
 
 
 @dataclass(frozen=True, slots=True)
@@ -366,6 +379,12 @@ class _Compiler:
                         ),
                         canonical=ref,
                         recipe=_compile_recipe(declaration, declaration_dependencies),
+                        proxy=(
+                            declaration.proxy
+                            if isinstance(declaration, ClassProvider)
+                            else False
+                        ),
+                        method_interceptors=MappingProxyType({}),
                     )
                 )
             local_refs[module_id] = refs
@@ -408,6 +427,12 @@ class _Compiler:
                         ),
                         canonical=ref,
                         recipe=_compile_recipe(declaration, declaration_dependencies),
+                        proxy=(
+                            declaration.proxy
+                            if isinstance(declaration, ClassProvider)
+                            else False
+                        ),
+                        method_interceptors=MappingProxyType({}),
                     )
                     local_refs[module_id][token] = ref
                     module_plans[module_id] = replace(
@@ -464,9 +489,26 @@ class _Compiler:
 
         for ref, plan in tuple(provider_map.items()):
             if plan.canonical != ref:
+                continue
+            method_interceptors = _compile_method_interceptors(
+                ref,
+                plan.declaration,
+                visibility,
+                canonical_cache,
+            )
+            provider_map[ref] = replace(
+                plan,
+                method_interceptors=method_interceptors,
+            )
+
+        for ref, plan in tuple(provider_map.items()):
+            if plan.canonical != ref:
+                canonical_plan = provider_map[plan.canonical]
                 provider_map[ref] = replace(
                     plan,
-                    recipe=provider_map[plan.canonical].recipe,
+                    recipe=canonical_plan.recipe,
+                    proxy=canonical_plan.proxy,
+                    method_interceptors=canonical_plan.method_interceptors,
                 )
 
         edges = _provider_edges(provider_map, visibility, self.order)
@@ -712,6 +754,64 @@ def _compile_recipe(
         "unsupported provider declaration",
         code="provider.invalid_declaration",
     )
+
+
+def _compile_method_interceptors(
+    provider_ref: ProviderRef,
+    declaration: ProviderDeclaration,
+    visibility: Mapping[tuple[ModuleId, Token], ProviderRef],
+    canonical_cache: Mapping[ProviderRef, ProviderRef],
+) -> Mapping[str, tuple[ProviderRef | MethodInterceptor, ...]]:
+    if not isinstance(declaration, ClassProvider):
+        return MappingProxyType({})
+
+    class_target = cast(type[object], declaration.use_class)
+    methods: dict[str, object] = {}
+    for base in reversed(class_target.__mro__):
+        if base is object:
+            continue
+        for name, member in base.__dict__.items():
+            if isinstance(member, classmethod | staticmethod):
+                member = member.__func__
+            methods[name] = member
+
+    compiled: dict[str, tuple[ProviderRef | MethodInterceptor, ...]] = {}
+    for name, method in methods.items():
+        bindings = get_method_interceptors(method)
+        if not bindings:
+            continue
+        if not declaration.proxy:
+            raise BootstrapError(
+                "method interceptors require proxy=True on the class provider",
+                code="provider.invalid_declaration",
+                details={"provider": repr(provider_ref.token), "method": name},
+            )
+        if name.startswith("_") or not inspect.iscoroutinefunction(method):
+            raise BootstrapError(
+                "method interceptors require public async methods",
+                code="provider.invalid_declaration",
+                details={"provider": repr(provider_ref.token), "method": name},
+            )
+
+        qualified: list[ProviderRef | MethodInterceptor] = []
+        for binding in bindings:
+            if isinstance(binding, str | type):
+                visible = visibility.get((provider_ref.module_id, binding))
+                if visible is None:
+                    raise BootstrapError(
+                        "method interceptor provider is not visible from its owner",
+                        code="provider.unresolved",
+                        details={
+                            "provider": repr(provider_ref.token),
+                            "method": name,
+                            "interceptor": repr(binding),
+                        },
+                    )
+                qualified.append(canonical_cache[visible])
+            else:
+                qualified.append(binding)
+        compiled[name] = tuple(qualified)
+    return MappingProxyType(compiled)
 
 
 def _uncanonicalized_alias(**arguments: object) -> object:

@@ -31,6 +31,8 @@ Principal groups are:
   `CompiledGraph`, `ProviderRef`, `compile_graph`.
 - Providers and scopes: `ValueProvider`, `ClassProvider`, `FactoryProvider`,
   `AliasProvider`, `Inject`, `Scope`, `injectable`, `Token`, `WorkScopeFactory`.
+- Method interception: provider `proxy=True`, `use_method_interceptor`,
+  `use_method_interceptors`, `MethodInterceptor`, `MethodInvocationContext`.
 - Controllers and binding: `controller`, `get`, `post`, `put`, `patch`,
   `delete`, `head`, `options`, `route`, `status`, `no_body`, `Body`,
   `BodyStream`, `Path`, `Query`, `Header`, `Cookie`, `Context`.

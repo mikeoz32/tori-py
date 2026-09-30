@@ -83,6 +83,7 @@ class ClassProvider:
     use_class: type[object] | None = None
     scope: Scope = Scope.SINGLETON
     manage: bool = True
+    proxy: bool = False
 
     def __post_init__(self) -> None:
         token = validate_token(self.token)
@@ -102,6 +103,11 @@ class ClassProvider:
                 "class provider manage must be boolean",
                 code="provider.invalid_declaration",
             )
+        if not isinstance(self.proxy, bool):
+            raise BootstrapError(
+                "class provider proxy must be boolean",
+                code="provider.invalid_declaration",
+            )
 
 
 _INJECTABLE: MetadataDecorator[ClassProvider] = Reflector.create_decorator(
@@ -114,6 +120,7 @@ def injectable[InstanceT](
     *,
     scope: Scope | str = Scope.SINGLETON,
     manage: bool = True,
+    proxy: bool = False,
 ) -> Callable[[type[InstanceT]], type[InstanceT]]:
     """Mark a class for self-token provider shorthand in a module."""
 
@@ -123,6 +130,11 @@ def injectable[InstanceT](
             "injectable manage must be boolean",
             code="provider.invalid_declaration",
         )
+    if not isinstance(proxy, bool):
+        raise BootstrapError(
+            "injectable proxy must be boolean",
+            code="provider.invalid_declaration",
+        )
 
     def decorate(target: type[InstanceT]) -> type[InstanceT]:
         declaration = ClassProvider(
@@ -130,6 +142,7 @@ def injectable[InstanceT](
             target,
             scope=normalized_scope,
             manage=manage,
+            proxy=proxy,
         )
         return metadata(_INJECTABLE, declaration)(target)
 

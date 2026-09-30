@@ -1,10 +1,17 @@
 """Immutable declaration metadata for controllers and route methods."""
 
+import inspect
 from dataclasses import dataclass
 from typing import Any
 
 from tori_py.core.errors import BootstrapError
-from tori_py.core.protocols import ExceptionFilter, Guard, Interceptor, Pipe
+from tori_py.core.protocols import (
+    ExceptionFilter,
+    Guard,
+    Interceptor,
+    MethodInterceptor,
+    Pipe,
+)
 from tori_py.core.providers import Token, validate_token
 
 
@@ -150,12 +157,14 @@ _PIPELINE_METHODS = {
     "interceptors": "intercept",
     "filters": "catch",
 }
+_METHOD_INTERCEPTORS_ATTRIBUTE = "__tori_py_method_interceptors_metadata__"
 
 type GuardBinding = Token | Guard
 type PipeBinding = Token | Pipe
 type InterceptorBinding = Token | Interceptor
 type FilterBinding = Token | ExceptionFilter
 type PipelineBinding = GuardBinding | PipeBinding | InterceptorBinding | FilterBinding
+type MethodInterceptorBinding = Token | MethodInterceptor
 
 
 def validate_pipeline_binding(kind: str, binding: object) -> object:
@@ -176,6 +185,58 @@ def validate_pipeline_binding(kind: str, binding: object) -> object:
         message,
         code="route.invalid_signature",
     )
+
+
+def validate_method_interceptor_binding(binding: object) -> MethodInterceptorBinding:
+    """Validate one method-interceptor provider token or direct instance."""
+
+    if isinstance(binding, str | type):
+        return validate_token(binding)
+    if isinstance(binding, MethodInterceptor) and inspect.iscoroutinefunction(
+        binding.intercept
+    ):
+        return binding
+    raise BootstrapError(
+        "method interceptor registration must be a provider token or "
+        "MethodInterceptor instance",
+        code="provider.invalid_declaration",
+    )
+
+
+def use_method_interceptors(*interceptors: MethodInterceptorBinding) -> Any:
+    """Attach method interceptors; stacked decorators preserve outer-first order."""
+
+    if not interceptors:
+        raise BootstrapError(
+            "method interceptor registration must not be empty",
+            code="provider.invalid_declaration",
+        )
+    normalized = tuple(
+        validate_method_interceptor_binding(interceptor) for interceptor in interceptors
+    )
+
+    def decorate(target: Any) -> Any:
+        own = getattr(target, "__dict__", {})
+        existing = own.get(_METHOD_INTERCEPTORS_ATTRIBUTE, ())
+        if not isinstance(existing, tuple):
+            existing = ()
+        setattr(target, _METHOD_INTERCEPTORS_ATTRIBUTE, normalized + existing)
+        return target
+
+    return decorate
+
+
+def use_method_interceptor(interceptor: MethodInterceptorBinding) -> Any:
+    """Attach one method interceptor."""
+
+    return use_method_interceptors(interceptor)
+
+
+def get_method_interceptors(target: Any) -> tuple[MethodInterceptorBinding, ...]:
+    """Return method interceptors directly attached to a method."""
+
+    value = getattr(target, "__dict__", {}).get(_METHOD_INTERCEPTORS_ATTRIBUTE, ())
+    return value if isinstance(value, tuple) else ()
 
 
 def _pipeline_decorator(kind: str, bindings: tuple[object, ...]) -> Any:
@@ -397,6 +458,7 @@ __all__ = [
     "Cookie",
     "ControllerMetadata",
     "filters",
+    "get_method_interceptors",
     "get_pipeline_metadata",
     "guards",
     "Header",
@@ -432,6 +494,8 @@ __all__ = [
     "use_guards",
     "use_interceptor",
     "use_interceptors",
+    "use_method_interceptor",
+    "use_method_interceptors",
     "use_middleware",
     "use_pipe",
     "use_pipes",

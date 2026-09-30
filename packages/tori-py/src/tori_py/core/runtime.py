@@ -7,7 +7,7 @@ import contextvars
 import functools
 import inspect
 import logging
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass, field
@@ -26,6 +26,7 @@ from tori_py.core.discovery import RuntimeDiscoveryService, RuntimeModulesContai
 from tori_py.core.errors import (
     ApplicationStateError,
     LifecycleError,
+    PipelineStateError,
     ResourceError,
     ScopeCancellationError,
     ScopeClosedError,
@@ -36,6 +37,8 @@ from tori_py.core.options import ApplicationOptions
 from tori_py.core.protocols import (
     DiscoveryService,
     GraphValidator,
+    MethodInterceptor,
+    MethodInvocationContext,
     ModulesContainer,
     QualifiedScopedResolver,
     ScopedResolver,
@@ -410,6 +413,7 @@ class Container:
         scope: _ScopeState,
         owner: _ScopeState,
     ) -> object:
+        provider_plan = self.graph.providers[ref]
         resources = owner.resources
         if resources is None:
             resources = owner.resources = _ResourceStack(self._executor)
@@ -454,6 +458,12 @@ class Container:
                 value = await resources.enter(
                     value,
                     label=f"{ref.module_id.module.__qualname__}:{ref.token!r}",
+                )
+            if provider_plan.proxy:
+                value = _ProviderProxy(
+                    value,
+                    ref,
+                    provider_plan.method_interceptors,
                 )
             return value
         except BaseException as error:
@@ -506,6 +516,7 @@ class RequestScope(AbstractAsyncContextManager[ScopedResolver]):
         self._closed = False
         self._cleanup_task: asyncio.Task[BaseException | None] | None = None
         self._exc_info: _ExceptionInfo = (None, None, None)
+        self._context_token: contextvars.Token[RequestScope | None] | None = None
 
     async def __aenter__(self) -> QualifiedScopedResolver:
         if self._entered:
@@ -514,6 +525,7 @@ class RequestScope(AbstractAsyncContextManager[ScopedResolver]):
         self.state.bind_owner()
         if self._on_open is not None:
             self._on_open(self)
+        self._context_token = _CURRENT_SCOPE.set(self)
         return self.resolver
 
     def resolver_for(self, module_id: ModuleId) -> QualifiedScopedResolver:
@@ -532,6 +544,20 @@ class RequestScope(AbstractAsyncContextManager[ScopedResolver]):
         return await self._container.resolve_ref(ref, scope=self.state)
 
     async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> None:
+        try:
+            await self._finalize(exc_type, exc, tb)
+        finally:
+            token = self._context_token
+            self._context_token = None
+            if token is not None:
+                _CURRENT_SCOPE.reset(token)
+
+    async def _finalize(
         self,
         exc_type: type[BaseException] | None,
         exc: BaseException | None,
@@ -585,6 +611,147 @@ class RequestScope(AbstractAsyncContextManager[ScopedResolver]):
         self._closed = True
         if self._on_close is not None:
             self._on_close(self)
+
+
+_CURRENT_SCOPE: contextvars.ContextVar[RequestScope | None] = contextvars.ContextVar(
+    "tori_py_current_scope",
+    default=None,
+)
+
+
+class _ProviderProxy:
+    """Forward provider access and intercept public async method calls."""
+
+    __slots__ = (
+        "_tori_py_aop_target",
+        "_tori_py_aop_provider_ref",
+        "_tori_py_aop_method_interceptors",
+    )
+
+    def __init__(
+        self,
+        target: object,
+        provider_ref: ProviderRef,
+        method_interceptors: Mapping[
+            str,
+            tuple[ProviderRef | MethodInterceptor, ...],
+        ],
+    ) -> None:
+        object.__setattr__(self, "_tori_py_aop_target", target)
+        object.__setattr__(self, "_tori_py_aop_provider_ref", provider_ref)
+        object.__setattr__(
+            self, "_tori_py_aop_method_interceptors", method_interceptors
+        )
+
+    @property
+    def __class__(self) -> type[object]:
+        return type(object.__getattribute__(self, "_tori_py_aop_target"))
+
+    def __getattr__(self, name: str) -> object:
+        target = object.__getattribute__(self, "_tori_py_aop_target")
+        value = getattr(target, name)
+        if name.startswith("_") or not inspect.iscoroutinefunction(value):
+            return value
+
+        @functools.wraps(value)
+        async def invoke(*args: object, **kwargs: object) -> object:
+            return await self._invoke(name, value, args, kwargs)
+
+        return invoke
+
+    def __setattr__(self, name: str, value: object) -> None:
+        if name in self.__slots__:
+            object.__setattr__(self, name, value)
+            return
+        setattr(object.__getattribute__(self, "_tori_py_aop_target"), name, value)
+
+    def __delattr__(self, name: str) -> None:
+        if name in self.__slots__:
+            object.__delattr__(self, name)
+            return
+        delattr(object.__getattribute__(self, "_tori_py_aop_target"), name)
+
+    def __dir__(self) -> list[str]:
+        return sorted(
+            set(object.__dir__(self))
+            | set(dir(object.__getattribute__(self, "_tori_py_aop_target")))
+        )
+
+    async def _invoke(
+        self,
+        method_name: str,
+        method: Callable[..., object],
+        args: tuple[object, ...],
+        kwargs: Mapping[str, object],
+    ) -> object:
+        bindings = object.__getattribute__(
+            self,
+            "_tori_py_aop_method_interceptors",
+        ).get(
+            method_name,
+            (),
+        )
+        if not bindings:
+            return await _await_method(method, args, kwargs)
+
+        scope = _CURRENT_SCOPE.get()
+        if scope is None:
+            raise ScopeError(
+                "intercepted provider methods require an active request or work scope"
+            )
+        provider_ref = object.__getattribute__(self, "_tori_py_aop_provider_ref")
+        resolver = scope.resolver_for(provider_ref.module_id)
+        context = MethodInvocationContext(
+            provider_ref=provider_ref,
+            method_name=method_name,
+            resolver=resolver,
+            arguments=args,
+            keyword_arguments=kwargs,
+        )
+        interceptors: list[MethodInterceptor] = []
+        for binding in bindings:
+            interceptor = (
+                await scope.resolve_ref(binding)
+                if isinstance(binding, ProviderRef)
+                else binding
+            )
+            if not isinstance(
+                interceptor, MethodInterceptor
+            ) or not inspect.iscoroutinefunction(interceptor.intercept):
+                raise ScopeError(
+                    "method interceptor provider must implement async "
+                    "MethodInterceptor.intercept"
+                )
+            interceptors.append(interceptor)
+
+        async def dispatch(index: int) -> object:
+            if index == len(interceptors):
+                return await _await_method(method, args, kwargs)
+            called = False
+
+            async def next_once() -> object:
+                nonlocal called
+                if called:
+                    raise PipelineStateError(
+                        "method interceptor next callback was called twice"
+                    )
+                called = True
+                return await dispatch(index + 1)
+
+            return await interceptors[index].intercept(context, next_once)
+
+        return await dispatch(0)
+
+
+async def _await_method(
+    method: Callable[..., object],
+    args: tuple[object, ...],
+    kwargs: Mapping[str, object],
+) -> object:
+    result = method(*args, **kwargs)
+    if not inspect.isawaitable(result):
+        raise TypeError("proxied async provider method returned a non-awaitable")
+    return await result
 
 
 class _ModuleWorkScopeFactory:
