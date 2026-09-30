@@ -40,6 +40,7 @@ from tori_py import (
     use_pipe,
     use_pipes,
 )
+from tori_py.asgi import AsgiAdapter
 from tori_py.http import HttpResponse
 from tori_py.logging import use_log_context
 from tori_py.starlette import (
@@ -279,51 +280,123 @@ async def test_pipeline_order_and_argument_metadata(call_http, message_body) -> 
     await application.close()
 
 
+@pytest.mark.parametrize(
+    "adapter_type",
+    (AsgiAdapter, StarletteAdapter),
+    ids=("asgi", "starlette"),
+)
 @pytest.mark.asyncio
-async def test_custom_route_parameter_resolver_reads_trusted_request_state(
+async def test_guard_binds_request_scoped_tenant_for_handler_injection(
+    adapter_type: type[AsgiAdapter] | type[StarletteAdapter],
     call_http,
     message_body,
 ) -> None:
-    class TenantContext:
-        def __init__(self, tenant_id: str) -> None:
-            self.tenant_id = tenant_id
+    tenant_ids = iter(("tenant-7", "tenant-8"))
 
-    class Tenant:
-        async def resolve(self, context):
-            return context.request.state.tenant_context
+    class TenantScope:
+        def __init__(self) -> None:
+            self._tenant_id: str | None = None
 
-    class TenantGuard:
+        def bind(self, tenant_id: str) -> None:
+            if self._tenant_id is not None:
+                raise RuntimeError("tenant is already bound")
+            self._tenant_id = tenant_id
+
+        @property
+        def tenant_id(self) -> str:
+            if self._tenant_id is None:
+                raise RuntimeError("tenant has not been bound")
+            return self._tenant_id
+
+    guard_scopes: list[TenantScope] = []
+
+    class BindTenantGuard:
+        def __init__(
+            self,
+            tenant_scope: Annotated[TenantScope, Inject(TenantScope)],
+        ) -> None:
+            self.tenant_scope = tenant_scope
+            guard_scopes.append(tenant_scope)
+
         async def can_activate(self, context) -> bool:
-            context.request.state.tenant_context = TenantContext("raw-tenant-7")
+            del context
+            self.tenant_scope.bind(next(tenant_ids))
             return True
-
-    class TenantPipe:
-        async def transform(self, value, metadata):
-            assert metadata.binding_kind == "custom"
-            assert metadata.source_name is None
-            return TenantContext(value.tenant_id.removeprefix("raw-"))
 
     @controller()
     class Controller:
         @get("/tenant")
-        async def tenant(self, value: Annotated[TenantContext, Tenant()]) -> str:
-            return value.tenant_id
+        @use_guard(BindTenantGuard)
+        async def tenant(
+            self,
+            tenant_scope: Annotated[TenantScope, Inject(TenantScope)],
+        ) -> str:
+            return tenant_scope.tenant_id
+
+    @module(
+        controllers=[Controller],
+        providers=[
+            ClassProvider(TenantScope, scope=Scope.REQUEST),
+            ClassProvider(BindTenantGuard, scope=Scope.REQUEST),
+        ],
+    )
+    class Root:
+        pass
+
+    adapter = adapter_type()
+    application = await TestingModule.create(Root).compile(adapter=adapter)
+    if isinstance(adapter, AsgiAdapter):
+        app = application.get_adapter(AsgiAdapter).app
+    else:
+        app = application.get_adapter(StarletteAdapter).app
+
+    first = await call_http(app, path="/tenant")
+    second = await call_http(app, path="/tenant")
+
+    assert json.loads(message_body(first[1])) == "tenant-7"
+    assert json.loads(message_body(second[1])) == "tenant-8"
+    assert len(guard_scopes) == 2
+    assert guard_scopes[0] is not guard_scopes[1]
+    await application.close()
+
+
+@pytest.mark.asyncio
+async def test_custom_route_parameter_resolver_value_runs_through_pipes(
+    call_http,
+    message_body,
+) -> None:
+    class RouteValueResolver:
+        def resolve(self, context):
+            assert context.route_id == "GET /custom"
+            return "resolved"
+
+    class RecordingPipe:
+        async def transform(self, value, metadata):
+            assert metadata.binding_kind == "custom"
+            assert metadata.source_name is None
+            return f"{value}-piped"
+
+    @controller()
+    class Controller:
+        @get("/custom")
+        async def custom(
+            self,
+            value: Annotated[str, RouteValueResolver()],
+        ) -> str:
+            return value
 
     @module(controllers=[Controller])
     class Root:
         pass
 
     application = await TestingModule.create(Root).compile(
-        pipeline=PipelineOptions(
-            guards=(TenantGuard(),),
-            pipes=(TenantPipe(),),
-        ),
+        pipeline=PipelineOptions(pipes=(RecordingPipe(),)),
         adapter=StarletteAdapter(),
     )
 
-    response = await call_http(_asgi(application), path="/tenant")
+    response = await call_http(_asgi(application), path="/custom")
 
-    assert json.loads(message_body(response[1])) == "tenant-7"
+    assert json.loads(message_body(response[1])) == "resolved-piped"
     await application.close()
 
 

@@ -148,6 +148,86 @@ Pipeline components can use `context.resolver.resolve(token)` when resolution
 is genuinely dynamic. Constructor injection remains preferable for fixed
 dependencies because graph compilation can validate it before startup.
 
+## Values Established by Guards
+
+When a guard establishes a value that later request components need, keep it in
+an application-owned request-scoped provider instead of a native
+`request.state`/ASGI scope value:
+
+```python
+from typing import Annotated
+
+from tori_py import (
+    ClassProvider,
+    Inject,
+    Scope,
+    controller,
+    get,
+    module,
+    use_guard,
+)
+
+
+class TenantScope:
+    def __init__(self) -> None:
+        self._tenant_id: str | None = None
+
+    def bind(self, tenant_id: str) -> None:
+        if self._tenant_id is not None:
+            raise RuntimeError("tenant is already bound")
+        self._tenant_id = tenant_id
+
+    @property
+    def tenant_id(self) -> str:
+        if self._tenant_id is None:
+            raise RuntimeError("tenant has not been bound")
+        return self._tenant_id
+
+
+class TenantGuard:
+    def __init__(
+        self,
+        tenant_scope: Annotated[TenantScope, Inject(TenantScope)],
+    ) -> None:
+        self.tenant_scope = tenant_scope
+
+    async def can_activate(self, context) -> bool:
+        tenant_id = await resolve_and_authorize_tenant(context)
+        self.tenant_scope.bind(tenant_id)
+        return True
+
+
+@controller()
+class TenantController:
+    @get("/tenant")
+    @use_guard(TenantGuard)
+    async def tenant(
+        self,
+        tenant_scope: Annotated[TenantScope, Inject(TenantScope)],
+    ) -> str:
+        return tenant_scope.tenant_id
+
+
+@module(
+    controllers=[TenantController],
+    providers=[
+        ClassProvider(TenantScope, scope=Scope.REQUEST),
+        ClassProvider(TenantGuard, scope=Scope.REQUEST),
+    ],
+)
+class TenantModule:
+    pass
+```
+
+`resolve_and_authorize_tenant()` represents application-owned tenant resolution;
+derive and validate the tenant from trusted identity or routing data. ToriPy
+resolves the guard and its `TenantScope` before invoking guards, then binds route
+arguments after all guards pass. The request-scope cache therefore supplies the
+same `TenantScope` instance to the guard and handler. Leave it unbound in
+`__init__()`; bind once during guard execution and read it only afterward.
+Request-scoped services can inject the same provider. Singleton services should
+receive tenant values as method arguments rather than retain request data.
+
 ## Lifetime and Cleanup
 
 The HTTP context and request scope stay active through:
