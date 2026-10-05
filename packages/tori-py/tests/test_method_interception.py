@@ -3,8 +3,10 @@ from typing import Annotated, cast
 
 import pytest
 from tori_py import (
+    AliasProvider,
     BootstrapError,
     ClassProvider,
+    FactoryProvider,
     Inject,
     MethodInvocationContext,
     PipelineStateError,
@@ -13,6 +15,7 @@ from tori_py import (
     compile_graph,
     injectable,
     module,
+    use_method_interceptor,
     use_method_interceptors,
 )
 from tori_py.core.errors import ScopeError
@@ -115,6 +118,91 @@ async def test_opt_in_proxies_resolve_method_interceptors_in_the_active_scope() 
 
 
 @pytest.mark.asyncio
+async def test_interceptor_providers_resolve_lazily_inside_the_chain() -> None:
+    inner_constructions = 0
+
+    class OuterInterceptor:
+        async def intercept(self, context, next) -> object:
+            if context.method_name == "short_circuit":
+                return "short-circuited"
+            try:
+                return await next()
+            except LookupError:
+                return "inner resolution handled"
+
+    def create_inner_interceptor() -> object:
+        nonlocal inner_constructions
+        inner_constructions += 1
+        raise LookupError("inner interceptor construction failed")
+
+    @injectable(proxy=True)
+    class Service:
+        @use_method_interceptors(OuterInterceptor(), "inner")
+        async def short_circuit(self) -> str:
+            return "unreachable"
+
+        @use_method_interceptors(OuterInterceptor(), "inner")
+        async def catch_inner_failure(self) -> str:
+            return "unreachable"
+
+    @module(
+        providers=[
+            Service,
+            FactoryProvider("inner", create_inner_interceptor, scope=Scope.REQUEST),
+        ]
+    )
+    class Root:
+        pass
+
+    graph = await compile_graph(Root)
+    kernel = ApplicationKernel(graph)
+    await kernel.start()
+    service = cast(Service, await kernel.resolver(graph.root).resolve(Service))
+
+    async with kernel.request_scope(graph.root):
+        assert await service.short_circuit() == "short-circuited"
+        assert inner_constructions == 0
+        assert await service.catch_inner_failure() == "inner resolution handled"
+        assert inner_constructions == 1
+
+    await kernel.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_provider_proxy_cannot_use_another_container_scope() -> None:
+    class TraceInterceptor:
+        async def intercept(self, context, next) -> object:
+            return await next()
+
+    @injectable(proxy=True)
+    class Service:
+        @use_method_interceptors(TraceInterceptor())
+        async def execute(self) -> str:
+            return "ok"
+
+    @module(providers=[Service])
+    class Root:
+        pass
+
+    graph = await compile_graph(Root)
+    first_kernel = ApplicationKernel(graph)
+    second_kernel = ApplicationKernel(graph)
+    await first_kernel.start()
+    await second_kernel.start()
+    first_service = cast(
+        Service,
+        await first_kernel.resolver(graph.root).resolve(Service),
+    )
+
+    async with second_kernel.request_scope(graph.root):
+        with pytest.raises(ScopeError, match="active request or work scope"):
+            await first_service.execute()
+
+    await first_kernel.shutdown()
+    await second_kernel.shutdown()
+
+
+@pytest.mark.asyncio
 async def test_proxy_self_invocation_does_not_reenter_method_interceptors() -> None:
     calls: list[str] = []
 
@@ -199,6 +287,216 @@ async def test_stacked_method_interceptors_run_outermost_first() -> None:
         "method",
         "inner-out",
         "outer-out",
+    ]
+    await kernel.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_method_interceptors_support_both_class_and_static_method_orders() -> (
+    None
+):
+    calls: list[str] = []
+
+    class TraceInterceptor:
+        async def intercept(self, context, next) -> object:
+            calls.append(context.method_name)
+            return await next()
+
+    @injectable(proxy=True)
+    class Service:
+        @use_method_interceptor(TraceInterceptor())
+        @classmethod
+        async def class_outer(cls) -> str:
+            return cls.__name__
+
+        @classmethod
+        @use_method_interceptor(TraceInterceptor())
+        async def class_inner(cls) -> str:
+            return cls.__name__
+
+        @use_method_interceptor(TraceInterceptor())
+        @staticmethod
+        async def static_outer() -> str:
+            return "outer"
+
+        @staticmethod
+        @use_method_interceptor(TraceInterceptor())
+        async def static_inner() -> str:
+            return "inner"
+
+    @module(providers=[Service])
+    class Root:
+        pass
+
+    graph = await compile_graph(Root)
+    kernel = ApplicationKernel(graph)
+    await kernel.start()
+    service = cast(Service, await kernel.resolver(graph.root).resolve(Service))
+
+    async with kernel.request_scope(graph.root):
+        assert await service.class_outer() == "Service"
+        assert await service.class_inner() == "Service"
+        assert await service.static_outer() == "outer"
+        assert await service.static_inner() == "inner"
+
+    assert calls == ["class_outer", "class_inner", "static_outer", "static_inner"]
+    await kernel.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_alias_to_proxy_preserves_advice_and_inherited_method_override() -> None:
+    calls: list[str] = []
+
+    class TraceInterceptor:
+        async def intercept(self, context, next) -> object:
+            calls.append(context.method_name)
+            return await next()
+
+    class BaseService:
+        @use_method_interceptors(TraceInterceptor())
+        async def inherited(self) -> str:
+            return "base"
+
+        @use_method_interceptors(TraceInterceptor())
+        async def overridden(self) -> str:
+            return "base override"
+
+    @injectable(proxy=True)
+    class Service(BaseService):
+        async def overridden(self) -> str:
+            return "derived override"
+
+    @module(providers=[Service, AliasProvider("service.alias", Service)])
+    class Root:
+        pass
+
+    graph = await compile_graph(Root)
+    kernel = ApplicationKernel(graph)
+    await kernel.start()
+    resolver = kernel.resolver(graph.root)
+    service = cast(Service, await resolver.resolve(Service))
+    alias = cast(Service, await resolver.resolve("service.alias"))
+
+    assert service is alias
+    async with kernel.request_scope(graph.root):
+        assert await alias.inherited() == "base"
+        assert await service.overridden() == "derived override"
+
+    assert calls == ["inherited"]
+    await kernel.shutdown()
+
+
+@pytest.mark.parametrize(
+    ("provider_scope", "same_instance"),
+    ((Scope.REQUEST, True), (Scope.TRANSIENT, False)),
+    ids=("request", "transient"),
+)
+@pytest.mark.asyncio
+async def test_proxied_services_preserve_request_and_transient_lifetimes(
+    provider_scope: Scope,
+    same_instance: bool,
+) -> None:
+    class TraceInterceptor:
+        async def intercept(self, context, next) -> object:
+            return await next()
+
+    class Service:
+        @use_method_interceptors(TraceInterceptor())
+        async def identity(self) -> int:
+            return id(self)
+
+    @module(
+        providers=[
+            ClassProvider(Service, scope=provider_scope, proxy=True),
+        ]
+    )
+    class Root:
+        pass
+
+    graph = await compile_graph(Root)
+    kernel = ApplicationKernel(graph)
+    await kernel.start()
+
+    async with kernel.request_scope(graph.root) as resolver:
+        first = cast(Service, await resolver.resolve(Service))
+        second = cast(Service, await resolver.resolve(Service))
+        assert (first is second) is same_instance
+        assert (await first.identity() == await second.identity()) is same_instance
+
+    await kernel.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_managed_proxy_cleanup_after_error_and_cancellation() -> None:
+    events: list[str] = []
+    started = asyncio.Event()
+
+    class TraceInterceptor:
+        async def intercept(self, context, next) -> object:
+            events.append(f"{context.method_name}:before")
+            try:
+                return await next()
+            finally:
+                events.append(f"{context.method_name}:after")
+
+    @injectable(scope=Scope.REQUEST, proxy=True)
+    class ManagedService:
+        async def __aenter__(self):
+            events.append("resource:enter")
+            return self
+
+        async def __aexit__(self, *exc_info: object) -> None:
+            del exc_info
+            events.append("resource:exit")
+
+        @use_method_interceptors(TraceInterceptor())
+        async def fail(self) -> None:
+            events.append("method:fail")
+            raise ValueError("expected")
+
+        @use_method_interceptors(TraceInterceptor())
+        async def wait(self) -> None:
+            events.append("method:wait")
+            started.set()
+            await asyncio.Event().wait()
+
+    @module(providers=[ManagedService])
+    class Root:
+        pass
+
+    graph = await compile_graph(Root)
+    kernel = ApplicationKernel(graph)
+    await kernel.start()
+
+    with pytest.raises(ValueError, match="expected"):
+        async with kernel.request_scope(graph.root) as scoped:
+            service = cast(ManagedService, await scoped.resolve(ManagedService))
+            await service.fail()
+
+    assert events == [
+        "resource:enter",
+        "fail:before",
+        "method:fail",
+        "fail:after",
+        "resource:exit",
+    ]
+
+    events.clear()
+    task = asyncio.current_task()
+    assert task is not None
+    asyncio.get_running_loop().call_soon(task.cancel)
+    with pytest.raises(asyncio.CancelledError):
+        async with kernel.request_scope(graph.root) as scoped:
+            service = cast(ManagedService, await scoped.resolve(ManagedService))
+            await service.wait()
+
+    assert started.is_set()
+    assert events == [
+        "resource:enter",
+        "wait:before",
+        "method:wait",
+        "wait:after",
+        "resource:exit",
     ]
     await kernel.shutdown()
 

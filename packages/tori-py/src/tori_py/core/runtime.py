@@ -344,6 +344,12 @@ class Container:
             resources=_ResourceStack(self._executor),
         )
         self._closed = False
+        self._current_scope: contextvars.ContextVar[RequestScope | None] = (
+            contextvars.ContextVar(
+                f"tori_py_current_scope_{id(self):x}",
+                default=None,
+            )
+        )
 
     def resolver(self, module_id: ModuleId) -> QualifiedScopedResolver:
         return _Resolver(self, module_id, self._application)
@@ -464,6 +470,7 @@ class Container:
                     value,
                     ref,
                     provider_plan.method_interceptors,
+                    self._current_scope,
                 )
             return value
         except BaseException as error:
@@ -525,7 +532,7 @@ class RequestScope(AbstractAsyncContextManager[ScopedResolver]):
         self.state.bind_owner()
         if self._on_open is not None:
             self._on_open(self)
-        self._context_token = _CURRENT_SCOPE.set(self)
+        self._context_token = self._container._current_scope.set(self)
         return self.resolver
 
     def resolver_for(self, module_id: ModuleId) -> QualifiedScopedResolver:
@@ -555,7 +562,7 @@ class RequestScope(AbstractAsyncContextManager[ScopedResolver]):
             token = self._context_token
             self._context_token = None
             if token is not None:
-                _CURRENT_SCOPE.reset(token)
+                self._container._current_scope.reset(token)
 
     async def _finalize(
         self,
@@ -613,12 +620,6 @@ class RequestScope(AbstractAsyncContextManager[ScopedResolver]):
             self._on_close(self)
 
 
-_CURRENT_SCOPE: contextvars.ContextVar[RequestScope | None] = contextvars.ContextVar(
-    "tori_py_current_scope",
-    default=None,
-)
-
-
 class _ProviderProxy:
     """Forward provider access and intercept public async method calls."""
 
@@ -626,6 +627,7 @@ class _ProviderProxy:
         "_tori_py_aop_target",
         "_tori_py_aop_provider_ref",
         "_tori_py_aop_method_interceptors",
+        "_tori_py_aop_current_scope",
     )
 
     def __init__(
@@ -636,12 +638,14 @@ class _ProviderProxy:
             str,
             tuple[ProviderRef | MethodInterceptor, ...],
         ],
+        current_scope: contextvars.ContextVar[RequestScope | None],
     ) -> None:
         object.__setattr__(self, "_tori_py_aop_target", target)
         object.__setattr__(self, "_tori_py_aop_provider_ref", provider_ref)
         object.__setattr__(
             self, "_tori_py_aop_method_interceptors", method_interceptors
         )
+        object.__setattr__(self, "_tori_py_aop_current_scope", current_scope)
 
     @property
     def __class__(self) -> type[object]:
@@ -694,7 +698,8 @@ class _ProviderProxy:
         if not bindings:
             return await _await_method(method, args, kwargs)
 
-        scope = _CURRENT_SCOPE.get()
+        current_scope = object.__getattribute__(self, "_tori_py_aop_current_scope")
+        scope = current_scope.get()
         if scope is None:
             raise ScopeError(
                 "intercepted provider methods require an active request or work scope"
@@ -708,8 +713,11 @@ class _ProviderProxy:
             arguments=args,
             keyword_arguments=kwargs,
         )
-        interceptors: list[MethodInterceptor] = []
-        for binding in bindings:
+
+        async def dispatch(index: int) -> object:
+            if index == len(bindings):
+                return await _await_method(method, args, kwargs)
+            binding = bindings[index]
             interceptor = (
                 await scope.resolve_ref(binding)
                 if isinstance(binding, ProviderRef)
@@ -722,11 +730,6 @@ class _ProviderProxy:
                     "method interceptor provider must implement async "
                     "MethodInterceptor.intercept"
                 )
-            interceptors.append(interceptor)
-
-        async def dispatch(index: int) -> object:
-            if index == len(interceptors):
-                return await _await_method(method, args, kwargs)
             called = False
 
             async def next_once() -> object:
@@ -738,7 +741,7 @@ class _ProviderProxy:
                 called = True
                 return await dispatch(index + 1)
 
-            return await interceptors[index].intercept(context, next_once)
+            return await interceptor.intercept(context, next_once)
 
         return await dispatch(0)
 

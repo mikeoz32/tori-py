@@ -216,11 +216,20 @@ def use_method_interceptors(*interceptors: MethodInterceptorBinding) -> Any:
     )
 
     def decorate(target: Any) -> Any:
-        own = getattr(target, "__dict__", {})
+        metadata_target = (
+            target.__func__
+            if isinstance(target, classmethod | staticmethod)
+            else target
+        )
+        own = getattr(metadata_target, "__dict__", {})
         existing = own.get(_METHOD_INTERCEPTORS_ATTRIBUTE, ())
         if not isinstance(existing, tuple):
             existing = ()
-        setattr(target, _METHOD_INTERCEPTORS_ATTRIBUTE, normalized + existing)
+        setattr(
+            metadata_target,
+            _METHOD_INTERCEPTORS_ATTRIBUTE,
+            normalized + existing,
+        )
         return target
 
     return decorate
@@ -235,7 +244,13 @@ def use_method_interceptor(interceptor: MethodInterceptorBinding) -> Any:
 def get_method_interceptors(target: Any) -> tuple[MethodInterceptorBinding, ...]:
     """Return method interceptors directly attached to a method."""
 
-    value = getattr(target, "__dict__", {}).get(_METHOD_INTERCEPTORS_ATTRIBUTE, ())
+    metadata_target = (
+        target.__func__ if isinstance(target, classmethod | staticmethod) else target
+    )
+    value = getattr(metadata_target, "__dict__", {}).get(
+        _METHOD_INTERCEPTORS_ATTRIBUTE,
+        (),
+    )
     return value if isinstance(value, tuple) else ()
 
 

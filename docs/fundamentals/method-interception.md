@@ -36,6 +36,10 @@ class ServicesModule:
 The proxy preserves provider scope, constructor injection, managed-resource
 cleanup, and `isinstance(proxy, ProviderClass)`. Proxying does not make a
 singleton request-scoped; its target and proxy remain shared across callers.
+Forwarding covers ordinary attribute access and async methods, not arbitrary
+Python data-model methods such as `__eq__`, `__iter__`, or `__aenter__`. Use
+proxy-enabled providers as services, not as objects whose special methods define
+their public contract.
 
 ## Attach Method Interceptors
 
