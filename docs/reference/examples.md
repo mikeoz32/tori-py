@@ -24,8 +24,11 @@ run an existing example.
 | Example | Exact command | Demonstrates |
 | --- | --- | --- |
 | `examples/tori_py/app.py` | `uv run tori-py run examples.tori_py.app:create_application --set greeting=hello` | Typed settings, request scope, a guard, msgspec validation, a filter provider, and the CLI factory path |
+| Method-interception authorization | `uv run tori-py run examples.tori_py.method_interception.app:create_application` | Opt-in provider proxy, custom `@requires_permission` aspect, request-scoped caller context, and the same policy in an in-process work scope |
 
 Request `GET /example/health?count=2` while it is running.
+The method-interception demo accepts `Bearer reader-token` and
+`Bearer publisher-token`; they are example credentials, not production auth.
 
 ### LiveView
 

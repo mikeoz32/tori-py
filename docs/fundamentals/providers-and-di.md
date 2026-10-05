@@ -10,13 +10,17 @@ annotations; there is no service locator scan or implicit class construction.
 | Declaration | Creates or exposes | Default scope | Resource default |
 | --- | --- | --- | --- |
 | `ValueProvider(token, value)` | One existing value | Singleton only | Unmanaged; opt in with `manage=True` |
-| `ClassProvider(token, use_class)` | A class instance | Singleton | Managed with `manage=True` |
+| `ClassProvider(token, use_class, proxy=False)` | A class instance | Singleton | Managed with `manage=True`; proxying is opt-in |
 | `FactoryProvider(token, factory)` | A sync or async factory result | Singleton | Managed with `manage=True` |
 | `AliasProvider(token, target)` | The canonical target value | Target's effective scope | Never owns cleanup separately |
 | A directly `@injectable()` class in `providers` | `ClassProvider(Class, Class, ...)` shorthand | Decorator scope | Decorator `manage` value |
 
 Provider declarations are immutable. Explicit `ClassProvider` settings override
 any `@injectable()` metadata on the implementation class.
+Method interception is disabled by default; enable it with `proxy=True` on the
+class provider or `@injectable(proxy=True)`. See
+[Method Interception](method-interception.md) for the method decorator and scope
+contract.
 
 ## Tokens
 

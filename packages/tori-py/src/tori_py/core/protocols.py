@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable, Iterable, Iterator, Mapping
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from tori_py.core.providers import Token
@@ -150,6 +151,36 @@ class ExecutionContext(Protocol):
         """Return a driver-neutral execution kind such as ``http``."""
 
 
+@dataclass(frozen=True, slots=True)
+class MethodInvocationContext:
+    """DI and call metadata for one proxied asynchronous provider method."""
+
+    provider_ref: ProviderRef
+    method_name: str
+    resolver: QualifiedScopedResolver
+    arguments: tuple[object, ...]
+    keyword_arguments: Mapping[str, object]
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "keyword_arguments",
+            MappingProxyType(dict(self.keyword_arguments)),
+        )
+
+
+@runtime_checkable
+class MethodInterceptor(Protocol):
+    """Wrap one asynchronous provider method call and optionally short-circuit it."""
+
+    async def intercept(
+        self,
+        context: MethodInvocationContext,
+        next: Callable[[], Awaitable[object]],
+    ) -> object:
+        """Run before and/or after the next interceptor or method body."""
+
+
 @runtime_checkable
 class RouteParameterResolver(Protocol):
     """Resolve one custom route parameter from the current execution context."""
@@ -290,6 +321,8 @@ __all__ = [
     "Guard",
     "Interceptor",
     "Logger",
+    "MethodInterceptor",
+    "MethodInvocationContext",
     "Middleware",
     "ModulesContainer",
     "Pipe",

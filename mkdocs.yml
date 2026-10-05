@@ -68,6 +68,7 @@ nav:
       - Overview: fundamentals/index.md
       - Modules: fundamentals/modules.md
       - Providers and DI: fundamentals/providers-and-di.md
+      - Method Interception: fundamentals/method-interception.md
       - Scopes and Resources: fundamentals/scopes-and-resources.md
       - Lifecycle: fundamentals/lifecycle.md
       - Discovery and Reflection: fundamentals/discovery-and-reflection.md
