@@ -43,7 +43,10 @@ be stacked to map several paths to one page class. `LiveView` exposes:
 - `push_patch(to, kind="push")` for in-page navigation applied after render;
 - `push_navigate(to, kind="push")` for live navigation to another page in the
   same session, falling back to a full reload across sessions;
-- `redirect(to)` for navigation with a full page reload;
+- `redirect(to)` for navigation with a full page reload; the target is cleaned
+  like a browser reads it, must be a path or an http(s) URL, and must stay on
+  the request host name or a host in `LiveViewOptions.redirect_hosts`, so
+  untrusted values such as `next` cannot run script or leave the site;
 - `handle_event(event, value)` for connected browser events;
 - `handle_info(name, value)` for serialized timer and subscription messages;
 - `send_info(name, value=None)` for connection-local message delivery;

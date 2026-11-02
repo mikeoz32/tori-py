@@ -5,8 +5,12 @@ from urllib.parse import parse_qsl, urlsplit
 
 from starlette.routing import Match, Route
 
-from tori_py_liveview.errors import LiveViewConfigurationError
+from tori_py_liveview.errors import LiveViewConfigurationError, LiveViewError
 from tori_py_liveview.options import normalize_origin
+
+_C0_CONTROL_OR_SPACE = "".join(chr(code) for code in range(0x21))
+_TAB_OR_NEWLINE = str.maketrans("", "", "\t\n\r")
+_REDIRECT_SCHEMES = frozenset({"", "http", "https"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -72,10 +76,44 @@ def match_live_url(
     return None
 
 
+def clean_url(url: str) -> str:
+    """Strip what browsers ignore in a URL and read ``\\`` as ``/`` like they do."""
+    return url.strip(_C0_CONTROL_OR_SPACE).translate(_TAB_OR_NEWLINE).replace("\\", "/")
+
+
+def redirect_target(url: str) -> str:
+    """Clean a full-reload target and reject anything but a path or http(s) URL."""
+    cleaned = clean_url(url)
+    try:
+        split = urlsplit(cleaned)
+    except ValueError:
+        split = None
+    if (
+        split is None
+        or not cleaned
+        or split.scheme not in _REDIRECT_SCHEMES
+        # "https:host" and "//" have no host urlsplit can see.
+        or ((split.scheme or cleaned.startswith("//")) and not split.hostname)
+    ):
+        raise LiveViewError("redirect target must be a path or an http(s) URL")
+    return cleaned
+
+
+def redirect_host_allowed(host: str, url: str, allowed_hosts: tuple[str, ...]) -> bool:
+    """Check that a cleaned redirect target stays on the request host name."""
+    hostname = urlsplit(url).hostname
+    if hostname is None or hostname in allowed_hosts:
+        return True
+    try:
+        return hostname == urlsplit(f"//{host}").hostname
+    except ValueError:
+        return False
+
+
 def same_origin(host: str, url: str, *, scheme: str | None = None) -> bool:
     """Check a client URL against the connection host (defense in depth)."""
     try:
-        split = urlsplit(url)
+        split = urlsplit(clean_url(url))
     except ValueError:
         return False
     if not split.scheme:
@@ -102,7 +140,10 @@ async def _endpoint(request: object) -> object:
 __all__ = [
     "CompiledLiveRoute",
     "LiveRoute",
+    "clean_url",
     "compile_live_routes",
     "match_live_url",
+    "redirect_host_allowed",
+    "redirect_target",
     "same_origin",
 ]
