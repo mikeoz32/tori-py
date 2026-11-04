@@ -11,6 +11,7 @@ from tori_py import (
     MethodInvocationContext,
     PipelineStateError,
     Scope,
+    ValueProvider,
     WorkScopeFactory,
     compile_graph,
     injectable,
@@ -550,6 +551,109 @@ async def test_method_interceptors_require_proxy_opt_in() -> None:
         await compile_graph(Root)
 
     assert captured.value.diagnostic_code == "provider.invalid_declaration"
+
+
+@pytest.mark.asyncio
+async def test_value_providers_cannot_expose_advised_instances() -> None:
+    class Service:
+        @use_method_interceptors("trace")
+        async def execute(self) -> None:
+            return None
+
+    class FakeService:
+        async def execute(self) -> None:
+            return None
+
+    @module(providers=[ValueProvider(Service, Service())])
+    class Root:
+        pass
+
+    @module(providers=[ValueProvider(Service, FakeService())])
+    class FakeRoot:
+        pass
+
+    with pytest.raises(
+        BootstrapError, match="class provider with proxy=True"
+    ) as captured:
+        await compile_graph(Root)
+
+    assert captured.value.diagnostic_code == "provider.invalid_declaration"
+    await compile_graph(FakeRoot)
+
+
+@pytest.mark.asyncio
+async def test_factory_providers_cannot_return_advised_instances() -> None:
+    events: list[str] = []
+
+    class TraceInterceptor:
+        async def intercept(self, context, next) -> object:
+            return await next()
+
+    class Service:
+        async def __aenter__(self):
+            events.append("resource:enter")
+            return self
+
+        async def __aexit__(self, *exc_info: object) -> None:
+            del exc_info
+            events.append("resource:exit")
+
+        @use_method_interceptors(TraceInterceptor())
+        async def execute(self) -> None:
+            return None
+
+    def create_service() -> Service:
+        return Service()
+
+    @module(providers=[FactoryProvider(Service, create_service)])
+    class Root:
+        pass
+
+    kernel = ApplicationKernel(await compile_graph(Root))
+
+    with pytest.raises(
+        BootstrapError, match="class provider with proxy=True"
+    ) as captured:
+        await kernel.start()
+
+    assert captured.value.diagnostic_code == "provider.invalid_declaration"
+    assert events == ["resource:enter", "resource:exit"]
+
+
+@pytest.mark.asyncio
+async def test_factory_providers_may_return_an_injected_proxy() -> None:
+    calls: list[str] = []
+
+    class TraceInterceptor:
+        async def intercept(self, context, next) -> object:
+            calls.append(context.method_name)
+            return await next()
+
+    @injectable(proxy=True)
+    class Service:
+        @use_method_interceptors(TraceInterceptor())
+        async def execute(self) -> str:
+            return "ok"
+
+    def expose(service: Service) -> Service:
+        return service
+
+    @module(providers=[Service, FactoryProvider("exposed", expose, manage=False)])
+    class Root:
+        pass
+
+    graph = await compile_graph(Root)
+    kernel = ApplicationKernel(graph)
+    await kernel.start()
+    resolver = kernel.resolver(graph.root)
+    exposed = cast(Service, await resolver.resolve("exposed"))
+
+    assert exposed is await resolver.resolve(Service)
+    async with kernel.request_scope(graph.root):
+        assert await exposed.execute() == "ok"
+
+    assert calls == ["execute"]
+    await kernel.shutdown()
 
 
 @pytest.mark.asyncio
