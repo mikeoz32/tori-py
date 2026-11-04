@@ -99,6 +99,13 @@ interceptor context. Synchronous methods are not intercepted in this version;
 declaring interceptors on one fails graph compilation. Method interceptor
 metadata on a provider requires `proxy=True`.
 
+Only a proxied `ClassProvider` can expose a class whose methods carry
+interceptors. A `ValueProvider` holding such an instance fails graph
+compilation, and a `FactoryProvider` fails when it returns one, so the advice is
+never skipped silently. A factory may return a proxy it received as a
+dependency, and a test fake without interceptor metadata may still replace an
+advised provider through `use_value()`.
+
 ## Write Decorator Sugar
 
 Extension packages can make a focused decorator by attaching their interceptor
@@ -123,6 +130,11 @@ reverse order. Each interceptor may await `next()` at most once or short-circuit
 with its own result. Calls made from an intercepted target to `self.other()` run
 on the target instance and bypass the proxy; call through an injected proxy when
 the nested method also needs interception.
+
+Interceptor metadata belongs to the decorated function, as with any Python
+decorator. A subclass method that overrides an advised method runs without the
+base method's interceptors; redeclare them on the override when it must stay
+protected.
 
 ## Scope and Concurrency
 

@@ -18,7 +18,8 @@ annotations; there is no service locator scan or implicit class construction.
 Provider declarations are immutable. Explicit `ClassProvider` settings override
 any `@injectable()` metadata on the implementation class.
 Method interception is disabled by default; enable it with `proxy=True` on the
-class provider or `@injectable(proxy=True)`. See
+class provider or `@injectable(proxy=True)`. Value and factory providers cannot
+expose a class whose methods carry interceptors. See
 [Method Interception](method-interception.md) for the method decorator and scope
 contract.
 
