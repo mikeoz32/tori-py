@@ -167,7 +167,9 @@ class DatabaseSettings(msgspec.Struct):
 ```
 
 `secret_paths(Model)` discovers dotted secret paths, including nested model
-fields. A `BootstrapContext` or CLI `--set` that targets a secret path, or a
+fields and fields or nested models wrapped in `Optional` or `| None`. A union
+with any `Secret` member, such as `Secret[str] | int`, is secret as a whole. A
+`BootstrapContext` or CLI `--set` that targets a secret path, or a
 descendant of one, is rejected with `settings.source_error`. The rejected value
 is represented as `<redacted>` in the diagnostic and is not echoed in its error
 text. Supply secrets through an explicit file, dotenv, or environment instead.

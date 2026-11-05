@@ -72,6 +72,34 @@ def test_secret_paths_and_cli_redaction() -> None:
     assert error.value.diagnostic.details["value"] == "<redacted>"
 
 
+def test_optional_and_union_secrets_reject_bootstrap_overrides() -> None:
+    class Credentials(msgspec.Struct):
+        host: str = "db"
+        password: Secret[str] = "password"
+
+    class OptionalSettings(msgspec.Struct):
+        union: Secret[str] | None = None
+        annotated: Annotated[Secret[str] | None, "extra metadata"] = None
+        mixed: Secret[str] | int = 0
+        database: Credentials | None = None
+
+    paths = ("union", "annotated", "mixed", "database.password")
+    assert secret_paths(OptionalSettings) == paths
+    options = SettingsOptions(model=OptionalSettings, base_dir=Path("."))
+
+    for path in paths:
+        with use_bootstrap_context(BootstrapContext(((path, "do-not-leak-this"),))):
+            with pytest.raises(SettingsError) as error:
+                load_settings(options)
+        assert error.value.diagnostic.details == {"path": path, "value": "<redacted>"}
+        assert "do-not-leak-this" not in str(error.value)
+
+    with use_bootstrap_context(BootstrapContext((("database.host", "cli-host"),))):
+        settings = load_settings(options)
+    assert isinstance(settings, OptionalSettings)
+    assert settings.database == Credentials(host="cli-host")
+
+
 def test_context_resets_and_custom_decoder_is_used() -> None:
     class Codec:
         called = False

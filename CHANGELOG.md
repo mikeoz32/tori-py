@@ -35,6 +35,9 @@ one package does not require the same change in every package.
 
 - OpenAPI header parameter identities now follow case-insensitive HTTP semantics,
   and excessively nested annotations fail with typed schema diagnostics.
+- Settings secrets wrapped in `Optional`, `| None`, or another union, and secrets
+  inside optional nested models, are now protected from `--set` and other
+  bootstrap overrides.
 
 ## [0.1.0] - Unreleased
 
