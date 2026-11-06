@@ -26,6 +26,7 @@ from tori_py_liveview.rendering import (
 from tori_py_liveview.rendering import (
     html as render_template,
 )
+from tori_py_liveview.routing import redirect_target
 
 _LOGGER = logging.getLogger(__name__)
 _ComponentT = TypeVar("_ComponentT", bound=LiveComponent)
@@ -439,10 +440,14 @@ class LiveView(ABC):
         self._liveview_pending_redirect = ("navigate", to, kind)
 
     def redirect(self, to: str) -> None:
-        """Navigate with a full page reload; applied after the handler renders."""
+        """Navigate with a full page reload; applied after the handler renders.
+
+        The target is cleaned and must be a path or an http(s) URL on the
+        request host or on a host listed in ``LiveViewOptions.redirect_hosts``.
+        """
         if not isinstance(to, str) or not to:
             raise LiveViewError("redirect target must be a non-empty string")
-        self._liveview_pending_redirect = ("redirect", to, "push")
+        self._liveview_pending_redirect = ("redirect", redirect_target(to), "push")
 
     def _take_liveview_pending_redirect(self) -> tuple[str, str, str] | None:
         pending = self._liveview_pending_redirect

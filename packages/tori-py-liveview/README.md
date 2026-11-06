@@ -98,7 +98,10 @@ as `live_action`. `handle_params` runs after every `mount` and on every patch
 with merged path/query params. Client links use the official attributes
 (`data-phx-link="patch"` / `"redirect"`); the server resolves them against the
 same Starlette patterns. `push_navigate` works within one `LiveSession` and
-falls back to a full reload across sessions. Put authorization in `on_mount`,
+falls back to a full reload across sessions. `redirect(to)` accepts a path or
+an http(s) URL and is safe for untrusted values such as `?next=`: it cleans the
+target the way browsers read it and rejects other schemes or hosts other than
+the request host and `redirect_hosts`. Put authorization in `on_mount`,
 `mount`, and `handle_params`: live navigate rejoins over the socket and never
 passes the HTTP pipeline again. The LiveView integration requires the
 Starlette adapter.
@@ -247,7 +250,9 @@ updates do not extend the browser's inbound idle deadline.
 allowed origins, inbound message limit, mount-token lifetime, join deadline,
 and idle deadline. The default origin policy accepts only the HTTP origin
 corresponding to the WebSocket `Host`; deployments behind a host-rewriting
-proxy should set `allowed_origins` explicitly.
+proxy should set `allowed_origins` explicitly. `redirect_hosts` lists the bare
+host names, such as an identity provider, that `redirect()` may leave the site
+for; it is empty by default.
 
 Mount tokens are signed, expiring HMAC values. They prevent page/resource
 tampering but are not encrypted and do not replace authentication or
