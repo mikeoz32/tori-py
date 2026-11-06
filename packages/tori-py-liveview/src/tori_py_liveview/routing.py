@@ -78,7 +78,10 @@ def match_live_url(
 
 def clean_url(url: str) -> str:
     """Strip what browsers ignore in a URL and read ``\\`` as ``/`` like they do."""
-    return url.strip(_C0_CONTROL_OR_SPACE).translate(_TAB_OR_NEWLINE).replace("\\", "/")
+    cleaned = url.strip(_C0_CONTROL_OR_SPACE).translate(_TAB_OR_NEWLINE)
+    # Browsers keep "\" in the query and fragment.
+    end = len(cleaned.split("?", 1)[0].split("#", 1)[0])
+    return cleaned[:end].replace("\\", "/") + cleaned[end:]
 
 
 def redirect_target(url: str) -> str:
@@ -112,12 +115,14 @@ def redirect_host_allowed(host: str, url: str, allowed_hosts: tuple[str, ...]) -
 
 def same_origin(host: str, url: str, *, scheme: str | None = None) -> bool:
     """Check a client URL against the connection host (defense in depth)."""
+    cleaned = clean_url(url)
     try:
-        split = urlsplit(clean_url(url))
+        split = urlsplit(cleaned)
     except ValueError:
         return False
     if not split.scheme:
-        return not split.netloc
+        # Browsers read "///host" as a host too; urlsplit sees a path.
+        return not cleaned.startswith("//")
     if split.scheme not in {"http", "https"}:
         return False
     if not split.netloc:

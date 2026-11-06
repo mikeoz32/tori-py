@@ -38,7 +38,8 @@ one package does not require the same change in every package.
 - LiveView `redirect()` now cleans its target, rejects non-http(s) schemes such
   as `javascript:`, and keeps redirects on the request host unless the host is
   listed in the new `LiveViewOptions.redirect_hosts`. Live navigation targets
-  containing `\` are no longer treated as same-origin.
+  that browsers read as another host, such as `/\evil.example` or
+  `///evil.example`, are no longer treated as same-origin.
 
 ## [0.1.0] - Unreleased
 

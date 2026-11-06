@@ -85,12 +85,20 @@ def test_same_origin_accepts_relative_and_matching_urls_only() -> None:
     assert not same_origin("testserver", "http://other/items")
     assert not same_origin("testserver", "http://testserver:81/items")
     assert not same_origin("testserver", "//other/items")
+    assert not same_origin("testserver", "///other/items")
     assert not same_origin("testserver", "ftp://testserver/items")
 
 
 # Browsers read "\" as "/" here, so each of these leaves http://testserver/.
 @pytest.mark.parametrize(
-    "url", ["/\\evil.example", "\\\\evil.example", "\\/evil.example"]
+    "url",
+    [
+        "/\\evil.example",
+        "\\\\evil.example",
+        "\\/evil.example",
+        "//\\evil.example",
+        "/\\/evil.example",
+    ],
 )
 def test_same_origin_reads_backslashes_like_browsers(url: str) -> None:
     assert not same_origin("testserver", url)
@@ -105,6 +113,8 @@ def test_same_origin_reads_backslashes_like_browsers(url: str) -> None:
         (" /settings\n", "/settings"),
         ("/\\evil.example", "//evil.example"),
         ("https://idp.example/login", "https://idp.example/login"),
+        ("/docs\\guide?q=C:\\Users#a\\b", "/docs/guide?q=C:\\Users#a\\b"),
+        ("/docs#a\\b?c\\d", "/docs#a\\b?c\\d"),
     ],
 )
 def test_redirect_stores_the_cleaned_target(target: str, expected: str) -> None:
@@ -349,6 +359,42 @@ async def test_http_mount_redirect_keeps_untrusted_next_on_allowed_hosts() -> No
         for target in ("/\\evil.example", "https://evil.example/", "javascript:x"):
             response = await _request(
                 application, f"/mount-next?next={quote(target, safe='')}"
+            )
+            assert response.status_code == 500
+            assert "location" not in response.headers
+    finally:
+        await application.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_http_mount_navigation_never_leaves_the_request_host() -> None:
+    @live_view("/mount-navigate")
+    class MountNavigateLive(LiveView):
+        async def mount(self, context: MountContext) -> None:
+            self.push_navigate(context.query_params["next"])
+
+        def render(self):
+            return "<div>never rendered</div>"
+
+    liveview_module = LiveViewModule.for_root(
+        LiveViewOptions(secret="s" * 32),
+        pages=[MountNavigateLive],
+        key="mount-navigate",
+    )
+
+    @module(imports=[liveview_module])
+    class Root:
+        pass
+
+    application = await NestApplication.create(Root, adapter=StarletteAdapter())
+    await application.start()
+    try:
+        response = await _request(application, "/mount-navigate?next=%2Fsettings")
+        assert response.status_code == 302
+        assert response.headers["location"] == "/settings"
+        for target in ("///evil.example", "//\\evil.example", "/\\/evil.example"):
+            response = await _request(
+                application, f"/mount-navigate?next={quote(target, safe='')}"
             )
             assert response.status_code == 500
             assert "location" not in response.headers
