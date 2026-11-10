@@ -126,13 +126,49 @@ Phoenix render-tree values. Interpolate those structural values without `!s`,
 in HTML text and quoted attribute values; dynamic tag or attribute names, CSS,
 and JavaScript are outside the safe authoring contract.
 
+## JS commands
+
 The Phoenix client runs a `phx-*` binding value that starts with `[` as JS
-commands. `attrs()`, Template interpolation, and `rendered()` values therefore
-reject data, including nested Templates and fragments, that would start such a
-value or appear inside one. `phx-value-*`, `phx-target`, `phx-key`, and
-`phx-disable-with` are exempt because the client never runs them. Write
-intentional JS commands in Template statics or `raw()`; to build one from data,
-JSON-encode it, HTML-escape the result, and pass it through `raw()`.
+commands. Build them with `JS`, the counterpart of `Phoenix.LiveView.JS`:
+
+```python
+from string.templatelib import Template
+
+from tori_py_liveview import JS, LiveView, fragment
+
+
+class ItemsLive(LiveView):
+    def render(self) -> Template:
+        menu = JS().toggle(
+            to="#items", transition_in=("ease-out", "opacity-0", "opacity-100")
+        )
+        rows = fragment(self.row(item) for item in self.items)
+        return t'<button phx-click="{menu}">Items</button><ul id="items">{rows}</ul>'
+
+    def row(self, item: Item) -> Template:
+        delete = JS().push("delete", value={"id": item.id}).hide(to=f"#item-{item.id}")
+        button = t'<button phx-click="{delete}">Delete</button>'
+        return t'<li id="item-{item.id}">{item.name} {button}</li>'
+```
+
+`JS()` starts an immutable chain; every method returns a new chain. The builder
+covers the commands of the pinned client: `push`, `navigate`, `patch`,
+`dispatch`, `show`, `hide`, `toggle`, `add_class`, `remove_class`,
+`toggle_class`, `transition`, `set_attribute`, `remove_attribute`,
+`toggle_attribute`, `ignore_attributes`, `focus`, `focus_first`, `push_focus`,
+`pop_focus`, and `exec`. `to` is a selector or a `("closest", selector)` /
+`("inner", selector)` pair, and a transition is a class string or a
+`(classes, start, end)` triple. Arguments are JSON encoded and validated when a
+command is added: `navigate` and `patch` take root-relative paths, attribute
+commands follow the `attrs()` rules, and `exec` runs only `phx-*` bindings.
+Pass a chain through Template interpolation, `attrs()`, or `rendered()`; LiveView
+UI event options accept it too.
+
+Other dynamic values cannot start a command value or appear inside one, so data
+used as an event name is never run as commands. `phx-value-*`, `phx-target`,
+`phx-key`, and `phx-disable-with` are exempt because the client never runs
+them. Commands written in Template statics or `raw()` remain trusted
+application code.
 
 ## Stateful components
 

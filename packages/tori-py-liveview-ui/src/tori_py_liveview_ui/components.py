@@ -4,7 +4,7 @@ from collections.abc import Iterable
 from string.templatelib import Template
 from typing import Literal
 
-from tori_py_liveview import attrs, classes, fragment, raw
+from tori_py_liveview import JS, attrs, classes, fragment, raw
 
 type ButtonVariant = Literal["primary", "secondary", "ghost", "danger"]
 type ButtonSize = Literal["sm", "md", "lg"]
@@ -100,16 +100,18 @@ def _html_id(name: str, value: str) -> str:
     return value
 
 
-def _event(name: str, value: str | None) -> str | None:
-    if value is not None:
+def _event(name: str, value: str | JS | None) -> str | JS | None:
+    if value is not None and not isinstance(value, JS):
         if not isinstance(value, str):
-            raise TypeError(f"{name} must be a string or None")
+            raise TypeError(f"{name} must be a string, JS, or None")
         if not value.strip():
             raise ValueError(f"{name} cannot be empty")
     return value
 
 
-def _event_target(name: str, target: int | None, *events: str | None) -> int | None:
+def _event_target(
+    name: str, target: int | None, *events: str | JS | None
+) -> int | None:
     if target is not None:
         if type(target) is not int:
             raise TypeError(f"{name} must be an integer or None")
@@ -148,7 +150,7 @@ def button(
     size: ButtonSize = "md",
     button_type: ButtonType = "button",
     disabled: bool = False,
-    event: str | None = None,
+    event: str | JS | None = None,
     target: int | None = None,
 ) -> Template:
     _closed("button variant", variant, _BUTTON_VARIANTS)
@@ -156,11 +158,7 @@ def button(
     _closed("button type", button_type, _BUTTON_TYPES)
     if type(disabled) is not bool:
         raise TypeError("button disabled must be a boolean")
-    if event is not None:
-        if not isinstance(event, str):
-            raise TypeError("button event must be a string or None")
-        if not event:
-            raise ValueError("button event cannot be empty")
+    event = _event("button event", event)
     if target is not None:
         if type(target) is not int:
             raise TypeError("button target must be an integer or None")
@@ -190,8 +188,8 @@ def form(
     content: object,
     *,
     id: str,
-    change_event: str | None = None,
-    submit_event: str | None = None,
+    change_event: str | JS | None = None,
+    submit_event: str | JS | None = None,
     target: int | None = None,
 ) -> Template:
     id = _html_id("form id", id)
@@ -275,8 +273,8 @@ def input(
     error: str | None = None,
     required: bool = False,
     disabled: bool = False,
-    change_event: str | None = None,
-    blur_event: str | None = None,
+    change_event: str | JS | None = None,
+    blur_event: str | JS | None = None,
     target: int | None = None,
 ) -> Template:
     label = _required_text("input label", label)
@@ -334,8 +332,8 @@ def textarea(
     error: str | None = None,
     required: bool = False,
     disabled: bool = False,
-    change_event: str | None = None,
-    blur_event: str | None = None,
+    change_event: str | JS | None = None,
+    blur_event: str | JS | None = None,
     target: int | None = None,
 ) -> Template:
     label = _required_text("textarea label", label)
@@ -394,8 +392,8 @@ def select(
     error: str | None = None,
     required: bool = False,
     disabled: bool = False,
-    change_event: str | None = None,
-    blur_event: str | None = None,
+    change_event: str | JS | None = None,
+    blur_event: str | JS | None = None,
     target: int | None = None,
 ) -> Template:
     label = _required_text("select label", label)
@@ -461,8 +459,8 @@ def checkbox(
     error: str | None = None,
     required: bool = False,
     disabled: bool = False,
-    change_event: str | None = None,
-    blur_event: str | None = None,
+    change_event: str | JS | None = None,
+    blur_event: str | JS | None = None,
     target: int | None = None,
 ) -> Template:
     label = _required_text("checkbox label", label)

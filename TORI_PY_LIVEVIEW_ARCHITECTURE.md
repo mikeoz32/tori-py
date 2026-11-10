@@ -225,6 +225,19 @@ omits false or absent values, escapes values, and rejects unsafe names and
 executable URL schemes. `rendered(statics, *values)` remains the explicit tuple
 form. `raw(value)` is an explicit trust marker and must not wrap untrusted input.
 
+The official client parses a `phx-*` binding value that starts with `[` as a
+JSON list of JS commands and runs it. `JS` is the immutable command builder,
+mirroring `Phoenix.LiveView.JS` and the `exec_*` handlers of the pinned 1.2.11
+client: `push`, `navigate`, `patch`, `dispatch`, `show`, `hide`, `toggle`,
+class and attribute changes, `transition`, focus commands, and `exec`. It JSON
+encodes arguments when a command is added and validates them at build time:
+live hrefs are root-relative, attribute commands follow the `attrs()` rules,
+and `exec` targets only `phx-*` command bindings. Interpolation, `attrs()`, and
+`rendered()` encode a `JS` value as HTML-escaped JSON and treat it as trusted.
+Any other dynamic value that would start a command value or appear inside one
+is rejected, except in `phx-value-*`, `phx-target`, `phx-key`, and
+`phx-disable-with`, which the client never runs.
+
 Nested `Template`, `Rendered`, component, and stream values remain nested so
 they can become Phoenix render subtrees. They must be interpolated without a
 conversion or format specification; converting one intentionally turns it into

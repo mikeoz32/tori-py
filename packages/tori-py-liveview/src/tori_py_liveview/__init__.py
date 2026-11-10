@@ -7,6 +7,7 @@ from tori_py_liveview.errors import (
     UnknownEventError,
     UnknownInfoError,
 )
+from tori_py_liveview.js import JS
 from tori_py_liveview.metadata import live_view
 from tori_py_liveview.module import LiveViewModule
 from tori_py_liveview.options import LiveViewOptions
@@ -24,6 +25,7 @@ from tori_py_liveview.rendering import (
 from tori_py_liveview.session import LiveSession
 
 __all__ = [
+    "JS",
     "LiveComponent",
     "LiveView",
     "LiveViewConfigurationError",

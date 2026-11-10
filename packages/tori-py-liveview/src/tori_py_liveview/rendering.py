@@ -9,34 +9,18 @@ from functools import lru_cache
 from html import escape
 from string.templatelib import Template, convert
 
-_ATTRIBUTE_NAME = re.compile(r"[A-Za-z_:][A-Za-z0-9:._-]*")
+from tori_py_liveview._attributes import (
+    phx_command_attribute,
+    unsafe_attribute_name,
+    unsafe_url,
+)
+from tori_py_liveview.js import JS
+
 # A static ending inside an attribute value, such as ` phx-click="do-`.
 _OPEN_ATTRIBUTE_VALUE = re.compile(
     r"""([^\s"'<>/=]+)\s*=\s*(?:"([^"]*)|'([^']*)|([^\s"'<>=`]*))\Z"""
 )
 _UNQUOTED_VALUE_END = re.compile(r"[\s>]")
-# Phoenix never runs these phx-* values as JS commands.
-_PHX_DATA_ATTRIBUTES = frozenset({"phx-target", "phx-key", "phx-disable-with"})
-_URL_ATTRIBUTES = frozenset(
-    {
-        "action",
-        "background",
-        "cite",
-        "data",
-        "formaction",
-        "href",
-        "longdesc",
-        "manifest",
-        "ping",
-        "poster",
-        "profile",
-        "src",
-        "srcset",
-        "usemap",
-        "xlink:href",
-    }
-)
-_UNSAFE_URL_SCHEMES = ("data:", "javascript:", "vbscript:")
 
 
 @dataclass(frozen=True, slots=True)
@@ -135,6 +119,8 @@ def _dynamic(value: object) -> _RenderedDynamic:
         return value
     if isinstance(value, Template):
         return html(value)
+    if isinstance(value, JS):
+        return escape(value.encode(), quote=True)
     return escape(str(value), quote=True)
 
 
@@ -171,16 +157,6 @@ def classes(*names: str, **conditional: bool) -> str:
     return " ".join(tokens)
 
 
-def _phx_command_attribute(name: str) -> bool:
-    """Whether Phoenix runs a value of this attribute starting with ``[`` as JS."""
-    normalized = name.lower()
-    return (
-        normalized.startswith("phx-")
-        and not normalized.startswith("phx-value-")
-        and normalized not in _PHX_DATA_ATTRIBUTES
-    )
-
-
 @dataclass(frozen=True, slots=True)
 class _PhxValueSlot:
     """An interpolation inside a phx-* value Phoenix may run as JS commands."""
@@ -211,7 +187,7 @@ def _phx_value_slots(statics: tuple[str, ...]) -> tuple[_PhxValueSlot | None, ..
             open_value = None
             static = static[end:]
         match = _OPEN_ATTRIBUTE_VALUE.search(static)
-        if match is None or not _phx_command_attribute(match.group(1)):
+        if match is None or not phx_command_attribute(match.group(1)):
             slots.append(None)
             continue
         name, double, single, bare = match.groups()
@@ -242,29 +218,11 @@ def _reject_phx_commands(
             continue
         value = (value if slot.continues else "") + slot.prefix
         text = _dynamic_html(dynamic)
-        # Check what is emitted; only raw() may write or extend a command.
-        if not isinstance(original, SafeHtml) and (value or text).startswith("["):
+        # Check what is emitted; only raw() and JS may write or extend a command.
+        trusted = isinstance(original, SafeHtml | JS)
+        if not trusted and (value or text).startswith("["):
             raise ValueError(f"unsafe phx-* attribute value: {slot.name!r}")
         value += text
-
-
-def _unsafe_url_scheme(value: str) -> bool:
-    normalized = "".join(
-        character for character in value.lower() if ord(character) > 0x20
-    )
-    return normalized.startswith(_UNSAFE_URL_SCHEMES)
-
-
-def _unsafe_url(name: str, value: str) -> bool:
-    if _unsafe_url_scheme(value):
-        return True
-    if name == "ping":
-        candidates = value.split()
-    elif name == "srcset":
-        candidates = (candidate for candidate in value.split(",") if candidate.strip())
-    else:
-        return False
-    return any(_unsafe_url_scheme(candidate) for candidate in candidates)
 
 
 def attrs(values: Mapping[str, object], /) -> SafeHtml:
@@ -274,25 +232,20 @@ def attrs(values: Mapping[str, object], /) -> SafeHtml:
     for name, value in values.items():
         if not isinstance(name, str):
             raise TypeError("attribute names must be strings")
-        normalized = name.lower()
-        if (
-            _ATTRIBUTE_NAME.fullmatch(name) is None
-            or normalized.startswith("on")
-            or normalized in {"srcdoc", "style"}
-        ):
+        if unsafe_attribute_name(name):
             raise ValueError(f"unsafe HTML attribute name: {name!r}")
+        normalized = name.lower()
         if value is None or value is False:
             continue
         if value is True:
             encoded.append(f" {name}")
+        elif isinstance(value, JS):
+            encoded.append(f' {name}="{escape(value.encode(), quote=True)}"')
         else:
             encoded_value = str(value)
-            if normalized in _URL_ATTRIBUTES and _unsafe_url(
-                normalized,
-                encoded_value,
-            ):
+            if unsafe_url(normalized, encoded_value):
                 raise ValueError(f"unsafe URL scheme for HTML attribute: {name!r}")
-            if encoded_value.startswith("[") and _phx_command_attribute(normalized):
+            if encoded_value.startswith("[") and phx_command_attribute(normalized):
                 raise ValueError(f"unsafe phx-* attribute value: {name!r}")
             encoded.append(f' {name}="{escape(encoded_value, quote=True)}"')
     return SafeHtml("".join(encoded))
