@@ -403,6 +403,14 @@ def test_button_rejects_invalid_option_types() -> None:
         button("Save", event="save", target=cast(Any, "1"))
 
 
+def test_event_options_reject_phoenix_js_commands() -> None:
+    command = '[["set_attr",{"to":"body","attr":["onclick","alert(1)"]}]]'
+    with pytest.raises(ValueError, match="unsafe phx-"):
+        button("Save", event=command)
+    with pytest.raises(ValueError, match="unsafe phx-"):
+        form("<fields>", id="profile-form", submit_event=command)
+
+
 def test_badge_and_alert_render_semantics_and_tones() -> None:
     assert _render(badge("Ready", tone="success")) == (
         '<span class="tori-ui-badge tori-ui-badge--success">Ready</span>'

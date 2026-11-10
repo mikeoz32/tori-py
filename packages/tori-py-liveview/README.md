@@ -126,6 +126,14 @@ Phoenix render-tree values. Interpolate those structural values without `!s`,
 in HTML text and quoted attribute values; dynamic tag or attribute names, CSS,
 and JavaScript are outside the safe authoring contract.
 
+The Phoenix client runs a `phx-*` binding value that starts with `[` as JS
+commands. `attrs()`, Template interpolation, and `rendered()` values therefore
+reject data, including nested Templates and fragments, that would start such a
+value or appear inside one. `phx-value-*`, `phx-target`, `phx-key`, and
+`phx-disable-with` are exempt because the client never runs them. Write
+intentional JS commands in Template statics or `raw()`; to build one from data,
+JSON-encode it, HTML-escape the result, and pass it through `raw()`.
+
 ## Stateful components
 
 Subclass `LiveComponent` for independently stateful pieces sharing one page

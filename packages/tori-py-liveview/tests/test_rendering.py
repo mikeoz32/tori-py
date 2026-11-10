@@ -260,6 +260,108 @@ def test_attrs_validates_the_exact_string_it_emits() -> None:
     assert value.calls == 1
 
 
+# Phoenix parses a phx-* value starting with "[" as JS commands and runs them.
+_JS_COMMAND = '[["set_attr",{"to":"body","attr":["onclick","alert(1)"]}]]'
+
+
+@pytest.mark.parametrize(
+    "name", ["phx-click", "PHX-CLICK", "phx-submit", "phx-mounted", "phx-remove"]
+)
+def test_attrs_rejects_phoenix_js_command_values(name: str) -> None:
+    with pytest.raises(ValueError, match="unsafe phx-"):
+        attrs({name: _JS_COMMAND})
+
+
+def test_attrs_allows_brackets_in_phoenix_data_attributes() -> None:
+    assert attrs(
+        {
+            "phx-value-tags": "[1]",
+            "phx-target": "[data-role=list]",
+            "phx-key": "[",
+            "phx-disable-with": "[Saving]",
+            "phx-click": " [not a command]",
+            "title": "[note]",
+        }
+    ) == raw(
+        ' phx-value-tags="[1]" phx-target="[data-role=list]" phx-key="["'
+        ' phx-disable-with="[Saving]" phx-click=" [not a command]" title="[note]"'
+    )
+
+
+@pytest.mark.parametrize(
+    "template",
+    [
+        t'<button phx-click="{_JS_COMMAND}">Go</button>',
+        t"<button phx-click='{_JS_COMMAND}'>Go</button>",
+        t"<div phx-mounted={_JS_COMMAND}></div>",
+        t'<b title="x"PHX-CLICK = "{_JS_COMMAND}">Go</b>',
+        t'<button phx-click="{""}{_JS_COMMAND}">Go</button>',
+    ],
+)
+def test_html_rejects_interpolated_phoenix_js_commands(template: Template) -> None:
+    with pytest.raises(ValueError, match="unsafe phx-"):
+        html(template)
+
+
+def test_rendered_rejects_interpolated_phoenix_js_commands() -> None:
+    with pytest.raises(ValueError, match="unsafe phx-"):
+        rendered(('<button phx-click="', '">Go</button>'), _JS_COMMAND)
+
+
+def test_html_allows_brackets_outside_phoenix_command_values() -> None:
+    value = "[1]"
+    assert html(
+        t'<p phx-click="do-{value}" phx-value-id="{value}" title="{value}">{value}</p>'
+    ).to_html() == ('<p phx-click="do-[1]" phx-value-id="[1]" title="[1]">[1]</p>')
+    # Trusted application HTML may still carry JS commands.
+    assert html(t"<button phx-click='{raw(_JS_COMMAND)}'>Go</button>").to_html() == (
+        f"<button phx-click='{_JS_COMMAND}'>Go</button>"
+    )
+    first, second = "a", "[b"
+    assert html(
+        t'<p phx-click="do-{first}-{second}" title="x">{second}</p>'
+    ).to_html() == ('<p phx-click="do-a-[b" title="x">[b</p>')
+
+
+def test_html_checks_the_phoenix_value_it_emits() -> None:
+    class StatefulEvent:
+        calls = 0
+
+        def __str__(self) -> str:
+            self.calls += 1
+            return "save" if self.calls == 1 else _JS_COMMAND
+
+    event = StatefulEvent()
+
+    assert html(t'<b phx-click="{event}">Go</b>').to_html() == (
+        '<b phx-click="save">Go</b>'
+    )
+    assert event.calls == 1
+
+
+def test_html_rejects_phoenix_js_commands_from_nested_values() -> None:
+    nested = t"{_JS_COMMAND}"
+    empty = raw("")
+    with pytest.raises(ValueError, match="unsafe phx-"):
+        html(t'<b phx-click="{nested}">Go</b>')
+    with pytest.raises(ValueError, match="unsafe phx-"):
+        html(t'<b phx-click="{fragment([_JS_COMMAND])}">Go</b>')
+    with pytest.raises(ValueError, match="unsafe phx-"):
+        html(t'<b phx-click="{empty}{_JS_COMMAND}">Go</b>')
+
+
+def test_html_rejects_data_inside_static_phoenix_js_commands() -> None:
+    # HTML escaping does not stop data from leaving a JSON string: the browser
+    # decodes &quot; before Phoenix parses the command.
+    event = (
+        'x"}],["set_attr",{"to":"body","attr":["onclick","alert(1)"]}],["push",{"a":"'
+    )
+    with pytest.raises(ValueError, match="unsafe phx-"):
+        rendered(('<b phx-click=\'[["push",{"event":"', "\"}]]'>Go</b>"), event)
+    with pytest.raises(ValueError, match="unsafe phx-"):
+        rendered(('<b phx-click=\'[["push",{"event":"', "\"}]]'>Go</b>"), "save")
+
+
 @pytest.mark.asyncio
 async def test_page_and_component_render_accept_templates() -> None:
     class Badge(LiveComponent):
