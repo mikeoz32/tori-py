@@ -4,6 +4,7 @@ import asyncio
 import json
 import re
 from typing import Any, cast
+from urllib.parse import quote
 
 import httpx
 import pytest
@@ -14,6 +15,7 @@ from tori_py_liveview import (
     LiveSession,
     LiveView,
     LiveViewConfigurationError,
+    LiveViewError,
     LiveViewModule,
     LiveViewOptions,
     MountContext,
@@ -24,6 +26,7 @@ from tori_py_liveview.routing import (
     LiveRoute,
     compile_live_routes,
     match_live_url,
+    redirect_host_allowed,
     same_origin,
 )
 
@@ -82,7 +85,84 @@ def test_same_origin_accepts_relative_and_matching_urls_only() -> None:
     assert not same_origin("testserver", "http://other/items")
     assert not same_origin("testserver", "http://testserver:81/items")
     assert not same_origin("testserver", "//other/items")
+    assert not same_origin("testserver", "///other/items")
     assert not same_origin("testserver", "ftp://testserver/items")
+
+
+# Browsers read "\" as "/" here, so each of these leaves http://testserver/.
+@pytest.mark.parametrize(
+    "url",
+    [
+        "/\\evil.example",
+        "\\\\evil.example",
+        "\\/evil.example",
+        "//\\evil.example",
+        "/\\/evil.example",
+    ],
+)
+def test_same_origin_reads_backslashes_like_browsers(url: str) -> None:
+    assert not same_origin("testserver", url)
+    assert not same_origin("testserver", url, scheme="http")
+
+
+@pytest.mark.parametrize(
+    ("target", "expected"),
+    [
+        ("/settings?tab=2#x", "/settings?tab=2#x"),
+        ("settings", "settings"),
+        (" /settings\n", "/settings"),
+        ("/\\evil.example", "//evil.example"),
+        ("https://idp.example/login", "https://idp.example/login"),
+        ("/docs\\guide?q=C:\\Users#a\\b", "/docs/guide?q=C:\\Users#a\\b"),
+        ("/docs#a\\b?c\\d", "/docs#a\\b?c\\d"),
+    ],
+)
+def test_redirect_stores_the_cleaned_target(target: str, expected: str) -> None:
+    page = ArticleLive()
+    page.redirect(target)
+    assert page._take_liveview_pending_redirect() == ("redirect", expected, "push")
+
+
+@pytest.mark.parametrize(
+    "target",
+    [
+        "javascript:alert(1)",
+        " JaVaScRiPt:alert(1)",
+        "java\nscript:alert(1)",
+        "\x00javascript:alert(1)",
+        "data:text/html,<script>alert(1)</script>",
+        "vbscript:msgbox(1)",
+        "ftp://testserver/file",
+        "https:evil.example",
+        "//",
+        " \t",
+    ],
+)
+def test_redirect_rejects_targets_other_than_paths_and_http_urls(
+    target: str,
+) -> None:
+    page = ArticleLive()
+    with pytest.raises(LiveViewError, match="path or an http"):
+        page.redirect(target)
+    assert page._take_liveview_pending_redirect() is None
+
+
+@pytest.mark.parametrize(
+    ("target", "allowed"),
+    [
+        ("/settings", True),
+        ("settings", True),
+        ("https://testserver/settings", True),
+        ("http://TestServer:8080/settings", True),
+        ("https://idp.example/login", True),
+        ("https://IdP.Example/login", True),
+        ("//evil.example", False),
+        ("https://evil.example/", False),
+        ("https://testserver@evil.example/", False),
+    ],
+)
+def test_redirect_host_allowed_compares_host_names(target: str, allowed: bool) -> None:
+    assert redirect_host_allowed("testserver", target, ("idp.example",)) is allowed
 
 
 def test_route_matching_preserves_unicode_query_values() -> None:
@@ -239,6 +319,85 @@ async def test_http_mount_redirect_returns_302() -> None:
         response = await _request(application, "/mount-redirect")
         assert response.status_code == 302
         assert response.headers["location"] == "/other"
+    finally:
+        await application.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_http_mount_redirect_keeps_untrusted_next_on_allowed_hosts() -> None:
+    @live_view("/mount-next")
+    class MountNextLive(LiveView):
+        async def mount(self, context: MountContext) -> None:
+            self.redirect(context.query_params["next"])
+
+        def render(self):
+            return "<div>never rendered</div>"
+
+    liveview_module = LiveViewModule.for_root(
+        LiveViewOptions(secret="s" * 32, redirect_hosts=("idp.example",)),
+        pages=[MountNextLive],
+        key="mount-next",
+    )
+
+    @module(imports=[liveview_module])
+    class Root:
+        pass
+
+    application = await NestApplication.create(Root, adapter=StarletteAdapter())
+    await application.start()
+    try:
+        for target, location in (
+            ("/settings?tab=2", "/settings?tab=2"),
+            ("https://testserver/settings", "https://testserver/settings"),
+            ("https://idp.example/login", "https://idp.example/login"),
+        ):
+            response = await _request(
+                application, f"/mount-next?next={quote(target, safe='')}"
+            )
+            assert response.status_code == 302
+            assert response.headers["location"] == location
+        for target in ("/\\evil.example", "https://evil.example/", "javascript:x"):
+            response = await _request(
+                application, f"/mount-next?next={quote(target, safe='')}"
+            )
+            assert response.status_code == 500
+            assert "location" not in response.headers
+    finally:
+        await application.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_http_mount_navigation_never_leaves_the_request_host() -> None:
+    @live_view("/mount-navigate")
+    class MountNavigateLive(LiveView):
+        async def mount(self, context: MountContext) -> None:
+            self.push_navigate(context.query_params["next"])
+
+        def render(self):
+            return "<div>never rendered</div>"
+
+    liveview_module = LiveViewModule.for_root(
+        LiveViewOptions(secret="s" * 32),
+        pages=[MountNavigateLive],
+        key="mount-navigate",
+    )
+
+    @module(imports=[liveview_module])
+    class Root:
+        pass
+
+    application = await NestApplication.create(Root, adapter=StarletteAdapter())
+    await application.start()
+    try:
+        response = await _request(application, "/mount-navigate?next=%2Fsettings")
+        assert response.status_code == 302
+        assert response.headers["location"] == "/settings"
+        for target in ("///evil.example", "//\\evil.example", "/\\/evil.example"):
+            response = await _request(
+                application, f"/mount-navigate?next={quote(target, safe='')}"
+            )
+            assert response.status_code == 500
+            assert "location" not in response.headers
     finally:
         await application.shutdown()
 
@@ -702,6 +861,8 @@ class TeamUsersLive(LiveView):
             self.push_navigate("/admin")
         elif event == "go-away":
             self.redirect("/other")
+        elif event == "go-evil":
+            self.redirect("/\\evil.example")
         else:
             raise UnknownEventError(event)
 
@@ -976,6 +1137,32 @@ async def test_redirect_from_event_replies_redirect() -> None:
             "status": "ok",
             "response": {"redirect": {"to": "/other"}},
         }
+    finally:
+        await application.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_redirect_to_another_host_from_event_is_never_sent() -> None:
+    application = await _session_application()
+    try:
+        page = await _request(application, "/team-users")
+        token = _token(page.text)
+        sent = await _call_websocket(
+            application,
+            "/_tori/live/websocket",
+            _join_pages(token, "http://testserver/team-users"),
+            _receive_text(
+                [
+                    "1",
+                    "2",
+                    "lv:tori-live-root",
+                    "event",
+                    {"type": "click", "event": "go-evil", "value": None},
+                ]
+            ),
+        )
+        assert all("evil.example" not in str(message) for message in sent)
+        assert sent[-1]["type"] == "websocket.close"
     finally:
         await application.shutdown()
 

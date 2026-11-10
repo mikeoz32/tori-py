@@ -40,6 +40,17 @@ def normalize_origin(value: str) -> str:
     return f"{parsed.scheme.lower()}://{host}:{port}"
 
 
+def _normalize_redirect_host(value: str) -> str:
+    if isinstance(value, str) and value:
+        try:
+            hostname = urlsplit(f"//{value}").hostname
+        except ValueError:
+            hostname = None
+        if hostname is not None and hostname == value.lower():
+            return hostname
+    raise LiveViewConfigurationError("redirect hosts must be bare host names")
+
+
 @dataclass(frozen=True, slots=True)
 class LiveViewOptions:
     secret: str = field(repr=False)
@@ -50,6 +61,7 @@ class LiveViewOptions:
     token_max_age_ms: int = 86_400_000
     join_timeout_seconds: float = 10.0
     idle_timeout_seconds: float = 75.0
+    redirect_hosts: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if not isinstance(self.secret, str) or len(self.secret.encode()) < 32:
@@ -90,6 +102,13 @@ class LiveViewOptions:
             self,
             "allowed_origins",
             tuple(normalize_origin(origin) for origin in self.allowed_origins),
+        )
+        if not isinstance(self.redirect_hosts, tuple):
+            raise LiveViewConfigurationError("redirect hosts must be a tuple")
+        object.__setattr__(
+            self,
+            "redirect_hosts",
+            tuple(_normalize_redirect_host(host) for host in self.redirect_hosts),
         )
 
 
