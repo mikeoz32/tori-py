@@ -126,6 +126,24 @@ Asset URLs must be absolute HTTPS URLs or root-relative paths. HTTP,
 protocol-relative, `data:`, `javascript:`, malformed, and backslash-containing
 URLs fail configuration.
 
+The default CDN assets carry pinned Subresource Integrity hashes, so the browser
+refuses a modified file. Any other absolute HTTPS asset URL requires
+`javascript_integrity` or `stylesheet_integrity`; root-relative assets may set
+them but do not have to. Values are one or more space-separated `sha256-`,
+`sha384-`, or `sha512-` base64 hashes, emitted with `crossorigin="anonymous"`:
+
+```python
+swagger_ui = SwaggerUiOptions(
+    javascript_url="https://cdn.example.test/swagger-ui-bundle.js",
+    javascript_integrity="sha384-...",
+    stylesheet_url="/assets/swagger-ui.css",
+)
+```
+
+Compute a hash from the exact file the URL serves, for example with
+`openssl dgst -sha384 -binary swagger-ui-bundle.js | openssl base64 -A`, and
+update it whenever the file or version changes.
+
 Self-hosting removes the external asset origins, but the generated page still
 contains inline bootstrap JavaScript and inline CSS. A strict CSP therefore also
 needs deployment-managed hashes, a transformed nonce-bearing page, or an

@@ -162,6 +162,7 @@ async def test_swagger_html_is_cached_and_safely_encoded() -> None:
                 javascript_url='https://cdn.example.test/swagger.js?value=">&',
                 stylesheet_url='/swagger.css?value=">&',
                 parameters={"layout": malicious, "deepLinking": True},
+                javascript_integrity="sha384-abc",
             ),
         )
     )
@@ -179,6 +180,11 @@ async def test_swagger_html_is_cached_and_safely_encoded() -> None:
     assert "<noscript>" in body
     assert "&lt;Example &amp; &quot;API&quot;&gt;" in body
     assert malicious not in body
+    assert (
+        '<script src="https://cdn.example.test/swagger.js?value=&quot;&gt;&amp;" '
+        'integrity="sha384-abc" crossorigin="anonymous"></script>'
+    ) in body
+    assert '<link rel="stylesheet" href="/swagger.css?value=&quot;&gt;&amp;">' in body
     assert "\\u003c/script\\u003e" in body
     assert "\\u0026" in body
     match = re.search(r"SwaggerUIBundle\((\{.*\})\);", body)
@@ -189,6 +195,33 @@ async def test_swagger_html_is_cached_and_safely_encoded() -> None:
         "url": "/schema.json",
         "dom_id": "#swagger-ui",
     }
+    await application.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_default_swagger_assets_carry_pinned_integrity() -> None:
+    openapi_module = OpenApiModule.for_root(_options())
+
+    @module(imports=[openapi_module])
+    class Root:
+        pass
+
+    application = await NestApplication.create(Root, adapter=StarletteAdapter())
+    await application.start()
+    body = (await _request(application, "GET", "/docs")).text
+    assert (
+        '<link rel="stylesheet" '
+        'href="https://unpkg.com/swagger-ui-dist@5.31.0/swagger-ui.css" '
+        'integrity="sha384-'
+        'KX9Rx9vM1AmUNAn07bPAiZhFD4C8jdNgG6f5MRNvR+EfAxs2PmMFtUUazui7ryZQ" '
+        'crossorigin="anonymous">'
+    ) in body
+    assert (
+        '<script src="https://unpkg.com/swagger-ui-dist@5.31.0/swagger-ui-bundle.js" '
+        'integrity="sha384-'
+        'cxafBeQ+zYROeFafGFxtFbnp1ICqeS9mG7+f0WWSHzhnrUvwg9Za5CCw6wgrHA7K" '
+        'crossorigin="anonymous"></script>'
+    ) in body
     await application.shutdown()
 
 
