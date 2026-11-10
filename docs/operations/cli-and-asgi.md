@@ -28,6 +28,32 @@ Do not call `application.start()` in the factory. The ASGI wrapper starts the
 application during `lifespan.startup` and shuts it down during
 `lifespan.shutdown`.
 
+### Native ASGI Adapter
+
+`tori_py.asgi` provides a dependency-free, HTTP-only alternative with its own
+`AsgiAdapter`, `AsgiOptions`, and `asgi()` wrapper. Use the wrapper that matches
+the adapter:
+
+```python
+from tori_py import NestApplication
+from tori_py.asgi import AsgiAdapter, AsgiOptions, asgi
+
+
+async def create_application() -> NestApplication:
+    return await NestApplication.create(
+        AppModule,
+        adapter=AsgiAdapter(AsgiOptions(body_size_limit=2 * 1024 * 1024)),
+    )
+
+
+application = asgi(create_application)
+```
+
+Choose `StarletteAdapter` for WebSocket gateways, LiveView, or any Starlette
+response escape hatch. The native adapter serves HTTP only and closes WebSocket
+scopes with code 1003. `tori-py run` requires `StarletteAdapter`, so export
+the native application through your own ASGI server command instead.
+
 ## Installation
 
 The CLI extra installs Uvicorn without making it an eager base-package import:

@@ -146,11 +146,12 @@ finally:
 | `raise_app_exceptions` | `False` | Whether transport-level application exceptions escape instead of becoming a response where possible. |
 | `client_address` | `("testclient", 50000)` | Client address placed in the ASGI scope. |
 
-The helper requires an already-started application using `StarletteAdapter`.
+The helper requires an already-started application using `AsgiAdapter` or
+`StarletteAdapter`.
 It rejects compiled-but-unstarted and stopped applications. It also reports an
 actionable `testing.httpx_unavailable` error if the testing extra is absent.
 
-Create a new adapter for each application. A `StarletteAdapter` is owned by one
+Create a new adapter for each application. An adapter is owned by one
 compiled application and cannot be reused.
 
 ## Lifespan Testing

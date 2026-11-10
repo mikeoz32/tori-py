@@ -17,6 +17,11 @@ one package does not require the same change in every package.
   provenance-aware disconnect cancellation.
 - OpenAPI bound-parameter schema/description refinement plus explicit response
   headers and per-response media types, including header-only 204 responses.
+- Native dependency-free HTTP ASGI adapter in `tori_py.asgi` (`AsgiAdapter`,
+  `AsgiOptions`, `asgi`, `RequestContext`) alongside the Starlette adapter. It
+  serves HTTP scopes only; WebSocket gateways and LiveView need Starlette.
+- Custom route parameter resolvers: any object implementing
+  `RouteParameterResolver` can bind a handler parameter.
 - Explicit singleton `@websocket_gateway` providers with native Starlette
   sockets, marker-only handshake binding, connection-owned request scopes, and
   the full middleware/guard/pipe/interceptor/filter pipeline.

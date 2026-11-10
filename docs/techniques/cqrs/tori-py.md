@@ -304,8 +304,14 @@ interceptors and the handler remain unresolved.
 `context.on_handler_exit(callback)` registers a synchronous callback for the
 exact handler terminal boundary. Callbacks run in reverse order immediately
 after handler invocation or failure and before inner interceptors resume. All
-callbacks are attempted; callback failures are retained without losing a
-handler failure, and cancellation remains cancellation.
+callbacks are attempted. When any callback fails, the caller receives
+`CqrsHandlerExitError`, which carries the handler failure as `body_error` (or
+`None`) and every callback failure in `callback_errors`. When cancellation is
+involved, the caller receives `CqrsHandlerExitCancellationError`, a
+`CancelledError` subclass carrying the original in `cancellation` and the other
+failures in `secondary_errors`, so cancellation remains cancellation.
+`KeyboardInterrupt` and `SystemExit` propagate unchanged with the other
+failures attached as notes.
 
 Advanced integrations can register a synchronous mapper through
 `context.completion.register(key, mapper)`. Mappers run in reverse registration

@@ -41,7 +41,10 @@ optional: Annotated[str | None, Query("q")] = None  # optional, nullable
 ```
 
 Path bindings must exactly match route variables and are always required.
-Duplicate `(source name, location)` pairs fail startup.
+Duplicate `(source name, location)` pairs fail startup. Header names are
+compared case-insensitively, so `Header("X-Trace")` and `Header("x-trace")`
+collide, and an `api_parameter` header override matches a bound header
+regardless of case.
 
 Use `api_parameter` to add constraints that the Python annotation cannot express
 without changing runtime binding:

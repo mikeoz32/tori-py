@@ -17,7 +17,21 @@ and Starlette's
 from typing import Annotated
 
 from starlette.websockets import WebSocket
-from tori_py import Inject, Path, Socket, module, websocket_gateway
+from tori_py import (
+    Inject,
+    Path,
+    Scope,
+    Socket,
+    injectable,
+    module,
+    websocket_gateway,
+)
+
+
+@injectable(scope=Scope.REQUEST)
+class RoomSession:
+    def format(self, message: str) -> str:
+        return message.strip()
 
 
 @websocket_gateway("/rooms/{room}")
@@ -81,8 +95,17 @@ their normal semantics.
 The framework never accepts automatically and never encodes a handler result.
 Use the native socket to choose subprotocols, receive text or bytes, send frames,
 deny the handshake, and close with an application-defined code.
-If normal or filter-handled execution returns with the socket still open,
-ToriPy sends a default code-1000 close before the ASGI connection ends.
+
+ToriPy closes a socket that is still open with these codes:
+
+| Outcome | Close code |
+| --- | --- |
+| Handler returns normally, or a filter handles the error | 1000 |
+| A guard denies the handshake or `WebSocketForbidden` is raised | 1008 |
+| An unhandled exception escapes the pipeline | 1011, then the exception is re-raised |
+
+A client disconnect is not closed again, and cancellation is re-raised
+unchanged.
 
 ## Scope And Shutdown
 

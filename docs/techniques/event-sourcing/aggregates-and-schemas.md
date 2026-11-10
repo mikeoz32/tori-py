@@ -373,9 +373,12 @@ store = InMemoryEventStore(limits=limits)
 ```
 
 Every limit must be a positive non-boolean integer. The schema registry enforces
-payload, header, and upcast limits. Event stores enforce read, append,
-transaction count, and transaction byte limits. A repository page size must be
-positive and no greater than its schema registry's `read_page_size`.
+payload, header, and upcast limits; the upcast limit is checked when a schema is
+registered (`ResourceLimitError`) and again while decoding. Event stores
+enforce read, append, transaction count, and transaction byte limits, and
+`InMemoryEventStore.append` also enforces the payload and header limits. A
+repository page size must be positive and no greater than its schema
+registry's `read_page_size`.
 
 Format-specific decoders remain responsible for shape, nesting, and complexity
 limits beyond these byte-level boundaries.

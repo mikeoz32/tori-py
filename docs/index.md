@@ -48,16 +48,19 @@ accepted.
   transient scopes.
 - Managed sync and async resources, startup rollback, lifecycle hooks, work
   scopes, quiescence, and bounded shutdown.
-- Starlette-backed controllers, explicit raw request binding, bounded body
-  streaming, portable responses, and Problem Details errors.
+- Controllers on the native ASGI or Starlette adapter, explicit raw request
+  binding, bounded body streaming, portable responses, and Problem Details
+  errors.
+- Starlette-backed [WebSocket gateways](websockets.md) with the same modules,
+  injection, and pipeline.
 - Middleware, guards, pipes, msgspec validation, interceptors, and exception
   filters with documented ordering and cancellation behavior.
 - Typed settings, secret-aware bootstrap overrides, structured logging,
   discovery/reflection, and test-time provider/module replacement.
 
 `NestApplication` owns driver-neutral compilation and lifecycle. `tori_py.http`
-owns route plans and execution semantics. `tori_py.starlette` is the explicit
-ASGI driver boundary.
+owns route plans and execution semantics. `tori_py.starlette` and the native
+HTTP-only `tori_py.asgi` are the explicit ASGI driver boundaries.
 
 ## Optional Techniques
 
@@ -73,8 +76,10 @@ ASGI driver boundary.
 ## Boundaries
 
 The framework core does not provide authentication, authorization policy,
-migrations, background jobs, WebSockets, templates, static files, or a Pydantic
-integration. Optional packages do not erase those boundaries or silently compose
+migrations, background jobs, templates, static files, or a Pydantic
+integration. WebSockets are limited to native Starlette connections through
+[`@websocket_gateway`](websockets.md); there is no portable frame protocol.
+Optional packages do not erase those boundaries or silently compose
 transactions across HTTP, databases, brokers, and checkpoints.
 
 All packages are currently beta. In-memory transports, stores, logs, and

@@ -66,7 +66,9 @@ replacement containing only lifecycle methods.
 ## Factory Contract
 
 The Tori Py integration injects the public runtime-checkable
-`StreamAdapterFactory` Protocol as the canonical provider token:
+`StreamAdapterFactory` Protocol as the canonical provider token.
+`ExampleAdapterOptions` and `ExamplePersistentLog` are placeholders for the
+adapter's own options and log classes:
 
 ```python
 from dataclasses import dataclass
@@ -230,7 +232,8 @@ safer than replaying cached native subscriptions outside the contract.
 
 ## Core Conformance
 
-The core package ships a public reusable suite:
+The core package ships a public reusable suite. `create_ready_isolated_log` is a
+placeholder for the adapter's own helper that returns a ready, isolated log:
 
 ```python
 from tori_py_persistent_streams_core import PersistentLog

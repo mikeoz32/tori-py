@@ -100,8 +100,9 @@ before serving traffic.
 | Application lifespan | `NestApplication` lifecycle plus adapter lifespan | Provider resources and hooks participate automatically in deterministic startup/rollback/shutdown |
 | Route/dependency inspection | `DiscoveryService` over compiled providers/controllers | Discovery does not inspect arbitrary imported callables or scan packages |
 
-ToriPy does not depend on FastAPI or Pydantic. The Starlette adapter is explicit,
-and core modules, DI, scopes, and lifecycle remain transport-neutral.
+ToriPy does not depend on FastAPI or Pydantic. The Starlette and native ASGI
+adapters are explicit, and core modules, DI, scopes, and lifecycle remain
+transport-neutral.
 
 ## Choose a Starting Point
 
