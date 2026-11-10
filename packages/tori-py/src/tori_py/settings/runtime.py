@@ -11,6 +11,7 @@ import tomllib
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
+from types import UnionType
 from typing import Annotated, Any, TypeVar, cast, get_args, get_origin, get_type_hints
 
 import msgspec
@@ -394,13 +395,21 @@ def _has_model_fields(model: type[object]) -> bool:
 def _unwrap_secret(annotation: object) -> tuple[object, bool]:
     if get_origin(annotation) is Secret:
         args = get_args(annotation)
-        return (args[0] if args else object), True
+        base, _ = _unwrap_secret(args[0] if args else object)
+        return base, True
     if get_origin(annotation) is Annotated:
         args = get_args(annotation)
         base, secret = _unwrap_secret(args[0])
         return base, secret or any(
             isinstance(value, SecretMarker) for value in args[1:]
         )
+    if get_origin(annotation) is UnionType:
+        # A union with any secret member is secret as a whole.
+        members = [
+            _unwrap_secret(arg) for arg in get_args(annotation) if arg is not type(None)
+        ]
+        secret = any(member_secret for _, member_secret in members)
+        return (members[0][0] if len(members) == 1 else annotation), secret
     return annotation, False
 
 
