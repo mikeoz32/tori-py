@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any, cast
+
 import pytest
 from tori_py_liveview import LiveViewConfigurationError, LiveViewOptions, live_view
 from tori_py_liveview.tokens import (
@@ -110,3 +112,20 @@ def test_options_validate_security_and_endpoint_limits() -> None:
         allowed_origins=("HTTPS://Example.COM",),
     )
     assert options.allowed_origins == ("https://example.com:443",)
+
+
+def test_options_normalize_redirect_hosts_to_bare_host_names() -> None:
+    options = LiveViewOptions(secret="s" * 32, redirect_hosts=("IdP.Example",))
+    assert options.redirect_hosts == ("idp.example",)
+
+    with pytest.raises(LiveViewConfigurationError, match="must be a tuple"):
+        LiveViewOptions(secret="s" * 32, redirect_hosts=cast(Any, ["idp.example"]))
+    for host in (
+        "",
+        "https://idp.example",
+        "idp.example:443",
+        "idp.example/login",
+        "user@idp.example",
+    ):
+        with pytest.raises(LiveViewConfigurationError, match="bare host names"):
+            LiveViewOptions(secret="s" * 32, redirect_hosts=(host,))

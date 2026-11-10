@@ -45,6 +45,7 @@ from tori_py_liveview.routing import (
     LiveRoute,
     compile_live_routes,
     match_live_url,
+    redirect_host_allowed,
     same_origin,
 )
 from tori_py_liveview.tokens import InvalidMountTokenError, MountTokenCodec
@@ -192,6 +193,7 @@ async def initial_response(
             route.session,
             host=request.headers.get("host", ""),
             scheme=request.url.scheme,
+            redirect_hosts=options.redirect_hosts,
         )
         if drained is not None and drained[0] != "patch":
             return HttpResponse(b"", status_code=302, headers={"location": drained[1]})
@@ -509,6 +511,7 @@ async def _drain_navigation(
     *,
     host: str,
     scheme: str,
+    redirect_hosts: tuple[str, ...],
 ) -> tuple[str, str, str] | None:
     """Consume queued navigation; run handle_params for patch chains."""
     pending = page._take_liveview_pending_redirect()
@@ -521,6 +524,10 @@ async def _drain_navigation(
             host, target, scheme=scheme
         ):
             raise LiveViewError("live navigation target must be same-origin")
+        if navigation == "redirect" and not redirect_host_allowed(
+            host, target, redirect_hosts
+        ):
+            raise LiveViewError("redirect target host is not allowed")
         if navigation != "patch":
             return (navigation, target, kind)
         resolved = match_live_url(compiled, target)
@@ -725,6 +732,7 @@ def gateway_type(options: LiveViewOptions, registry: _Registry) -> type[object]:
                         session,
                         host=origin_host,
                         scheme=origin_scheme,
+                        redirect_hosts=options.redirect_hosts,
                     )
                     if drained is not None and drained[0] != "patch":
                         navigation, target, kind = drained
@@ -846,6 +854,7 @@ def gateway_type(options: LiveViewOptions, registry: _Registry) -> type[object]:
                                     session,
                                     host=origin_host,
                                     scheme=origin_scheme,
+                                    redirect_hosts=options.redirect_hosts,
                                 )
                                 if drained is not None and drained[0] != "patch":
                                     navigation, target, kind = drained
@@ -958,6 +967,7 @@ def gateway_type(options: LiveViewOptions, registry: _Registry) -> type[object]:
                                 session,
                                 host=origin_host,
                                 scheme=origin_scheme,
+                                redirect_hosts=options.redirect_hosts,
                             )
                             if drained is None or drained[0] == "patch":
                                 updated = await _render(page)
@@ -1032,6 +1042,7 @@ def gateway_type(options: LiveViewOptions, registry: _Registry) -> type[object]:
                                 session,
                                 host=origin_host,
                                 scheme=origin_scheme,
+                                redirect_hosts=options.redirect_hosts,
                             )
                             if drained is None or drained[0] == "patch":
                                 updated = await _render(page)

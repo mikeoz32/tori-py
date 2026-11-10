@@ -38,6 +38,11 @@ one package does not require the same change in every package.
 - Settings secrets wrapped in `Optional`, `| None`, or another union, and secrets
   inside optional nested models, are now protected from `--set` and other
   bootstrap overrides.
+- LiveView `redirect()` now cleans its target, rejects non-http(s) schemes such
+  as `javascript:`, and keeps redirects on the request host unless the host is
+  listed in the new `LiveViewOptions.redirect_hosts`. Live navigation targets
+  that browsers read as another host, such as `/\evil.example` or
+  `///evil.example`, are no longer treated as same-origin.
 
 ## [0.1.0] - Unreleased
 
