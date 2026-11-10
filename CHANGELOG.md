@@ -45,6 +45,9 @@ one package does not require the same change in every package.
   `///evil.example`, are no longer treated as same-origin.
 - Value and factory providers that expose a class with method interceptors now
   fail instead of silently skipping the interceptors.
+- LiveView `attrs()`, Template interpolation, and `rendered()` values, and the
+  LiveView UI event options built on them, now reject data that would start a
+  `phx-*` value with `[`, which the Phoenix client runs as JS commands.
 
 ## [0.1.0] - Unreleased
 

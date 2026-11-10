@@ -3,12 +3,16 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from html import escape
 from string.templatelib import Template, convert
 
 _ATTRIBUTE_NAME = re.compile(r"[A-Za-z_:][A-Za-z0-9:._-]*")
+# A static ending where an attribute value starts, such as ` phx-click="`.
+_ATTRIBUTE_VALUE_START = re.compile(r"""([^\s"'<>/=]+)\s*=\s*["']?\Z""")
+# Phoenix never runs these phx-* values as JS commands.
+_PHX_DATA_ATTRIBUTES = frozenset({"phx-target", "phx-key", "phx-disable-with"})
 _URL_ATTRIBUTES = frozenset(
     {
         "action",
@@ -133,13 +137,14 @@ def _dynamic(value: object) -> _RenderedDynamic:
 def html(template: Template) -> Rendered:
     if not isinstance(template, Template):
         raise TypeError("template must be a Template")
-    dynamics: list[_RenderedDynamic] = []
+    values: list[object] = []
     for interpolation in template.interpolations:
         value = convert(interpolation.value, interpolation.conversion)
         if interpolation.format_spec:
             value = format(value, interpolation.format_spec)
-        dynamics.append(_dynamic(value))
-    return Rendered(template.strings, tuple(dynamics))
+        values.append(value)
+    _reject_phx_commands(template.strings, values)
+    return Rendered(template.strings, tuple(_dynamic(value) for value in values))
 
 
 def fragment(values: Iterable[object], /) -> Rendered:
@@ -159,6 +164,43 @@ def classes(*names: str, **conditional: bool) -> str:
         if enabled:
             tokens.extend(name.split())
     return " ".join(tokens)
+
+
+def _phx_command_attribute(name: str) -> bool:
+    """Whether Phoenix runs a value of this attribute starting with ``[`` as JS."""
+    normalized = name.lower()
+    return (
+        normalized.startswith("phx-")
+        and not normalized.startswith("phx-value-")
+        and normalized not in _PHX_DATA_ATTRIBUTES
+    )
+
+
+def _reject_phx_commands(statics: Sequence[object], values: Sequence[object]) -> None:
+    """Reject interpolated data that would start a phx-* JS command value."""
+    name: str | None = None
+    # The last static follows every value and never starts one.
+    for static, value in zip(statics, values, strict=False):
+        if not isinstance(static, str):
+            return
+        if static:
+            match = _ATTRIBUTE_VALUE_START.search(static)
+            name = (
+                match.group(1)
+                if match is not None and _phx_command_attribute(match.group(1))
+                else None
+            )
+        if name is None:
+            continue
+        # Trusted HTML and structural values are not attribute data.
+        if isinstance(value, SafeHtml | Rendered | Template):
+            name = None
+            continue
+        text = str(value)
+        if text.startswith("["):
+            raise ValueError(f"unsafe phx-* attribute value: {name!r}")
+        if text:
+            name = None
 
 
 def _unsafe_url_scheme(value: str) -> bool:
@@ -205,12 +247,16 @@ def attrs(values: Mapping[str, object], /) -> SafeHtml:
                 encoded_value,
             ):
                 raise ValueError(f"unsafe URL scheme for HTML attribute: {name!r}")
+            if encoded_value.startswith("[") and _phx_command_attribute(normalized):
+                raise ValueError(f"unsafe phx-* attribute value: {name!r}")
             encoded.append(f' {name}="{escape(encoded_value, quote=True)}"')
     return SafeHtml("".join(encoded))
 
 
 def rendered(statics: tuple[str, ...], *values: object) -> Rendered:
-    return Rendered(tuple(statics), tuple(_dynamic(value) for value in values))
+    statics = tuple(statics)
+    _reject_phx_commands(statics, values)
+    return Rendered(statics, tuple(_dynamic(value) for value in values))
 
 
 __all__ = [
