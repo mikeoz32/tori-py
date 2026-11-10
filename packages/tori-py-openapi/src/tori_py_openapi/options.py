@@ -26,6 +26,14 @@ _DEFAULT_JAVASCRIPT_URL = (
 _DEFAULT_STYLESHEET_URL = (
     f"https://unpkg.com/swagger-ui-dist@{_SWAGGER_UI_VERSION}/swagger-ui.css"
 )
+# SHA-384 of the pinned unpkg files; update together with _SWAGGER_UI_VERSION.
+_DEFAULT_JAVASCRIPT_INTEGRITY = (
+    "sha384-cxafBeQ+zYROeFafGFxtFbnp1ICqeS9mG7+f0WWSHzhnrUvwg9Za5CCw6wgrHA7K"
+)
+_DEFAULT_STYLESHEET_INTEGRITY = (
+    "sha384-KX9Rx9vM1AmUNAn07bPAiZhFD4C8jdNgG6f5MRNvR+EfAxs2PmMFtUUazui7ryZQ"
+)
+_INTEGRITY_TOKEN = re.compile(r"sha(?:256|384|512)-[A-Za-z0-9+/_-]+={0,2}")
 
 
 def _empty_mapping() -> Mapping[str, object]:
@@ -129,6 +137,31 @@ def _validate_asset_url(value: object, name: str) -> str:
             f"{name} must be an absolute HTTPS URL or root-relative path"
         )
     return url
+
+
+def _asset_integrity(
+    url: str,
+    value: object,
+    name: str,
+    *,
+    default_url: str,
+    default_integrity: str,
+) -> str | None:
+    if value is None:
+        if url == default_url:
+            return default_integrity
+        # Another origin's script must not run unverified on the docs page.
+        if urlsplit(url).scheme:
+            raise OpenApiConfigurationError(
+                f"{name} is required for an absolute HTTPS asset URL"
+            )
+        return None
+    tokens = _require_string(value, name, non_empty=True).split()
+    if any(_INTEGRITY_TOKEN.fullmatch(token) is None for token in tokens):
+        raise OpenApiConfigurationError(
+            f"{name} must be sha256-, sha384-, or sha512- base64 hashes"
+        )
+    return " ".join(tokens)
 
 
 def _validate_server_url(value: object) -> str:
@@ -257,11 +290,39 @@ class SwaggerUiOptions:
     javascript_url: str = _DEFAULT_JAVASCRIPT_URL
     stylesheet_url: str = _DEFAULT_STYLESHEET_URL
     parameters: Mapping[str, object] = field(default_factory=_empty_mapping)
+    javascript_integrity: str | None = None
+    stylesheet_integrity: str | None = None
 
     def __post_init__(self) -> None:
-        _validate_asset_url(self.javascript_url, "Swagger UI javascript_url")
-        _validate_asset_url(self.stylesheet_url, "Swagger UI stylesheet_url")
+        javascript_url = _validate_asset_url(
+            self.javascript_url, "Swagger UI javascript_url"
+        )
+        stylesheet_url = _validate_asset_url(
+            self.stylesheet_url, "Swagger UI stylesheet_url"
+        )
         object.__setattr__(self, "parameters", _freeze_parameters(self.parameters))
+        object.__setattr__(
+            self,
+            "javascript_integrity",
+            _asset_integrity(
+                javascript_url,
+                self.javascript_integrity,
+                "Swagger UI javascript_integrity",
+                default_url=_DEFAULT_JAVASCRIPT_URL,
+                default_integrity=_DEFAULT_JAVASCRIPT_INTEGRITY,
+            ),
+        )
+        object.__setattr__(
+            self,
+            "stylesheet_integrity",
+            _asset_integrity(
+                stylesheet_url,
+                self.stylesheet_integrity,
+                "Swagger UI stylesheet_integrity",
+                default_url=_DEFAULT_STYLESHEET_URL,
+                default_integrity=_DEFAULT_STYLESHEET_INTEGRITY,
+            ),
+        )
 
 
 @dataclass(frozen=True, slots=True)

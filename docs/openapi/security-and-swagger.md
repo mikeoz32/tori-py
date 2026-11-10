@@ -111,6 +111,12 @@ Swagger UI is precomputed during startup and served through a normal controller.
 The generated HTML safely escapes the title, asset URLs, and embedded JSON
 configuration.
 
+The default CDN assets are pinned to `swagger-ui-dist` 5.31.0 and carry
+Subresource Integrity hashes with `crossorigin="anonymous"`, so a modified file
+from the CDN is refused rather than run on the documentation origin. Any other
+absolute HTTPS asset URL must provide its own `javascript_integrity` or
+`stylesheet_integrity`.
+
 For default CDN assets, deployment CSP must allow the pinned unpkg origin. The
 generated page also contains inline bootstrap JavaScript and inline CSS. A
 strict policy needs deployment-managed hashes, a nonce-bearing transformed page,

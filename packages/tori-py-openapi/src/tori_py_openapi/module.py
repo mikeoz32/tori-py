@@ -123,6 +123,8 @@ def _compile_swagger_html(options: OpenApiOptions) -> bytes:
     title = html.escape(options.info.title, quote=True)
     stylesheet_url = html.escape(options.swagger_ui.stylesheet_url, quote=True)
     javascript_url = html.escape(options.swagger_ui.javascript_url, quote=True)
+    stylesheet_integrity = _integrity(options.swagger_ui.stylesheet_integrity)
+    javascript_integrity = _integrity(options.swagger_ui.javascript_integrity)
     return (
         "<!doctype html>\n"
         '<html lang="en">\n'
@@ -130,7 +132,7 @@ def _compile_swagger_html(options: OpenApiOptions) -> bytes:
         '<meta charset="utf-8">\n'
         '<meta name="viewport" content="width=device-width, initial-scale=1">\n'
         f"<title>{title}</title>\n"
-        f'<link rel="stylesheet" href="{stylesheet_url}">\n'
+        f'<link rel="stylesheet" href="{stylesheet_url}"{stylesheet_integrity}>\n'
         "<style>html{box-sizing:border-box;overflow-y:scroll}"
         "*,*:before,*:after{box-sizing:inherit}body{margin:0;background:#fafafa}"
         "#swagger-ui{min-height:100vh}</style>\n"
@@ -138,7 +140,7 @@ def _compile_swagger_html(options: OpenApiOptions) -> bytes:
         "<body>\n"
         "<noscript>Swagger UI requires JavaScript.</noscript>\n"
         '<div id="swagger-ui"></div>\n'
-        f'<script src="{javascript_url}"></script>\n'
+        f'<script src="{javascript_url}"{javascript_integrity}></script>\n'
         "<script>\n"
         'window.addEventListener("load",function(){\n'
         f"window.ui=SwaggerUIBundle({encoded_config.decode('utf-8')});\n"
@@ -147,6 +149,14 @@ def _compile_swagger_html(options: OpenApiOptions) -> bytes:
         "</body>\n"
         "</html>\n"
     ).encode()
+
+
+def _integrity(value: str | None) -> str:
+    if value is None:
+        return ""
+    # Browsers enforce SRI on cross-origin assets only in CORS mode.
+    integrity = html.escape(value, quote=True)
+    return f' integrity="{integrity}" crossorigin="anonymous"'
 
 
 def _thaw_json(value: object) -> object:

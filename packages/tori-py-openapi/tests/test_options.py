@@ -152,9 +152,60 @@ def test_invalid_swagger_asset_urls_are_rejected(url: str) -> None:
     ],
 )
 def test_valid_swagger_asset_urls_are_accepted(url: str) -> None:
-    options = SwaggerUiOptions(javascript_url=url, stylesheet_url=url)
+    options = SwaggerUiOptions(
+        javascript_url=url,
+        stylesheet_url=url,
+        javascript_integrity="sha384-abc",
+        stylesheet_integrity="sha384-abc",
+    )
     assert options.javascript_url == url
     assert options.stylesheet_url == url
+
+
+def test_default_swagger_assets_have_pinned_integrity() -> None:
+    options = SwaggerUiOptions()
+    assert options.javascript_integrity == (
+        "sha384-cxafBeQ+zYROeFafGFxtFbnp1ICqeS9mG7+f0WWSHzhnrUvwg9Za5CCw6wgrHA7K"
+    )
+    assert options.stylesheet_integrity == (
+        "sha384-KX9Rx9vM1AmUNAn07bPAiZhFD4C8jdNgG6f5MRNvR+EfAxs2PmMFtUUazui7ryZQ"
+    )
+
+
+def test_cross_origin_swagger_assets_require_integrity() -> None:
+    with pytest.raises(OpenApiConfigurationError, match="javascript_integrity"):
+        SwaggerUiOptions(javascript_url="https://cdn.example.test/swagger.js")
+    with pytest.raises(OpenApiConfigurationError, match="stylesheet_integrity"):
+        SwaggerUiOptions(stylesheet_url="https://cdn.example.test/swagger.css")
+
+
+def test_root_relative_swagger_assets_do_not_require_integrity() -> None:
+    options = SwaggerUiOptions(
+        javascript_url="/assets/swagger.js",
+        stylesheet_url="/assets/swagger.css",
+    )
+    assert options.javascript_integrity is None
+    assert options.stylesheet_integrity is None
+
+
+def test_swagger_integrity_tokens_are_normalized() -> None:
+    options = SwaggerUiOptions(
+        javascript_url="/assets/swagger.js",
+        javascript_integrity=" sha256-a+b/c=  sha512-d_e-f== ",
+    )
+    assert options.javascript_integrity == "sha256-a+b/c= sha512-d_e-f=="
+
+
+@pytest.mark.parametrize(
+    "integrity",
+    ["", " ", "md5-abc", "sha384-", "sha384-abc extra", "sha384-a=b", 1],
+)
+def test_invalid_swagger_integrity_is_rejected(integrity: object) -> None:
+    with pytest.raises(OpenApiConfigurationError, match="javascript_integrity"):
+        SwaggerUiOptions(
+            javascript_url="/assets/swagger.js",
+            javascript_integrity=cast(Any, integrity),
+        )
 
 
 @pytest.mark.parametrize(

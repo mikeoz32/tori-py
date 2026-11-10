@@ -49,6 +49,9 @@ one package does not require the same change in every package.
   LiveView UI event options built on them, now reject data that would start or
   appear inside a `phx-*` value beginning with `[`, which the Phoenix client runs
   as JS commands.
+- Swagger UI now loads its default CDN assets with pinned Subresource Integrity
+  hashes. `SwaggerUiOptions` adds `javascript_integrity` and
+  `stylesheet_integrity`, which are required for other absolute HTTPS asset URLs.
 
 ## [0.1.0] - Unreleased
 

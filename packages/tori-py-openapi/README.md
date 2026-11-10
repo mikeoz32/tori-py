@@ -66,6 +66,8 @@ supports validated static headers and a response-specific `media_type`;
 `Content-Type` is represented by `media_type`, and `X-Request-ID` remains
 framework-owned.
 
-Swagger UI uses pinned CDN assets by default. Deployments must allow those asset
-origins in network and CSP policy or configure application-hosted root-relative
-asset URLs with `SwaggerUiOptions`.
+Swagger UI uses pinned CDN assets with Subresource Integrity hashes by default.
+Deployments must allow those asset origins in network and CSP policy or configure
+application-hosted root-relative asset URLs with `SwaggerUiOptions`. Other
+absolute HTTPS asset URLs require `javascript_integrity` or
+`stylesheet_integrity`.
