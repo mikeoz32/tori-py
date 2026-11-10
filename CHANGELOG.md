@@ -43,6 +43,8 @@ one package does not require the same change in every package.
   listed in the new `LiveViewOptions.redirect_hosts`. Live navigation targets
   that browsers read as another host, such as `/\evil.example` or
   `///evil.example`, are no longer treated as same-origin.
+- Value and factory providers that expose a class with method interceptors now
+  fail instead of silently skipping the interceptors.
 
 ## [0.1.0] - Unreleased
 

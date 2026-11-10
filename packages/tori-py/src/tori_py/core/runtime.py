@@ -21,6 +21,7 @@ from tori_py.core.compiler import (
     ConstructionRecipe,
     ModuleId,
     ProviderRef,
+    _reject_unproxied_method_interceptors,
 )
 from tori_py.core.discovery import RuntimeDiscoveryService, RuntimeModulesContainer
 from tori_py.core.errors import (
@@ -46,6 +47,7 @@ from tori_py.core.protocols import (
     WorkScopeFactory,
 )
 from tori_py.core.providers import (
+    FactoryProvider,
     Scope,
 )
 from tori_py.core.reflection import Reflector
@@ -472,6 +474,9 @@ class Container:
                     provider_plan.method_interceptors,
                     self._current_scope,
                 )
+            elif isinstance(provider_plan.declaration, FactoryProvider):
+                # type(), not __class__: a proxy returned by the factory is fine.
+                _reject_unproxied_method_interceptors(ref, type(value))
             return value
         except BaseException as error:
             cleanup_errors = await resources.rollback_to(

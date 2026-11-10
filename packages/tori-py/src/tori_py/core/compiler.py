@@ -762,21 +762,14 @@ def _compile_method_interceptors(
     visibility: Mapping[tuple[ModuleId, Token], ProviderRef],
     canonical_cache: Mapping[ProviderRef, ProviderRef],
 ) -> Mapping[str, tuple[ProviderRef | MethodInterceptor, ...]]:
+    if isinstance(declaration, ValueProvider):
+        _reject_unproxied_method_interceptors(provider_ref, type(declaration.value))
     if not isinstance(declaration, ClassProvider):
         return MappingProxyType({})
 
     class_target = cast(type[object], declaration.use_class)
-    methods: dict[str, object] = {}
-    for base in reversed(class_target.__mro__):
-        if base is object:
-            continue
-        for name, member in base.__dict__.items():
-            if isinstance(member, classmethod | staticmethod):
-                member = member.__func__
-            methods[name] = member
-
     compiled: dict[str, tuple[ProviderRef | MethodInterceptor, ...]] = {}
-    for name, method in methods.items():
+    for name, method in _class_methods(class_target).items():
         bindings = get_method_interceptors(method)
         if not bindings:
             continue
@@ -812,6 +805,33 @@ def _compile_method_interceptors(
                 qualified.append(binding)
         compiled[name] = tuple(qualified)
     return MappingProxyType(compiled)
+
+
+def _reject_unproxied_method_interceptors(
+    provider_ref: ProviderRef,
+    value_type: type[object],
+) -> None:
+    """Fail instead of exposing an advised class without its proxy."""
+
+    for name, method in _class_methods(value_type).items():
+        if get_method_interceptors(method):
+            raise BootstrapError(
+                "method interceptors require a class provider with proxy=True",
+                code="provider.invalid_declaration",
+                details={"provider": repr(provider_ref.token), "method": name},
+            )
+
+
+def _class_methods(class_target: type[object]) -> dict[str, object]:
+    methods: dict[str, object] = {}
+    for base in reversed(class_target.__mro__):
+        if base is object:
+            continue
+        for name, member in base.__dict__.items():
+            if isinstance(member, classmethod | staticmethod):
+                member = member.__func__
+            methods[name] = member
+    return methods
 
 
 def _uncanonicalized_alias(**arguments: object) -> object:
