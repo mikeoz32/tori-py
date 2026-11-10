@@ -317,6 +317,49 @@ def test_html_allows_brackets_outside_phoenix_command_values() -> None:
     assert html(t"<button phx-click='{raw(_JS_COMMAND)}'>Go</button>").to_html() == (
         f"<button phx-click='{_JS_COMMAND}'>Go</button>"
     )
+    first, second = "a", "[b"
+    assert html(
+        t'<p phx-click="do-{first}-{second}" title="x">{second}</p>'
+    ).to_html() == ('<p phx-click="do-a-[b" title="x">[b</p>')
+
+
+def test_html_checks_the_phoenix_value_it_emits() -> None:
+    class StatefulEvent:
+        calls = 0
+
+        def __str__(self) -> str:
+            self.calls += 1
+            return "save" if self.calls == 1 else _JS_COMMAND
+
+    event = StatefulEvent()
+
+    assert html(t'<b phx-click="{event}">Go</b>').to_html() == (
+        '<b phx-click="save">Go</b>'
+    )
+    assert event.calls == 1
+
+
+def test_html_rejects_phoenix_js_commands_from_nested_values() -> None:
+    nested = t"{_JS_COMMAND}"
+    empty = raw("")
+    with pytest.raises(ValueError, match="unsafe phx-"):
+        html(t'<b phx-click="{nested}">Go</b>')
+    with pytest.raises(ValueError, match="unsafe phx-"):
+        html(t'<b phx-click="{fragment([_JS_COMMAND])}">Go</b>')
+    with pytest.raises(ValueError, match="unsafe phx-"):
+        html(t'<b phx-click="{empty}{_JS_COMMAND}">Go</b>')
+
+
+def test_html_rejects_data_inside_static_phoenix_js_commands() -> None:
+    # HTML escaping does not stop data from leaving a JSON string: the browser
+    # decodes &quot; before Phoenix parses the command.
+    event = (
+        'x"}],["set_attr",{"to":"body","attr":["onclick","alert(1)"]}],["push",{"a":"'
+    )
+    with pytest.raises(ValueError, match="unsafe phx-"):
+        rendered(('<b phx-click=\'[["push",{"event":"', "\"}]]'>Go</b>"), event)
+    with pytest.raises(ValueError, match="unsafe phx-"):
+        rendered(('<b phx-click=\'[["push",{"event":"', "\"}]]'>Go</b>"), "save")
 
 
 @pytest.mark.asyncio
