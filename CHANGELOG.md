@@ -30,6 +30,10 @@ one package does not require the same change in every package.
   display, layout, form, and validation-presentation helpers, a
   content-addressed immutable local stylesheet, and `UiLiveView` document
   theming plus editorial/minimal/rounded skinning for Phoenix LiveView pages.
+- LiveView `JS`, an immutable builder for Phoenix client JS commands matching
+  `Phoenix.LiveView.JS` and the pinned 1.2.11 client. Chains render as trusted
+  `phx-*` values through interpolation, `attrs()`, and `rendered()`, and
+  LiveView UI event options accept them.
 
 ### Fixed
 

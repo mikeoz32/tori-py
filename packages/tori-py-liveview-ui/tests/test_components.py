@@ -4,7 +4,7 @@ from string.templatelib import Template
 from typing import Any, cast
 
 import pytest
-from tori_py_liveview import html, raw
+from tori_py_liveview import JS, html, raw
 from tori_py_liveview_ui import (
     alert,
     badge,
@@ -73,7 +73,7 @@ def test_form_renders_phoenix_events_target_and_escaped_content() -> None:
         (
             {"id": "profile", "submit_event": 1},
             TypeError,
-            "form submit event must be a string or None",
+            "form submit event must be a string, JS, or None",
         ),
     ],
 )
@@ -397,7 +397,7 @@ def test_button_rejects_invalid_option_types() -> None:
         button("Save", variant=cast(Any, 1))
     with pytest.raises(TypeError, match="button disabled must be a boolean"):
         button("Save", disabled=cast(Any, 1))
-    with pytest.raises(TypeError, match="button event must be a string or None"):
+    with pytest.raises(TypeError, match="button event must be a string, JS, or None"):
         button("Save", event=cast(Any, 1))
     with pytest.raises(TypeError, match="button target must be an integer or None"):
         button("Save", event="save", target=cast(Any, "1"))
@@ -409,6 +409,23 @@ def test_event_options_reject_phoenix_js_commands() -> None:
         button("Save", event=command)
     with pytest.raises(ValueError, match="unsafe phx-"):
         form("<fields>", id="profile-form", submit_event=command)
+
+
+def test_event_options_accept_js_commands() -> None:
+    delete = JS().push("delete", value={"id": 7}).hide(to="#row-7")
+    encoded = (
+        "[[&quot;push&quot;,{&quot;event&quot;:&quot;delete&quot;,"
+        "&quot;value&quot;:{&quot;id&quot;:7}}],"
+        "[&quot;hide&quot;,{&quot;time&quot;:200,&quot;to&quot;:&quot;#row-7&quot;}]]"
+    )
+    assert _render(button("Remove", event=delete, target=4)) == (
+        '<button type="button" '
+        'class="tori-ui-button tori-ui-button--primary tori-ui-button--md" '
+        f'phx-click="{encoded}" phx-target="4">Remove</button>'
+    )
+    assert f'phx-submit="{encoded}"' in _render(
+        form("<fields>", id="profile-form", submit_event=delete)
+    )
 
 
 def test_badge_and_alert_render_semantics_and_tones() -> None:

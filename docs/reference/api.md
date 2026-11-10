@@ -321,6 +321,7 @@ Principal public API:
   `live_view`, `LiveView.send_info`, `LiveView.handle_info`.
 - Rendering: `Rendered`, `SafeHtml`, `html`, `fragment`, `classes`, `attrs`,
   `rendered`, `raw`.
+- Client JS commands: `JS`.
 - Errors: `LiveViewError`, `LiveViewConfigurationError`, `UnknownEventError`,
   `UnknownInfoError`.
 
