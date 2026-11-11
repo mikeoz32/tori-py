@@ -173,6 +173,69 @@ async with entities.transaction():
     task.completed = True
 ```
 
+## Use the EntityManager Directly
+
+`EntityManager` is the model-independent API behind every repository. Inject it
+when an operation spans several mapped classes or needs a statement no
+repository method covers:
+
+```python
+from sqlalchemy import func, select, text, update
+from tori_py_sqlalchemy import EntityManager
+
+
+class TaskReports:
+    def __init__(self, entities: EntityManager) -> None:
+        self._entities = entities
+
+    async def open_count(self) -> int:
+        return await self._entities.scalar(
+            select(func.count())
+            .select_from(TaskRow)
+            .where(TaskRow.completed.is_(False))
+        )
+
+    async def titles(self) -> list[str]:
+        rows = await self._entities.scalars(select(TaskRow.title).order_by(TaskRow.id))
+        return list(rows)
+
+    async def complete_prefix(self, prefix: str) -> int:
+        result = await self._entities.execute(
+            update(TaskRow)
+            .where(TaskRow.title.startswith(prefix))
+            .values(completed=True)
+        )
+        return result.rowcount
+
+    async def rename(self, task_id: int, title: str) -> None:
+        await self._entities.execute(
+            text("UPDATE tasks SET title = :title WHERE id = :id"),
+            {"title": title, "id": task_id},
+        )
+```
+
+| Method | Behavior |
+| --- | --- |
+| `add(entity)`, `add_all(entities)` | Add and flush; `add_all` returns a tuple |
+| `get(type, identity, ...)`, `get_one(type, identity, ...)` | Primary-key load; `get_one` raises SQLAlchemy's `NoResultFound` |
+| `merge(entity, *, load=True, options=())` | Copy detached state into the session and flush; returns the managed copy |
+| `delete(entity)` | Delete and flush |
+| `refresh(entity, *, attribute_names=None, with_for_update=False)` | Reload attributes from the database |
+| `execute(statement, params=None)` | Run any executable statement and return a buffered `Result` |
+| `scalar(statement, params=None)` | First column of the first row, or `None` |
+| `scalars(statement, params=None)` | Buffered `ScalarResult` of the first column |
+| `flush(entities=None)` | Flush pending changes; requires an explicit transaction |
+| `transaction()` | Open an explicit transaction or a nested savepoint |
+
+`get`, `get_one`, and `refresh` also accept `options`, `populate_existing`, and
+`with_for_update` like the repository methods. `ExecuteParams` is the type of
+`params`: one mapping of bound parameter values, a sequence of mappings for an
+executemany call, or `None`.
+
+Every call outside `transaction()` is a standalone operation with its own
+session and commit, exactly as for repositories. Inside `transaction()`, calls
+share the explicit transaction. See [Transactions](transactions.md).
+
 ## Custom Repository
 
 Declare application-specific query policy by directly specializing
@@ -222,6 +285,9 @@ A custom repository must:
 - directly specialize `Repository[Entity]` for the same mapped class;
 - inherit the base `Repository` constructor unchanged;
 - remain stateless and declare no additional constructor dependencies.
+
+`self.entity_type` returns the mapped class the repository owns, which helps
+shared query helpers build statements without repeating the class.
 
 Use inherited `_execute()`, `_scalar()`, and `_scalars()` in custom query methods.
 They return buffered SQLAlchemy results and participate in the same automatic or

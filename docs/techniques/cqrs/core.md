@@ -436,6 +436,25 @@ It must provide async `start(consumer)`, `request(envelope, timeout=None)`,
 delivers envelopes to the consumer supplied at start; the bus dispatcher, not
 the transport, owns handler routing.
 
+The consumer is a `TransportConsumer`: an async callable that takes one
+`Envelope` and returns a `ReplyEnvelope` for a command or query, or `None` for
+an event. A worker calls it once per delivered envelope:
+
+```python
+from tori_py_cqrs_core import Envelope, ReplyEnvelope, TransportConsumer
+
+
+async def deliver(consumer: TransportConsumer, envelope: Envelope) -> None:
+    reply = await consumer(envelope)
+    if isinstance(reply, ReplyEnvelope):
+        await send_reply_to_caller(reply)
+```
+
+`TransportState` is the lifecycle enum used by `InMemoryTransport.state`:
+`NEW`, `STARTING`, `RUNNING`, `STOPPING`, and `STOPPED`. A custom transport may
+reuse it for its own status reporting. Raise `TransportNotStartedError` for work
+submitted before `start()` and `TransportStoppedError` after `shutdown()`.
+
 Request transports must return a valid correlated `ReplyEnvelope`.
 Publication transports return a `DeliveryReceipt` after acceptance. A serialized
 transport must define its own stable message aliases, serialization, remote

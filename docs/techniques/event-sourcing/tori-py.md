@@ -127,6 +127,10 @@ profile_repositories = CqrsEventSourcingModule.for_feature(
 cqrs_module = CqrsModule.for_root(global_=True)
 ```
 
+Root keys and `root_key` values must be non-empty strings other than `"static"`,
+which ToriPy reserves for static modules; a feature `key` is a non-empty string
+or `None`. Invalid keys raise `CqrsEventSourcingConfigurationError`.
+
 `schemas` must be frozen before graph compilation. `store` is a visible ToriPy
 provider token, not a store object created by the module descriptor. This keeps
 store lifecycle, settings, pooling, and test overrides with the provider that

@@ -179,6 +179,27 @@ return an awaitable. Factory-produced handlers are dispatch-scoped and owned by
 The registration target need not carry core handler decorator metadata because
 the adapter receives the message type explicitly.
 
+## Adapter Options
+
+Every `FastAPIAdapter` argument is keyword-only and optional:
+
+| Argument | Default | Meaning |
+| --- | --- | --- |
+| `command_transport` | `InMemoryTransport(name="fastapi-command")` | Transport for commands |
+| `query_transport` | `InMemoryTransport(name="fastapi-query")` | Transport for queries |
+| `event_transport` | `InMemoryTransport(name="fastapi-event")` | Transport for events |
+| `provider` | core `DefaultHandlerProvider` | Handler provider, usually a `FastAPIHandlerProvider` |
+| `event_error_handler` | none | Callback for event handler failures |
+| `on_buses_built` | none | Hook called once after the bus graph is built and before buses start |
+| `shutdown_timeout` | `None` | One shutdown budget, in seconds, shared by all buses and provider cleanup; `None` waits without a deadline |
+
+Set `shutdown_timeout` in production so a stuck handler cannot hold shutdown
+open forever.
+
+`FastAPIHandlerProvider.app` returns the app bound during lifespan startup, or
+`None` before it. The adapter calls `bind_app(app)` for you; a provider can be
+bound to only one app.
+
 ## FastAPI Lifespan
 
 Always install `adapter.lifespan` as the FastAPI lifespan, or compose it inside

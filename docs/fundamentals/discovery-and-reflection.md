@@ -332,6 +332,43 @@ combines controller discovery with ToriPy's public route compiler.
   declarations attached to Python targets.
 - Keep integrations lifecycle-managed and cancellation-cooperative.
 
+## Framework Metadata Getters
+
+Integrations that compile their own plans from framework declarations read them
+through public getters instead of private attributes. Each getter returns
+`None` or an empty tuple when nothing was declared:
+
+| Getter | Target | Returns |
+| --- | --- | --- |
+| `get_module_metadata(cls)` | Module class | `ModuleMetadata` with `imports`, `providers`, `controllers`, `exports`, `global_` |
+| `get_injectable_metadata(cls)` | `@injectable` class | The implied `ClassProvider` |
+| `get_controller_metadata(cls)` | `@controller` class | `ControllerMetadata` with `prefix` |
+| `get_route_metadata(func)` | Route handler | `RouteMetadata` with `method` and `path` |
+| `get_status_metadata(func)` | Route handler | `StatusMetadata` with `status_code` |
+| `get_pipeline_metadata(target, kind)` | Class or handler | Declared `middleware`, `guards`, `pipes`, `interceptors`, or `filters` bindings for `kind` |
+| `get_method_interceptors(func)` | Provider method | Method interceptor bindings in declaration order |
+| `get_websocket_gateway_metadata(cls)` | `@websocket_gateway` class | `WebSocketGatewayMetadata` with `path` |
+| `tori_py.http.get_response_header_metadata(func)` | Route handler | `ResponseHeaderMetadata` values with `name` and `value` |
+
+```python
+from tori_py import controller, get, get_controller_metadata, get_route_metadata
+
+
+@controller("/tasks")
+class TaskController:
+    @get("/{task_id}")
+    async def show(self) -> None: ...
+
+
+assert get_controller_metadata(TaskController).prefix == "/tasks"
+assert get_route_metadata(TaskController.show).path == "/{task_id}"
+```
+
+The module, controller, and gateway getters read only the class's own
+declaration, not a base class's. Getters return declarations as written; they do
+not apply the global pipeline or validate anything. Use the compiled route plans
+from `tori_py.http.compile_routes` when you need the effective result.
+
 ## Related APIs
 
 - Reflection: `MetadataKey`, `MetadataDecorator`, `metadata`, `Reflector`
