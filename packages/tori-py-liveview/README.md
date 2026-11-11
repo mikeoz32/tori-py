@@ -226,9 +226,25 @@ connection-local; do not persist or construct it. An omitted identity remains
 revivable until the browser completes Phoenix's component-destruction handshake.
 After final confirmation it is disconnected and forgotten; rendering it later
 creates fresh state and a new target. Override the async `disconnect()` hook to
-stop component-owned resources. Nested components are not supported. Component
-output must contain exactly one root element and use explicit balanced end tags
-rather than optional-end-tag HTML.
+stop component-owned resources. Component output must contain exactly one root
+element and use explicit balanced end tags rather than optional-end-tag HTML.
+
+A component's `render()` may render nested components with its own
+`live_component()`:
+
+```python
+class TreeComponent(LiveComponent):
+    def render(self) -> Template:
+        leaves = fragment(
+            self.live_component(LeafComponent, leaf_id) for leaf_id in self.leaf_ids
+        )
+        return t'<ul phx-target="{self.myself}">{leaves}</ul>'
+```
+
+Nested components belong to the page: their identity is unique across the whole
+page, and their targets, `send_update()`, async work, and cleanup behave as for
+components the page renders. A child the parent stops rendering, including every
+child of a removed parent, goes through the same destruction handshake.
 
 `send_update(component_type, component_id, assigns)` passes assigns to a
 rendered component from a page or component handler or from `handle_info()`,
@@ -496,8 +512,8 @@ live navigation, client hooks, pushed events, event replies, `send_update`,
 flash, async work, connect params, `reload` join errors, and changed-only
 render diffs with shared component statics. The configured
 socket path is the Phoenix endpoint base; the browser connects to its
-`/websocket?vsn=2.0.0` transport route. Nested components, child LiveViews, and
-uploads are reserved for later releases.
+`/websocket?vsn=2.0.0` transport route. Nested components are supported; child
+LiveViews and uploads are reserved for later releases.
 
 See the runnable example in `examples/tori_py/liveview` and the normative
 architecture in `TORI_PY_LIVEVIEW_ARCHITECTURE.md`.

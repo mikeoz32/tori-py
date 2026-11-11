@@ -110,10 +110,19 @@ attribute, and removal or disconnect of the component cancels its work. Calling
 any of them on a component that is not attached raises `LiveViewError`.
 
 `LiveView.live_component(component_type, id, assigns, factory=...)` may only run
-inside `render`. Identity is the concrete component type plus `id`. The first
-render constructs and mounts one instance; every render updates its assigns
-before rendering. Reusing the identity preserves state. Rendering one identity
-twice in a parent render is an error.
+while the page renders. Identity is the concrete component type plus `id`. The
+first render constructs and mounts one instance; every render updates its
+assigns before rendering. Reusing the identity preserves state. Rendering one
+identity twice in a page render is an error.
+
+`LiveComponent.live_component` renders a nested component from a component's
+`render` and delegates to the owning page. Nested components belong to the page
+like any other: identity is unique across the whole page render at every depth,
+CIDs share the page's namespace, and `phx-target`, `send_update`, async work,
+and destruction work unchanged. The parent's tree holds the child's CID, and
+every component tree sits flat under `c`. A child the parent stops rendering, or
+every child of a parent the page stops rendering, becomes pending and follows
+the destruction handshake below; the client reports each removed component.
 
 The encoder places integer CID references in the parent tree and component
 trees under the Phoenix `c` map. Component trees carry `r: 1`, allowing the
@@ -124,8 +133,8 @@ advertising `r: 1`. Components omitted by a successful parent render remain
 pending through the official `cids_will_destroy`/`cids_destroyed` handshake.
 Rendering the identity before final confirmation revives the same instance, CID,
 and state; final confirmation disconnects and forgets only components still
-absent. HTTP-only components are disconnected after the response is built.
-Nested components are not supported.
+absent. HTTP-only components, nested ones included, are disconnected after the
+response is built.
 
 ### 3.4 Streams
 
@@ -585,7 +594,7 @@ expiry are abuse controls, not substitutes for rate limiting or authorization.
 
 ## 11. Deliberate Non-Goals
 
-The package does not implement nested components, child LiveViews, upload
+The package does not implement child LiveViews, upload
 transport, durable sessions, cross-replica session migration, durable or
 supervised background jobs, or `stream_async`. The LiveView integration requires the Starlette
 adapter; the native ASGI adapter serves no WebSocket scopes.
@@ -605,9 +614,10 @@ scenarios must exercise the real vendored official clients, including a hook
 that pushes an event, receives its reply, and handles a pushed server event;
 flash dismissal and transfer across `push_navigate` and `redirect`; an
 `assign_async` loading state; connect params with `_track_static` and
-`_live_referer`; a reload after a connected-mount client error; and
+`_live_referer`; a reload after a connected-mount client error;
 changed-only diffs that update one component without touching its sibling,
 share cached component statics, bring back a component before its destruction,
-and keep stream items across updates that leave the stream out. Ruff,
+and keep stream items across updates that leave the stream out; and nested
+components that handle their own events and leave with their parent. Ruff,
 formatting, ty, wheel/sdist build, artifact verification, and isolated import
 smoke run through `uv`.

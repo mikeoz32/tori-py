@@ -26,6 +26,7 @@ from tori_py_liveview import (
     LiveViewOptions,
     MountContext,
     UnknownEventError,
+    fragment,
     live_view,
 )
 
@@ -305,6 +306,63 @@ class BrowserDiffLive(LiveView):
         )
 
 
+class BrowserLeaf(LiveComponent):
+    def __init__(self) -> None:
+        self.count = 0
+
+    async def handle_event(self, event: str, value: object) -> None:
+        del value
+        if event != "bump":
+            raise UnknownEventError(event)
+        self.count += 1
+
+    def render(self):
+        return (
+            t'<li id="leaf-{self.id}">'
+            t'<output id="leaf-{self.id}-count">{self.count}</output>'
+            t'<button id="leaf-{self.id}-bump" phx-click="bump" '
+            t'phx-target="{self.myself}">+</button>'
+            t"</li>"
+        )
+
+
+class BrowserBranch(LiveComponent):
+    def __init__(self) -> None:
+        self.leaves = ("a", "b")
+
+    async def handle_event(self, event: str, value: object) -> None:
+        del value
+        if event != "drop":
+            raise UnknownEventError(event)
+        self.leaves = self.leaves[:1]
+
+    def render(self):
+        leaves = fragment(
+            self.live_component(BrowserLeaf, leaf) for leaf in self.leaves
+        )
+        return (
+            t'<section id="branch"><ul>{leaves}</ul>'
+            t'<button id="drop" phx-click="drop" phx-target="{self.myself}">'
+            t"Drop</button></section>"
+        )
+
+
+@live_view("/browser-nested")
+class BrowserNestedLive(LiveView):
+    def __init__(self) -> None:
+        self.show = True
+
+    async def handle_event(self, event: str, value: object) -> None:
+        del value
+        if event != "toggle":
+            raise UnknownEventError(event)
+        self.show = not self.show
+
+    def render(self):
+        branch = self.live_component(BrowserBranch, "tree") if self.show else ""
+        return t'<button id="toggle-tree" phx-click="toggle">Toggle</button>{branch}'
+
+
 def _asgi(application: NestApplication) -> ASGIApp:
     return application.get_adapter(StarletteAdapter).app
 
@@ -321,6 +379,7 @@ async def _create_application() -> NestApplication:
             BrowserParamsLive,
             BrowserGoneLive,
             BrowserDiffLive,
+            BrowserNestedLive,
         ],
     )
 

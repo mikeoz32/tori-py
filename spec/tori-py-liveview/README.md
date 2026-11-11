@@ -35,8 +35,10 @@ This directory records the executable contract for `tori-py-liveview`.
     events, renders, and outbound writes are serialized on the WebSocket task;
     successful callbacks emit unreferenced Phoenix `diff` pushes, and disconnect
     detaches the queue and rejects later sends.
- 14. Nested components, child LiveViews, uploads, and `stream_async` remain
-    outside the current server surface.
+ 14. Child LiveViews, uploads, and `stream_async` remain outside the current
+    server surface. Components render nested components through
+    `LiveComponent.live_component`; they share the page's identity namespace,
+    CIDs, targets, updates, and destruction handshake.
  15. `@live_view` accepts `action` and `session` and may be stacked for several
     paths on one page class. `mount` runs before `handle_params` on every HTTP
     and Channel mount. `push_patch` navigates within the page, `push_navigate`

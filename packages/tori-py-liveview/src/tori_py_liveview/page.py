@@ -308,7 +308,7 @@ class LiveView(ABC):
         )
         if rendered_components is None:
             raise LiveViewError(
-                "LiveView components can only be rendered from LiveView.render"
+                "LiveView components can only be rendered while their page renders"
             )
         if not isinstance(component_id, str):
             raise TypeError("LiveView component id must be a string")

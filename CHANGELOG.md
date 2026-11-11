@@ -57,6 +57,10 @@ one package does not require the same change in every package.
   only the components that changed, each component template's statics once,
   stream entries only with operations, and the title only when it changes.
   Info and async renders that change nothing push no `diff`.
+- LiveView nested components. `LiveComponent.live_component()` renders a nested
+  component from a component's `render()`; nested components share the page's
+  identity namespace, CIDs, targets, `send_update()`, async work, and
+  destruction handshake.
 
 ### Fixed
 

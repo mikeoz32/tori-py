@@ -145,3 +145,27 @@ Feature: LiveView pages in a real browser
     And "#items" lists 1 items
     When I click "#add"
     Then "#items" lists 2 items
+
+  Scenario: A nested component handles its own events
+    Given I open the "/browser-nested" live page
+    And I mark "#branch" and "#leaf-b"
+    When I click "#leaf-a-bump"
+    Then "#leaf-a-count" shows "1"
+    And "#branch" still has its mark
+    And "#leaf-b" still has its mark
+    And the last update was {"c": {"2": {"2": "1"}}}
+
+  Scenario: Nested components leave with their parent
+    Given I open the "/browser-nested" live page
+    When I click "#leaf-a-bump"
+    Then "#leaf-a-count" shows "1"
+    When I click "#drop"
+    Then "#leaf-b" is gone
+    And the server destroyed component 3
+    When I click "#toggle-tree"
+    Then "#branch" is gone
+    And the server destroyed component 1
+    And the server destroyed component 2
+    When I click "#toggle-tree"
+    Then "#leaf-a-count" shows "0"
+    And "#leaf-b-count" shows "0"

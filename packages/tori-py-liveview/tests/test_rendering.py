@@ -8,6 +8,7 @@ import pytest
 from tori_py_liveview import (
     LiveComponent,
     LiveView,
+    LiveViewError,
     Rendered,
     attrs,
     classes,
@@ -382,6 +383,70 @@ async def test_page_and_component_render_accept_templates() -> None:
     component = result.dynamics[0]
     assert isinstance(component, _ComponentRendered)
     assert component.cid == 1
+
+
+@pytest.mark.asyncio
+async def test_components_render_nested_components_owned_by_the_page() -> None:
+    class Leaf(LiveComponent):
+        def render(self) -> Template:
+            return t'<i phx-target="{self.myself}">{self.id}</i>'
+
+    class Branch(LiveComponent):
+        def render(self) -> Template:
+            leaf = self.live_component(Leaf, "leaf")
+            return t'<b phx-target="{self.myself}">{leaf}</b>'
+
+    class Page(LiveView):
+        def render(self) -> Template:
+            return t"<main>{self.live_component(Branch, 'branch')}</main>"
+
+    result = await Page()._render_liveview()
+
+    assert result.to_html() == (
+        '<main><b phx-target="1"><i phx-target="2">leaf</i></b></main>'
+    )
+    branch = result.dynamics[0]
+    assert isinstance(branch, _ComponentRendered)
+    leaf = branch.dynamics[1]
+    assert isinstance(leaf, _ComponentRendered)
+    assert (branch.cid, leaf.cid) == (1, 2)
+
+
+@pytest.mark.asyncio
+async def test_nested_component_identity_is_unique_across_the_page() -> None:
+    class Leaf(LiveComponent):
+        def render(self) -> str:
+            return "<i></i>"
+
+    class Branch(LiveComponent):
+        def render(self) -> Template:
+            return t"<b>{self.live_component(Leaf, 'same')}</b>"
+
+    class Page(LiveView):
+        def render(self) -> Template:
+            leaf = self.live_component(Leaf, "same")
+            return t"<main>{leaf}{self.live_component(Branch, 'branch')}</main>"
+
+    with pytest.raises(LiveViewError, match="Duplicate LiveView component identity"):
+        await Page()._render_liveview()
+
+
+def test_components_render_nested_components_only_while_the_page_renders() -> None:
+    class Leaf(LiveComponent):
+        def render(self) -> str:
+            return "<i></i>"
+
+    branch = Leaf()
+    with pytest.raises(LiveViewError, match="not attached"):
+        branch.live_component(Leaf, "leaf")
+
+    class Page(LiveView):
+        def render(self) -> str:
+            return ""
+
+    branch._attach_liveview("branch", 1, False, Page())
+    with pytest.raises(LiveViewError, match="while their page renders"):
+        branch.live_component(Leaf, "leaf")
 
 
 def test_stream_insert_accepts_a_template() -> None:

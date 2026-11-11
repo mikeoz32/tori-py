@@ -52,6 +52,24 @@ class LiveComponent(ABC):
         """Queue a component update on the owning page."""
         self._liveview_page().send_update(component_type, component_id, assigns)
 
+    def live_component[C: LiveComponent](
+        self,
+        component_type: type[C],
+        component_id: str,
+        assigns: object = None,
+        *,
+        factory: Callable[[], C] | None = None,
+    ) -> Rendered:
+        """Render a nested component from ``render``; see ``LiveView.live_component``.
+
+        Nested components belong to the owning page: their ``(type, id)``
+        identity is unique across the whole page, and their CIDs, events,
+        updates, and destruction work as for components the page renders.
+        """
+        return self._liveview_page().live_component(
+            component_type, component_id, assigns, factory=factory
+        )
+
     def put_flash(self, kind: str, message: str) -> None:
         """Set a flash message on the owning page; see ``LiveView.put_flash``."""
         self._liveview_page().put_flash(kind, message)

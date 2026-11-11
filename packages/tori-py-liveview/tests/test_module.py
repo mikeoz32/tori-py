@@ -37,6 +37,7 @@ from tori_py_liveview import (
     UnknownAsyncError,
     UnknownEventError,
     UnknownInfoError,
+    fragment,
     live_view,
     rendered,
 )
@@ -194,6 +195,77 @@ class ComponentsLive(LiveView):
             t"<section>{left}{right}"
             t'<button phx-click="toggle_right">toggle</button></section>'
         )
+
+
+class LeafComponent(LiveComponent):
+    disconnects: ClassVar[list[str]] = []
+
+    def __init__(self) -> None:
+        self.label = ""
+        self.count = 0
+
+    def update(self, assigns: object) -> None:
+        values = cast(dict[str, object], assigns)
+        self.label = cast(str, values.get("label", self.label))
+        self.count = cast(int, values.get("count", self.count))
+
+    async def handle_event(self, event: str, value: object) -> None:
+        del value
+        if event != "bump":
+            raise UnknownEventError(event)
+        self.count += 1
+
+    def render(self):
+        return (
+            t'<li id="leaf-{self.id}" phx-click="bump" '
+            t'phx-target="{self.myself}">{self.label}:{self.count}</li>'
+        )
+
+    async def disconnect(self) -> None:
+        type(self).disconnects.append(self.id)
+
+
+class BranchComponent(LiveComponent):
+    disconnects: ClassVar[list[str]] = []
+
+    def __init__(self) -> None:
+        self.leaves = ("a", "b")
+
+    async def handle_event(self, event: str, value: object) -> None:
+        del value
+        if event != "drop":
+            raise UnknownEventError(event)
+        self.leaves = self.leaves[:1]
+
+    def render(self):
+        leaves = fragment(
+            self.live_component(LeafComponent, leaf, {"label": leaf.upper()})
+            for leaf in self.leaves
+        )
+        return t'<ul id="branch-{self.id}" phx-target="{self.myself}">{leaves}</ul>'
+
+    async def disconnect(self) -> None:
+        type(self).disconnects.append(self.id)
+
+
+@live_view("/nested")
+class NestedLive(LiveView):
+    def __init__(self) -> None:
+        self.show = True
+
+    async def handle_event(self, event: str, value: object) -> None:
+        del value
+        if event == "toggle":
+            self.show = not self.show
+        elif event == "recount":
+            # The branch passes only labels, so the count it leaves alone stays.
+            self.send_update(LeafComponent, "a", {"count": 5})
+        else:
+            raise UnknownEventError(event)
+
+    def render(self):
+        branch = self.live_component(BranchComponent, "tree") if self.show else ""
+        return t"<main>{branch}</main>"
 
 
 @live_view("/streams")
@@ -1282,6 +1354,84 @@ async def test_components_keep_state_route_targets_and_cleanup(
     assert CounterComponent.mount_connections == [False, False, True, True, True]
     assert CounterComponent.updates == 11
     assert CounterComponent.disconnects == 5
+    await application.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_nested_components_update_and_leave_with_their_parent() -> None:
+    LeafComponent.disconnects = []
+    BranchComponent.disconnects = []
+    liveview_module = LiveViewModule.for_root(
+        LiveViewOptions(secret="s" * 32),
+        pages=[NestedLive],
+        key="nested",
+    )
+
+    @module(imports=[liveview_module])
+    class Root:
+        pass
+
+    application = await NestApplication.create(Root, adapter=StarletteAdapter())
+    await application.start()
+    page = await _request(application, "/nested")
+    assert '<li id="leaf-a" phx-click="bump" phx-target="2">A:0</li>' in page.text
+    # The disconnected render disconnects its nested components too.
+    assert BranchComponent.disconnects == ["tree"]
+    assert sorted(LeafComponent.disconnects) == ["a", "b"]
+    LeafComponent.disconnects = []
+    BranchComponent.disconnects = []
+    session = _ChannelSession(application)
+    await session.start()
+    await session.push(_join(_token(page.text), url="http://testserver/nested"))
+    joined = _rendered((await session.frames(1))[0])
+    assert joined["0"] == 1
+    components = cast(dict[str, dict[str, object]], joined["c"])
+    # The branch holds its leaves' CIDs; the second leaf copies the first's statics.
+    assert components["1"]["2"] == {"s": ["", "", ""], "0": 2, "1": 3}
+    assert components["3"]["s"] == 2
+
+    await session.push(_event("2", "bump", cid=3))
+    assert _diff((await session.frames(2))[1]) == {"c": {"3": {"3": "1"}}}
+
+    await session.push(_event("3", "recount"))
+    assert _diff((await session.frames(3))[2]) == {"c": {"2": {"3": "5"}}}
+
+    # Dropping a leaf changes only its parent, and the client then destroys it.
+    await session.push(_event("4", "drop", cid=1))
+    assert _diff((await session.frames(4))[3]) == {
+        "c": {"1": {"2": {"s": ["", ""], "0": 2}}}
+    }
+    await session.push(
+        _receive_text(["1", "5", _TOPIC, "cids_will_destroy", {"cids": [3]}])
+    )
+    await session.push(
+        _receive_text(["1", "6", _TOPIC, "cids_destroyed", {"cids": [3]}])
+    )
+    assert _response((await session.frames(6))[5]) == {"cids": [3]}
+    assert LeafComponent.disconnects == ["b"]
+
+    # Removing the branch removes its remaining leaf with it.
+    await session.push(_event("7", "toggle"))
+    assert _diff((await session.frames(7))[6]) == {"0": ""}
+    await session.push(
+        _receive_text(["1", "8", _TOPIC, "cids_will_destroy", {"cids": [1, 2]}])
+    )
+    await session.push(
+        _receive_text(["1", "9", _TOPIC, "cids_destroyed", {"cids": [1, 2]}])
+    )
+    assert _response((await session.frames(9))[8]) == {"cids": [1, 2]}
+    assert BranchComponent.disconnects == ["tree"]
+    assert LeafComponent.disconnects == ["b", "a"]
+
+    # Brought back, the branch and its leaves mount afresh with new CIDs.
+    await session.push(_event("10", "toggle"))
+    restored = _diff((await session.frames(10))[9])
+    assert restored["0"] == 4
+    restored_components = cast(dict[str, dict[str, object]], restored["c"])
+    assert set(restored_components) == {"4", "5", "6"}
+    assert restored_components["5"]["3"] == "0"
+
+    await session.close()
     await application.shutdown()
 
 

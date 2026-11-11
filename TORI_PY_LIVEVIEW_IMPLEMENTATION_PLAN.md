@@ -118,7 +118,17 @@
   render sequences, and the browser behavior through pytest-bdd scenarios on
   the exact pinned official clients.
 
+## LV12: Nested Components
+
+- Add `LiveComponent.live_component`, delegating to the owning page while it
+  renders, so components render nested components that share the page's
+  identity namespace, CIDs, targets, updates, async work, and destruction
+  handshake.
+- Exercise nested trees, targeted events, `send_update`, and removal with a
+  parent through package tests, random diff sequences, and pytest-bdd scenarios
+  on the exact pinned official clients.
+
 ## Deferred
 
-- Evaluate nested components, child LiveViews, uploads, `stream_async`, and
-  keyed list comprehensions as separate contracts.
+- Evaluate child LiveViews, uploads, `stream_async`, and keyed list
+  comprehensions as separate contracts.
