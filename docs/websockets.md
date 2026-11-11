@@ -78,6 +78,22 @@ HTTP-only. There is no source-name inference.
 Pipes transform path, query, header, and cookie values. Socket, context, and
 injected values bypass pipes.
 
+`WebSocketContext` is the `ExecutionContext` for one connection. Guards,
+interceptors, filters, and handlers receive it:
+
+| Member | Value |
+| --- | --- |
+| `execution_kind` | `"websocket"` |
+| `route_id` | The gateway route, such as `WS /rooms/{room}` |
+| `request_id` | A per-connection ID |
+| `resolver` | The connection's request-scope resolver |
+| `metadata` | Read-only `path`, `path_params`, `query`, `headers`, and `subprotocols` of the handshake |
+| `socket` | The native socket object |
+
+Code that runs inside a connection but did not receive the context, such as a
+logging helper, can call `tori_py.websocket.current_websocket_context()`. It
+returns the active context, or `None` outside a WebSocket connection.
+
 ## Pipeline And Handshake
 
 Global, gateway, and handler pipeline declarations run in this order:
@@ -119,6 +135,28 @@ During application shutdown, new connection scopes are rejected and active
 connections use the same bounded drain and cancellation policy as HTTP request
 scopes. Before lifespan readiness or after shutdown, the ASGI wrapper closes a
 WebSocket scope with code `1013`.
+
+## Testing Gateways
+
+`tori_py.testing.http_client()` covers HTTP only. Test a gateway through the
+exported ASGI application with Starlette's `TestClient`, which runs the
+application's lifespan and opens real WebSocket sessions in-process:
+
+```python
+from starlette.testclient import TestClient
+from tori_py.starlette import asgi
+
+
+def test_room_gateway_echoes_trimmed_text() -> None:
+    with TestClient(asgi(create_application)) as client:
+        with client.websocket_connect("/rooms/lobby") as socket:
+            socket.send_text("  hello ")
+            assert socket.receive_text() == "lobby:hello"
+```
+
+`TestClient` is synchronous; write these tests as plain functions, not
+`async def`. Test guards by asserting that `websocket_connect()` raises
+`starlette.websockets.WebSocketDisconnect` with code `1008`.
 
 ## Deliberate Non-Goals
 

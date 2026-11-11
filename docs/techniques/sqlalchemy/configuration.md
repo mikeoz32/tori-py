@@ -82,8 +82,9 @@ database = SqlAlchemyModule.for_root_async(
 ```
 
 The factory is a singleton provider and is resolved once during startup. It must
-return `SqlAlchemyOptions`. This variant also creates, owns, and disposes its
-engine.
+return `SqlAlchemyOptions`, directly or from an awaitable; the
+`SqlAlchemyOptionsFactory` type alias describes that callable. This variant also
+creates, owns, and disposes its engine.
 
 ## External Engine
 

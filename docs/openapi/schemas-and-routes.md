@@ -179,6 +179,16 @@ The compiler supports msgspec's schema model with stricter fail-fast checks:
 Components are shared under `#/components/schemas/{name}` and generated in one
 msgspec pass.
 
+Generation is bounded by Python's recursion limit. An annotation nested too
+deeply for msgspec to describe, or a cyclic default value, fails startup with
+`OpenApiSchemaError` whose message says it "exceeded annotation nesting limits".
+When several routes contribute schemas, the error's `details["uses"]` names each
+route and purpose (such as a parameter, body, or response) so the offending
+annotation can be found. Recursive models that reference themselves through a
+named component are fine; the limit applies to anonymous nesting depth. See
+[Errors and Diagnostics](../reference/errors-and-diagnostics.md) for the other
+OpenAPI errors.
+
 ```python
 from dataclasses import dataclass
 from typing import TypedDict

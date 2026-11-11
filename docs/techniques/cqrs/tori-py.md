@@ -156,6 +156,51 @@ handler and interceptors finish, including failure and cancellation paths.
 A class handler must expose `async handle(message)`. Function handlers from the
 core `@handles` API are not supported by the ToriPy integration.
 
+### One Message Type per Decorated Class
+
+Each decorated class handles exactly one message type. Stacking two handler
+decorators on one class raises `BootstrapError` with
+`reflection.duplicate_metadata`. Prefer one small class per message. When one
+object must react to several events, register it once and bind it explicitly
+to each event type:
+
+```python
+from tori_py import ValueProvider, module
+from tori_py_cqrs import CqrsModule, bind_event_handler
+
+
+class MembershipLog:
+    def __init__(self) -> None:
+        self.entries: list[str] = []
+
+    async def handle(self, event: MemberJoined | MemberLeft) -> None:
+        match event:
+            case MemberJoined(name=name):
+                self.entries.append(f"+{name}")
+            case MemberLeft(name=name):
+                self.entries.append(f"-{name}")
+
+
+@module(
+    providers=[ValueProvider("membership-log", MembershipLog())],
+    exports=["membership-log"],
+)
+class MembershipModule:
+    pass
+
+
+cqrs_module = CqrsModule.for_root(
+    imports=[MembershipModule],
+    handlers=[
+        bind_event_handler(MemberJoined, "membership-log"),
+        bind_event_handler(MemberLeft, "membership-log"),
+    ],
+)
+```
+
+Each binding is a separate event delivery with its own work scope. Commands and
+queries still allow exactly one handler per message type.
+
 ## Discovery Rules
 
 At application composition, `CqrsModule` uses ToriPy's compiled provider views:
@@ -264,6 +309,43 @@ inject into it or manage its lifecycle.
 - invocation completion and handler-exit registration APIs.
 
 It deliberately has no HTTP request or request ID.
+
+`context.metadata` is an immutable mapping of strings meant for logs and
+metrics:
+
+| Key | Value |
+| --- | --- |
+| `handler` | Owner module and provider token, such as `app.handlers.HandlerModule:IncrementHandler` |
+| `handler_kind` | `"command"`, `"query"`, or `"event"` |
+| `message_type` | Fully qualified message class name |
+| `message_id` | The envelope's message UUID as a string |
+| `correlation_id` | The correlation UUID as a string, or `None` |
+
+Interceptors can be attached to explicit bindings as well as decorated classes.
+`bind_command_handler()`, `bind_query_handler()`, and `bind_event_handler()`
+accept `interceptors=`, a sequence of `CqrsInterceptorBinding` values that pair
+a provider token or instance with a phase:
+
+```python
+from tori_py_cqrs import CqrsInterceptorBinding, CqrsInterceptorPhase
+
+cqrs_module = CqrsModule.for_root(
+    imports=[HandlerModule],
+    handlers=[
+        bind_command_handler(
+            Increment,
+            "increment-handler",
+            interceptors=[
+                CqrsInterceptorBinding(TraceInvocation, CqrsInterceptorPhase.HANDLER),
+            ],
+        ),
+    ],
+)
+```
+
+Unlike `@use_cqrs_interceptors`, which wraps bare tokens for you, explicit
+bindings require `CqrsInterceptorBinding` values. A provider-token interceptor
+must be registered in the handler-owner module, here `HandlerModule`.
 
 ### Ordering and phases
 

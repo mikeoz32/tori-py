@@ -152,6 +152,25 @@ Direct ASGI hosting has no implicit CLI source. An exported
 the process environment, or configuration explicitly applied by its factory.
 `--set` belongs only to `tori-py run`.
 
+### Overrides Without the CLI
+
+`--set` builds a `BootstrapContext` and makes it current while the application
+factory runs. Tests and custom launchers can do the same:
+
+```python
+from tori_py.settings import BootstrapContext, use_bootstrap_context
+
+context = BootstrapContext.from_mapping({"database.port": "6432"})
+with use_bootstrap_context(context):
+    application = await create_application()
+```
+
+The context applies to settings modules that materialize inside the `with`
+block, which includes `NestApplication.create()`. Values remain text and secret
+paths are rejected exactly as with `--set`. `current_bootstrap_context()`
+returns the active context, or an empty one outside such a block, and
+`context.as_mapping()` returns its overrides.
+
 ## Secrets
 
 Annotate a secret-bearing field with `Secret[T]`:
@@ -174,7 +193,9 @@ descendant of one, is rejected with `settings.source_error`. The rejected value
 is represented as `<redacted>` in the diagnostic and is not echoed in its error
 text. Supply secrets through an explicit file, dotenv, or environment instead.
 
-`Secret[T]` is type metadata for redaction policy and CLI rejection. It does not
+`Secret[T]` is an alias for `Annotated[T, SecretMarker()]`, so the marker can
+also be attached by hand in an existing `Annotated` type. It is type metadata
+for redaction policy and CLI rejection. It does not
 encrypt the value, fetch it from a secret manager, prevent application code from
 logging it, or change the decoded model's runtime representation. Operators must
 protect source files and process environments, and application code must not log
