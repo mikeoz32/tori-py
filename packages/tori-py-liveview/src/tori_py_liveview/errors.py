@@ -33,9 +33,19 @@ class UnknownInfoError(LiveViewError):
         super().__init__(f"Unknown LiveView info: {info}")
 
 
+class UnknownAsyncError(LiveViewError):
+    """Raised by a page or component for an async result it does not handle."""
+
+    code = "liveview.unknown_async"
+
+    def __init__(self, name: str) -> None:
+        super().__init__(f"Unknown LiveView async result: {name}")
+
+
 __all__ = [
     "LiveViewConfigurationError",
     "LiveViewError",
+    "UnknownAsyncError",
     "UnknownEventError",
     "UnknownInfoError",
 ]

@@ -1132,9 +1132,10 @@ The package serves unchanged pinned official Phoenix and Phoenix LiveView
 JavaScript clients. Its server implements Phoenix V2 Channels framing,
 `phx-*` event bindings, render trees, heartbeats, connection-local stateful
 component CIDs, browser-owned keyed stream operations, server-initiated
-messages, live navigation, client hooks, pushed events, event replies, and
-component updates. Nested components, child LiveViews, uploads, and flash
-remain outside the current package contract.
+messages, live navigation, client hooks, pushed events, event replies,
+component updates, flash, async work, connect params, and `reload` join errors.
+Nested components, child LiveViews, and uploads remain outside the current
+package contract.
 
 The architecture and implementation order are maintained in
 [`TORI_PY_LIVEVIEW_ARCHITECTURE.md`](TORI_PY_LIVEVIEW_ARCHITECTURE.md),

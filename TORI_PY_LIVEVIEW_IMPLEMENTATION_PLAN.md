@@ -83,7 +83,24 @@
 - Exercise frames through package tests and a hook through the exact pinned
   official browser clients.
 
+## LV10: Flash, Async Work, and Join Extras
+
+- Add page and component `put_flash`/`clear_flash` and a read-only `flash`
+  mapping, the built-in `lv:clear-flash` event, signed 60-second flash tokens
+  on `live_redirect` and `redirect` payloads, join `flash` seeding, the
+  `__phoenix_flash__` cookie on the HTTP render and disconnected redirects,
+  and first-mount flash from the mount token.
+- Add page and component `start_async`, `assign_async`, `cancel_async`, and
+  `handle_async` with `AsyncResult`, delivering finished work on the
+  connection task and cancelling it with its owner.
+- Pass `globalThis.ToriLiveParams` to the official client, expose join params
+  as `MountContext.connect_params` with `tracked_static` and
+  `static_changed`, and answer a 4xx `HttpException` during the connected
+  mount with a `reload` join error.
+- Exercise frames through package tests and the browser behavior through
+  pytest-bdd scenarios on the exact pinned official clients.
+
 ## Deferred
 
-- Evaluate nested components, child LiveViews, uploads, flash, async task
-  helpers, and changed-only diffs as separate contracts.
+- Evaluate nested components, child LiveViews, uploads, `stream_async`, and
+  changed-only diffs as separate contracts.

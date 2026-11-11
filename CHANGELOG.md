@@ -40,6 +40,17 @@ one package does not require the same change in every package.
   (`phx:<event>` window events delivered under the render-tree `e` key) and
   `send_update()`, and a mapping returned from `handle_event()` replies to the
   browser event under the `r` key.
+- LiveView flash, async work, and join extras. Pages and components gain
+  `put_flash()`, `clear_flash()`, and a read-only `flash` mapping; flash follows
+  `push_navigate()` as a signed token and `redirect()` through the Phoenix
+  `__phoenix_flash__` cookie, and the official `lv:clear-flash` event clears it.
+  `start_async()`, `assign_async()`, `cancel_async()`, `handle_async()`, and
+  `AsyncResult` run concurrent work and deliver it on the connection task;
+  `LiveViewOptions.async_cancel_timeout_seconds` bounds the wait for cancelled
+  work. The
+  bootstrap passes `globalThis.ToriLiveParams` to the client, connected mounts
+  receive `MountContext.connect_params` with `static_changed()`, and a 4xx
+  `HttpException` during the connected mount reloads the page.
 
 ### Fixed
 

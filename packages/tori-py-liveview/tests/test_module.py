@@ -5,7 +5,7 @@ import hashlib
 import json
 import logging
 import re
-from collections.abc import Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from importlib.resources import files
 from typing import Any, ClassVar, cast
 
@@ -23,8 +23,10 @@ from tori_py import (
     get_websocket_gateway_metadata,
     module,
 )
+from tori_py.http import HttpException
 from tori_py.starlette import StarletteAdapter
 from tori_py_liveview import (
+    AsyncResult,
     LiveComponent,
     LiveView,
     LiveViewConfigurationError,
@@ -32,11 +34,13 @@ from tori_py_liveview import (
     LiveViewModule,
     LiveViewOptions,
     MountContext,
+    UnknownAsyncError,
     UnknownEventError,
     UnknownInfoError,
     live_view,
     rendered,
 )
+from tori_py_liveview.tokens import FlashTokenCodec, MountTokenCodec, ReloadTokenCodec
 
 
 @live_view("/counter")
@@ -375,13 +379,18 @@ def _asgi(application: NestApplication) -> ASGIApp:
     return application.get_adapter(StarletteAdapter).app
 
 
-async def _request(application: NestApplication, path: str) -> httpx.Response:
+async def _request(
+    application: NestApplication,
+    path: str,
+    *,
+    headers: Mapping[str, str] | None = None,
+) -> httpx.Response:
     transport = httpx.ASGITransport(app=_asgi(application))
     async with httpx.AsyncClient(
         transport=transport,
         base_url="http://testserver",
     ) as client:
-        return await client.get(path)
+        return await client.get(path, headers=headers)
 
 
 def _websocket_scope(
@@ -483,6 +492,7 @@ def _event(
     value: object = None,
     cid: int | None = None,
     event_type: str = "click",
+    join_ref: str = "1",
 ) -> Message:
     payload: dict[str, object] = {
         "type": event_type,
@@ -491,7 +501,7 @@ def _event(
     }
     if cid is not None:
         payload["cid"] = cid
-    return _receive_text(["1", ref, _TOPIC, "event", payload])
+    return _receive_text([join_ref, ref, _TOPIC, "event", payload])
 
 
 def _reply_payload(frame: list[object]) -> dict[str, object]:
@@ -544,8 +554,13 @@ class _ChannelSession:
 
     async def close(self) -> None:
         await self._incoming.put(_disconnect())
+        await self.ended()
+
+    async def ended(self) -> list[Message]:
+        """Wait for the server to finish the connection and return every frame."""
         assert self._task is not None
         await asyncio.wait_for(self._task, timeout=2)
+        return self.sent
 
 
 @pytest.mark.asyncio
@@ -932,7 +947,8 @@ async def test_http_mount_serves_initial_html_and_pinned_phoenix_clients() -> No
     assert "var LiveView=" in client.text
     assert "new LiveView.LiveSocket" in client.text
     assert "const hooks = (globalThis.ToriLiveHooks ??= {});" in client.text
-    assert "{hooks}," in client.text
+    assert "const source = globalThis.ToriLiveParams;" in client.text
+    assert "{hooks, params}," in client.text
     static = files("tori_py_liveview").joinpath("static")
     phoenix = static.joinpath("phoenix-1.8.13.min.js").read_bytes()
     phoenix_live_view = static.joinpath("phoenix_live_view-1.2.11.min.js").read_bytes()
@@ -1883,3 +1899,776 @@ async def test_push_event_and_send_update_validate_and_reset() -> None:
         detached.push_event("x")
     with pytest.raises(LiveViewError, match="not attached"):
         detached.send_update(EchoComponent, "left")
+
+
+_SECRET = "s" * 32
+
+
+@live_view("/flash", action="index")
+@live_view("/flash/next", action="next")
+class FlashLive(LiveView):
+    contexts: ClassVar[list[MountContext]] = []
+    mounted_flash: ClassVar[list[dict[str, str]]] = []
+
+    @classmethod
+    def reset(cls) -> None:
+        cls.contexts = []
+        cls.mounted_flash = []
+
+    async def mount(self, context: MountContext) -> None:
+        type(self).contexts.append(context)
+        type(self).mounted_flash.append(dict(self.flash))
+        go = context.query_params.get("go")
+        if go == "flash":
+            self.put_flash("info", "from mount")
+        elif go == "redirect":
+            self.put_flash("info", "redirected")
+            self.redirect("/flash/next")
+        elif go == "bounce":
+            self.redirect("/flash/next")
+        elif go == "bounce-cleared":
+            self.clear_flash()
+            self.redirect("/flash/next")
+        elif go == "hop":
+            self.push_navigate("/flash/next")
+
+    async def handle_event(self, event: str, value: object) -> None:
+        del value
+        if event == "save":
+            self.put_flash("info", "Saved")
+        elif event == "navigate":
+            self.put_flash("info", "Moved")
+            self.push_navigate("/flash/next")
+        elif event == "leave":
+            self.put_flash("info", "Left")
+            self.redirect("/elsewhere")
+        elif event == "quiet":
+            self.push_navigate("/flash/next")
+        elif event == "drop":
+            self.put_flash("error", "lost")
+            raise UnknownEventError(event)
+        else:
+            raise UnknownEventError(event)
+
+    def render(self):
+        info = self.flash.get("info", "")
+        error = self.flash.get("error", "")
+        return t"<p>{info}</p><p>{error}</p>"
+
+
+_GATES: dict[str, asyncio.Event] = {}
+_CANCELLED: list[str] = []
+
+
+def _gated(gate: str, value: object) -> Callable[[], Awaitable[object]]:
+    async def run() -> object:
+        event = _GATES.setdefault(gate, asyncio.Event())
+        try:
+            await event.wait()
+        except asyncio.CancelledError:
+            _CANCELLED.append(gate)
+            raise
+        if isinstance(value, BaseException):
+            raise value
+        return value
+
+    return run
+
+
+def _open_gate(gate: str) -> None:
+    _GATES.setdefault(gate, asyncio.Event()).set()
+
+
+class AsyncWidget(LiveComponent):
+    def __init__(self) -> None:
+        self.value = "waiting"
+
+    def mount(self) -> None:
+        self.start_async("widget", _gated("widget", "loaded"))
+
+    async def handle_async(self, name: str, result: AsyncResult[object]) -> None:
+        self.value = f"{name}:{result.result}"
+
+    def render(self):
+        return t"<span>{self.value}</span>"
+
+
+class CleanupWidget(LiveComponent):
+    events: ClassVar[list[str]] = []
+
+    def mount(self) -> None:
+        self.start_async("work", self.work)
+
+    async def work(self) -> object:
+        try:
+            await asyncio.Event().wait()
+        finally:
+            type(self).events.append("work stopped")
+        return None
+
+    async def disconnect(self) -> None:
+        type(self).events.append("component disconnected")
+
+    def render(self) -> str:
+        return "<span></span>"
+
+
+@live_view("/async")
+class AsyncLive(LiveView):
+    outcomes: ClassVar[list[tuple[str, AsyncResult[object]]]] = []
+    cancel_results: ClassVar[list[bool]] = []
+
+    @classmethod
+    def reset(cls) -> None:
+        cls.outcomes = []
+        cls.cancel_results = []
+        _GATES.clear()
+        _CANCELLED.clear()
+
+    def __init__(self) -> None:
+        self.org: AsyncResult[object] = AsyncResult()
+        self.status = "idle"
+
+    async def mount(self, context: MountContext) -> None:
+        del context
+        self.assign_async("org", _gated("org", "Acme"))
+
+    async def handle_event(self, event: str, value: object) -> None:
+        gate = cast(dict[str, str], value).get("gate", "job")
+        if event == "start":
+            self.start_async("job", _gated(gate, "done"))
+        elif event == "fail":
+            self.start_async("job", _gated(gate, RuntimeError("boom")))
+        elif event == "sync":
+            self.start_async("job", cast(Any, lambda: 42))
+        elif event == "cancel":
+            type(self).cancel_results.append(self.cancel_async("job"))
+        elif event == "reload":
+            self.assign_async("org", _gated(gate, "Beta"))
+        elif event == "explode":
+            self.start_async("explode", _gated(gate, "x"))
+        else:
+            raise UnknownEventError(event)
+
+    async def handle_async(self, name: str, result: AsyncResult[object]) -> None:
+        if name == "explode":
+            raise RuntimeError("handle_async failed")
+        type(self).outcomes.append((name, result))
+        self.status = "ok" if result.ok else type(result.failed).__name__
+
+    def render(self):
+        org = self.org
+        if org.loading:
+            state = "loading"
+        elif org.failed is not None:
+            state = "failed"
+        else:
+            state = "ready" if org.ok else "idle"
+        value = org.result if org.ok else ""
+        widget = self.live_component(AsyncWidget, "widget")
+        return t"<p>{state}</p><p>{value}</p><p>{self.status}</p>{widget}"
+
+
+@live_view("/gone")
+class GoneLive(LiveView):
+    status: ClassVar[int] = 404
+    disconnects: ClassVar[int] = 0
+
+    async def mount(self, context: MountContext) -> None:
+        if context.connected:
+            raise HttpException(type(self).status, "gone")
+
+    async def disconnect(self) -> None:
+        type(self).disconnects += 1
+
+    def render(self) -> str:
+        return "<p>gone</p>"
+
+
+async def _lifecycle_application(key: str) -> NestApplication:
+    liveview_module = LiveViewModule.for_root(
+        LiveViewOptions(secret=_SECRET),
+        pages=[FlashLive, AsyncLive, GoneLive],
+        key=key,
+    )
+
+    @module(imports=[liveview_module])
+    class Root:
+        pass
+
+    application = await NestApplication.create(Root, adapter=StarletteAdapter())
+    await application.start()
+    return application
+
+
+def _join_with(
+    token: str,
+    url: str,
+    *,
+    ref: str = "1",
+    params: object = None,
+    flash: object = None,
+    redirect: bool = False,
+) -> Message:
+    payload: dict[str, object] = {
+        "redirect" if redirect else "url": url,
+        "params": {"_mounts": 0} if params is None else params,
+        "session": token,
+        "static": None,
+    }
+    if flash is not None:
+        payload["flash"] = flash
+    return _receive_text([ref, ref, _TOPIC, "phx_join", payload])
+
+
+def _diff(frame: list[object]) -> dict[str, object]:
+    return cast(dict[str, object], _response(frame)["diff"])
+
+
+def _rendered(frame: list[object]) -> dict[str, object]:
+    return cast(dict[str, object], _response(frame)["rendered"])
+
+
+def _pushed_diff(frame: list[object]) -> dict[str, object]:
+    assert frame[1] is None
+    assert frame[3] == "diff"
+    return cast(dict[str, object], frame[4])
+
+
+def _component_value_at(diff: dict[str, object], cid: int) -> object:
+    components = cast(dict[str, dict[str, object]], diff["c"])
+    return components[str(cid)]["0"]
+
+
+@pytest.mark.asyncio
+async def test_flash_validates_reads_and_clears() -> None:
+    page = FlashLive()
+    assert page.flash == {}
+    with pytest.raises(TypeError, match="must be strings"):
+        page.put_flash(cast(Any, 1), "x")
+    with pytest.raises(TypeError, match="must be strings"):
+        page.put_flash("info", cast(Any, None))
+    with pytest.raises(ValueError, match="cannot be empty"):
+        page.put_flash("", "x")
+    with pytest.raises(TypeError, match="must be a string"):
+        page.clear_flash(cast(Any, 1))
+
+    page.put_flash("info", "one")
+    page.put_flash("error", "two")
+    with pytest.raises(TypeError):
+        cast(Any, page.flash)["info"] = "mutated"
+    page.clear_flash("missing")
+    page.clear_flash("error")
+    assert page.flash == {"info": "one"}
+    assert page._take_liveview_flash_changes() == {"info": "one"}
+    assert page._take_liveview_flash_changes() == {}
+    page.put_flash("info", "three")
+    page.clear_flash()
+    assert page.flash == {}
+    assert page._take_liveview_flash_changes() == {}
+
+    detached = EchoComponent()
+    with pytest.raises(LiveViewError, match="not attached"):
+        detached.put_flash("info", "x")
+    with pytest.raises(LiveViewError, match="not attached"):
+        detached.clear_flash()
+
+
+@pytest.mark.asyncio
+async def test_flash_renders_clears_and_follows_navigation() -> None:
+    FlashLive.reset()
+    codec = FlashTokenCodec(_SECRET)
+    application = await _lifecycle_application("flash")
+    page = await _request(application, "/flash?go=flash")
+    assert "<p>from mount</p>" in page.text
+    assert "set-cookie" not in page.headers
+    token = _token(page.text)
+    assert MountTokenCodec(_SECRET).verify(token).flash == {"info": "from mount"}
+
+    session = _ChannelSession(application)
+    await session.start()
+    await session.push(_join_with(token, "http://testserver/flash?go=flash"))
+    assert _rendered((await session.frames(1))[0])["0"] == "from mount"
+    assert FlashLive.mounted_flash[-1] == {"info": "from mount"}
+
+    await session.push(_event("2", "lv:clear-flash", value={"key": "info"}))
+    assert _diff((await session.frames(2))[1])["0"] == ""
+    await session.push(_event("3", "save"))
+    assert _diff((await session.frames(3))[2])["0"] == "Saved"
+    await session.push(_event("4", "lv:clear-flash"))
+    assert _diff((await session.frames(4))[3])["0"] == ""
+    await session.push(_event("5", "lv:clear-flash", cid=99))
+    assert _response((await session.frames(5))[4]) == {"reason": "unknown_target"}
+
+    # A rejected handler's flash stays on the page but does not travel.
+    await session.push(_event("6", "drop"))
+    assert _response((await session.frames(6))[5]) == {"reason": "unknown_event"}
+    await session.push(_event("7", "quiet"))
+    assert _response((await session.frames(7))[6]) == {
+        "live_redirect": {"kind": "push", "to": "/flash/next"}
+    }
+
+    # A live navigation without a flash token never revives the HTTP flash.
+    await session.push(
+        _join_with(token, "http://testserver/flash/next", ref="8", redirect=True)
+    )
+    assert _reply_payload((await session.frames(8))[7])["status"] == "ok"
+    assert FlashLive.mounted_flash[-1] == {}
+
+    await session.push(_event("9", "navigate", join_ref="8"))
+    navigated = _response((await session.frames(9))[8])
+    live_redirect = cast(dict[str, object], navigated["live_redirect"])
+    assert codec.verify(live_redirect["flash"]) == {"info": "Moved"}
+
+    await session.push(
+        _join_with(
+            token,
+            "http://testserver/flash/next",
+            ref="10",
+            redirect=True,
+            flash=live_redirect["flash"],
+        )
+    )
+    assert _rendered((await session.frames(10))[9])["0"] == "Moved"
+    assert FlashLive.mounted_flash[-1] == {"info": "Moved"}
+
+    await session.push(_event("11", "leave", join_ref="10"))
+    left = _response((await session.frames(11))[10])
+    redirect = cast(dict[str, object], left["redirect"])
+    assert redirect["to"] == "/elsewhere"
+    assert codec.verify(redirect["flash"]) == {"info": "Left"}
+    await session.ended()
+    await application.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_flash_reaches_reconnects_only_through_navigation_tokens() -> None:
+    FlashLive.reset()
+    codec = FlashTokenCodec(_SECRET)
+    application = await _lifecycle_application("flash-reconnect")
+    token = _token((await _request(application, "/flash?go=flash")).text)
+
+    for params, flash, expected in (
+        ({"_mounts": 1}, None, {}),
+        ({}, None, {}),
+        ({"_mounts": False}, None, {}),
+        ({"_mounts": 1}, codec.sign({"info": "carried"}), {"info": "carried"}),
+        ({"_mounts": 0}, "forged.token", {}),
+    ):
+        sent = await _call_websocket(
+            application,
+            "/_tori/live/websocket",
+            _join_with(
+                token, "http://testserver/flash?go=flash", params=params, flash=flash
+            ),
+            _disconnect(),
+        )
+        assert _reply_payload(_decode_sent(sent)[0])["status"] == "ok"
+        assert FlashLive.mounted_flash[-1] == expected
+    await application.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_flash_cookie_carries_redirect_flash_into_the_http_render() -> None:
+    FlashLive.reset()
+    codec = FlashTokenCodec(_SECRET)
+    application = await _lifecycle_application("flash-cookie")
+
+    cookie_token = codec.sign({"info": "From cookie"})
+    page = await _request(
+        application, "/flash", headers={"cookie": f"__phoenix_flash__={cookie_token}"}
+    )
+    assert "<p>From cookie</p>" in page.text
+    assert page.headers["set-cookie"] == (
+        "__phoenix_flash__=; Max-Age=0; Path=/; SameSite=Lax; HttpOnly"
+    )
+    assert MountTokenCodec(_SECRET).verify(_token(page.text)).flash == {
+        "info": "From cookie"
+    }
+
+    forged = await _request(
+        application, "/flash", headers={"cookie": "__phoenix_flash__=forged"}
+    )
+    assert "<p></p>" in forged.text
+    assert forged.headers["set-cookie"].startswith("__phoenix_flash__=; Max-Age=0")
+
+    redirected = await _request(application, "/flash?go=redirect")
+    assert redirected.status_code == 302
+    assert redirected.headers["location"] == "/flash/next"
+    match = re.fullmatch(
+        r"__phoenix_flash__=([^;]+); Max-Age=60; Path=/; SameSite=Lax; HttpOnly",
+        redirected.headers["set-cookie"],
+    )
+    assert match is not None
+    assert codec.verify(match[1]) == {"info": "redirected"}
+    await application.shutdown()
+
+
+def _cookie_flash(response: httpx.Response, codec: FlashTokenCodec) -> object:
+    match = re.fullmatch(
+        r"__phoenix_flash__=([^;]*); Max-Age=(\d+); Path=/; SameSite=Lax; HttpOnly",
+        response.headers["set-cookie"],
+    )
+    assert match is not None
+    return codec.verify(match[1]) if match[2] == "60" else None
+
+
+@pytest.mark.asyncio
+async def test_flash_passes_through_pages_that_navigate_while_mounting() -> None:
+    FlashLive.reset()
+    codec = FlashTokenCodec(_SECRET)
+    application = await _lifecycle_application("flash-pass-through")
+    incoming = {"cookie": f"__phoenix_flash__={codec.sign({'info': 'Welcome'})}"}
+
+    # An HTTP mount that redirects forwards the flash it received, not only
+    # flash it put itself, and clearing it first forwards nothing.
+    bounced = await _request(application, "/flash?go=bounce", headers=incoming)
+    assert bounced.status_code == 302
+    assert _cookie_flash(bounced, codec) == {"info": "Welcome"}
+    cleared = await _request(application, "/flash?go=bounce-cleared", headers=incoming)
+    assert cleared.status_code == 302
+    assert _cookie_flash(cleared, codec) is None
+
+    # A connected mount that navigates forwards a navigation's incoming flash.
+    token = _token((await _request(application, "/flash")).text)
+    sent = await _call_websocket(
+        application,
+        "/_tori/live/websocket",
+        _join_with(
+            token,
+            "http://testserver/flash?go=hop",
+            redirect=True,
+            flash=codec.sign({"info": "Carried"}),
+        ),
+        _disconnect(),
+    )
+    reply = _reply_payload(_decode_sent(sent)[0])
+    assert reply["status"] == "error"
+    response = cast(dict[str, object], reply["response"])
+    live_redirect = cast(dict[str, object], response["live_redirect"])
+    assert live_redirect["to"] == "/flash/next"
+    assert codec.verify(live_redirect["flash"]) == {"info": "Carried"}
+    await application.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_every_leave_after_a_join_error_is_acknowledged() -> None:
+    FlashLive.reset()
+    application = await _lifecycle_application("repeated-leaves")
+    token = _token((await _request(application, "/flash")).text)
+
+    # The official client leaves an errored join twice before joining again.
+    sent = await _call_websocket(
+        application,
+        "/_tori/live/websocket",
+        _join_with(token, "http://testserver/flash?go=hop", ref="12", redirect=True),
+        _receive_text(["12", "13", _TOPIC, "phx_leave", {}]),
+        _receive_text(["12", "14", _TOPIC, "phx_leave", {}]),
+        _join_with(token, "http://testserver/flash/next", ref="17", redirect=True),
+        _disconnect(),
+    )
+    frames = _decode_sent(sent)
+    assert [frame[:4] for frame in frames] == [
+        ["12", "12", _TOPIC, "phx_reply"],
+        ["12", "13", _TOPIC, "phx_reply"],
+        ["12", "14", _TOPIC, "phx_reply"],
+        ["17", "17", _TOPIC, "phx_reply"],
+    ]
+    assert _reply_payload(frames[0])["status"] == "error"
+    assert _reply_payload(frames[1]) == {"status": "ok", "response": {}}
+    assert _reply_payload(frames[2]) == {"status": "ok", "response": {}}
+    assert _reply_payload(frames[3])["status"] == "ok"
+    closes = [item["code"] for item in sent if item["type"] == "websocket.close"]
+    assert closes == [1000]
+    await application.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_join_exposes_connect_params_and_tracked_static() -> None:
+    FlashLive.reset()
+    application = await _lifecycle_application("connect-params")
+    token = _token((await _request(application, "/flash")).text)
+    params = {
+        "_mounts": 0,
+        "_mount_attempts": 0,
+        "_track_static": ["http://testserver/assets/app-1.css", 7],
+        "_live_referer": "http://testserver/elsewhere",
+        "locale": "uk",
+    }
+    sent = await _call_websocket(
+        application,
+        "/_tori/live/websocket",
+        _join_with(token, "http://testserver/flash", params=params),
+        _disconnect(),
+    )
+    assert _reply_payload(_decode_sent(sent)[0])["status"] == "ok"
+
+    disconnected, connected = FlashLive.contexts
+    assert disconnected.connect_params is None
+    assert disconnected.tracked_static == ()
+    assert not disconnected.static_changed(["/assets/app-2.css"])
+    assert connected.connect_params == params
+    with pytest.raises(TypeError):
+        cast(Any, connected.connect_params)["locale"] = "en"
+    assert connected.tracked_static == ("http://testserver/assets/app-1.css",)
+    assert not connected.static_changed(["/assets/app-1.css"])
+    assert not connected.static_changed(["http://testserver/assets/app-1.css"])
+    assert connected.static_changed(["/assets/app-2.css"])
+    assert connected.static_changed([])
+    with pytest.raises(TypeError, match="iterable of strings"):
+        connected.static_changed("/assets/app-1.css")
+    with pytest.raises(TypeError, match="iterable of strings"):
+        connected.static_changed([cast(Any, 1)])
+
+    for malformed in (
+        _join_with(token, "http://testserver/flash", params=["_mounts"]),
+        _join_with(token, "http://testserver/flash", flash=5),
+    ):
+        sent = await _call_websocket(application, "/_tori/live/websocket", malformed)
+        assert sent[-1] == {"type": "websocket.close", "code": 1002, "reason": ""}
+    await application.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_connected_mount_client_errors_reload_the_page(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    GoneLive.disconnects = 0
+    GoneLive.status = 404
+    application = await _lifecycle_application("reload")
+    token = _token((await _request(application, "/gone")).text)
+
+    sent = await _call_websocket(
+        application,
+        "/_tori/live/websocket",
+        _join_with(token, "http://testserver/gone"),
+    )
+    reply = _reply_payload(_decode_sent(sent)[0])
+    response = cast(dict[str, object], reply["response"])
+    reload_token = response.pop("token")
+    assert reply == {
+        "status": "error",
+        "response": {"reason": "reload", "status": 404},
+    }
+    assert GoneLive.disconnects == 1
+    codec = ReloadTokenCodec(_SECRET)
+    identity = f"{GoneLive.__module__}.{GoneLive.__qualname__}"
+    assert codec.verify(reload_token, identity, "/gone") == 404
+
+    # The reloaded HTTP render answers with the connected mount's error even
+    # though its own disconnected mount succeeds, so the browser stops reloading.
+    reloaded = await _request(
+        application,
+        "/gone",
+        headers={"cookie": f"__phoenix_reload_status__={reload_token}"},
+    )
+    assert reloaded.status_code == 404
+    assert reloaded.headers["set-cookie"] == (
+        "__phoenix_reload_status__=; Max-Age=0; Path=/; SameSite=Lax; HttpOnly"
+    )
+    other_resource = codec.sign(identity, "/gone?page=2", 404)
+    for cookie in (other_resource, "forged.token"):
+        page = await _request(
+            application,
+            "/gone",
+            headers={"cookie": f"__phoenix_reload_status__={cookie}"},
+        )
+        assert page.status_code == 200
+        assert "set-cookie" not in page.headers
+
+    GoneLive.status = 500
+    with caplog.at_level(logging.ERROR, logger="tori_py_liveview.endpoint"):
+        sent = await _call_websocket(
+            application,
+            "/_tori/live/websocket",
+            _join_with(token, "http://testserver/gone"),
+        )
+    assert sent[-1] == {"type": "websocket.close", "code": 1011, "reason": ""}
+    assert GoneLive.disconnects == 2
+    await application.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_async_results_settle_assigns_and_reach_handle_async() -> None:
+    AsyncLive.reset()
+    application = await _lifecycle_application("async")
+    page = await _request(application, "/async")
+    assert "<p>loading</p><p></p><p>idle</p><span>waiting</span>" in page.text
+    assert _GATES == {}
+
+    session = _ChannelSession(application)
+    await session.start()
+    await session.push(_join_with(_token(page.text), "http://testserver/async"))
+    assert _rendered((await session.frames(1))[0])["0"] == "loading"
+
+    _open_gate("org")
+    settled = _pushed_diff((await session.frames(2))[1])
+    assert (settled["0"], settled["1"]) == ("ready", "Acme")
+    _open_gate("widget")
+    widget = _pushed_diff((await session.frames(3))[2])
+    assert _component_value_at(widget, 1) == "widget:loaded"
+
+    # Reloading keeps the previous result while loading.
+    await session.push(_event("2", "reload", value={"gate": "org2"}))
+    reloading = _diff((await session.frames(4))[3])
+    assert (reloading["0"], reloading["1"]) == ("loading", "Acme")
+    _open_gate("org2")
+    reloaded = _pushed_diff((await session.frames(5))[4])
+    assert (reloaded["0"], reloaded["1"]) == ("ready", "Beta")
+
+    await session.push(_event("3", "start", value={"gate": "job"}))
+    assert _diff((await session.frames(6))[5])["2"] == "idle"
+    _open_gate("job")
+    assert _pushed_diff((await session.frames(7))[6])["2"] == "ok"
+    await session.push(_event("4", "fail", value={"gate": "job"}))
+    assert _pushed_diff((await session.frames(9))[8])["2"] == "RuntimeError"
+    await session.push(_event("5", "sync"))
+    assert _pushed_diff((await session.frames(11))[10])["2"] == "TypeError"
+
+    # Restarting a running name cancels it and drops its result.
+    await session.push(_event("6", "start", value={"gate": "slow1"}))
+    await session.push(_event("7", "start", value={"gate": "slow2"}))
+    await session.push(_event("8", "cancel"))
+    assert _pushed_diff((await session.frames(15))[14])["2"] == "CancelledError"
+    await session.push(_event("9", "cancel"))
+    await session.frames(16)
+    assert AsyncLive.cancel_results == [True, False]
+    assert _CANCELLED == ["slow1", "slow2"]
+
+    outcomes = AsyncLive.outcomes
+    assert [name for name, _ in outcomes] == ["job"] * 4
+    assert outcomes[0][1] == AsyncResult(ok=True, result="done")
+    assert isinstance(outcomes[1][1].failed, RuntimeError)
+    assert isinstance(outcomes[2][1].failed, TypeError)
+    assert isinstance(outcomes[3][1].failed, asyncio.CancelledError)
+
+    await session.push(_event("10", "start", value={"gate": "slow3"}))
+    await session.frames(17)
+    await session.close()
+    assert _CANCELLED == ["slow1", "slow2", "slow3"]
+    assert len(_decode_sent(session.sent)) == 17
+    await application.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_failing_handle_async_closes_the_connection(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    AsyncLive.reset()
+    application = await _lifecycle_application("async-failure")
+    page = await _request(application, "/async")
+    session = _ChannelSession(application)
+    await session.start()
+    await session.push(_join_with(_token(page.text), "http://testserver/async"))
+    await session.frames(1)
+    _open_gate("job")
+    with caplog.at_level(logging.ERROR, logger="tori_py_liveview.endpoint"):
+        await session.push(_event("2", "explode", value={"gate": "job"}))
+        sent = await session.ended()
+    assert sent[-1] == {"type": "websocket.close", "code": 1011, "reason": ""}
+    assert "LiveView async result failed" in caplog.text
+    await application.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_async_validates_and_cancels_component_work() -> None:
+    AsyncLive.reset()
+    page = AsyncLive()
+    work = _gated("unused", "x")
+    with pytest.raises(TypeError, match="name must be a string"):
+        page.start_async(cast(Any, 1), work)
+    with pytest.raises(ValueError, match="cannot be empty"):
+        page.start_async("", work)
+    with pytest.raises(TypeError, match="callable"):
+        page.start_async("job", cast(Any, 1))
+    for name in ("_org", "not-public", ""):
+        with pytest.raises(ValueError, match="public attribute"):
+            page.assign_async(name, work)
+    with pytest.raises(TypeError, match="name must be a string"):
+        page.assign_async(cast(Any, 1), work)
+    with pytest.raises(TypeError, match="name must be a string"):
+        page.cancel_async(cast(Any, 1))
+
+    # The disconnected render marks assigns loading but starts nothing.
+    page.start_async("job", work)
+    page.assign_async("org", work)
+    assert page.org == AsyncResult(loading=True)
+    assert not page.cancel_async("job")
+    assert _GATES == {}
+    failure = RuntimeError()
+    page.org = AsyncResult(ok=True, result="kept", failed=failure)
+    page.assign_async("org", work)
+    assert page.org == AsyncResult(loading=True, ok=True, result="kept")
+    page.assign_async("org", work, reset=True)
+    assert page.org == AsyncResult(loading=True)
+
+    with pytest.raises(UnknownAsyncError, match="Unknown LiveView async result: x"):
+        await UntitledLive().handle_async("x", AsyncResult())
+    with pytest.raises(UnknownAsyncError):
+        await EchoComponent().handle_async("x", AsyncResult())
+    detached = AsyncWidget()
+    with pytest.raises(LiveViewError, match="not attached"):
+        detached.start_async("x", work)
+    with pytest.raises(LiveViewError, match="not attached"):
+        detached.assign_async("value", work)
+    with pytest.raises(LiveViewError, match="not attached"):
+        detached.cancel_async("x")
+
+    # Component work is cancelled with the component and never delivered.
+    page._connect_liveview()
+    widget = AsyncWidget()
+    widget._attach_liveview("widget", 1, True, page)
+    widget.mount()
+    assert widget.cancel_async("missing") is False
+    await asyncio.sleep(0)
+    await page._disconnect_liveview_component(widget)
+    await page._disconnect_liveview()
+    assert _CANCELLED == ["widget"]
+    assert widget.value == "waiting"
+
+
+@pytest.mark.asyncio
+async def test_removed_component_work_stops_before_its_disconnect_hook() -> None:
+    CleanupWidget.events = []
+    page = AsyncLive()
+    page._connect_liveview()
+    widget = CleanupWidget()
+    widget._attach_liveview("cleanup", 1, True, page)
+    widget.mount()
+    await asyncio.sleep(0)
+
+    await page._disconnect_liveview_component(widget)
+    assert CleanupWidget.events == ["work stopped", "component disconnected"]
+    await page._disconnect_liveview()
+
+
+@pytest.mark.asyncio
+async def test_cancelled_async_work_is_awaited_only_until_the_cancel_deadline(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    release = asyncio.Event()
+
+    async def stubborn() -> object:
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            await release.wait()
+        return None
+
+    page = AsyncLive()
+    page._connect_liveview(async_cancel_timeout=0.05)
+    page.start_async("stubborn", stubborn)
+    (task,) = page._liveview_async_running
+    await asyncio.sleep(0)
+
+    # Disconnect returns at the deadline even though the work ignores cancel.
+    with caplog.at_level(logging.WARNING, logger="tori_py_liveview.page"):
+        await asyncio.wait_for(page._disconnect_liveview(), timeout=2)
+    assert not task.done()
+    assert (
+        "LiveView async work ignored cancellation for 0.05s: "
+        "tori-py-liveview async stubborn"
+    ) in caplog.text
+
+    release.set()
+    await task

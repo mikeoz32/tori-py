@@ -62,6 +62,7 @@ class LiveViewOptions:
     join_timeout_seconds: float = 10.0
     idle_timeout_seconds: float = 75.0
     redirect_hosts: tuple[str, ...] = ()
+    async_cancel_timeout_seconds: float = 5.0
 
     def __post_init__(self) -> None:
         if not isinstance(self.secret, str) or len(self.secret.encode()) < 32:
@@ -96,6 +97,13 @@ class LiveViewOptions:
             or self.idle_timeout_seconds <= 0
         ):
             raise LiveViewConfigurationError("idle timeout must be positive")
+        if (
+            isinstance(self.async_cancel_timeout_seconds, bool)
+            or not isinstance(self.async_cancel_timeout_seconds, int | float)
+            or not math.isfinite(self.async_cancel_timeout_seconds)
+            or self.async_cancel_timeout_seconds <= 0
+        ):
+            raise LiveViewConfigurationError("async cancel timeout must be positive")
         if not isinstance(self.allowed_origins, tuple):
             raise LiveViewConfigurationError("allowed origins must be a tuple")
         object.__setattr__(

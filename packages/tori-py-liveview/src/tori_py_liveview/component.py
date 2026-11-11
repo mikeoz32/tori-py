@@ -1,15 +1,15 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from collections.abc import Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from string.templatelib import Template
 from typing import TYPE_CHECKING, Literal
 
-from tori_py_liveview.errors import LiveViewError, UnknownEventError
+from tori_py_liveview.errors import LiveViewError, UnknownAsyncError, UnknownEventError
 from tori_py_liveview.rendering import Rendered, html
 
 if TYPE_CHECKING:
-    from tori_py_liveview.page import LiveView
+    from tori_py_liveview.page import AsyncResult, LiveView
 
 
 class LiveComponent(ABC):
@@ -51,6 +51,38 @@ class LiveComponent(ABC):
     ) -> None:
         """Queue a component update on the owning page."""
         self._liveview_page().send_update(component_type, component_id, assigns)
+
+    def put_flash(self, kind: str, message: str) -> None:
+        """Set a flash message on the owning page; see ``LiveView.put_flash``."""
+        self._liveview_page().put_flash(kind, message)
+
+    def clear_flash(self, kind: str | None = None) -> None:
+        """Clear flash on the owning page; see ``LiveView.clear_flash``."""
+        self._liveview_page().clear_flash(kind)
+
+    def start_async(self, name: str, function: Callable[[], Awaitable[object]]) -> None:
+        """Run async work owned by this component; see ``LiveView.start_async``."""
+        page = self._liveview_page()
+        page._start_liveview_async(self, name, function, assign=False)
+
+    def assign_async(
+        self,
+        name: str,
+        function: Callable[[], Awaitable[object]],
+        *,
+        reset: bool = False,
+    ) -> None:
+        """Track async work in a component attribute; see ``LiveView.assign_async``."""
+        self._liveview_page()._assign_liveview_async(self, name, function, reset=reset)
+
+    def cancel_async(self, name: str) -> bool:
+        """Cancel this component's async work by name."""
+        return self._liveview_page()._cancel_liveview_async(self, name)
+
+    async def handle_async(self, name: str, result: AsyncResult[object]) -> None:
+        """Handle the outcome of this component's ``start_async(name, ...)``."""
+        del result
+        raise UnknownAsyncError(name)
 
     async def disconnect(self) -> None:
         return None

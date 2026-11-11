@@ -360,11 +360,107 @@ other handler failure.
 Components have the same `push_event()` and reply behaviour. Hook scripts are
 trusted application code; ToriPy serves no hook runtime of its own.
 
+## Flash
+
+`put_flash(kind, message)` sets a flash message, `clear_flash(kind=None)`
+removes one kind or all, and `self.flash` is the read-only mapping to render.
+The official `lv:clear-flash` event clears the kind named by its `key` value:
+
+```python
+async def handle_event(self, event: str, value: object) -> None:
+    if event == "save":
+        await self.repository.save(self.draft)
+        self.put_flash("info", "Saved")
+        self.push_navigate("/drafts")
+
+
+def render(self) -> Template:
+    info = self.flash.get("info", "")
+    return t"""
+      <p id="flash" phx-click="lv:clear-flash" phx-value-key="info">{info}</p>
+      ...
+    """
+```
+
+Flash put in a handler follows `push_navigate()` as a signed token and
+`redirect()` through the Phoenix `__phoenix_flash__` cookie, which the next HTTP
+render reads and deletes. A page that navigates while mounting, such as `/`
+redirecting to `/dashboard`, passes on all of its flash, including flash it
+received, unless it clears it. Flash tokens expire after 60 seconds. The disconnected
+render's flash also appears on the first connected render, but not again after a
+reconnect. Components forward `put_flash()` and `clear_flash()` to their page.
+
+## Async work
+
+`start_async(name, function)` awaits `function()` concurrently and passes the
+outcome to `handle_async`, which runs serially with events and re-renders:
+
+```python
+async def handle_event(self, event: str, value: object) -> None:
+    if event == "ask":
+        self.answer = "thinking"
+        self.start_async("answer", lambda: self.llm.complete(self.prompt))
+
+
+async def handle_async(self, name: str, result: AsyncResult[object]) -> None:
+    if name == "answer":
+        self.answer = str(result.result) if result.ok else "failed"
+```
+
+`assign_async(name, function, reset=False)` keeps an `AsyncResult` in the
+attribute `name` instead: it is `loading` until the work finishes and then `ok`
+with `result`, or `failed` with the exception. A reload keeps the previous
+result while loading unless `reset=True`. The disconnected render shows the
+loading state without starting work:
+
+```python
+async def mount(self, context: MountContext) -> None:
+    self.org: AsyncResult[Organization] = AsyncResult()
+    self.assign_async("org", lambda: self.organizations.get(self.org_id))
+```
+
+Restarting a running name cancels the previous task. `cancel_async(name)`
+cancels work and delivers `asyncio.CancelledError` as its failure. Disconnect
+and live navigation cancel all work, and component work is cancelled before
+the component's `disconnect()` when it is removed. Cancelled work gets up to
+`LiveViewOptions.async_cancel_timeout_seconds` (5 seconds by default) to stop;
+work that ignores cancellation longer is logged and left behind. Work runs on
+the event loop, so wrap blocking calls in `asyncio.to_thread`.
+
+## Connect params
+
+`MountContext.connect_params` holds the join params the browser sent to a
+connected mount, mirroring Phoenix `get_connect_params`, and is `None` for the
+disconnected render. Applications add their own params through
+`globalThis.ToriLiveParams`, set before the client script runs:
+
+```python
+_PARAMS = (
+    "<script>globalThis.ToriLiveParams = "
+    "{timezone: Intl.DateTimeFormat().resolvedOptions().timeZone};</script>"
+)
+```
+
+The official client also sends `_mounts`, `_live_referer` after live navigation,
+and `_track_static` with the URLs of `phx-track-static` elements.
+`context.static_changed(current_urls)` reports whether those assets differ from
+the application's current ones, for example to show a reload notice after a
+deploy. Connect params come from the browser, so treat them as untrusted. Your
+own params also appear in the WebSocket URL, so never put secrets in them; the
+LiveView join fields above are kept out of that URL.
+
+A connected `mount`, `handle_params`, or on-mount hook that raises a 4xx
+`HttpException` makes the browser reload the page once. The reload carries a
+signed token in the official `__phoenix_reload_status__` cookie, so the HTTP
+render answers with that status even if only the connected mount fails, for
+example when data loads only once connected.
+
 ## Configuration
 
 `LiveViewOptions` controls the root-relative socket and client paths, explicit
 allowed origins, inbound message limit, mount-token lifetime, join deadline,
-and idle deadline. The default origin policy accepts only the HTTP origin
+idle deadline, and the deadline for cancelled async work. The default origin
+policy accepts only the HTTP origin
 corresponding to the WebSocket `Host`; deployments behind a host-rewriting
 proxy should set `allowed_origins` explicitly. `redirect_hosts` lists the bare
 host names, such as an identity provider, that `redirect()` may leave the site
@@ -385,10 +481,11 @@ This release implements Phoenix Channels joins and replies, Phoenix render
 trees, stateful component CIDs, targeted events, heartbeats,
 reconnect-compatible joins, title updates, browser-owned bounded streams,
 serialized connection-local server updates through `send_info`/`handle_info`,
-live navigation, client hooks, pushed events, event replies, and
-`send_update`. The configured socket path is the Phoenix endpoint base; the
-browser connects to its `/websocket?vsn=2.0.0` transport route. Nested
-components, child LiveViews, uploads, and flash are reserved for later releases.
+live navigation, client hooks, pushed events, event replies, `send_update`,
+flash, async work, connect params, and `reload` join errors. The configured
+socket path is the Phoenix endpoint base; the browser connects to its
+`/websocket?vsn=2.0.0` transport route. Nested components, child LiveViews, and
+uploads are reserved for later releases.
 
 See the runnable example in `examples/tori_py/liveview` and the normative
 architecture in `TORI_PY_LIVEVIEW_ARCHITECTURE.md`.

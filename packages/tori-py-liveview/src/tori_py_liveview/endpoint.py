@@ -25,7 +25,7 @@ from tori_py import (
     WorkScopeFactory,
     websocket_gateway,
 )
-from tori_py.http import HttpContext, HttpResponse
+from tori_py.http import HttpContext, HttpException, HttpResponse
 
 from tori_py_liveview.errors import (
     LiveViewConfigurationError,
@@ -54,13 +54,23 @@ from tori_py_liveview.routing import (
     redirect_host_allowed,
     same_origin,
 )
-from tori_py_liveview.tokens import InvalidMountTokenError, MountTokenCodec
+from tori_py_liveview.tokens import (
+    FlashTokenCodec,
+    InvalidMountTokenError,
+    MountTokenCodec,
+    ReloadTokenCodec,
+)
 
 _LOGGER = logging.getLogger(__name__)
 _LIVEVIEW_VERSION = "1.2.11"
 _ROOT_ID = "tori-live-root"
 _TOPIC = f"lv:{_ROOT_ID}"
 _MAX_SAFE_INTEGER = 2**53 - 1
+# The official client stores a redirect's flash token in this cookie for 60s.
+_FLASH_COOKIE = "__phoenix_flash__"
+_FLASH_COOKIE_MAX_AGE = 60
+# The official client stores a `reload` join error's token here before reloading.
+_RELOAD_COOKIE = "__phoenix_reload_status__"
 
 
 @dataclass(frozen=True, slots=True)
@@ -166,13 +176,35 @@ def _render_message(rendered: Rendered, *, title: str | None) -> dict[str, objec
 
 
 def _render_payload(page: LiveView, rendered: Rendered) -> dict[str, object]:
-    """Encode a render and consume the stream operations and pushed events."""
+    """Encode a render and consume its stream, event, and flash effects."""
     payload = _render_message(rendered, title=page.title())
     page._clear_liveview_stream_operations()
+    page._take_liveview_flash_changes()
     events = page._take_liveview_events()
     if events:
         payload["e"] = events
     return payload
+
+
+def _with_flash(
+    navigation: dict[str, object],
+    flash: Mapping[str, str],
+    codec: FlashTokenCodec,
+) -> dict[str, object]:
+    """Attach the flash put before a navigation as a signed Phoenix flash token."""
+    if flash:
+        navigation["flash"] = codec.sign(flash)
+    return navigation
+
+
+def _cookie(name: str, value: str, *, max_age: int, secure: bool) -> str:
+    cookie = f"{name}={value}; Max-Age={max_age}; Path=/; SameSite=Lax; HttpOnly"
+    return f"{cookie}; Secure" if secure else cookie
+
+
+def _first_mount(connect_params: Mapping[str, object]) -> bool:
+    mounts = connect_params.get("_mounts")
+    return type(mounts) is int and mounts == 0
 
 
 async def initial_response(
@@ -184,10 +216,28 @@ async def initial_response(
     compiled: tuple[CompiledLiveRoute, ...] = (),
 ) -> HttpResponse:
     request = cast(Request, context.request)
+    flash_codec = FlashTokenCodec(options.secret)
+    flash_cookie = request.cookies.get(_FLASH_COOKIE)
+    secure = request.url.scheme == "https"
+    identity = f"{page_type.__module__}.{page_type.__qualname__}"
+    resource = _resource(request)
+    reload_status = ReloadTokenCodec(options.secret).verify(
+        request.cookies.get(_RELOAD_COOKIE), identity, resource
+    )
+    if reload_status is not None:
+        # The connected mount of this page failed after this request's HTTP
+        # mount succeeded; answering with its error ends the reload loop.
+        raise HttpException(
+            reload_status,
+            "The live page could not be mounted.",
+            headers={
+                "set-cookie": _cookie(_RELOAD_COOKIE, "", max_age=0, secure=secure)
+            },
+        )
     page = cast(LiveView, await context.resolver.resolve(page_type))
     try:
         page._liveview_action = route.action
-        resource = _resource(request)
+        page._set_liveview_flash(flash_codec.verify(flash_cookie))
         params = {name: str(value) for name, value in request.path_params.items()}
         mount_context = MountContext(
             request,
@@ -205,23 +255,39 @@ async def initial_response(
         drained = await _drain_navigation(
             page,
             compiled,
-            f"{page_type.__module__}.{page_type.__qualname__}",
+            identity,
             route.session,
             host=request.headers.get("host", ""),
             scheme=request.url.scheme,
             redirect_hosts=options.redirect_hosts,
         )
         if drained is not None and drained[0] != "patch":
-            return HttpResponse(b"", status_code=302, headers={"location": drained[1]})
+            redirect_headers = {"location": drained[1]}
+            # Nothing has displayed the page yet, so all of its flash, including
+            # flash received from the previous page, follows the redirect.
+            flash = dict(page.flash)
+            if flash:
+                redirect_headers["set-cookie"] = _cookie(
+                    _FLASH_COOKIE,
+                    flash_codec.sign(flash),
+                    max_age=_FLASH_COOKIE_MAX_AGE,
+                    secure=secure,
+                )
+            elif flash_cookie is not None:
+                redirect_headers["set-cookie"] = _cookie(
+                    _FLASH_COOKIE, "", max_age=0, secure=secure
+                )
+            return HttpResponse(b"", status_code=302, headers=redirect_headers)
         token = MountTokenCodec(
             options.secret,
             max_age_ms=options.token_max_age_ms,
         ).sign(
-            f"{page_type.__module__}.{page_type.__qualname__}",
+            identity,
             params,
             resource,
             route.action,
             route.session,
+            flash=page.flash,
         )
         root = (
             f'<div id="{_ROOT_ID}" data-phx-main '
@@ -235,13 +301,13 @@ async def initial_response(
             f'src="{html.escape(options.client_path, quote=True)}"></script>'
         )
         document = page.render_document(root, client_script)
-        return HttpResponse(
-            document.encode(),
-            headers={
-                "content-type": "text/html; charset=utf-8",
-                "cache-control": "no-store",
-            },
-        )
+        headers = {
+            "content-type": "text/html; charset=utf-8",
+            "cache-control": "no-store",
+        }
+        if flash_cookie is not None:
+            headers["set-cookie"] = _cookie(_FLASH_COOKIE, "", max_age=0, secure=secure)
+        return HttpResponse(document.encode(), headers=headers)
     finally:
         await page._disconnect_liveview_components()
 
@@ -591,6 +657,9 @@ async def _close(socket: WebSocket, code: int) -> None:
 
 
 def gateway_type(options: LiveViewOptions, registry: _Registry) -> type[object]:
+    flash_codec = FlashTokenCodec(options.secret)
+    reload_codec = ReloadTokenCodec(options.secret)
+
     class LiveGateway:
         def __init__(self, scopes: WorkScopeFactory) -> None:
             self._scopes = scopes
@@ -649,7 +718,11 @@ def gateway_type(options: LiveViewOptions, registry: _Registry) -> type[object]:
                     else:
                         join = await join_source
                         join_source = None
-                    if (
+                    # After a join error the official client leaves that join
+                    # more than once (from the error handler and again when it
+                    # replaces the view), so acknowledge every leave until the
+                    # next join; the idle deadline still bounds the wait.
+                    while (
                         not first_join
                         and join.topic == _TOPIC
                         and join.event == "phx_leave"
@@ -665,14 +738,19 @@ def gateway_type(options: LiveViewOptions, registry: _Registry) -> type[object]:
                     token = join.payload.get("session")
                     redirect_url = join.payload.get("redirect")
                     url = join.payload.get("url")
+                    connect_params = join.payload.get("params", {})
+                    flash_token = join.payload.get("flash")
                     if (
                         join.event != "phx_join"
                         or join.topic != _TOPIC
                         or join.join_ref is None
                         or join.join_ref != join.ref
                         or not isinstance(token, str)
+                        or not isinstance(connect_params, dict)
+                        or not isinstance(flash_token, str | None)
                     ):
                         raise _CloseConnection(1002)
+                    connect_params = cast(dict[str, object], connect_params)
                     try:
                         mounted = MountTokenCodec(
                             options.secret,
@@ -724,23 +802,60 @@ def gateway_type(options: LiveViewOptions, registry: _Registry) -> type[object]:
                         await _reply(socket, join, "error", {"reason": "unauthorized"})
                         return
 
+                    # A navigation's flash token wins. The disconnected render's
+                    # flash shows only on the first mount of the HTTP page, not
+                    # on reconnects or live navigation.
+                    if flash_token is not None:
+                        initial_flash = flash_codec.verify(flash_token)
+                    elif redirect_url is None and _first_mount(connect_params):
+                        initial_flash = mounted.flash
+                    else:
+                        initial_flash = {}
                     name = live_route.page
                     session = live_route.session
                     page_scope, page = await _open_page(self._scopes, page_type)
                     page._liveview_action = action
-                    page._connect_liveview()
+                    page._set_liveview_flash(initial_flash)
+                    page._connect_liveview(
+                        async_cancel_timeout=options.async_cancel_timeout_seconds
+                    )
                     mount_context = MountContext(
                         socket,
                         mount_params,
                         resource,
                         True,
                         QueryParams(resource.partition("?")[2]),
+                        connect_params,
                     )
-                    await _run_on_mount(
-                        registry.sessions.get(session, ()), page, mount_context
-                    )
-                    await page._mount_liveview(mount_context)
-                    await page.handle_params(join_params, uri)
+                    try:
+                        await _run_on_mount(
+                            registry.sessions.get(session, ()), page, mount_context
+                        )
+                        await page._mount_liveview(mount_context)
+                        await page.handle_params(join_params, uri)
+                    except HttpException as error:
+                        # Phoenix reloads the page so the HTTP pipeline renders
+                        # the client error the connected mount raised.
+                        if not 400 <= error.status_code < 500:
+                            raise
+                        await close_current_page()
+                        # The client stores the token in the reload cookie, so
+                        # the reloaded HTTP render answers with this error even
+                        # when its own disconnected mount would succeed.
+                        reload_token = reload_codec.sign(
+                            name, resource, error.status_code
+                        )
+                        await _reply(
+                            socket,
+                            join,
+                            "error",
+                            {
+                                "reason": "reload",
+                                "status": error.status_code,
+                                "token": reload_token,
+                            },
+                        )
+                        return
                     drained = await _drain_navigation(
                         page,
                         registry.compiled,
@@ -752,6 +867,9 @@ def gateway_type(options: LiveViewOptions, registry: _Registry) -> type[object]:
                     )
                     if drained is not None and drained[0] != "patch":
                         navigation, target, kind = drained
+                        # This connected page never rendered, so its whole flash,
+                        # including a navigation's incoming flash, travels on.
+                        flash = dict(page.flash)
                         await close_current_page()
                         if navigation == "navigate":
                             target_route = _resolve_navigate(registry, session, target)
@@ -761,15 +879,23 @@ def gateway_type(options: LiveViewOptions, registry: _Registry) -> type[object]:
                                     join,
                                     "error",
                                     {
-                                        "live_redirect": {
-                                            "kind": kind,
-                                            "to": target,
-                                        }
+                                        "live_redirect": _with_flash(
+                                            {"kind": kind, "to": target},
+                                            flash,
+                                            flash_codec,
+                                        )
                                     },
                                 )
                                 continue
                         await _reply(
-                            socket, join, "error", {"redirect": {"to": target}}
+                            socket,
+                            join,
+                            "error",
+                            {
+                                "redirect": _with_flash(
+                                    {"to": target}, flash, flash_codec
+                                )
+                            },
                         )
                         return
                     rendered = _render_payload(page, await _render(page))
@@ -872,23 +998,20 @@ def gateway_type(options: LiveViewOptions, registry: _Registry) -> type[object]:
                                 )
                                 if drained is not None and drained[0] != "patch":
                                     navigation, target, kind = drained
-                                    if navigation == "redirect":
+                                    flash = page._take_liveview_flash_changes()
+                                    if navigation == "redirect" or (
+                                        _resolve_navigate(registry, session, target)
+                                        is None
+                                    ):
                                         await _reply(
                                             socket,
                                             message,
                                             "ok",
-                                            {"redirect": {"to": target}},
-                                        )
-                                        return
-                                    target_route = _resolve_navigate(
-                                        registry, session, target
-                                    )
-                                    if target_route is None:
-                                        await _reply(
-                                            socket,
-                                            message,
-                                            "ok",
-                                            {"redirect": {"to": target}},
+                                            {
+                                                "redirect": _with_flash(
+                                                    {"to": target}, flash, flash_codec
+                                                )
+                                            },
                                         )
                                         return
                                     await _reply(
@@ -896,10 +1019,11 @@ def gateway_type(options: LiveViewOptions, registry: _Registry) -> type[object]:
                                         message,
                                         "ok",
                                         {
-                                            "live_redirect": {
-                                                "kind": kind,
-                                                "to": target,
-                                            }
+                                            "live_redirect": _with_flash(
+                                                {"kind": kind, "to": target},
+                                                flash,
+                                                flash_codec,
+                                            )
                                         },
                                     )
                                     if info_task is None:
@@ -1001,28 +1125,32 @@ def gateway_type(options: LiveViewOptions, registry: _Registry) -> type[object]:
                                 await _reply(socket, message, "ok", {"diff": diff})
                                 continue
                             navigation, target, kind = drained
-                            if navigation == "redirect":
+                            flash = page._take_liveview_flash_changes()
+                            if navigation == "redirect" or (
+                                _resolve_navigate(registry, session, target) is None
+                            ):
                                 await _reply(
                                     socket,
                                     message,
                                     "ok",
-                                    {"redirect": {"to": target}},
-                                )
-                                return
-                            target_route = _resolve_navigate(registry, session, target)
-                            if target_route is None:
-                                await _reply(
-                                    socket,
-                                    message,
-                                    "ok",
-                                    {"redirect": {"to": target}},
+                                    {
+                                        "redirect": _with_flash(
+                                            {"to": target}, flash, flash_codec
+                                        )
+                                    },
                                 )
                                 return
                             await _reply(
                                 socket,
                                 message,
                                 "ok",
-                                {"live_redirect": {"kind": kind, "to": target}},
+                                {
+                                    "live_redirect": _with_flash(
+                                        {"kind": kind, "to": target},
+                                        flash,
+                                        flash_codec,
+                                    )
+                                },
                             )
                             if info_task is None:
                                 raise LiveViewError(
@@ -1037,19 +1165,37 @@ def gateway_type(options: LiveViewOptions, registry: _Registry) -> type[object]:
                         else:
                             if info_task is None:
                                 raise LiveViewError("LiveView info task is missing")
-                            info = info_task.result()
+                            server_message = info_task.result()
                             info_task = asyncio.create_task(
                                 page._receive_liveview_info()
                             )
-                            try:
-                                await page.handle_info(info.name, info.value)
-                            except Exception as error:
-                                _LOGGER.exception(
-                                    "LiveView info failed: page=%s info=%s",
-                                    type(page).__qualname__,
-                                    info.name,
-                                )
-                                raise _CloseConnection(1011) from error
+                            if isinstance(server_message, _Info):
+                                try:
+                                    await page.handle_info(
+                                        server_message.name, server_message.value
+                                    )
+                                except Exception as error:
+                                    _LOGGER.exception(
+                                        "LiveView info failed: page=%s info=%s",
+                                        type(page).__qualname__,
+                                        server_message.name,
+                                    )
+                                    raise _CloseConnection(1011) from error
+                            else:
+                                try:
+                                    delivered = await page._settle_liveview_async(
+                                        server_message
+                                    )
+                                except Exception as error:
+                                    _LOGGER.exception(
+                                        "LiveView async result failed: owner=%s "
+                                        "async=%s",
+                                        type(server_message.owner).__qualname__,
+                                        server_message.name,
+                                    )
+                                    raise _CloseConnection(1011) from error
+                                if not delivered:
+                                    continue
                             drained = await _drain_navigation(
                                 page,
                                 registry.compiled,
@@ -1081,25 +1227,17 @@ def gateway_type(options: LiveViewOptions, registry: _Registry) -> type[object]:
                                 )
                                 continue
                             navigation, target, kind = drained
-                            if navigation == "redirect":
+                            flash = page._take_liveview_flash_changes()
+                            if navigation == "redirect" or (
+                                _resolve_navigate(registry, session, target) is None
+                            ):
                                 await _send(
                                     socket,
                                     join.join_ref,
                                     None,
                                     join.topic,
                                     "redirect",
-                                    {"to": target},
-                                )
-                                return
-                            target_route = _resolve_navigate(registry, session, target)
-                            if target_route is None:
-                                await _send(
-                                    socket,
-                                    join.join_ref,
-                                    None,
-                                    join.topic,
-                                    "redirect",
-                                    {"to": target},
+                                    _with_flash({"to": target}, flash, flash_codec),
                                 )
                                 return
                             await _send(
@@ -1108,7 +1246,9 @@ def gateway_type(options: LiveViewOptions, registry: _Registry) -> type[object]:
                                 None,
                                 join.topic,
                                 "live_redirect",
-                                {"kind": kind, "to": target},
+                                _with_flash(
+                                    {"kind": kind, "to": target}, flash, flash_codec
+                                ),
                             )
                             if info_task is None:
                                 raise LiveViewError(

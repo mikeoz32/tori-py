@@ -7,15 +7,18 @@ import threading
 import time
 from collections.abc import Coroutine, Iterator, Mapping
 from typing import Any, cast
+from urllib.parse import parse_qsl, urlsplit
 
 import pytest
 import uvicorn
-from playwright.sync_api import Page, Request, expect
+from playwright.sync_api import Page, Request, Response, expect
 from pytest_bdd import given, parsers, scenarios, then, when
 from starlette.types import ASGIApp
 from tori_py import NestApplication, module
+from tori_py.http import HttpException
 from tori_py.starlette import StarletteAdapter
 from tori_py_liveview import (
+    AsyncResult,
     LiveView,
     LiveViewModule,
     LiveViewOptions,
@@ -108,6 +111,130 @@ class BrowserHooksLive(LiveView):
         return super().render_document(live_root, _ECHO_HOOK + client_script)
 
 
+@live_view("/browser-flash", action="index")
+@live_view("/browser-flash/next", action="next")
+@live_view("/browser-flash/hop", action="hop")
+class BrowserFlashLive(LiveView):
+    async def mount(self, context: MountContext) -> None:
+        del context
+        # The hop page moves on while mounting, over HTTP and when connected.
+        if self.live_action == "hop":
+            self.push_navigate("/browser-flash/next")
+
+    async def handle_event(self, event: str, value: object) -> None:
+        del value
+        if event == "save":
+            self.put_flash("info", "Saved")
+        elif event == "navigate":
+            self.put_flash("info", "Moved")
+            self.push_navigate("/browser-flash/next")
+        elif event == "leave":
+            self.put_flash("info", "Left")
+            self.redirect("/browser-flash/next")
+        elif event == "hop":
+            self.put_flash("info", "Hopped")
+            self.push_navigate("/browser-flash/hop")
+        elif event == "hop-reload":
+            self.put_flash("info", "Hopped over HTTP")
+            self.redirect("/browser-flash/hop")
+        else:
+            raise UnknownEventError(event)
+
+    def render(self):
+        info = self.flash.get("info", "")
+        return (
+            t'<p id="flash-info" phx-click="lv:clear-flash" phx-value-key="info">'
+            t"{info}</p>"
+            t'<button id="save" phx-click="save">Save</button>'
+            t'<button id="navigate" phx-click="navigate">Navigate</button>'
+            t'<button id="leave" phx-click="leave">Leave</button>'
+            t'<button id="hop" phx-click="hop">Hop</button>'
+            t'<button id="hop-reload" phx-click="hop-reload">Hop over HTTP</button>'
+        )
+
+
+@live_view("/browser-async")
+class BrowserAsyncLive(LiveView):
+    def __init__(self) -> None:
+        self.org: AsyncResult[object] = AsyncResult()
+        self.release = asyncio.Event()
+
+    async def mount(self, context: MountContext) -> None:
+        del context
+        self.assign_async("org", self.load_org)
+
+    async def load_org(self) -> object:
+        await self.release.wait()
+        return "Acme"
+
+    async def handle_event(self, event: str, value: object) -> None:
+        del value
+        if event != "release":
+            raise UnknownEventError(event)
+        self.release.set()
+
+    def render(self):
+        text = "loading" if self.org.loading else str(self.org.result)
+        return (
+            t'<output id="org">{text}</output>'
+            t'<button id="release" phx-click="release">Release</button>'
+        )
+
+
+_CONNECT_PARAMS = (
+    '<script>globalThis.ToriLiveParams = {locale: "uk"};</script>'
+    '<a phx-track-static href="/assets/app-1.css" hidden></a>'
+)
+
+
+@live_view("/browser-params", action="index")
+@live_view("/browser-params/next", action="next")
+class BrowserParamsLive(LiveView):
+    def __init__(self) -> None:
+        self.values = dict.fromkeys(("locale", "mounts", "referer", "same", "new"), "-")
+
+    async def mount(self, context: MountContext) -> None:
+        params = context.connect_params
+        if params is None:
+            return
+        same = context.static_changed(["/assets/app-1.css"])
+        new = context.static_changed(["/assets/app-2.css"])
+        self.values = {
+            "locale": str(params.get("locale")),
+            "mounts": str(params.get("_mounts")),
+            "referer": str(params.get("_live_referer", "-")),
+            "same": "changed" if same else "unchanged",
+            "new": "changed" if new else "unchanged",
+        }
+
+    def render(self):
+        values = self.values
+        return (
+            t'<output id="locale">{values["locale"]}</output>'
+            t'<output id="mounts">{values["mounts"]}</output>'
+            t'<output id="referer">{values["referer"]}</output>'
+            t'<output id="static-same">{values["same"]}</output>'
+            t'<output id="static-new">{values["new"]}</output>'
+            t'<a id="next" data-phx-link="redirect" data-phx-link-state="push" '
+            t'href="/browser-params/next">Next</a>'
+        )
+
+    def render_document(self, live_root: str, client_script: str) -> str:
+        return super().render_document(_CONNECT_PARAMS + live_root, client_script)
+
+
+@live_view("/browser-gone")
+class BrowserGoneLive(LiveView):
+    async def mount(self, context: MountContext) -> None:
+        # Only the connected mount fails, as when data loads only once
+        # connected, so the HTTP render alone would succeed on every reload.
+        if context.connected:
+            raise HttpException(404, "gone")
+
+    def render(self) -> str:
+        return "<p>here</p>"
+
+
 def _asgi(application: NestApplication) -> ASGIApp:
     return application.get_adapter(StarletteAdapter).app
 
@@ -115,7 +242,15 @@ def _asgi(application: NestApplication) -> ASGIApp:
 async def _create_application() -> NestApplication:
     liveview_module = LiveViewModule.for_root(
         LiveViewOptions(secret="s" * 32),
-        pages=[BrowserCounterLive, BrowserNavigationLive, BrowserHooksLive],
+        pages=[
+            BrowserCounterLive,
+            BrowserNavigationLive,
+            BrowserHooksLive,
+            BrowserFlashLive,
+            BrowserAsyncLive,
+            BrowserParamsLive,
+            BrowserGoneLive,
+        ],
     )
 
     @module(imports=[liveview_module])
@@ -228,8 +363,80 @@ def url_is(page: Page, live_server: str, path: str) -> None:
     expect(page).to_have_url(f"{live_server}{path}")
 
 
+@then(parsers.parse('"{selector}" is empty'))
+def is_empty(page: Page, selector: str) -> None:
+    expect(page.locator(selector)).to_have_text("")
+
+
+@then(parsers.parse('"{selector}" shows the "{path}" URL'))
+def shows_url(page: Page, live_server: str, selector: str, path: str) -> None:
+    expect(page.locator(selector)).to_have_text(f"{live_server}{path}")
+
+
 @then("the document was not reloaded")
 def document_not_reloaded(
     document_requests: list[str], requests_before_click: int
 ) -> None:
     assert len(document_requests) == requests_before_click
+
+
+@then("the document was reloaded")
+def document_reloaded(document_requests: list[str], requests_before_click: int) -> None:
+    assert len(document_requests) > requests_before_click
+
+
+@then(parsers.parse('the "{name}" cookie is gone'))
+def cookie_gone(page: Page, name: str) -> None:
+    assert all(cookie.get("name") != name for cookie in page.context.cookies())
+
+
+@when(
+    parsers.parse('I visit "{path}" and it fails after connecting'),
+    target_fixture="statuses",
+)
+def visit_failing_page(page: Page, live_server: str, path: str) -> list[int]:
+    statuses: list[int] = []
+
+    def record(response: Response) -> None:
+        if response.request.is_navigation_request():
+            statuses.append(response.status)
+
+    page.on("response", record)
+    with page.expect_response(
+        lambda response: (
+            response.request.is_navigation_request() and response.status == 404
+        )
+    ):
+        page.goto(f"{live_server}{path}")
+    # A looping client would request the document again within a few seconds.
+    page.wait_for_timeout(1_000)
+    return statuses
+
+
+@then(parsers.parse("the document answered {first:d} and then {second:d}"))
+def document_answered(statuses: list[int], first: int, second: int) -> None:
+    assert statuses == [first, second]
+
+
+_JOIN_FIELDS = {"_mounts", "_mount_attempts", "_track_static", "_live_referer"}
+
+
+@when("the client reconnects", target_fixture="reconnect_url")
+def reconnect(page: Page) -> str:
+    with page.expect_websocket() as reconnected:
+        page.evaluate("() => liveSocket.disconnect(() => liveSocket.connect())")
+    expect(page.locator("[data-phx-main]")).to_have_class(
+        re.compile(r"\bphx-connected\b")
+    )
+    return reconnected.value.url
+
+
+@then(
+    parsers.parse(
+        'the reconnect URL carries "{name}={value}" and no LiveView join fields'
+    )
+)
+def reconnect_url_fields(reconnect_url: str, name: str, value: str) -> None:
+    query = parse_qsl(urlsplit(reconnect_url).query, keep_blank_values=True)
+    assert (name, value) in query
+    assert not {key.partition("[")[0] for key, _ in query} & _JOIN_FIELDS

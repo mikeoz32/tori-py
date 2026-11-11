@@ -322,11 +322,17 @@ Principal public API:
 - Client hooks and updates: `LiveView.push_event`, `LiveView.send_update`,
   `LiveComponent.push_event`, `LiveComponent.send_update`, and mapping replies
   returned from `handle_event`.
+- Flash: `LiveView.flash`, `put_flash`, and `clear_flash`, also on
+  `LiveComponent`.
+- Async work: `AsyncResult`, `start_async`, `assign_async`, `cancel_async`, and
+  `handle_async` on `LiveView` and `LiveComponent`.
+- Connect params: `MountContext.connect_params`, `tracked_static`, and
+  `static_changed`.
 - Rendering: `Rendered`, `SafeHtml`, `html`, `fragment`, `classes`, `attrs`,
   `rendered`, `raw`.
 - Client JS commands: `JS`.
 - Errors: `LiveViewError`, `LiveViewConfigurationError`, `UnknownEventError`,
-  `UnknownInfoError`.
+  `UnknownInfoError`, `UnknownAsyncError`.
 
 The package interoperates with official Phoenix and Phoenix LiveView clients
 through Channels joins/replies, Phoenix render trees, stateful component CIDs,
@@ -337,8 +343,11 @@ Server-initiated updates use the bounded connection-local
 `send_info` queue and serialized `handle_info` callback to emit Phoenix `diff`
 pushes. The client bootstrap registers `globalThis.ToriLiveHooks` as the
 `LiveSocket` hooks object; pushed events and event replies travel under the
-render-tree `e` and `r` keys. Nested components, child LiveViews, uploads, and
-flash are not part of the current server surface.
+render-tree `e` and `r` keys. Flash follows navigation through signed Phoenix
+flash tokens and the `__phoenix_flash__` cookie, async work settles on the
+connection task, and `globalThis.ToriLiveParams` reaches connected mounts as
+connect params. Nested components, child LiveViews, and uploads are not part of
+the current server surface.
 
 ## `tori-py-liveview-ui`
 

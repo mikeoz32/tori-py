@@ -33,10 +33,17 @@ _BOOTSTRAP = b"""
   const root = document.querySelector("[data-phx-session][data-tori-live-socket]");
   if (!root) return;
   const hooks = (globalThis.ToriLiveHooks ??= {});
+  // LiveSocket and Phoenix.Socket share this option, and LiveView writes its
+  // join fields into the returned object. A fresh copy per call keeps those
+  // fields out of the WebSocket URL that Phoenix.Socket builds on reconnect.
+  const params = (el) => {
+    const source = globalThis.ToriLiveParams;
+    return {...(typeof source === "function" ? source(el) : source)};
+  };
   const liveSocket = new LiveView.LiveSocket(
     root.dataset.toriLiveSocket,
     Phoenix.Socket,
-    {hooks},
+    {hooks, params},
   );
   liveSocket.connect();
   globalThis.liveSocket = liveSocket;
