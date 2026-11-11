@@ -186,19 +186,35 @@ def _render_payload(page: LiveView, rendered: Rendered) -> dict[str, object]:
     return payload
 
 
+@dataclass(frozen=True, slots=True)
+class _SiteFlash:
+    """Sign navigation flash for one connection's own site."""
+
+    codec: FlashTokenCodec
+    host: str
+    scheme: str
+
+    def follows(self, target: str) -> bool:
+        # Flash leaving the site would sit in the cookie for the next page.
+        return same_origin(self.host, target, scheme=self.scheme)
+
+
 def _with_flash(
     navigation: dict[str, object],
     flash: Mapping[str, str],
-    codec: FlashTokenCodec,
+    site: _SiteFlash,
 ) -> dict[str, object]:
     """Attach the flash put before a navigation as a signed Phoenix flash token."""
-    if flash:
-        navigation["flash"] = codec.sign(flash)
+    target = navigation["to"]
+    if flash and isinstance(target, str) and site.follows(target):
+        navigation["flash"] = site.codec.sign(flash)
     return navigation
 
 
 def _cookie(name: str, value: str, *, max_age: int, secure: bool) -> str:
-    cookie = f"{name}={value}; Max-Age={max_age}; Path=/; SameSite=Lax; HttpOnly"
+    # Not HttpOnly: the official client writes these cookies with
+    # document.cookie, which cannot replace an HttpOnly cookie of the same name.
+    cookie = f"{name}={value}; Max-Age={max_age}; Path=/; SameSite=Lax"
     return f"{cookie}; Secure" if secure else cookie
 
 
@@ -264,8 +280,12 @@ async def initial_response(
         if drained is not None and drained[0] != "patch":
             redirect_headers = {"location": drained[1]}
             # Nothing has displayed the page yet, so all of its flash, including
-            # flash received from the previous page, follows the redirect.
-            flash = dict(page.flash)
+            # flash received from the previous page, follows the redirect, as
+            # long as the redirect stays on this site.
+            site = _SiteFlash(
+                flash_codec, request.headers.get("host", ""), request.url.scheme
+            )
+            flash = dict(page.flash) if site.follows(drained[1]) else {}
             if flash:
                 redirect_headers["set-cookie"] = _cookie(
                     _FLASH_COOKIE,
@@ -675,6 +695,7 @@ def gateway_type(options: LiveViewOptions, registry: _Registry) -> type[object]:
             await socket.accept()
             origin_host = socket.headers.get("host", "")
             origin_scheme = "https" if socket.url.scheme == "wss" else "http"
+            site_flash = _SiteFlash(flash_codec, origin_host, origin_scheme)
             page: LiveView | None = None
             page_scope: AbstractAsyncContextManager[ScopedResolver] | None = None
             incoming_task: asyncio.Task[_ChannelMessage] | None = None
@@ -890,7 +911,7 @@ def gateway_type(options: LiveViewOptions, registry: _Registry) -> type[object]:
                                         "live_redirect": _with_flash(
                                             {"kind": kind, "to": target},
                                             flash,
-                                            flash_codec,
+                                            site_flash,
                                         )
                                     },
                                 )
@@ -901,7 +922,7 @@ def gateway_type(options: LiveViewOptions, registry: _Registry) -> type[object]:
                             "error",
                             {
                                 "redirect": _with_flash(
-                                    {"to": target}, flash, flash_codec
+                                    {"to": target}, flash, site_flash
                                 )
                             },
                         )
@@ -1016,7 +1037,7 @@ def gateway_type(options: LiveViewOptions, registry: _Registry) -> type[object]:
                                             "ok",
                                             {
                                                 "redirect": _with_flash(
-                                                    {"to": target}, flash, flash_codec
+                                                    {"to": target}, flash, site_flash
                                                 )
                                             },
                                         )
@@ -1029,7 +1050,7 @@ def gateway_type(options: LiveViewOptions, registry: _Registry) -> type[object]:
                                             "live_redirect": _with_flash(
                                                 {"kind": kind, "to": target},
                                                 flash,
-                                                flash_codec,
+                                                site_flash,
                                             )
                                         },
                                     )
@@ -1142,7 +1163,7 @@ def gateway_type(options: LiveViewOptions, registry: _Registry) -> type[object]:
                                     "ok",
                                     {
                                         "redirect": _with_flash(
-                                            {"to": target}, flash, flash_codec
+                                            {"to": target}, flash, site_flash
                                         )
                                     },
                                 )
@@ -1155,7 +1176,7 @@ def gateway_type(options: LiveViewOptions, registry: _Registry) -> type[object]:
                                     "live_redirect": _with_flash(
                                         {"kind": kind, "to": target},
                                         flash,
-                                        flash_codec,
+                                        site_flash,
                                     )
                                 },
                             )
@@ -1244,7 +1265,7 @@ def gateway_type(options: LiveViewOptions, registry: _Registry) -> type[object]:
                                     None,
                                     join.topic,
                                     "redirect",
-                                    _with_flash({"to": target}, flash, flash_codec),
+                                    _with_flash({"to": target}, flash, site_flash),
                                 )
                                 return
                             await _send(
@@ -1254,7 +1275,7 @@ def gateway_type(options: LiveViewOptions, registry: _Registry) -> type[object]:
                                 join.topic,
                                 "live_redirect",
                                 _with_flash(
-                                    {"kind": kind, "to": target}, flash, flash_codec
+                                    {"kind": kind, "to": target}, flash, site_flash
                                 ),
                             )
                             if info_task is None:

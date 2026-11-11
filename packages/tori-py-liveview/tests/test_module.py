@@ -1931,6 +1931,9 @@ class FlashLive(LiveView):
             self.redirect("/flash/next")
         elif go == "hop":
             self.push_navigate("/flash/next")
+        elif go == "away":
+            self.put_flash("info", "Leaving")
+            self.redirect("https://idp.example/login")
 
     async def handle_event(self, event: str, value: object) -> None:
         del value
@@ -1944,6 +1947,9 @@ class FlashLive(LiveView):
             self.redirect("/elsewhere")
         elif event == "quiet":
             self.push_navigate("/flash/next")
+        elif event == "away":
+            self.put_flash("info", "Leaving")
+            self.redirect("https://idp.example/login")
         elif event == "drop":
             self.put_flash("error", "lost")
             raise UnknownEventError(event)
@@ -2104,7 +2110,7 @@ class GoneLive(LiveView):
 
 async def _lifecycle_application(key: str) -> NestApplication:
     liveview_module = LiveViewModule.for_root(
-        LiveViewOptions(secret=_SECRET),
+        LiveViewOptions(secret=_SECRET, redirect_hosts=("idp.example",)),
         pages=[FlashLive, AsyncLive, GoneLive],
         key=key,
     )
@@ -2297,7 +2303,7 @@ async def test_flash_cookie_carries_redirect_flash_into_the_http_render() -> Non
     )
     assert "<p>From cookie</p>" in page.text
     assert page.headers["set-cookie"] == (
-        "__phoenix_flash__=; Max-Age=0; Path=/; SameSite=Lax; HttpOnly"
+        "__phoenix_flash__=; Max-Age=0; Path=/; SameSite=Lax"
     )
     assert MountTokenCodec(_SECRET).verify(_token(page.text)).flash == {
         "info": "From cookie"
@@ -2313,7 +2319,7 @@ async def test_flash_cookie_carries_redirect_flash_into_the_http_render() -> Non
     assert redirected.status_code == 302
     assert redirected.headers["location"] == "/flash/next"
     match = re.fullmatch(
-        r"__phoenix_flash__=([^;]+); Max-Age=60; Path=/; SameSite=Lax; HttpOnly",
+        r"__phoenix_flash__=([^;]+); Max-Age=60; Path=/; SameSite=Lax",
         redirected.headers["set-cookie"],
     )
     assert match is not None
@@ -2323,11 +2329,39 @@ async def test_flash_cookie_carries_redirect_flash_into_the_http_render() -> Non
 
 def _cookie_flash(response: httpx.Response, codec: FlashTokenCodec) -> object:
     match = re.fullmatch(
-        r"__phoenix_flash__=([^;]*); Max-Age=(\d+); Path=/; SameSite=Lax; HttpOnly",
+        r"__phoenix_flash__=([^;]*); Max-Age=(\d+); Path=/; SameSite=Lax",
         response.headers["set-cookie"],
     )
     assert match is not None
     return codec.verify(match[1]) if match[2] == "60" else None
+
+
+@pytest.mark.asyncio
+async def test_flash_stays_behind_when_a_redirect_leaves_the_site() -> None:
+    FlashLive.reset()
+    codec = FlashTokenCodec(_SECRET)
+    application = await _lifecycle_application("flash-off-site")
+
+    # No flash cookie is set for another host, and a received one is removed.
+    away = await _request(application, "/flash?go=away")
+    assert away.status_code == 302
+    assert away.headers["location"] == "https://idp.example/login"
+    assert "set-cookie" not in away.headers
+    incoming = {"cookie": f"__phoenix_flash__={codec.sign({'info': 'Welcome'})}"}
+    away = await _request(application, "/flash?go=away", headers=incoming)
+    assert _cookie_flash(away, codec) is None
+
+    token = _token((await _request(application, "/flash")).text)
+    sent = await _call_websocket(
+        application,
+        "/_tori/live/websocket",
+        _join_with(token, "http://testserver/flash"),
+        _event("2", "away"),
+    )
+    assert _response(_decode_sent(sent)[1]) == {
+        "redirect": {"to": "https://idp.example/login"}
+    }
+    await application.shutdown()
 
 
 @pytest.mark.asyncio
@@ -2512,7 +2546,7 @@ async def test_connected_mount_client_errors_reload_the_page(
     )
     assert reloaded.status_code == 404
     assert reloaded.headers["set-cookie"] == (
-        "__phoenix_reload_status__=; Max-Age=0; Path=/; SameSite=Lax; HttpOnly"
+        "__phoenix_reload_status__=; Max-Age=0; Path=/; SameSite=Lax"
     )
     other_resource = codec.sign(identity, "/gone?page=2", 404)
     for cookie in (other_resource, "forged.token"):

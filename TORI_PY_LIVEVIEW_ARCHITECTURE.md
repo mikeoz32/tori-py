@@ -249,7 +249,11 @@ The flash travels as follows:
   stores it in the `__phoenix_flash__` cookie for 60 seconds before loading the
   target. A page HTTP request with that cookie verifies it, seeds the flash, and
   answers with a `Set-Cookie` that deletes it. A redirect from the disconnected
-  mount sets that cookie directly on its `302`.
+  mount sets that cookie directly on its `302`. Flash never follows a redirect
+  to another host, such as one in `redirect_hosts`, because no page there would
+  consume the cookie before a later visit showed it. The cookies the server
+  writes are not `HttpOnly`, so the client's `document.cookie` writes can still
+  replace them.
 - The disconnected render's flash is signed into the mount token and seeds only
   the first connected mount of that document (`_mounts` is `0` and the join is
   not a live navigation), so reconnects do not repeat it.

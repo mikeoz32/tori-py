@@ -55,7 +55,9 @@ This directory records the executable contract for `tori-py-liveview`.
     when a handler navigates away.
  17. `put_flash` flash follows `push_navigate` as a signed `flash` token that the
     next join returns, and `redirect` through the official `__phoenix_flash__`
-    cookie that the HTTP render verifies and deletes. Flash tokens expire after
+    cookie that the HTTP render verifies and deletes; it never follows a
+    redirect to another host, and server-written cookies are not `HttpOnly` so
+    the client can replace them. Flash tokens expire after
     60 seconds and never verify as mount tokens. Handler navigation carries the
     flash put since the last render; navigation while mounting carries the whole
     flash, so received flash passes through a page that moves on. The

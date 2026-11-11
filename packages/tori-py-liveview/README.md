@@ -386,7 +386,8 @@ Flash put in a handler follows `push_navigate()` as a signed token and
 `redirect()` through the Phoenix `__phoenix_flash__` cookie, which the next HTTP
 render reads and deletes. A page that navigates while mounting, such as `/`
 redirecting to `/dashboard`, passes on all of its flash, including flash it
-received, unless it clears it. Flash tokens expire after 60 seconds. The disconnected
+received, unless it clears it. Flash does not follow a `redirect()` to another
+host. Flash tokens expire after 60 seconds. The disconnected
 render's flash also appears on the first connected render, but not again after a
 reconnect. Components forward `put_flash()` and `clear_flash()` to their page.
 
