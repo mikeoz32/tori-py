@@ -4,7 +4,7 @@ ToriPy is a typed Python 3.14 framework family for applications that benefit
 from explicit module composition, constructor dependency injection, deterministic
 lifecycle, and clear infrastructure boundaries. The core framework provides an
 ASGI HTTP stack; independently installable packages add CQRS, event sourcing,
-SQLAlchemy, OpenAPI, microservices, and persistent streams.
+SQLAlchemy, OpenAPI, LiveView pages, microservices, and persistent streams.
 
 There is no package scan and no process-global provider registry. Application
 structure is compiled from public Python declarations before startup, so
@@ -72,6 +72,8 @@ HTTP-only `tori_py.asgi` are the explicit ASGI driver boundaries.
 | Event-sourced aggregates and command transactions | [Event Sourcing](techniques/event-sourcing/index.md) | `tori-py-cqrs-event-sourcing-core` and optional ToriPy integration |
 | Service RPC and broker events | [Microservices](techniques/microservices/index.md) | `tori-py-microservices` |
 | Replayable partitioned logs | [Persistent Streams](techniques/persistent-streams/index.md) | the persistent-stream package family |
+| Server-rendered interactive pages | [LiveView](techniques/liveview/index.md) | `tori-py-liveview` |
+| Styled forms and layout for LiveView | [LiveView UI](techniques/liveview-ui/index.md) | `tori-py-liveview-ui` |
 
 ## Boundaries
 

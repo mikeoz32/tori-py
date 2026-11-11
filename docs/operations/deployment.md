@@ -56,6 +56,14 @@ If the application is mounted under a path prefix, verify the proxy's path and
 ASGI root-path behavior against the pinned Starlette and Uvicorn versions.
 ToriPy does not add a deployment-prefix API.
 
+Applications using [LiveView](../techniques/liveview/index.md) also need the
+proxy to upgrade WebSocket connections on the LiveView socket path, with an idle
+timeout longer than the 30-second Phoenix heartbeat. The LiveView origin check
+compares the browser `Origin` with the scheme and `Host` the application sees,
+so either forward trusted scheme and host information or configure explicit
+`allowed_origins`. See
+[LiveView configuration and security](../techniques/liveview/configuration-and-security.md).
+
 ## Containers
 
 Use an exec-form command so Uvicorn receives termination signals directly. A
@@ -218,6 +226,11 @@ Use readiness to add a new replica only after successful startup. Use deployment
 surge/unavailable settings that preserve required capacity while old replicas
 drain. Persist shared state externally, and use application-level idempotency or
 coordination where work may be retried.
+
+LiveView pages hold their state in the replica that owns the WebSocket. A
+restart or drain closes those sockets, and browsers reconnect to any replica
+and mount fresh pages. All replicas must share the LiveView token secret, and
+pages must rebuild their state from shared services in `mount()`.
 
 ## Production Checklist
 

@@ -103,6 +103,20 @@ nav:
           - Metadata and Responses: openapi/metadata-and-responses.md
           - Security and Swagger UI: openapi/security-and-swagger.md
           - Advanced Usage: openapi/advanced.md
+      - LiveView:
+          - Overview: techniques/liveview/index.md
+          - Pages and Lifecycle: techniques/liveview/pages.md
+          - Templates and Rendering: techniques/liveview/templates.md
+          - JS Commands: techniques/liveview/js-commands.md
+          - Stateful Components: techniques/liveview/components.md
+          - Streams: techniques/liveview/streams.md
+          - Routing and Navigation: techniques/liveview/navigation.md
+          - Configuration and Security: techniques/liveview/configuration-and-security.md
+          - Testing: techniques/liveview/testing.md
+      - LiveView UI:
+          - Overview: techniques/liveview-ui/index.md
+          - Forms: techniques/liveview-ui/forms.md
+          - Themes and Skins: techniques/liveview-ui/theming.md
       - CQRS:
           - Overview: techniques/cqrs/index.md
           - Framework-neutral Core: techniques/cqrs/core.md
@@ -152,6 +166,8 @@ nav:
           - ToriPy Event Sourcing: reference/generated/event-sourcing.md
           - SQLAlchemy: reference/generated/sqlalchemy.md
           - OpenAPI: reference/generated/openapi.md
+          - LiveView: reference/generated/liveview.md
+          - LiveView UI: reference/generated/liveview-ui.md
           - Microservices: reference/generated/microservices.md
           - Persistent Streams Core: reference/generated/persistent-streams-core.md
           - ToriPy Persistent Streams: reference/generated/persistent-streams.md

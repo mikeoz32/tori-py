@@ -74,6 +74,17 @@ policy and add CSRF protection appropriate to the request model. CORS is not an
 authorization boundary. Validate allowed hosts and forwarding headers before
 using request scheme, host, or client information in security decisions.
 
+## LiveView
+
+The optional LiveView package accepts browser events over a WebSocket that
+global guards check only at the handshake. Its signed mount tokens provide
+integrity and expiry, not authentication, encryption, or replay protection, and
+its origin check replaces CORS for the socket. Authorize in mount hooks and in
+every state-changing event handler, keep untrusted data out of `raw()`, and
+review the
+[LiveView security guide](../techniques/liveview/configuration-and-security.md)
+before deployment.
+
 Only trust proxy headers from known proxy addresses. Strip client-supplied
 forwarding headers at the edge. ToriPy's `X-Request-ID` validation does not make
 the value trusted.

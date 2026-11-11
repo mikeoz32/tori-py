@@ -66,6 +66,7 @@ startup and trigger rollback.
 | Per-request or per-operation state | A request-scoped provider | The request/work scope owns caching and cleanup |
 | Background or transport-delivered work | A singleton coordinator using `WorkScopeFactory` | Request dependencies do not escape an HTTP request |
 | Integration metadata | A typed `MetadataDecorator` | Integrations can discover explicit declarations without importing application packages |
+| An interactive server-rendered page | A `LiveView` page listed in `LiveViewModule.for_root(pages=...)` | Pages are request-scoped providers with an explicit route and lifecycle; see [LiveView](techniques/liveview/index.md) |
 
 ## NestJS Mapping
 

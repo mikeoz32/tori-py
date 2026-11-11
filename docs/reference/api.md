@@ -333,7 +333,8 @@ sessions when possible and fall back to full reloads when required.
 Server-initiated updates use the bounded connection-local
 `send_info` queue and serialized `handle_info` callback to emit Phoenix `diff`
 pushes. Nested components, uploads, and application hook/reply APIs are not part
-of the current server surface.
+of the current server surface. Guide: [LiveView](../techniques/liveview/index.md);
+generated reference: [LiveView API](generated/liveview.md).
 
 ## `tori-py-liveview-ui`
 
@@ -353,7 +354,9 @@ escaping, Phoenix render-tree, `phx-click`, `phx-change`, `phx-submit`,
 stylesheet; they do not add a client runtime, validation engine, or state model.
 `UiLiveView.ui_theme()` selects `auto`, `light`, or `dark` color mode, while
 `ui_skin()` independently selects the default `editorial`, bundled `minimal` or
-`rounded`, or a validated application-owned CSS skin name.
+`rounded`, or a validated application-owned CSS skin name. Guide:
+[LiveView UI](../techniques/liveview-ui/index.md); generated reference:
+[LiveView UI API](generated/liveview-ui.md).
 
 ## Reading generated reference
 

@@ -36,6 +36,10 @@ The method-interception demo accepts `Bearer reader-token` and
 | --- | --- | --- |
 | LiveView UI showcase | `uv run tori-py run examples.tori_py.liveview.app:create_application` | HTTP disconnected mount, signed WebSocket join, Phoenix page/component/stream/form events, stateless UI helpers with server-owned validation, rounded skin and application token override acceptance, and reconnect behavior |
 
+Read it with the [LiveView](../techniques/liveview/index.md) and
+[LiveView UI](../techniques/liveview-ui/index.md) guides. Its browser test is
+described in [Testing LiveView](../techniques/liveview/testing.md#browser-tests).
+
 ### Getting started
 
 | Example | Exact command | Demonstrates |
