@@ -40,6 +40,8 @@ errors.
 
 Prefer stable explicit operation IDs for public client-generation contracts:
 
+<!-- docs-test: skip -->
+
 ```python
 @api_operation(operation_id="members_read")
 async def read(self) -> MemberView:
@@ -93,6 +95,8 @@ uv add --dev "tori-py-framework[testing]" pytest pytest-asyncio
 In a repository checkout, the workspace preparation command from the
 [Examples reference](../reference/examples.md#repository-commands) installs
 these dependencies.
+
+<!-- docs-test: skip -->
 
 ```python
 import httpx

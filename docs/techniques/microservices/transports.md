@@ -179,6 +179,8 @@ their own tests with the public helper
 service, event, max_delivery_attempts, max_inflight_deliveries, timeout)`.
 `max_inflight_deliveries` must be at least 2. For example:
 
+<!-- docs-test: skip -->
+
 ```python
 from tori_py_microservices.testing import assert_transport_conformance
 

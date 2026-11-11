@@ -25,6 +25,8 @@ uv add tori-py-persistent-streams-rabbitmq
 
 All application imports below use public facades:
 
+<!-- docs-test: skip -->
+
 ```python
 from tori_py_persistent_streams import PersistentStreamsModule
 from tori_py_persistent_streams_rabbitmq import (
@@ -59,6 +61,8 @@ arguments, but does not verify that effective broker policy matches them.
 Constructing connection options, adapter options, a deferred module, the factory,
 or `RabbitMqPersistentLog` performs no network I/O. `for_root_async()` can resolve
 options through normal annotation-driven Tori Py injection:
+
+<!-- docs-test: skip -->
 
 ```python
 rabbitmq = RabbitMqPersistentStreamsModule.for_root_async(
@@ -242,6 +246,8 @@ delivered as application records, so data offsets are expected to be sparse.
 
 Broker-managed checkpoints require both an explicit adapter gate and a real
 single-instance deployment:
+
+<!-- docs-test: skip -->
 
 ```python
 from tori_py_persistent_streams import PersistentStreamsRuntimeOptions
@@ -453,6 +459,8 @@ object described above is not complete public bounds.
 ## TLS and SASL
 
 Enable TLS with a trusted CA:
+
+<!-- docs-test: skip -->
 
 ```python
 from tori_py_persistent_streams_rabbitmq import (

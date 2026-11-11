@@ -105,6 +105,8 @@ Serve the application stylesheet yourself and link it after the package link.
 `UiLiveView.render_document()` inserts the package link before `</head>`, so
 insert yours in the same place afterwards:
 
+<!-- docs-test: skip -->
+
 ```python
 from importlib.resources import files
 

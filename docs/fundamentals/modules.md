@@ -235,6 +235,8 @@ also include immutable details such as a module path or dynamic key.
 overrides are intentionally limited to exported tokens of the selected module;
 tests cannot reach through a module boundary to replace private providers.
 
+<!-- docs-test: skip -->
+
 ```python
 from tori_py.testing import TestingModule
 

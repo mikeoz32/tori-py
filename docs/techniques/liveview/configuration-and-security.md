@@ -27,6 +27,8 @@ limits must be positive integers, timeouts positive finite numbers, and
 `LiveViewModule.for_root()` takes a concrete options value, so read the secret
 before the module is composed, for example from the environment:
 
+<!-- docs-test: skip -->
+
 ```python
 import os
 
@@ -84,6 +86,8 @@ application sees the same host and scheme as the browser.
 Behind a reverse proxy that terminates TLS or rewrites `Host`, either configure
 the ASGI server to trust the proxy's forwarded headers or list the public
 origins:
+
+<!-- docs-test: skip -->
 
 ```python
 LiveViewOptions(

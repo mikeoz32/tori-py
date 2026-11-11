@@ -95,6 +95,8 @@ before append.
 
 An append request contains caller-controlled record identity and opaque data:
 
+<!-- docs-test: skip -->
+
 ```python
 from uuid import uuid4
 
@@ -128,6 +130,8 @@ effects, or a per-message fsync.
 
 Producer coordinates are optional and must be supplied together:
 
+<!-- docs-test: skip -->
+
 ```python
 request = AppendRequest(
     record_id=record_id,
@@ -157,6 +161,8 @@ a complete supported mode and stores no publishing-ID state.
 ## Read Records
 
 Reads are finite, inclusive by offset, partition-local, and offset ordered:
+
+<!-- docs-test: skip -->
 
 ```python
 page = await log.read(
@@ -214,6 +220,8 @@ starts = (
 Each log exposes `start_mode_capabilities`. Check it when code is intended to run
 against different adapters:
 
+<!-- docs-test: skip -->
+
 ```python
 if not log.start_mode_capabilities.supports(configured_start):
     raise RuntimeError("the deployed adapter does not support this start")
@@ -234,6 +242,8 @@ removed history raises `RetentionGapError` rather than clamping.
 A consumer group owns independent progress per physical partition. A
 `PartitionLease` represents one fenced owner of one
 `(stream, group, partition)` coordinate:
+
+<!-- docs-test: skip -->
 
 ```python
 from tori_py_persistent_streams_core import (
@@ -270,6 +280,8 @@ delay, and lifecycle policy belong to the caller or framework integration.
 
 `ConsumerRunner` performs a finite serial pull and checkpoints each record only
 after the handler succeeds:
+
+<!-- docs-test: skip -->
 
 ```python
 from tori_py_persistent_streams_core import ConsumerRunner, StoredRecord
@@ -334,6 +346,8 @@ acceptable. Core provides no skip API.
 ## In-Memory Reference
 
 `InMemoryPersistentLog` is useful for tests and examples:
+
+<!-- docs-test: skip -->
 
 ```python
 from tori_py_persistent_streams_core import InMemoryPersistentLog

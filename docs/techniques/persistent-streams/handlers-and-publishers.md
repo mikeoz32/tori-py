@@ -128,6 +128,8 @@ An injected factory may supply runtime-only values. `adapter_module` and
 `configuration_module` below are placeholders for the application's own adapter
 and configuration modules:
 
+<!-- docs-test: skip -->
+
 ```python
 from typing import Annotated
 

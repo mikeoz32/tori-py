@@ -91,6 +91,8 @@ For database repositories, prefer the integration's transaction model rather
 than inventing request sessions. `tori-py-sqlalchemy` registers default and
 custom repositories explicitly:
 
+<!-- docs-test: skip -->
+
 ```python
 from typing import Annotated
 

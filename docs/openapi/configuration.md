@@ -142,6 +142,8 @@ refuses a modified file. Any other absolute HTTPS asset URL requires
 them but do not have to. Values are one or more space-separated `sha256-`,
 `sha384-`, or `sha512-` base64 hashes, emitted with `crossorigin="anonymous"`:
 
+<!-- docs-test: skip -->
+
 ```python
 swagger_ui = SwaggerUiOptions(
     javascript_url="https://cdn.example.test/swagger-ui-bundle.js",

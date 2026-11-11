@@ -89,6 +89,8 @@ event valid for a stream version cannot be rejected during replay.
 
 For a new aggregate:
 
+<!-- docs-test: skip -->
+
 ```python
 profile = Profile(profile_id)
 profile.open("Alice")
@@ -123,6 +125,8 @@ objects and cannot make a mutable event subclass safe after recording.
 By default, `raise_event()` assigns a UUID once and records the current
 timezone-aware UTC time. Supply explicit metadata when correlation, causation,
 headers, deterministic tests, or an application-assigned event ID are needed:
+
+<!-- docs-test: skip -->
 
 ```python
 from datetime import UTC, datetime

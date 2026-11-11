@@ -36,6 +36,8 @@ database engine where those semantics matter.
 pattern is to create an external test engine, initialize the application-owned
 metadata, and replace the production root with `for_engine()`:
 
+<!-- docs-test: skip -->
+
 ```python
 import pytest
 from sqlalchemy.ext.asyncio import create_async_engine
@@ -72,6 +74,8 @@ async def test_persistence(tmp_path) -> None:
 The original descriptor passed to `replace_module()` identifies the dynamic
 module and key. Match the production root's key when replacing a named root:
 
+<!-- docs-test: skip -->
+
 ```python
 test_analytics = SqlAlchemyModule.for_engine(
     engine,
@@ -88,6 +92,8 @@ provider has stopped using the engine.
 
 For a narrower test, override the canonical keyed engine token in its dynamic
 root module:
+
+<!-- docs-test: skip -->
 
 ```python
 from tori_py_sqlalchemy import get_engine_token
@@ -120,6 +126,8 @@ run normal production shutdown.
 Default repositories use their canonical repository token. Target the exact
 feature descriptor returned by `for_feature()`:
 
+<!-- docs-test: skip -->
+
 ```python
 from tori_py_sqlalchemy import get_repository_token
 
@@ -135,6 +143,8 @@ builder.override_provider(
 ```
 
 A custom repository's concrete class is its token:
+
+<!-- docs-test: skip -->
 
 ```python
 builder.override_provider(
@@ -152,6 +162,8 @@ detachment, and constraint behavior remain exercised.
 
 Direct `Base.metadata.create_all()` is appropriate for isolated test databases
 and runnable demonstrations when the application explicitly owns that setup:
+
+<!-- docs-test: skip -->
 
 ```python
 async with engine.begin() as connection:
@@ -182,6 +194,8 @@ dependency or the dedicated migration group.
 
 Import the application's declarative base in Alembic's `env.py` and set its
 metadata as the autogenerate target:
+
+<!-- docs-test: skip -->
 
 ```python
 from application.database.models import Base

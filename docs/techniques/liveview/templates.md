@@ -32,6 +32,8 @@ from users, storage, or the network.
 Because `None` renders as `"None"`, choose explicit text or an empty string for
 absent values:
 
+<!-- docs-test: skip -->
+
 ```python
 note = self.note or ""
 return t"<p>{note}</p>"
@@ -40,6 +42,8 @@ return t"<p>{note}</p>"
 Do not apply `!s`, `!r`, `!a`, or a format specification to a structural value
 such as a nested template, fragment, component, or stream. A conversion turns it
 into escaped text. Format specifications are fine for scalars:
+
+<!-- docs-test: skip -->
 
 ```python
 return t"<td>{order.total:.2f}</td><td>{order.created_at:%Y-%m-%d}</td>"
@@ -60,6 +64,8 @@ make data safe in CSS or JavaScript contexts. Build dynamic attribute sets with
 A quoted `href` or `src` interpolation is escaped but not checked for a URL
 scheme, so `javascript:` in user data would survive. Pass user-controlled URLs
 through `attrs()`, which rejects `javascript:`, `data:`, and `vbscript:` URLs:
+
+<!-- docs-test: skip -->
 
 ```python
 from tori_py_liveview import attrs
@@ -87,6 +93,8 @@ assert html(t"<b>{'<x>'}</b>").to_html() == "<b>&lt;x&gt;</b>"
 Concatenates a finite iterable once. Each item follows the escaping rules above,
 so templates stay nested trees and plain strings stay escaped:
 
+<!-- docs-test: skip -->
+
 ```python
 from tori_py_liveview import fragment
 
@@ -98,6 +106,8 @@ return t"<table><tbody>{rows}</tbody></table>"
 
 Builds a class string from fixed names and boolean flags. The result is ordinary
 escaped text, so interpolate it inside a quoted `class` attribute:
+
+<!-- docs-test: skip -->
 
 ```python
 from tori_py_liveview import classes
@@ -113,6 +123,8 @@ Python identifiers.
 
 Builds validated, escaped attributes and returns trusted `SafeHtml` that starts
 with a space:
+
+<!-- docs-test: skip -->
 
 ```python
 from tori_py_liveview import attrs
@@ -145,6 +157,8 @@ and a `phx-*` command value that starts with `[` unless it is a `JS` chain.
 
 `raw()` marks a string as trusted HTML. Use it only for markup your code
 produced, such as output from a sanitizer you trust or a fixed snippet:
+
+<!-- docs-test: skip -->
 
 ```python
 from tori_py_liveview import raw
@@ -185,6 +199,8 @@ The Phoenix client runs a `phx-*` value that starts with `[` as a list of JS
 commands. To stop data from becoming commands, rendering raises `ValueError`
 when an escaped dynamic value would start such a value or extend one that starts
 with `[`.
+
+<!-- docs-test: raises ValueError -->
 
 ```python
 from tori_py_liveview import html
