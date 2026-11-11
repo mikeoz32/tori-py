@@ -833,9 +833,26 @@ def gateway_type(options: LiveViewOptions, registry: _Registry) -> type[object]:
                         )
                         await page._mount_liveview(mount_context)
                         await page.handle_params(join_params, uri)
+                        drained = await _drain_navigation(
+                            page,
+                            registry.compiled,
+                            name,
+                            session,
+                            host=origin_host,
+                            scheme=origin_scheme,
+                            redirect_hosts=options.redirect_hosts,
+                        )
+                        navigating = drained is not None and drained[0] != "patch"
+                        rendered = (
+                            {}
+                            if navigating
+                            else _render_payload(page, await _render(page))
+                        )
                     except HttpException as error:
                         # Phoenix reloads the page so the HTTP pipeline renders
-                        # the client error the connected mount raised.
+                        # the client error the connected mount raised, whether
+                        # from mounting, a patch the mount queued, or the join
+                        # render.
                         if not 400 <= error.status_code < 500:
                             raise
                         await close_current_page()
@@ -856,15 +873,6 @@ def gateway_type(options: LiveViewOptions, registry: _Registry) -> type[object]:
                             },
                         )
                         return
-                    drained = await _drain_navigation(
-                        page,
-                        registry.compiled,
-                        name,
-                        session,
-                        host=origin_host,
-                        scheme=origin_scheme,
-                        redirect_hosts=options.redirect_hosts,
-                    )
                     if drained is not None and drained[0] != "patch":
                         navigation, target, kind = drained
                         # This connected page never rendered, so its whole flash,
@@ -898,7 +906,6 @@ def gateway_type(options: LiveViewOptions, registry: _Registry) -> type[object]:
                             },
                         )
                         return
-                    rendered = _render_payload(page, await _render(page))
                     join_reply: dict[str, object] = {
                         "rendered": rendered,
                         "liveview_version": _LIVEVIEW_VERSION,

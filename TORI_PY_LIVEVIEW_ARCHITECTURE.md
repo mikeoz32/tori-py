@@ -450,7 +450,8 @@ Before acceptance, the gateway validates Origin. It then:
  4. Seeds the flash, attaches the info queue, and calls `mount` with
     `connected=True` and the join params, then `handle_params` with the join
     URL params. An `HttpException` with a 4xx status from on-mount hooks,
-    `mount`, or `handle_params` disconnects the page and answers the join with
+    `mount`, `handle_params` (including for a `push_patch` the mount queued), or
+    the join render disconnects the page and answers the join with
     `{reason: "reload", status, token}`. The official client stores the token
     in the `__phoenix_reload_status__` cookie for 60 seconds and reloads the
     document; that HTTP request answers with the same status, so the HTTP
@@ -524,8 +525,9 @@ accepted. Join and idle waits are finite.
 ```
 
 Invalid or expired session tokens receive a Phoenix join error with reason
-`unauthorized`. A 4xx `HttpException` during the connected mount receives a
-join error with reason `reload` and its status. Client disconnect frames end the
+`unauthorized`. A 4xx `HttpException` anywhere in the connected join, from
+on-mount hooks through the join render, receives a join error with reason
+`reload`, its status, and a reload token. Client disconnect frames end the
 loop without another close.
 Cancellation is re-raised so application shutdown remains cooperative.
 

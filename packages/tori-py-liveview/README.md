@@ -449,8 +449,8 @@ deploy. Connect params come from the browser, so treat them as untrusted. Your
 own params also appear in the WebSocket URL, so never put secrets in them; the
 LiveView join fields above are kept out of that URL.
 
-A connected `mount`, `handle_params`, or on-mount hook that raises a 4xx
-`HttpException` makes the browser reload the page once. The reload carries a
+A connected `mount`, `handle_params`, on-mount hook, or first `render` that
+raises a 4xx `HttpException` makes the browser reload the page once. The reload carries a
 signed token in the official `__phoenix_reload_status__` cookie, so the HTTP
 render answers with that status even if only the connected mount fails, for
 example when data loads only once connected.

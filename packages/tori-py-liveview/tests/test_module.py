@@ -2073,15 +2073,32 @@ class AsyncLive(LiveView):
 class GoneLive(LiveView):
     status: ClassVar[int] = 404
     disconnects: ClassVar[int] = 0
+    # Which connected join step raises: mount, a patch it queues, or render.
+    phase: ClassVar[str] = "mount"
+
+    def __init__(self) -> None:
+        self.connected = False
 
     async def mount(self, context: MountContext) -> None:
-        if context.connected:
+        self.connected = context.connected
+        if not context.connected:
+            return
+        if type(self).phase == "mount":
+            raise HttpException(type(self).status, "gone")
+        if type(self).phase == "patch":
+            self.push_patch("/gone?step=2")
+
+    async def handle_params(self, params: dict[str, str], uri: str) -> None:
+        del uri
+        if params.get("step") == "2":
             raise HttpException(type(self).status, "gone")
 
     async def disconnect(self) -> None:
         type(self).disconnects += 1
 
     def render(self) -> str:
+        if self.connected and type(self).phase == "render":
+            raise HttpException(type(self).status, "gone")
         return "<p>gone</p>"
 
 
@@ -2430,11 +2447,42 @@ async def test_join_exposes_connect_params_and_tracked_static() -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("phase", ["patch", "render"])
+async def test_client_errors_anywhere_in_the_join_reload_the_page(phase: str) -> None:
+    GoneLive.disconnects = 0
+    GoneLive.status = 404
+    GoneLive.phase = phase
+    application = await _lifecycle_application(f"reload-{phase}")
+    token = _token((await _request(application, "/gone")).text)
+    try:
+        sent = await _call_websocket(
+            application,
+            "/_tori/live/websocket",
+            _join_with(token, "http://testserver/gone"),
+        )
+    finally:
+        GoneLive.phase = "mount"
+    reply = _reply_payload(_decode_sent(sent)[0])
+    response = cast(dict[str, object], reply["response"])
+    assert reply["status"] == "error"
+    assert (response["reason"], response["status"]) == ("reload", 404)
+    identity = f"{GoneLive.__module__}.{GoneLive.__qualname__}"
+    assert ReloadTokenCodec(_SECRET).verify(response["token"], identity, "/gone")
+    # A normal 1000 close after the handler returns, not a 1011 failure.
+    assert [item["code"] for item in sent if item["type"] == "websocket.close"] == [
+        1000
+    ]
+    assert GoneLive.disconnects == 1
+    await application.shutdown()
+
+
+@pytest.mark.asyncio
 async def test_connected_mount_client_errors_reload_the_page(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     GoneLive.disconnects = 0
     GoneLive.status = 404
+    GoneLive.phase = "mount"
     application = await _lifecycle_application("reload")
     token = _token((await _request(application, "/gone")).text)
 

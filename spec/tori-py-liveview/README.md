@@ -72,8 +72,9 @@ This directory records the executable contract for `tori-py-liveview`.
     fresh copy of `globalThis.ToriLiveParams`, so the client's join fields never
     reach the WebSocket URL. Connected mounts receive the join params as
     `MountContext.connect_params`; `static_changed` compares `_track_static`
-    URLs by path and query. A 4xx `HttpException` during the connected mount
-    answers the join with `{reason: "reload", status, token}`. The reloaded HTTP
+    URLs by path and query. A 4xx `HttpException` anywhere in the connected
+    join, from on-mount hooks through patches the mount queued and the join
+    render, answers the join with `{reason: "reload", status, token}`. The reloaded HTTP
     request carrying that token in `__phoenix_reload_status__` answers with the
     same status for the same page and resource, so the browser reloads at most
     once.
