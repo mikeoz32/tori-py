@@ -64,8 +64,9 @@ The example also makes current limitations visible:
   rejected rather than sharing an unsafe `AsyncSession`.
 - Application-owned startup work that needs the engine requires a lifecycle
   provider because production `NestApplication` has no public resolver.
-- ToriPy has no migration, database health-check, response-schema, or OpenAPI
-  integration; those concerns remain separate.
+- The SQLAlchemy integration has no migration, database health-check, or
+  response-schema support, and this example does not use the optional
+  `tori-py-openapi` package; those concerns remain separate.
 - `GET /tasks` intentionally returns every row to keep the example focused; a
   production API needs bounded pagination.
 

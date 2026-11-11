@@ -4,7 +4,7 @@ ToriPy is a typed Python 3.14 framework family for applications that benefit
 from explicit module composition, constructor dependency injection, deterministic
 lifecycle, and clear infrastructure boundaries. The core framework provides an
 ASGI HTTP stack; independently installable packages add CQRS, event sourcing,
-SQLAlchemy, OpenAPI, microservices, and persistent streams.
+SQLAlchemy, OpenAPI, LiveView pages, microservices, and persistent streams.
 
 There is no package scan and no process-global provider registry. Application
 structure is compiled from public Python declarations before startup, so
@@ -48,16 +48,19 @@ accepted.
   transient scopes.
 - Managed sync and async resources, startup rollback, lifecycle hooks, work
   scopes, quiescence, and bounded shutdown.
-- Starlette-backed controllers, explicit raw request binding, bounded body
-  streaming, portable responses, and Problem Details errors.
+- Controllers on the native ASGI or Starlette adapter, explicit raw request
+  binding, bounded body streaming, portable responses, and Problem Details
+  errors.
+- Starlette-backed [WebSocket gateways](websockets.md) with the same modules,
+  injection, and pipeline.
 - Middleware, guards, pipes, msgspec validation, interceptors, and exception
   filters with documented ordering and cancellation behavior.
 - Typed settings, secret-aware bootstrap overrides, structured logging,
   discovery/reflection, and test-time provider/module replacement.
 
 `NestApplication` owns driver-neutral compilation and lifecycle. `tori_py.http`
-owns route plans and execution semantics. `tori_py.starlette` is the explicit
-ASGI driver boundary.
+owns route plans and execution semantics. `tori_py.starlette` and the native
+HTTP-only `tori_py.asgi` are the explicit ASGI driver boundaries.
 
 ## Optional Techniques
 
@@ -69,12 +72,16 @@ ASGI driver boundary.
 | Event-sourced aggregates and command transactions | [Event Sourcing](techniques/event-sourcing/index.md) | `tori-py-cqrs-event-sourcing-core` and optional ToriPy integration |
 | Service RPC and broker events | [Microservices](techniques/microservices/index.md) | `tori-py-microservices` |
 | Replayable partitioned logs | [Persistent Streams](techniques/persistent-streams/index.md) | the persistent-stream package family |
+| Server-rendered interactive pages | [LiveView](techniques/liveview/index.md) | `tori-py-liveview` |
+| Styled forms and layout for LiveView | [LiveView UI](techniques/liveview-ui/index.md) | `tori-py-liveview-ui` |
 
 ## Boundaries
 
 The framework core does not provide authentication, authorization policy,
-migrations, background jobs, WebSockets, templates, static files, or a Pydantic
-integration. Optional packages do not erase those boundaries or silently compose
+migrations, background jobs, templates, static files, or a Pydantic
+integration. WebSockets are limited to native Starlette connections through
+[`@websocket_gateway`](websockets.md); there is no portable frame protocol.
+Optional packages do not erase those boundaries or silently compose
 transactions across HTTP, databases, brokers, and checkpoints.
 
 All packages are currently beta. In-memory transports, stores, logs, and

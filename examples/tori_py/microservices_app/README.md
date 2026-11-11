@@ -13,8 +13,11 @@ contains four independent ToriPy processes:
 
 The PostgreSQL container creates three databases with distinct login roles.
 Each service has its own database URL, SQLAlchemy metadata, repository set, and
-migration job. ORM rows and CQRS messages are never shared across service
-boundaries; only the DTOs in `common/contracts.py` are shared.
+schema-creation step (`*/migrate.py` runs `metadata.create_all` for the demo
+schema; use Alembic for real migrations, see
+[Testing And Migrations](../../../docs/techniques/sqlalchemy/testing-and-migrations.md)).
+ORM rows and CQRS messages are never shared across service boundaries; only the
+DTOs in `common/contracts.py` are shared.
 
 `common/services.py` additionally declares the typed RPC Protocol contracts.
 `ClientsModule` supplies one generic dynamic proxy through DI for each contract;

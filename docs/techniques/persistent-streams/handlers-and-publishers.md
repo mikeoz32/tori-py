@@ -89,6 +89,10 @@ Aliases and consumer groups use lowercase ASCII
 `[a-z][a-z0-9_-]{0,62}`. The `StreamDefinition.name` is the adapter-facing logical
 stream identity and need not equal the alias.
 
+`start` defaults to `Beginning()` and `checkpoint_strategy` defaults to
+`CheckpointStrategy.BROKER_MANAGED`. See
+[checkpoints and retention](checkpoints-and-retention.md) for the strategies.
+
 Configuration is immutable before startup. A publication cannot override the
 codec, payload type, partition-key resolver, router, partition count, physical
 stream, producer identity, or publishing-ID source.
@@ -98,10 +102,33 @@ provider tokens. Provider tokens are resolved from the root's imports before the
 adapter is created. They must resolve to singleton instances implementing the
 corresponding public protocols.
 
+## Runtime Options
+
+`PersistentStreamsRuntimeOptions` holds the values that may differ per replica.
+Invalid values raise `StreamConfigurationError`.
+
+| Option | Default | Meaning |
+| --- | --- | --- |
+| `max_concurrency` | `16` | Records handled at once across all partitions of this runtime; records within one partition stay serial |
+| `poll_interval` | `0.01` | Seconds a partition task waits before polling again when no record is available |
+| `owner_id` | `"tori_py"` | Owner identity placed in partition ownership tokens; must fit every binding's `max_owner_chars` |
+| `owner_id_is_replica_unique` | `False` | Declares that `owner_id` is unique per replica; required for external checkpoint strategies |
+| `single_instance_consumer_groups` | `False` | Declares a single-instance deployment; also satisfies the external checkpoint gate, but does not prove it |
+| `global_pipeline` | `PipelineOptions()` | Guards, pipes, interceptors, and filters run for every stream handler; `middleware` entries are not used |
+| `max_pending_publications` | `1024` | Publications admitted at once; one more raises `StreamPublicationSaturatedError` |
+
+The default `owner_id` is a placeholder. Set a replica-unique value whenever more
+than one process can own partitions; see
+[checkpoints and retention](checkpoints-and-retention.md).
+
 ## Configure Runtime Options Asynchronously
 
 Bindings and publisher registrations are static because they create DI tokens.
-An injected factory may supply runtime-only values:
+An injected factory may supply runtime-only values. `adapter_module` and
+`configuration_module` below are placeholders for the application's own adapter
+and configuration modules:
+
+<!-- docs-test: skip -->
 
 ```python
 from typing import Annotated
@@ -267,6 +294,26 @@ record failure.
 Records remain serial within one physical partition. `max_concurrency` bounds
 simultaneous pipeline and handler execution across partitions; it does not create
 parallelism inside a partition.
+
+Register global components through `PersistentStreamsRuntimeOptions`:
+
+```python
+from tori_py import PipelineOptions
+from tori_py_persistent_streams import PersistentStreamsRuntimeOptions
+
+runtime = PersistentStreamsRuntimeOptions(
+    owner_id="projection-replica-a",
+    owner_id_is_replica_unique=True,
+    global_pipeline=PipelineOptions(interceptors=(RecordTimer(),)),
+)
+```
+
+Instances are used as is. A provider token must be visible from the
+persistent-streams module at startup, or startup fails with
+`StreamRuntimeError`. It must also be visible from each handler's module when a
+record runs; otherwise the first record blocks its partition with
+`provider.scope_error` and the runtime becomes `degraded`. Export the provider
+from a global module imported at the root to satisfy both.
 
 ## Publish Through the Raw Surface
 
@@ -466,12 +513,22 @@ def stream_health(runtime: StreamRuntime) -> dict[str, object]:
     return {
         "ready": runtime.ready,
         "state": runtime.state.value,
-        "partitions": runtime.statuses,
+        "partitions": [
+            {
+                "stream": status.stream,
+                "consumer_group": status.consumer_group,
+                "partition": status.partition,
+                "state": status.state,
+                "offset": status.offset,
+                "diagnostic_code": status.diagnostic_code,
+            }
+            for status in runtime.statuses
+        ],
     }
 ```
 
-Runtime states are `created`, `prepared`, `running`, `degraded`, `quiescing`, and
-`closed`. Startup performs these barriers:
+`runtime.state` is a `StreamRuntimeState`: `created`, `prepared`, `running`,
+`degraded`, `quiescing`, or `closed`. Startup performs these barriers:
 
 1. Compile handlers and publisher Protocols.
 2. Resolve codecs, resolvers, ID sources, and the adapter factory.
@@ -494,6 +551,66 @@ record when known. Interpret it together with `state` and `diagnostic_code`.
 There is no hot skip or resume API for a blocked partition. Preserve its
 coordinates, correct the cause, and restart or replace the application according
 to the [operations guide](operations.md).
+
+## Test With the In-Memory Adapter
+
+`tori_py_persistent_streams.testing` provides the reference in-memory adapter
+for tests and examples:
+
+```python
+from tori_py_persistent_streams.testing import (
+    InMemoryPersistentStreamsModule,
+    InMemoryStreamAdapterFactory,
+)
+
+adapter = InMemoryStreamAdapterFactory()
+streams = PersistentStreamsModule.for_root(
+    PersistentStreamsOptions(bindings=(member_activity,)),
+    imports=[InMemoryPersistentStreamsModule.for_root(adapter)],
+)
+```
+
+`InMemoryStreamAdapterFactory` creates one `InMemoryPersistentLog` the first time
+the runtime asks for an adapter and returns the same log on later calls.
+`adapter.log` exposes that log, so a test can read what was published, and
+`adapter.created` counts the factory calls. Pass an existing log as
+`InMemoryStreamAdapterFactory(log=...)` to seed records before startup or to
+share one log between two applications in one test.
+
+```python
+from tori_py.testing import TestingModule
+from tori_py_persistent_streams import stream_publisher_token
+
+application = await TestingModule.create(AppModule).compile()
+try:
+    publisher = await application.resolve(stream_publisher_token("member-activity"))
+    receipt = await publisher.publish(MemberUpdated("m-1", "Ada"))
+
+    assert adapter.created == 1
+    page = await adapter.log.read("member-activity-v1", receipt.partition, 0, 10)
+    assert [record.record_id for record in page.records] == [receipt.record_id]
+finally:
+    await application.close()
+```
+
+The in-memory log is a semantic reference, not a durability or broker test.
+
+## Integration Authors
+
+The runtime compiles stream handlers through public functions that other
+integrations may reuse:
+
+| API | Purpose |
+| --- | --- |
+| `compile_controller_stream_handlers(module_id, controller, modules)` | Compile the `@stream_handler` methods of one controller into `StreamHandlerPlan` values |
+| `compile_discovered_stream_handlers(discovery, modules, known_streams=...)` | Compile every discovered handler into a `StreamHandlerRegistry` |
+| `StreamHandlerRegistry` | `handlers` in declaration order and `by_subscription`, keyed by `(stream, consumer_group)` |
+| `StreamHandlerPlan`, `StreamParameterPlan`, `StreamPipelinePlan` | Immutable compiled handler, parameter, and pipeline descriptions |
+| `StreamPipelineExecutor` | Runs one record through guards, pipes, interceptors, the handler, and filters |
+
+These plans describe declarations; they do not open intake, acquire leases, or
+checkpoint. Applications should use `PersistentStreamsModule` rather than these
+building blocks.
 
 ## Shutdown
 

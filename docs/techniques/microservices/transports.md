@@ -173,7 +173,29 @@ differences. At minimum:
 
 The package's shared conformance suite exercises routing, response-before-
 settlement, retries, terminal rejection, bounded inflight delivery, unsettled
-redelivery, intake drain, and idempotent close. Run the current reference tests:
+redelivery, intake drain, and idempotent close. Adapter authors can run it from
+their own tests with the public helper
+`tori_py_microservices.testing.assert_transport_conformance(server, client, *,
+service, event, max_delivery_attempts, max_inflight_deliveries, timeout)`.
+`max_inflight_deliveries` must be at least 2. For example:
+
+<!-- docs-test: skip -->
+
+```python
+from tori_py_microservices.testing import assert_transport_conformance
+
+await assert_transport_conformance(
+    server_transport,
+    client_transport,
+    service=service,
+    event=event,
+    max_delivery_attempts=3,
+    max_inflight_deliveries=2,
+    timeout=2,
+)
+```
+
+The in-memory reference tests show a complete setup:
 
 ```text
 uv run pytest packages/tori-py-microservices/tests/test_transport_conformance.py -q

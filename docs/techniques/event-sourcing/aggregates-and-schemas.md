@@ -89,6 +89,8 @@ event valid for a stream version cannot be rejected during replay.
 
 For a new aggregate:
 
+<!-- docs-test: skip -->
+
 ```python
 profile = Profile(profile_id)
 profile.open("Alice")
@@ -123,6 +125,8 @@ objects and cannot make a mutable event subclass safe after recording.
 By default, `raise_event()` assigns a UUID once and records the current
 timezone-aware UTC time. Supply explicit metadata when correlation, causation,
 headers, deterministic tests, or an application-assigned event ID are needed:
+
+<!-- docs-test: skip -->
 
 ```python
 from datetime import UTC, datetime
@@ -373,9 +377,12 @@ store = InMemoryEventStore(limits=limits)
 ```
 
 Every limit must be a positive non-boolean integer. The schema registry enforces
-payload, header, and upcast limits. Event stores enforce read, append,
-transaction count, and transaction byte limits. A repository page size must be
-positive and no greater than its schema registry's `read_page_size`.
+payload, header, and upcast limits; the upcast limit is checked when a schema is
+registered (`ResourceLimitError`) and again while decoding. Event stores
+enforce read, append, transaction count, and transaction byte limits, and
+`InMemoryEventStore.append` also enforces the payload and header limits. A
+repository page size must be positive and no greater than its schema
+registry's `read_page_size`.
 
 Format-specific decoders remain responsible for shape, nesting, and complexity
 limits beyond these byte-level boundaries.

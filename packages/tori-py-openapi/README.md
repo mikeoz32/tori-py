@@ -4,6 +4,19 @@
 ToriPy. It discovers ToriPy controllers, compiles their transport-neutral route
 mappings, and serves a cached document with an optional Swagger UI.
 
+## Installation
+
+```text
+uv add tori-py-openapi
+```
+
+The package is beta and follows independent Semantic Versioning. See the
+[OpenAPI guide](https://mikeoz32.github.io/tori-py/openapi/),
+[package source](https://github.com/mikeoz32/tori-py/tree/main/packages/tori-py-openapi),
+and [changelog](https://github.com/mikeoz32/tori-py/blob/main/CHANGELOG.md).
+
+## Example
+
 ```python
 from typing import Annotated
 

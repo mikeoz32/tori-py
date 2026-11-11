@@ -88,6 +88,8 @@ rendered string.
 
 The default repository exposes model-bound operations:
 
+<!-- docs-test: skip -->
+
 ```python
 created = await tasks.add(TaskRow(title="Document transactions"))
 first, second = await tasks.add_all(
@@ -118,6 +120,8 @@ managed copy used by SQLAlchemy, not necessarily the object passed to it.
 Pass native SQLAlchemy expressions rather than dictionaries or repository-specific
 criteria objects:
 
+<!-- docs-test: skip -->
+
 ```python
 rows = await tasks.find(
     TaskRow.completed.is_(False),
@@ -135,6 +139,8 @@ operations should normally set a deterministic order and bounded limit.
 Use loader options for relationships that must remain available after the
 standalone query closes:
 
+<!-- docs-test: skip -->
+
 ```python
 from sqlalchemy.orm import selectinload
 
@@ -147,6 +153,8 @@ project = await projects.find_one_or_raise(
 
 Single-row helpers preserve exact-result behavior:
 
+<!-- docs-test: skip -->
+
 ```python
 optional = await tasks.find_one(TaskRow.title == title)
 required = await tasks.find_one_or_raise(TaskRow.title == title)
@@ -158,6 +166,8 @@ matches; they are not implicit "first row" operations.
 
 Counting and existence checks also accept native expressions:
 
+<!-- docs-test: skip -->
+
 ```python
 remaining = await tasks.count(TaskRow.completed.is_(False))
 duplicate = await tasks.exists(TaskRow.title == title)
@@ -167,11 +177,76 @@ Primary-key loads and single-row queries accept `with_for_update=True`, but a
 locking read requires an explicit transaction so the lock survives beyond the
 method call:
 
+<!-- docs-test: skip -->
+
 ```python
 async with entities.transaction():
     task = await tasks.get_one(task_id, with_for_update=True)
     task.completed = True
 ```
+
+## Use the EntityManager Directly
+
+`EntityManager` is the model-independent API behind every repository. Inject it
+when an operation spans several mapped classes or needs a statement no
+repository method covers:
+
+```python
+from sqlalchemy import func, select, text, update
+from tori_py_sqlalchemy import EntityManager
+
+
+class TaskReports:
+    def __init__(self, entities: EntityManager) -> None:
+        self._entities = entities
+
+    async def open_count(self) -> int:
+        return await self._entities.scalar(
+            select(func.count())
+            .select_from(TaskRow)
+            .where(TaskRow.completed.is_(False))
+        )
+
+    async def titles(self) -> list[str]:
+        rows = await self._entities.scalars(select(TaskRow.title).order_by(TaskRow.id))
+        return list(rows)
+
+    async def complete_prefix(self, prefix: str) -> int:
+        result = await self._entities.execute(
+            update(TaskRow)
+            .where(TaskRow.title.startswith(prefix))
+            .values(completed=True)
+        )
+        return result.rowcount
+
+    async def rename(self, task_id: int, title: str) -> None:
+        await self._entities.execute(
+            text("UPDATE tasks SET title = :title WHERE id = :id"),
+            {"title": title, "id": task_id},
+        )
+```
+
+| Method | Behavior |
+| --- | --- |
+| `add(entity)`, `add_all(entities)` | Add and flush; `add_all` returns a tuple |
+| `get(type, identity, ...)`, `get_one(type, identity, ...)` | Primary-key load; `get_one` raises SQLAlchemy's `NoResultFound` |
+| `merge(entity, *, load=True, options=())` | Copy detached state into the session and flush; returns the managed copy |
+| `delete(entity)` | Delete and flush |
+| `refresh(entity, *, attribute_names=None, with_for_update=False)` | Reload attributes from the database |
+| `execute(statement, params=None)` | Run any executable statement and return a buffered `Result` |
+| `scalar(statement, params=None)` | First column of the first row, or `None` |
+| `scalars(statement, params=None)` | Buffered `ScalarResult` of the first column |
+| `flush(entities=None)` | Flush pending changes; requires an explicit transaction |
+| `transaction()` | Open an explicit transaction or a nested savepoint |
+
+`get`, `get_one`, and `refresh` also accept `options`, `populate_existing`, and
+`with_for_update` like the repository methods. `ExecuteParams` is the type of
+`params`: one mapping of bound parameter values, a sequence of mappings for an
+executemany call, or `None`.
+
+Every call outside `transaction()` is a standalone operation with its own
+session and commit, exactly as for repositories. Inside `transaction()`, calls
+share the explicit transaction. See [Transactions](transactions.md).
 
 ## Custom Repository
 
@@ -222,6 +297,9 @@ A custom repository must:
 - directly specialize `Repository[Entity]` for the same mapped class;
 - inherit the base `Repository` constructor unchanged;
 - remain stateless and declare no additional constructor dependencies.
+
+`self.entity_type` returns the mapped class the repository owns, which helps
+shared query helpers build statements without repeating the class.
 
 Use inherited `_execute()`, `_scalar()`, and `_scalars()` in custom query methods.
 They return buffered SQLAlchemy results and participate in the same automatic or

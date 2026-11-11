@@ -1,9 +1,10 @@
 # HTTP
 
-ToriPy separates portable HTTP declarations from the Starlette transport. A
+ToriPy separates portable HTTP declarations from the ASGI transport. A
 controller declares routes and raw request bindings, `tori_py.http` owns the
-execution contract, and `StarletteAdapter` performs ASGI routing, extraction,
-response transmission, and request-disconnect handling.
+execution contract, and an adapter (`StarletteAdapter` or the native HTTP-only
+`AsgiAdapter`) performs ASGI routing, extraction, response transmission, and
+request-disconnect handling. The examples on this page use `StarletteAdapter`.
 
 ## Minimal Application
 
@@ -27,6 +28,7 @@ Import declarations from the facade that owns them:
 | `tori_py` | Controllers, routes, binding markers, `status`, `header`, `no_body`, `HttpResponse`, and pipeline declarations |
 | `tori_py.http` | `HttpContext`, `HttpBodyStream`, `HttpException`, and `MsgspecValidationPipe` |
 | `tori_py.starlette` | `StarletteAdapter`, `StarletteOptions`, `RequestContext`, `current_request_context`, and `asgi` |
+| `tori_py.asgi` | Native HTTP-only `AsgiAdapter`, `AsgiOptions`, `RequestContext`, `current_request_context`, and `asgi` |
 | `tori_py.testing` | `TestingModule` and the HTTPX `http_client` |
 
 Use portable `HttpContext` and `HttpResponse` by default. Use

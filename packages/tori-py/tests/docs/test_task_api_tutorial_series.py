@@ -10,6 +10,7 @@ PART_ONE = TUTORIALS / "task_api" / "task_app"
 PART_TWO = TUTORIALS / "cqrs_task_api" / "task_app"
 PART_THREE = TUTORIALS / "distributed_task_api" / "task_app"
 PART_FOUR = TUTORIALS / "event_sourced_task_api" / "task_app"
+LIVE_BOARD = TUTORIALS / "live_task_board" / "task_app"
 
 
 def test_task_tutorial_series_runs_as_an_isolated_project(tmp_path: Path) -> None:
@@ -116,6 +117,66 @@ def test_task_tutorial_series_runs_as_an_isolated_project(tmp_path: Path) -> Non
     assert 'requires-python = ">=3.14,<3.15"' in (project / "pyproject.toml").read_text(
         encoding="utf-8"
     )
+
+
+def test_live_task_board_continues_part_two_in_an_isolated_project(
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "task-api"
+    uv = shutil.which("uv")
+    assert uv is not None
+
+    _run(uv, "init", "--python", "3.14", "--bare", str(project), cwd=tmp_path)
+    _run(uv, "python", "pin", "3.14", cwd=project)
+    (project / "pyproject.toml").write_text(
+        _project_metadata(),
+        encoding="utf-8",
+    )
+    _run(
+        uv,
+        "add",
+        "--editable",
+        f"{ROOT / 'packages' / 'tori-py'}[cli,testing]",
+        cwd=project,
+    )
+    _run(uv, "add", "--dev", "pytest", "pytest-asyncio", cwd=project)
+    for package in (
+        "tori-py-cqrs-core",
+        "tori-py-cqrs",
+        "tori-py-liveview",
+        "tori-py-liveview-ui",
+    ):
+        _run(
+            uv,
+            "add",
+            "--editable",
+            str(ROOT / "packages" / package),
+            cwd=project,
+        )
+
+    _replace_application(LIVE_BOARD, project)
+    for unchanged in (
+        "models.py",
+        "state.py",
+        "services.py",
+        "messages.py",
+        "observers.py",
+        "handlers.py",
+        "http.py",
+    ):
+        assert (LIVE_BOARD / unchanged).read_bytes() == (
+            PART_TWO / unchanged
+        ).read_bytes()
+
+    live_board = _run(
+        uv,
+        "run",
+        "pytest",
+        "task_app",
+        "-q",
+        cwd=project,
+    )
+    assert "6 passed" in live_board.stdout
 
 
 def _project_metadata() -> str:

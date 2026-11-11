@@ -154,6 +154,8 @@ through the provider.
 
 The adapter registration decorators are instance-specific:
 
+<!-- docs-test: skip -->
+
 ```python
 adapter.command_handler(MessageType)(HandlerClassOrInstance)
 adapter.query_handler(MessageType)(HandlerClassOrInstance)
@@ -178,6 +180,27 @@ return an awaitable. Factory-produced handlers are dispatch-scoped and owned by
 
 The registration target need not carry core handler decorator metadata because
 the adapter receives the message type explicitly.
+
+## Adapter Options
+
+Every `FastAPIAdapter` argument is keyword-only and optional:
+
+| Argument | Default | Meaning |
+| --- | --- | --- |
+| `command_transport` | `InMemoryTransport(name="fastapi-command")` | Transport for commands |
+| `query_transport` | `InMemoryTransport(name="fastapi-query")` | Transport for queries |
+| `event_transport` | `InMemoryTransport(name="fastapi-event")` | Transport for events |
+| `provider` | core `DefaultHandlerProvider` | Handler provider, usually a `FastAPIHandlerProvider` |
+| `event_error_handler` | none | Callback for event handler failures |
+| `on_buses_built` | none | Hook called once after the bus graph is built and before buses start |
+| `shutdown_timeout` | `None` | One shutdown budget, in seconds, shared by all buses and provider cleanup; `None` waits without a deadline |
+
+Set `shutdown_timeout` in production so a stuck handler cannot hold shutdown
+open forever.
+
+`FastAPIHandlerProvider.app` returns the app bound during lifespan startup, or
+`None` before it. The adapter calls `bind_app(app)` for you; a provider can be
+bound to only one app.
 
 ## FastAPI Lifespan
 
@@ -254,6 +277,8 @@ only for handlers with no constructor dependencies or for prebuilt instances.
 
 `FastAPIHandlerProvider` adds explicit constructor dependencies and cleanup:
 
+<!-- docs-test: skip -->
+
 ```python
 provider = FastAPIHandlerProvider(
     {
@@ -289,6 +314,8 @@ owned by that event dispatch scope, never borrowed from a route dependency.
 
 Register long-lived resources before lifespan starts:
 
+<!-- docs-test: skip -->
+
 ```python
 provider.register_app_resource(DatabaseClient, database)
 ```
@@ -321,6 +348,8 @@ requests cancellation and returns rather than raising `TimeoutError`; resistant
 handlers can remain active. A deterministic async test should wait for an
 application signal first:
 
+<!-- docs-test: skip -->
+
 ```python
 await asyncio.wait_for(services.event_seen.wait(), timeout=1)
 await app.state.cqrs_buses.event_bus.drain(timeout=1)
@@ -351,6 +380,8 @@ start FastAPI lifespan.
 ## Transport Customization
 
 Pass three distinct public `Transport` implementations to the adapter:
+
+<!-- docs-test: skip -->
 
 ```python
 adapter = FastAPIAdapter(

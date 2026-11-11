@@ -46,6 +46,12 @@ uv run tori-py run myapp:create_application
 uv run uvicorn myapp:application
 ```
 
+The
+[`async_factory`](https://github.com/mikeoz32/tori-py/tree/main/examples/tori_py/getting_started/async_factory)
+example returns an unstarted application this way and answers only after
+lifespan startup. [Examples](../reference/examples.md#getting-started) lists its
+command.
+
 ## State Machine
 
 ```text

@@ -25,16 +25,24 @@ run an existing example.
 | --- | --- | --- |
 | `examples/tori_py/app.py` | `uv run tori-py run examples.tori_py.app:create_application --set greeting=hello` | Typed settings, request scope, a guard, msgspec validation, a filter provider, and the CLI factory path |
 | Method-interception authorization | `uv run tori-py run examples.tori_py.method_interception.app:create_application` | Opt-in provider proxy, custom `@requires_permission` aspect, request-scoped caller context, and the same policy in an in-process work scope |
+| Native WebSocket gateway | `uv run tori-py run examples.tori_py.websocket.app:create_application` | A gateway with a path binding and request-scoped per-connection state |
 
 Request `GET /example/health?count=2` while it is running.
 The method-interception demo accepts `Bearer reader-token` and
 `Bearer publisher-token`; they are example credentials, not production auth.
+Connect to `ws://127.0.0.1:8000/echo/demo` for the WebSocket gateway, or run
+its test with `uv run pytest examples/tori_py/websocket`. The
+[WebSockets](../websockets.md) guide explains gateways.
 
 ### LiveView
 
 | Example | Exact command | Demonstrates |
 | --- | --- | --- |
 | LiveView UI showcase | `uv run tori-py run examples.tori_py.liveview.app:create_application` | HTTP disconnected mount, signed WebSocket join, Phoenix page/component/stream/form events, stateless UI helpers with server-owned validation, rounded skin and application token override acceptance, and reconnect behavior |
+
+Read it with the [LiveView](../techniques/liveview/index.md) and
+[LiveView UI](../techniques/liveview-ui/index.md) guides. Its browser test is
+described in [Testing LiveView](../techniques/liveview/testing.md#browser-tests).
 
 ### Getting started
 
@@ -91,7 +99,14 @@ consumer project.
 | Distributed Task API | `uv run pytest examples/tori_py/tutorials/distributed_task_api/task_app/test_system.py -q` | Three application roots, typed RPC, local CQRS, integration events, and idempotent audit over an in-memory transport |
 | Event-Sourced Task API | `uv run pytest examples/tori_py/tutorials/event_sourced_task_api/task_app -q` | Event-sourced commands, direct persistent-stream publication, projection-owned reads, and independent projection and audit consumers |
 
-Run the complete source-checkout evolution check with:
+The Live Task Board branches from Part 2:
+
+| Tutorial | Exact command | Demonstrates |
+| --- | --- | --- |
+| Live Task Board | `uv run pytest examples/tori_py/tutorials/live_task_board/task_app/test_app.py -q` | The Part 2 REST API plus a LiveView page with a stream, live form validation, command-bus writes, and CQRS-driven `send_info` updates; `browser_e2e.py` drives two tabs with Playwright |
+
+Run the complete source-checkout evolution check, including the Live Task Board
+branch, with:
 
 ```text
 uv run pytest packages/tori-py/tests/docs/test_task_api_tutorial_series.py -q
@@ -199,6 +214,38 @@ relay, and idempotent notification event consumption. The schema jobs call the
 application-owned SQLAlchemy metadata's `create_all()`; they are not versioned
 migrations or a schema-evolution strategy. Delivery remains at least once; the
 outbox may publish duplicates and the consumer deduplicates by event ID.
+
+### Workplace reference application
+
+`examples/tori_py/reference_apps/workplace` is a standalone workplace-reservation
+application. Separate spaces, bookings, and notifications services each own a
+PostgreSQL database and communicate over RabbitMQ. The API gateway is the only
+process the browser reaches: it verifies Keycloak tokens from a login with
+Authorization Code and PKCE and serves Lit and LiveView browser applications.
+Docker Compose starts and removes the stack:
+
+```text
+docker compose -f examples/tori_py/reference_apps/workplace/compose.yaml up --build
+docker compose -f examples/tori_py/reference_apps/workplace/compose.yaml down -v
+```
+
+With the stack healthy, run the end-to-end smoke check:
+
+```text
+uv run --no-sync python -m examples.tori_py.reference_apps.workplace.smoke
+```
+
+The unit and security specifications run with:
+
+```text
+uv run pytest examples/tori_py/reference_apps/workplace/test_workplace.py examples/tori_py/reference_apps/workplace/tests
+```
+
+Its PostgreSQL concurrency specifications use `pytest-docker` and `psycopg`.
+The application's
+[README](https://github.com/mikeoz32/tori-py/blob/main/examples/tori_py/reference_apps/workplace/README.md)
+lists the local URLs, demo identities, and trust boundaries. It is a reference,
+not a production deployment template.
 
 ## Consumer project commands
 

@@ -1,7 +1,7 @@
 # tori-py-cqrs-core
 
 `tori-py-cqrs-core` provides framework-neutral, typed command, query, event,
-handler, bus, middleware, and in-memory transport primitives. It does not depend
+handler, bus, and in-memory transport primitives. It does not depend
 on Tori Py, FastAPI, Pydantic, SQLAlchemy, or a dependency-injection framework.
 
 ```bash

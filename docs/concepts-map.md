@@ -66,6 +66,7 @@ startup and trigger rollback.
 | Per-request or per-operation state | A request-scoped provider | The request/work scope owns caching and cleanup |
 | Background or transport-delivered work | A singleton coordinator using `WorkScopeFactory` | Request dependencies do not escape an HTTP request |
 | Integration metadata | A typed `MetadataDecorator` | Integrations can discover explicit declarations without importing application packages |
+| An interactive server-rendered page | A `LiveView` page listed in `LiveViewModule.for_root(pages=...)` | Pages are request-scoped providers with an explicit route and lifecycle; see [LiveView](techniques/liveview/index.md) |
 
 ## NestJS Mapping
 
@@ -100,8 +101,9 @@ before serving traffic.
 | Application lifespan | `NestApplication` lifecycle plus adapter lifespan | Provider resources and hooks participate automatically in deterministic startup/rollback/shutdown |
 | Route/dependency inspection | `DiscoveryService` over compiled providers/controllers | Discovery does not inspect arbitrary imported callables or scan packages |
 
-ToriPy does not depend on FastAPI or Pydantic. The Starlette adapter is explicit,
-and core modules, DI, scopes, and lifecycle remain transport-neutral.
+ToriPy does not depend on FastAPI or Pydantic. The Starlette and native ASGI
+adapters are explicit, and core modules, DI, scopes, and lifecycle remain
+transport-neutral.
 
 ## Choose a Starting Point
 

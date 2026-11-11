@@ -64,6 +64,7 @@ nav:
       - "Part 2: Add CQRS": tutorials/cqrs-application.md
       - "Part 3: Distribute It": tutorials/distributed-application.md
       - "Part 4: Add Event Sourcing": tutorials/event-sourced-application.md
+      - Live Task Board: tutorials/live-task-board.md
   - Fundamentals:
       - Overview: fundamentals/index.md
       - Modules: fundamentals/modules.md
@@ -103,6 +104,23 @@ nav:
           - Metadata and Responses: openapi/metadata-and-responses.md
           - Security and Swagger UI: openapi/security-and-swagger.md
           - Advanced Usage: openapi/advanced.md
+      - LiveView:
+          - Overview: techniques/liveview/index.md
+          - Pages and Lifecycle: techniques/liveview/pages.md
+          - Templates and Rendering: techniques/liveview/templates.md
+          - JS Commands: techniques/liveview/js-commands.md
+          - Stateful Components: techniques/liveview/components.md
+          - Hooks and Server Events: techniques/liveview/client-events.md
+          - Flash and Async Work: techniques/liveview/flash-and-async.md
+          - Child LiveViews: techniques/liveview/child-liveviews.md
+          - Streams: techniques/liveview/streams.md
+          - Routing and Navigation: techniques/liveview/navigation.md
+          - Configuration and Security: techniques/liveview/configuration-and-security.md
+          - Testing: techniques/liveview/testing.md
+      - LiveView UI:
+          - Overview: techniques/liveview-ui/index.md
+          - Forms: techniques/liveview-ui/forms.md
+          - Themes and Skins: techniques/liveview-ui/theming.md
       - CQRS:
           - Overview: techniques/cqrs/index.md
           - Framework-neutral Core: techniques/cqrs/core.md
@@ -121,6 +139,7 @@ nav:
           - Transports: techniques/microservices/transports.md
           - RabbitMQ: techniques/microservices/rabbitmq.md
           - Operations: techniques/microservices/operations.md
+          - Configuration Reference: techniques/microservices/configuration.md
       - Persistent Streams:
           - Overview: techniques/persistent-streams/index.md
           - Core Contracts: techniques/persistent-streams/core.md
@@ -152,6 +171,8 @@ nav:
           - ToriPy Event Sourcing: reference/generated/event-sourcing.md
           - SQLAlchemy: reference/generated/sqlalchemy.md
           - OpenAPI: reference/generated/openapi.md
+          - LiveView: reference/generated/liveview.md
+          - LiveView UI: reference/generated/liveview-ui.md
           - Microservices: reference/generated/microservices.md
           - Persistent Streams Core: reference/generated/persistent-streams-core.md
           - ToriPy Persistent Streams: reference/generated/persistent-streams.md

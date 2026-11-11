@@ -40,6 +40,8 @@ different graph or another attempt.
 
 Targeted provider overrides require both a token and a module identity:
 
+<!-- docs-test: skip -->
+
 ```python
 builder.override_provider(Repository, module=FeatureModule).use_value(fake)
 ```
@@ -71,6 +73,8 @@ dependency cycles, and scope rules are revalidated.
 Use `override_global(token)` only for a token exported by an explicitly global
 module:
 
+<!-- docs-test: skip -->
+
 ```python
 builder.override_global(Clock).use_value(fixed_clock)
 ```
@@ -84,11 +88,15 @@ An absent target module or otherwise unmatched override fails compilation with
 
 Static modules are selected by class:
 
+<!-- docs-test: skip -->
+
 ```python
 builder.override_provider(Repository, module=FeatureModule)
 ```
 
 Keyed dynamic modules are selected by their descriptor or exact identity tuple:
+
+<!-- docs-test: skip -->
 
 ```python
 builder.override_provider(
@@ -113,6 +121,8 @@ dynamic module at all.
 Pass a static class, `(class, key)`, or public `ModuleId` to resolve from another
 module identity:
 
+<!-- docs-test: skip -->
+
 ```python
 value = await application.resolve(
     Repository,
@@ -127,6 +137,8 @@ caches, resource stacks, or container mutation.
 ## HTTP Testing
 
 Compile with a fresh `StarletteAdapter`, then use the async client context:
+
+<!-- docs-test: skip -->
 
 ```python
 application = await builder.compile(adapter=StarletteAdapter())
@@ -146,11 +158,12 @@ finally:
 | `raise_app_exceptions` | `False` | Whether transport-level application exceptions escape instead of becoming a response where possible. |
 | `client_address` | `("testclient", 50000)` | Client address placed in the ASGI scope. |
 
-The helper requires an already-started application using `StarletteAdapter`.
+The helper requires an already-started application using `AsgiAdapter` or
+`StarletteAdapter`.
 It rejects compiled-but-unstarted and stopped applications. It also reports an
 actionable `testing.httpx_unavailable` error if the testing extra is absent.
 
-Create a new adapter for each application. A `StarletteAdapter` is owned by one
+Create a new adapter for each application. An adapter is owned by one
 compiled application and cannot be reused.
 
 ## Lifespan Testing

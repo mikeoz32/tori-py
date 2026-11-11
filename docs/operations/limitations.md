@@ -12,7 +12,7 @@ remove their own documented limitations.
 | --- | --- | --- |
 | Python | Requires `>=3.14,<3.15` | Other Python versions are unsupported. |
 | Release maturity | Package metadata is beta and the initial line is `0.x` | Pin versions and review changelogs; compatibility may evolve by minor release. |
-| HTTP driver | Starlette is the sole v1 HTTP driver | Driver-specific responses and behavior are not portable to a future adapter. |
+| HTTP driver | Two adapters: native HTTP-only `AsgiAdapter` and `StarletteAdapter` (used by `tori-py run`) | Starlette-specific responses and behavior are not portable to the native adapter. |
 | ASGI server | Core exports ASGI; the CLI extra uses Uvicorn | Other ASGI servers are not the tested CLI path and must correctly drive lifespan. |
 | Lifespan | Required; the wrapper starts once and cannot restart | Every worker/reload must import a fresh wrapper and application. Lifespan-off hosting leaves HTTP at 503. |
 | CLI | Only `run module:factory` plus repeated non-secret `--set` | No host, port, reload, worker, proxy, TLS, timeout, or logging flags; run Uvicorn directly. |
@@ -56,7 +56,7 @@ remove their own documented limitations.
 
 | Area | Current boundary | Consequence or alternative |
 | --- | --- | --- |
-| Protocols | HTTP and native WebSocket connections | WebSockets expose native Starlette sockets; there is no portable frame protocol or alternate built-in driver. |
+| Protocols | HTTP and native WebSocket connections | WebSockets expose native Starlette sockets; there is no portable frame protocol. The native `AsgiAdapter` serves HTTP only and closes WebSocket scopes with code 1003. |
 | Templates/static files | No framework APIs | Serve at the edge or use an explicitly Starlette-specific integration. |
 | Parsed body | JSON media types only for `Body()` | No framework-managed form, multipart, or file-upload binding. |
 | Raw request streaming | One `BodyStream(max_bytes=...)`, single consumer, request lifetime | No parsing or spooling; it must consume through EOF before successful response and cannot escape into response/background work. |
@@ -64,10 +64,10 @@ remove their own documented limitations.
 | Type conversion | Bindings are raw | Register `MsgspecValidationPipe` or a custom pipe; annotations alone do not convert inputs. |
 | Parameter inference | Every parameter needs an explicit binding or `Inject` marker | Names do not imply path/query/header/body sources. |
 | Body consumption | One body-consuming binding per route | `Body()` and `BodyStream()` cannot be combined. |
-| Global body limit | `StarletteOptions.body_size_limit` applies to parsed JSON and `@no_body`, not every route | Use `BodyStream` limits where selected and enforce total request limits at the proxy/server. |
+| Global body limit | `StarletteOptions.body_size_limit` (or `AsgiOptions.body_size_limit`) applies to parsed JSON and `@no_body`, not every route | Use `BodyStream` limits where selected and enforce total request limits at the proxy/server. |
 | Content length | Limits use actual ASGI bytes, not `Content-Length` | The framework does not reject solely from the declared length. |
 | Header/query limits | No framework count, size, or complexity limits | Configure edge/server limits and application validation. |
-| Router semantics | ToriPy rejects exact duplicates, then delegates matching to Starlette | Overlaps, converters, declaration precedence, redirects, implicit HEAD/OPTIONS, and `Allow` follow the pinned Starlette version. |
+| Router semantics | ToriPy rejects exact duplicates; `StarletteAdapter` then delegates matching to Starlette | Overlaps, converters, declaration precedence, redirects, implicit HEAD/OPTIONS, and `Allow` follow the pinned Starlette version. |
 | Trailing slash | `/x` and `/x/` are distinct at ToriPy duplicate validation | Starlette may redirect according to its routing behavior. |
 | Runtime routes | No route mutation after compilation | Restart with a newly compiled graph. |
 | Portable responses | `HttpResponse` supports bytes, status, and headers | Advanced Starlette response behavior is driver-specific. |
@@ -139,6 +139,7 @@ remove their own documented limitations.
 | CQRS and event sourcing | Not a core dependency; use independently versioned packages when their contracts fit. |
 | Jobs and scheduling | No job queue, scheduler, retry engine, or distributed lock. |
 | OpenAPI and UI | Not built into core; the optional package is separate and does not enforce runtime security. |
+| Interactive server-rendered pages | Not built into core; the optional [LiveView](../techniques/liveview/index.md) and [LiveView UI](../techniques/liveview-ui/index.md) packages require the Starlette adapter and do not implement uploads or sticky child LiveViews. |
 | FastAPI | No FastAPI driver or runtime dependency. |
 | Pydantic | No required integration; default conversion uses msgspec. |
 | External DI containers | No bridge in v1. |

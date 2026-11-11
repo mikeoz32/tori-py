@@ -5,6 +5,22 @@ async engine, session factory, entity operations, and explicit repositories. It
 does not add model scanning, generated repository classes, a custom query
 language, migrations, CQRS, or event sourcing.
 
+## Installation
+
+Install the integration with the async driver your database URL names:
+
+```text
+uv add tori-py-sqlalchemy aiosqlite
+uv add tori-py-sqlalchemy asyncpg
+```
+
+The package is beta and follows independent Semantic Versioning. See the
+[SQLAlchemy guide](https://mikeoz32.github.io/tori-py/techniques/sqlalchemy/),
+[package source](https://github.com/mikeoz32/tori-py/tree/main/packages/tori-py-sqlalchemy),
+and [changelog](https://github.com/mikeoz32/tori-py/blob/main/CHANGELOG.md).
+
+## Composition
+
 ```python
 from tori_py_sqlalchemy import SqlAlchemyModule, SqlAlchemyOptions
 

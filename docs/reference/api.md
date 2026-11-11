@@ -218,16 +218,31 @@ are:
 - In-memory reference: `InMemoryBroker`, `InMemoryClientTransport`,
   `InMemoryServerTransport`.
 - Wire and limits: `MessageCodec`, `MsgspecJsonMessageCodec`, `MessageLimits`,
-  request/response/event envelopes and stable identity values.
+  `RpcRequestEnvelope`, `RpcResponseEnvelope`, `EventEnvelope`, `ReplyRoute`,
+  `RpcTarget`, `EventIdentity`, and the `require_*` and `validate_*` helpers.
+- Pipeline and extension plans: `PipelinePlan`, `MessagePipelineExecutor`,
+  `MessageInvocation`, `InvocationCompletion`, `SettlementRecommendation`,
+  `MessageContext`, `RpcHandlerPlan`, `EventHandlerPlan`, `ServiceHandlerRegistry`,
+  and the `compile_*` handler and contract compilers.
+- Client call metadata: `CallTimeout`, `CallHeaders`, `CorrelationId`,
+  `CausationId`, `RpcCallPlan`, `ServiceContractPlan`, `create_service_proxy`.
 - Errors: `MicroservicesError`, invocation and authorization errors, transport
-  outcome errors, RPC client errors, wire errors, and RabbitMQ errors.
+  outcome errors, RPC client errors, wire errors, and RabbitMQ errors. Every
+  class is listed in [Errors and Diagnostics](errors-and-diagnostics.md#microservices).
+
+The base facade also re-exports the RabbitMQ types listed below. Options are
+described in the [microservices configuration reference](../techniques/microservices/configuration.md),
+and the [generated reference](generated/microservices.md) lists every symbol.
 
 ### `tori_py_microservices.rabbitmq`
 
 The explicit RabbitMQ facade provides `RabbitMqModule`, `RabbitMqOptions`,
 `RabbitMqTransport`, client/server transport factories, connection/status
-types, publisher, topology declaration values and compilers, keyed token
-helpers, and `require_aio_pika`.
+types including `RabbitMqDeliveryMetadata`, `RabbitMqPublisher`, topology
+declaration values (`ExchangeDeclaration`, `QueueDeclaration`,
+`BindingDeclaration`, `RabbitMqTopology`) and compilers (`compile_rpc_topology`,
+`compile_event_topology`, `compile_reply_topology`, `event_exchange_topology`,
+`merge_topologies`), keyed token helpers, and `require_aio_pika`.
 
 RabbitMQ is installed with `tori-py-microservices[rabbitmq]`. Importing the base
 facade or RabbitMQ facade does not open a connection.
@@ -246,10 +261,12 @@ Principal public API:
 
 - Records and streams: `AppendRequest`, `StoredRecord`, `StreamDefinition`,
   `StreamLimits`, `PublishReceipt`, `PublishOutcome`, `RecordPage`.
-- Start and progress: `Beginning`, `End`, `ExactOffset`, `Timestamp`,
-  `RelativeTime`, `ResumeCursor`, `AvailableBounds`, `StartModeCapabilities`.
-- Consumption: `Subscription`, `ConsumerRunner`, `PartitionLease`,
-  `CheckpointStrategy`, `ExternalCheckpointStrategy`, `CheckpointStore`.
+- Start and progress: `StartPosition` (`Beginning`, `End`, `ExactOffset`,
+  `Timestamp`, `RelativeTime`), `ResumeCursor`, `CursorKind`, `AvailableBounds`,
+  `StartModeCapabilities`.
+- Consumption: `Subscription`, `ConsumerRunner`, `RecordHandler`,
+  `PartitionLease`, `OwnershipToken`, `CheckpointKey`, `CheckpointStrategy`,
+  `ExternalCheckpointStrategy`, `CheckpointStore`.
 - Log contracts: `PersistentLog`, `PersistentStreamAdapter`,
   `InMemoryPersistentLog`, `InMemoryCheckpointStore`.
 - Routing: `PartitionRouter`, `Sha256PartitionRouter`,
@@ -280,8 +297,11 @@ Principal public API:
 - Adapter and runtime: `StreamAdapterFactory`, `StreamCodec`,
   `PartitionKeyResolver`, `PublishingIdSource`, `StreamRuntime`,
   `PartitionStatus`.
-- Extension plans and compilers: stream handler/parameter/pipeline plans,
-  registries, pipeline executor, and controller/discovery compilers.
+- Runtime state: `StreamRuntimeState`, `PartitionStatus`.
+- Extension plans and compilers: `StreamHandlerPlan`, `StreamParameterPlan`,
+  `StreamPipelinePlan`, `StreamHandlerRegistry`, `StreamPipelineExecutor`,
+  `StreamHandlerMetadata`, `StreamPublishMetadata`,
+  `compile_controller_stream_handlers`, and `compile_discovered_stream_handlers`.
 - Errors: `ToriPyPersistentStreamsError`, configuration, compilation,
   invocation, runtime, and publication-saturation errors.
 
@@ -303,7 +323,8 @@ The lazy root facade provides:
   `RabbitMqPartitionLease`, `TopologyPreflight`,
   `RABBITMQ_START_MODE_CAPABILITIES`.
 - Envelope interoperability: `RecordEnvelope`, `EnvelopeLimits`, `CONTENT_TYPE`,
-  and the encode/decode helpers.
+  `encode_envelope`, `decode_envelope`, `encode_amqp_message`, and
+  `decode_amqp_message`.
 - Facade errors: `RabbitMqPersistentStreamsError`, `TopologyConflictError`,
   `EnvelopeError`.
 
@@ -353,7 +374,9 @@ flash tokens and the `__phoenix_flash__` cookie, async work settles on the
 connection task, and `globalThis.ToriLiveParams` reaches connected mounts as
 connect params. Components may render nested components, and pages render
 child LiveViews with `live_render`. Uploads and sticky child LiveViews are not
-part of the current server surface.
+part of the current server surface. Guide:
+[LiveView](../techniques/liveview/index.md); generated reference:
+[LiveView API](generated/liveview.md).
 
 ## `tori-py-liveview-ui`
 
@@ -373,7 +396,9 @@ escaping, Phoenix render-tree, `phx-click`, `phx-change`, `phx-submit`,
 stylesheet; they do not add a client runtime, validation engine, or state model.
 `UiLiveView.ui_theme()` selects `auto`, `light`, or `dark` color mode, while
 `ui_skin()` independently selects the default `editorial`, bundled `minimal` or
-`rounded`, or a validated application-owned CSS skin name.
+`rounded`, or a validated application-owned CSS skin name. Guide:
+[LiveView UI](../techniques/liveview-ui/index.md); generated reference:
+[LiveView UI API](generated/liveview-ui.md).
 
 ## Reading generated reference
 

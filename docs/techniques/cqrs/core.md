@@ -125,6 +125,8 @@ handler explicitly.
 
 ### Decorated classes
 
+<!-- docs-test: skip -->
+
 ```python
 from tori_py_cqrs_core import CommandHandler
 
@@ -146,6 +148,8 @@ Metadata is direct, not inherited. A subclass of a decorated handler must be
 decorated itself or registered with an explicit message type.
 
 ### Function handlers
+
+<!-- docs-test: skip -->
 
 ```python
 from tori_py_cqrs_core import HandlerContext, handles
@@ -171,6 +175,8 @@ standalone core feature.
 
 Pass the message type when the target has no decorator metadata:
 
+<!-- docs-test: skip -->
+
 ```python
 builder.add_command_handler(Add, AddHandler())
 builder.add_query_handler(ReadTotal, ReadTotalHandler)
@@ -181,6 +187,8 @@ With the default provider, a registered instance is reused. A registered class
 is constructed without arguments for each invocation.
 
 ### Factories
+
+<!-- docs-test: skip -->
 
 ```python
 def make_add_handler() -> AddHandler:
@@ -261,6 +269,8 @@ An event-handler error:
 - does not kill the in-memory transport worker.
 
 Configure the hook before `build()`:
+
+<!-- docs-test: skip -->
 
 ```python
 from tori_py_cqrs_core import EventHandlerFailure
@@ -357,10 +367,10 @@ task and shutdown management. It never shares an implicit transaction.
 
 ```python
 transport = InMemoryTransport(
-    max_queue_size=1024,
-    default_timeout=2.0,
-    error_handler=None,
-    name="commands",
+    max_queue_size=1024,  # default
+    default_timeout=2.0,  # default is None (no timeout)
+    error_handler=None,  # default
+    name="commands",  # default is "cqrs-inmemory"
 )
 ```
 
@@ -376,8 +386,11 @@ Timeout behavior is intentionally specific:
 - caller timeout or cancellation does not cancel a handler that already started;
 - that handler can still finish and mutate state after the caller stopped
   waiting;
-- `default_timeout` applies to submissions, not to shutdown unless a shutdown
-  timeout is supplied explicitly.
+- when a call passes `timeout=None`, `default_timeout` is the effective
+  timeout; for `request()` it is also the overall deadline for the reply, so
+  `execute(timeout=None)` falls back to it and raises `RequestTimeoutError`;
+- `default_timeout` does not apply to shutdown unless a shutdown timeout is
+  supplied explicitly.
 
 Delivery is process-local, non-durable, and at-most-once. There are no retries,
 acknowledgements, requeues, dead letters, or persistence guarantees.
@@ -421,6 +434,8 @@ semantics. The ToriPy and FastAPI packages are concrete provider adapters.
 
 A transport implements the public `Transport` protocol:
 
+<!-- docs-test: skip -->
+
 ```python
 from tori_py_cqrs_core import Transport
 
@@ -432,6 +447,25 @@ It must provide async `start(consumer)`, `request(envelope, timeout=None)`,
 `publish(envelope, timeout=None)`, and `shutdown(timeout=None)`. The transport
 delivers envelopes to the consumer supplied at start; the bus dispatcher, not
 the transport, owns handler routing.
+
+The consumer is a `TransportConsumer`: an async callable that takes one
+`Envelope` and returns a `ReplyEnvelope` for a command or query, or `None` for
+an event. A worker calls it once per delivered envelope:
+
+```python
+from tori_py_cqrs_core import Envelope, ReplyEnvelope, TransportConsumer
+
+
+async def deliver(consumer: TransportConsumer, envelope: Envelope) -> None:
+    reply = await consumer(envelope)
+    if isinstance(reply, ReplyEnvelope):
+        await send_reply_to_caller(reply)
+```
+
+`TransportState` is the lifecycle enum used by `InMemoryTransport.state`:
+`NEW`, `STARTING`, `RUNNING`, `STOPPING`, and `STOPPED`. A custom transport may
+reuse it for its own status reporting. Raise `TransportNotStartedError` for work
+submitted before `start()` and `TransportStoppedError` after `shutdown()`.
 
 Request transports must return a valid correlated `ReplyEnvelope`.
 Publication transports return a `DeliveryReceipt` after acceptance. A serialized

@@ -14,6 +14,14 @@ This installs `tori-py-cqrs-core` and `tori-py-framework` as dependencies. The
 integration itself does not depend on Starlette, FastAPI, Pydantic, SQLAlchemy,
 or a persistence package.
 
+The
+[Advanced CQRS Task API](https://github.com/mikeoz32/tori-py/tree/main/examples/tori_py/cqrs/advanced)
+example runs discovered handlers, handler scopes, event fan-out, and an
+in-process read projection in one HTTP service.
+[Examples](../../reference/examples.md#cqrs-and-event-sourcing) lists its
+commands, and the [CQRS Task API tutorial](../../tutorials/cqrs-application.md)
+builds a smaller service step by step.
+
 ## Discovered Handler Setup
 
 ToriPy-native handler decorators combine CQRS metadata with ToriPy injectable
@@ -111,6 +119,8 @@ never scans Python packages.
 
 Resolve or inject the exported buses normally:
 
+<!-- docs-test: skip -->
+
 ```python
 commands = await application.resolve(CommandBus)
 queries = await application.resolve(QueryBus)
@@ -155,6 +165,51 @@ handler and interceptors finish, including failure and cancellation paths.
 
 A class handler must expose `async handle(message)`. Function handlers from the
 core `@handles` API are not supported by the ToriPy integration.
+
+### One Message Type per Decorated Class
+
+Each decorated class handles exactly one message type. Stacking two handler
+decorators on one class raises `BootstrapError` with
+`reflection.duplicate_metadata`. Prefer one small class per message. When one
+object must react to several events, register it once and bind it explicitly
+to each event type:
+
+```python
+from tori_py import ValueProvider, module
+from tori_py_cqrs import CqrsModule, bind_event_handler
+
+
+class MembershipLog:
+    def __init__(self) -> None:
+        self.entries: list[str] = []
+
+    async def handle(self, event: MemberJoined | MemberLeft) -> None:
+        match event:
+            case MemberJoined(name=name):
+                self.entries.append(f"+{name}")
+            case MemberLeft(name=name):
+                self.entries.append(f"-{name}")
+
+
+@module(
+    providers=[ValueProvider("membership-log", MembershipLog())],
+    exports=["membership-log"],
+)
+class MembershipModule:
+    pass
+
+
+cqrs_module = CqrsModule.for_root(
+    imports=[MembershipModule],
+    handlers=[
+        bind_event_handler(MemberJoined, "membership-log"),
+        bind_event_handler(MemberLeft, "membership-log"),
+    ],
+)
+```
+
+Each binding is a separate event delivery with its own work scope. Commands and
+queries still allow exactly one handler per message type.
 
 ## Discovery Rules
 
@@ -265,6 +320,43 @@ inject into it or manage its lifecycle.
 
 It deliberately has no HTTP request or request ID.
 
+`context.metadata` is an immutable mapping of strings meant for logs and
+metrics:
+
+| Key | Value |
+| --- | --- |
+| `handler` | Owner module and provider token, such as `app.handlers.HandlerModule:IncrementHandler` |
+| `handler_kind` | `"command"`, `"query"`, or `"event"` |
+| `message_type` | Fully qualified message class name |
+| `message_id` | The envelope's message UUID as a string |
+| `correlation_id` | The correlation UUID as a string, or `None` |
+
+Interceptors can be attached to explicit bindings as well as decorated classes.
+`bind_command_handler()`, `bind_query_handler()`, and `bind_event_handler()`
+accept `interceptors=`, a sequence of `CqrsInterceptorBinding` values that pair
+a provider token or instance with a phase:
+
+```python
+from tori_py_cqrs import CqrsInterceptorBinding, CqrsInterceptorPhase
+
+cqrs_module = CqrsModule.for_root(
+    imports=[HandlerModule],
+    handlers=[
+        bind_command_handler(
+            Increment,
+            "increment-handler",
+            interceptors=[
+                CqrsInterceptorBinding(TraceInvocation, CqrsInterceptorPhase.HANDLER),
+            ],
+        ),
+    ],
+)
+```
+
+Unlike `@use_cqrs_interceptors`, which wraps bare tokens for you, explicit
+bindings require `CqrsInterceptorBinding` values. A provider-token interceptor
+must be registered in the handler-owner module, here `HandlerModule`.
+
 ### Ordering and phases
 
 An interceptor binding has `OUTER`, `GRAPH`, or `HANDLER` phase:
@@ -304,8 +396,14 @@ interceptors and the handler remain unresolved.
 `context.on_handler_exit(callback)` registers a synchronous callback for the
 exact handler terminal boundary. Callbacks run in reverse order immediately
 after handler invocation or failure and before inner interceptors resume. All
-callbacks are attempted; callback failures are retained without losing a
-handler failure, and cancellation remains cancellation.
+callbacks are attempted. When any callback fails, the caller receives
+`CqrsHandlerExitError`, which carries the handler failure as `body_error` (or
+`None`) and every callback failure in `callback_errors`. When cancellation is
+involved, the caller receives `CqrsHandlerExitCancellationError`, a
+`CancelledError` subclass carrying the original in `cancellation` and the other
+failures in `secondary_errors`, so cancellation remains cancellation.
+`KeyboardInterrupt` and `SystemExit` propagate unchanged with the other
+failures attached as notes.
 
 Advanced integrations can register a synchronous mapper through
 `context.completion.register(key, mapper)`. Mappers run in reverse registration
@@ -323,6 +421,8 @@ commit when later resource cleanup fails.
 
 Defaults are three distinct `InMemoryTransport` instances. Override them with
 sync or async factories:
+
+<!-- docs-test: skip -->
 
 ```python
 from tori_py_cqrs import CqrsModule, CqrsModuleOptions

@@ -66,7 +66,11 @@ replacement containing only lifecycle methods.
 ## Factory Contract
 
 The Tori Py integration injects the public runtime-checkable
-`StreamAdapterFactory` Protocol as the canonical provider token:
+`StreamAdapterFactory` Protocol as the canonical provider token.
+`ExampleAdapterOptions` and `ExamplePersistentLog` are placeholders for the
+adapter's own options and log classes:
+
+<!-- docs-test: skip -->
 
 ```python
 from dataclasses import dataclass
@@ -230,7 +234,10 @@ safer than replaying cached native subscriptions outside the contract.
 
 ## Core Conformance
 
-The core package ships a public reusable suite:
+The core package ships a public reusable suite. `create_ready_isolated_log` is a
+placeholder for the adapter's own helper that returns a ready, isolated log:
+
+<!-- docs-test: skip -->
 
 ```python
 from tori_py_persistent_streams_core import PersistentLog
@@ -253,6 +260,27 @@ capability-gated; portable behavior is not.
 The suite expects a `PersistentLog` ready for its public operations. An adapter
 whose required lifecycle ordering cannot be represented by the harness must not
 claim core conformance merely because selected cases pass.
+
+`run_conformance_suite` runs every group in order. Each group is also public, so
+a failing area can be run alone while developing; every function takes the same
+`AdapterFactory`, an async callable returning a fresh log:
+
+| Function | Covers |
+| --- | --- |
+| `conformance_declarations_and_sparse_order` | Stream declarations, routing, and sparse offset order |
+| `conformance_start_modes_and_cursors` | Start values and initialized and last-successful cursors |
+| `conformance_ownership_and_processing` | Leases, stale owners, poison records, and serial processing |
+| `conformance_concurrent_start_compare_create` | Concurrent cursor initialization |
+| `conformance_external_checkpoints` | External checkpoint strategy |
+| `conformance_checkpoint_failures_and_cancellation` | Checkpoint failures and cancellation during checkpoint |
+| `conformance_producers_retention_and_limits` | Named producers, stale publishing IDs, retention gaps, and limits |
+| `conformance_validation_and_closed_lifecycle` | Input validation, invalid partitions, and use after close |
+| `conformance_cancellation` | A cancelled handler does not advance the checkpoint, so the record is redelivered |
+
+Retention checks that need to remove history run only when the log also
+implements `TrimCapablePersistentLog`, a runtime-checkable protocol with
+`async trim(stream, partition, before_offset) -> int`. Implement it only in test
+builds or adapters that can really remove a prefix.
 
 Run focused tests through `uv`:
 

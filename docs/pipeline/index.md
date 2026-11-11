@@ -134,6 +134,8 @@ matched route.
 After `NestApplication.create()` and before startup, an application factory may
 append global guards, pipes, interceptors, and filters:
 
+<!-- docs-test: skip -->
+
 ```python
 app.use_global_guard("authenticated")
 app.use_global_pipe("validation")

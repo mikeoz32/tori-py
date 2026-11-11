@@ -557,5 +557,6 @@ socket path is the Phoenix endpoint base; the browser connects to its
 are supported; sticky child LiveViews and uploads are reserved for later
 releases.
 
-See the runnable example in `examples/tori_py/liveview` and the normative
+See the [LiveView guide](https://mikeoz32.github.io/tori-py/techniques/liveview/),
+the runnable example in `examples/tori_py/liveview`, and the normative
 architecture in `TORI_PY_LIVEVIEW_ARCHITECTURE.md`.

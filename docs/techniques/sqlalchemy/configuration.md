@@ -52,12 +52,20 @@ Use `for_root_async()` when database settings are supplied by another module.
 The factory may be synchronous or asynchronous and uses normal annotation-based
 ToriPy injection:
 
+<!-- docs-test: skip -->
+
 ```python
+from pathlib import Path
+
 from tori_py.settings import SettingsModule, SettingsOptions
 
 
 settings_module = SettingsModule.for_root(
-    SettingsOptions(model=AppSettings, env_prefix="APP_"),
+    SettingsOptions(
+        model=AppSettings,
+        base_dir=Path(__file__).parent,
+        env_prefix="APP_",
+    ),
     global_=True,
 )
 
@@ -76,8 +84,9 @@ database = SqlAlchemyModule.for_root_async(
 ```
 
 The factory is a singleton provider and is resolved once during startup. It must
-return `SqlAlchemyOptions`. This variant also creates, owns, and disposes its
-engine.
+return `SqlAlchemyOptions`, directly or from an awaitable; the
+`SqlAlchemyOptionsFactory` type alias describes that callable. This variant also
+creates, owns, and disposes its engine.
 
 ## External Engine
 
@@ -96,6 +105,8 @@ never disposes the engine. The code that called `create_async_engine()` must cal
 `await engine.dispose()` after the ToriPy application has stopped.
 
 An engine may instead be supplied through an exported ToriPy provider token:
+
+<!-- docs-test: skip -->
 
 ```python
 database = SqlAlchemyModule.for_engine(
@@ -144,6 +155,8 @@ should only be done for a deliberate SQLAlchemy policy.
 
 The key separates every canonical provider. Keep the default key for the primary
 database and use named roots for additional databases:
+
+<!-- docs-test: skip -->
 
 ```python
 primary_database = SqlAlchemyModule.for_root(
@@ -195,6 +208,8 @@ There is no `AsyncSession` provider. Application services should normally use an
 Keys must be non-empty strings and cannot be `"static"`. Reuse the same key for
 the root and its repository features:
 
+<!-- docs-test: skip -->
+
 ```python
 analytics_tasks = SqlAlchemyModule.for_feature(
     [AnalyticsTaskRow],
@@ -210,6 +225,8 @@ does not create a distributed transaction or coordinate their commits.
 Roots are global by default because `for_feature()` resolves the matching keyed
 manager without retaining a root descriptor or using a process-global model
 registry:
+
+<!-- docs-test: skip -->
 
 ```python
 database = SqlAlchemyModule.for_root(options, global_=True)
