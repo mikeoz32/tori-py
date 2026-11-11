@@ -3380,6 +3380,15 @@ async def test_child_views_join_and_update_on_their_own_topic() -> None:
     }
     await session.push(_event("4", "bump"))
     assert _diff((await session.frames(9))[8]) == {"0": "2"}
+
+    # Rendered again, the child gets a fresh token and joins with it afresh.
+    await session.push(_event("5", "toggle"))
+    restored = _diff((await session.frames(10))[9])["1"]
+    token = _child_session(restored, "counter")
+    assert token != _child_session(container, "counter")
+    await session.push(_child_join("counter", token, "14"))
+    assert _reply_payload((await session.frames(11))[10])["status"] == "ok"
+    assert CounterChildLive.events[-1] == "mount:a:True:/children"
     await session.close()
     await application.shutdown()
 

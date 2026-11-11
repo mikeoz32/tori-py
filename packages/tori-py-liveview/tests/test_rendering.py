@@ -503,6 +503,43 @@ async def test_live_render_places_a_child_container_with_a_stable_token() -> Non
 
 
 @pytest.mark.asyncio
+async def test_a_child_rendered_again_after_leaving_gets_a_fresh_token() -> None:
+    issued: list[str] = []
+
+    def signer(
+        page_type: type[LiveView], view_id: str, params: Mapping[str, str]
+    ) -> str:
+        issued.append(f"{_signed(page_type, view_id, params)}.{len(issued)}")
+        return issued[-1]
+
+    class Page(LiveView):
+        def __init__(self) -> None:
+            self.show = True
+
+        def render(self) -> Template:
+            cart = self.live_render(_ChildPage, "cart") if self.show else ""
+            return t"<main>{cart}</main>"
+
+    def session(rendered: Rendered) -> str | None:
+        child = rendered.dynamics[0]
+        return child.session if isinstance(child, _ChildRendered) else None
+
+    page = Page()
+    page._liveview_child_signer = signer
+    first = session(await page._render_liveview())
+    # While every render includes the child, it keeps its token.
+    assert session(await page._render_liveview()) == first
+    page.show = False
+    assert session(await page._render_liveview()) is None
+    # Left out once, it mounts afresh and must not reuse a token that may have
+    # expired meanwhile.
+    page.show = True
+    again = session(await page._render_liveview())
+    assert again is not None and again != first
+    assert issued == [first, again]
+
+
+@pytest.mark.asyncio
 async def test_live_render_validates_children_and_runs_only_while_rendering() -> None:
     page = _ChildPage()
     page._liveview_child_signer = _signed

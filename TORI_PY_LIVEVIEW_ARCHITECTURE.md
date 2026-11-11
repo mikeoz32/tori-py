@@ -352,9 +352,9 @@ own HMAC purpose, binding the child page, view id, parent view and that view's
 mount nonce, params, and the page's resource and live session. Every mount of a
 view gets a fresh random nonce: each HTTP render, each join of the main view,
 and each child join, whose own children bind to the nonce in its token. A page
-keeps the token for a view id while
-its type and params stay the same, so an unchanged container stays out of
-diffs. The HTTP render mounts each child disconnected in its own work scope,
+keeps the token for a view id while every render includes it with the same
+type and params, so an unchanged container stays out of diffs. A child left
+out of a render ends, and when it is rendered again it gets a fresh token. The HTTP render mounts each child disconnected in its own work scope,
 renders its children in turn up to eight levels deep, and places the HTML in the
 container; a child may not navigate there. The connected tree carries the empty
 container, and the official client keeps a joined child's container and

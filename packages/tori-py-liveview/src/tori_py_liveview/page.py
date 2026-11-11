@@ -966,7 +966,8 @@ class LiveView(ABC):
 
         rendered_components: set[_ComponentIdentity] = set()
         self._liveview_rendered_components = rendered_components
-        self._liveview_rendered_children: set[str] | None = set()
+        rendered_children: set[str] = set()
+        self._liveview_rendered_children: set[str] | None = rendered_children
         try:
             result = self.render()
             if isinstance(result, Rendered):
@@ -982,6 +983,16 @@ class LiveView(ABC):
         finally:
             self._liveview_rendered_components = None
             self._liveview_rendered_children = None
+
+        # A child stays on its token only while every render includes it. One
+        # left out ends in the browser and mounts afresh when rendered again,
+        # so it gets a fresh token rather than one that may have expired.
+        tokens = self.__dict__.get("_liveview_child_tokens")
+        if tokens:
+            for view_id in [
+                view_id for view_id in tokens if view_id not in rendered_children
+            ]:
+                del tokens[view_id]
 
         stale = [
             identity
