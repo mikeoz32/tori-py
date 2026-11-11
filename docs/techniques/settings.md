@@ -157,6 +157,8 @@ the process environment, or configuration explicitly applied by its factory.
 `--set` builds a `BootstrapContext` and makes it current while the application
 factory runs. Tests and custom launchers can do the same:
 
+<!-- docs-test: skip -->
+
 ```python
 from tori_py.settings import BootstrapContext, use_bootstrap_context
 

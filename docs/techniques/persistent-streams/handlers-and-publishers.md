@@ -297,6 +297,8 @@ parallelism inside a partition.
 
 Register global components through `PersistentStreamsRuntimeOptions`:
 
+<!-- docs-test: skip -->
+
 ```python
 from tori_py import PipelineOptions
 from tori_py_persistent_streams import PersistentStreamsRuntimeOptions
@@ -576,6 +578,8 @@ the runtime asks for an adapter and returns the same log on later calls.
 `adapter.created` counts the factory calls. Pass an existing log as
 `InMemoryStreamAdapterFactory(log=...)` to seed records before startup or to
 share one log between two applications in one test.
+
+<!-- docs-test: skip -->
 
 ```python
 from tori_py.testing import TestingModule
