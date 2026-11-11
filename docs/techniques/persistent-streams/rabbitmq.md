@@ -69,6 +69,12 @@ rabbitmq = RabbitMqPersistentStreamsModule.for_root_async(
 
 The options factory must return `RabbitMqPersistentStreamsOptions`.
 
+The module registers a `RabbitMqStreamAdapterFactory`, which creates one
+`RabbitMqPersistentLog` for the runtime. Partition leases returned by that log
+are `RabbitMqPartitionLease` values. Application code normally uses neither
+directly; they appear in type annotations, status checks, and adapter-level
+tests.
+
 ## Connection Defaults
 
 `RabbitMqConnectionOptions` has these exact defaults and validation bounds:
@@ -314,6 +320,37 @@ frame together.
 Bad magic/version, unknown kind, noncanonical or duplicate headers, invalid UTF-8,
 truncation, trailing bytes, and size violations fail decoding and stop the
 partition. Barrier kind can never become a `StoredRecord`.
+
+The envelope codec is public, for interoperability checks and for tests that
+need exact broker bytes:
+
+| API | Converts |
+| --- | --- |
+| `encode_envelope(envelope, limits)` / `decode_envelope(data, limits)` | `RecordEnvelope` to and from the binary PSRM body |
+| `encode_amqp_message(envelope, limits)` / `decode_amqp_message(message, limits)` | `RecordEnvelope` to and from a complete AMQP 1.0 message with its properties |
+
+`RecordEnvelope` holds `record_id`, `partition_key` bytes, `headers` as a
+mapping of names to bytes, `payload` bytes, `content_type` (default
+`CONTENT_TYPE`), and `kind`. `limits` defaults to `EnvelopeLimits()`. Invalid
+input raises `EnvelopeError`.
+
+```python
+from uuid import uuid4
+
+from tori_py_persistent_streams_rabbitmq import (
+    RecordEnvelope,
+    decode_envelope,
+    encode_envelope,
+)
+
+envelope = RecordEnvelope(
+    record_id=uuid4(),
+    partition_key=b"member-42",
+    headers={"tenant": b"north"},
+    payload=b'{"display_name":"Ada"}',
+)
+assert decode_envelope(encode_envelope(envelope)) == envelope
+```
 
 ## Publication and Deduplication
 

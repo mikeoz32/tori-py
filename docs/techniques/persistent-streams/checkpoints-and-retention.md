@@ -6,7 +6,8 @@ offsets are sparse or old data has been removed.
 
 ## Resume Cursor Meaning
 
-`ResumeCursor` has two tagged forms:
+`ResumeCursor` has two tagged forms. Its `kind` is a `CursorKind`, either
+`INITIALIZED` or `LAST_SUCCESSFUL`, and its `offset` is the record offset:
 
 | Form | Meaning on resume |
 | --- | --- |

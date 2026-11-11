@@ -50,7 +50,8 @@ only the core model.
 
 ## Route Records
 
-The default `Sha256PartitionRouter` uses the complete SHA-256 digest:
+The default router, `DEFAULT_PARTITION_ROUTER`, is a `Sha256PartitionRouter`
+that uses the complete SHA-256 digest:
 
 ```text
 partition = unsigned_big_endian(SHA-256(partition_key)) % partition_count
@@ -180,7 +181,7 @@ available at or after the requested offset. It is not a permanent end marker.
 ## Choose a Start
 
 A `Subscription` specifies a start for a previously uninitialized group
-partition:
+partition. `StartPosition` is the type alias for the five start values:
 
 | Start value | Meaning |
 | --- | --- |
@@ -283,6 +284,9 @@ try:
 finally:
     await lease.release()
 ```
+
+The handler is a `RecordHandler`: an async callable that takes one
+`StoredRecord` and returns `None`.
 
 The return value is the number of records processed in that pull. The runner does
 not create an infinite polling loop and does not release the lease after normal
