@@ -482,6 +482,47 @@ signed token in the official `__phoenix_reload_status__` cookie, so the HTTP
 render answers with that status even if only the connected mount fails, for
 example when data loads only once connected.
 
+## Child LiveViews
+
+`live_render()` places another page inside this one as a child LiveView with its
+own state, events, and updates. List pages that are only ever rendered this way
+under `embedded=`; they get no path:
+
+```python
+class CartLive(LiveView):
+    async def mount(self, context: MountContext) -> None:
+        self.store = context.params["store"]
+        self.items: list[str] = []
+
+    def render(self) -> Template:
+        return t"<aside>{len(self.items)} items in {self.store}</aside>"
+
+
+@live_view("/shop")
+class ShopLive(LiveView):
+    def render(self) -> Template:
+        cart = self.live_render(CartLive, "cart", {"store": "kyiv"})
+        return t"<main>{cart}</main>"
+
+
+LiveViewModule.for_root(options, pages=[ShopLive], embedded=[CartLive])
+```
+
+The HTTP response includes the child's disconnected render. Once the page
+connects, the browser joins the child on its own channel, so the child's events,
+`send_info()`, async work, and renders stay separate from the page's, and a page
+update leaves the child alone. The id becomes the container's DOM id and must be
+unique on the page; params are strings and arrive as `context.params`, while
+`context.resource` is the page's resource. Removing the child from the page's
+render ends it.
+
+Children do not run the session's on-mount hooks or `handle_params`, so a child
+authorizes in its own `mount()`. Only the page can `push_patch()`; a child that
+calls `push_navigate()` navigates the whole page. A child's title replaces the
+page's only if the child returns one. A failure in a child closes the
+connection, as a failure in the page does. Sticky children that survive
+navigation are not supported.
+
 ## Configuration
 
 `LiveViewOptions` controls the root-relative socket and client paths, explicit
@@ -512,8 +553,9 @@ live navigation, client hooks, pushed events, event replies, `send_update`,
 flash, async work, connect params, `reload` join errors, and changed-only
 render diffs with shared component statics. The configured
 socket path is the Phoenix endpoint base; the browser connects to its
-`/websocket?vsn=2.0.0` transport route. Nested components are supported; child
-LiveViews and uploads are reserved for later releases.
+`/websocket?vsn=2.0.0` transport route. Nested components and child LiveViews
+are supported; sticky child LiveViews and uploads are reserved for later
+releases.
 
 See the runnable example in `examples/tori_py/liveview` and the normative
 architecture in `TORI_PY_LIVEVIEW_ARCHITECTURE.md`.

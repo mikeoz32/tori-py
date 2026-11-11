@@ -5,6 +5,7 @@ import html
 import inspect
 import json
 import logging
+import re
 from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable, Iterable, Mapping
 from dataclasses import dataclass, replace
@@ -26,6 +27,7 @@ from tori_py_liveview.errors import (
 from tori_py_liveview.rendering import (
     Rendered,
     SafeHtml,
+    _ChildRendered,
     _ComponentRendered,
     _StreamInsert,
     _StreamRendered,
@@ -42,6 +44,11 @@ _ComponentIdentity = tuple[type[LiveComponent], str]
 _MAX_SAFE_INTEGER = 2**53 - 1
 _INFO_QUEUE_CAPACITY = 32
 _ASYNC_CANCEL_TIMEOUT_SECONDS = 5.0
+# The main view's DOM id; child views use the ids passed to live_render.
+_ROOT_VIEW_ID = "tori-live-root"
+# Child view ids become DOM ids and `lv:<id>` channel topics.
+_VIEW_ID = re.compile(r"[A-Za-z0-9_-]{1,128}\Z")
+type _ChildSigner = Callable[[type[LiveView], str, Mapping[str, str]], str]
 _VOID_ELEMENTS = frozenset(
     {
         "area",
@@ -245,6 +252,8 @@ class _Info:
 class LiveView(ABC):
     _liveview_action: str | None = None
     _liveview_pending_redirect: tuple[str, str, str] | None = None
+    _liveview_view_id: str = _ROOT_VIEW_ID
+    _liveview_child_signer: _ChildSigner | None = None
 
     async def mount(self, context: MountContext) -> None:
         del context
@@ -362,6 +371,62 @@ class LiveView(ABC):
             component_rendered.dynamics,
             component.myself,
         )
+
+    def live_render(
+        self,
+        page_type: type[LiveView],
+        view_id: str,
+        params: Mapping[str, str] | None = None,
+    ) -> SafeHtml:
+        """Render a child LiveView from ``render``.
+
+        The child is a registered page that mounts with ``params`` as
+        ``MountContext.params``. The HTTP render includes its disconnected
+        render; once connected, the browser joins it as its own view, so it
+        renders, handles events, and updates on its own. ``view_id`` becomes the
+        container's DOM id and must be unique on the page.
+        """
+        children = getattr(self, "_liveview_rendered_children", None)
+        if children is None:
+            raise LiveViewError(
+                "child LiveViews can only be rendered while their page renders"
+            )
+        if not isinstance(page_type, type) or not issubclass(page_type, LiveView):
+            raise TypeError("page_type must be a LiveView subclass")
+        if not isinstance(view_id, str):
+            raise TypeError("child LiveView id must be a string")
+        if not _VIEW_ID.fullmatch(view_id) or view_id == _ROOT_VIEW_ID:
+            raise ValueError(
+                "child LiveView id must be 1 to 128 letters, digits, '_', or '-' "
+                f"and not {_ROOT_VIEW_ID!r}"
+            )
+        values = {} if params is None else params
+        if not isinstance(values, Mapping) or not all(
+            isinstance(key, str) and isinstance(value, str)
+            for key, value in values.items()
+        ):
+            raise TypeError("child LiveView params must map strings to strings")
+        if view_id in children:
+            raise LiveViewError(f"Duplicate child LiveView id {view_id!r}")
+        signer = self._liveview_child_signer
+        if signer is None:
+            raise LiveViewError("child LiveViews need a page served by LiveViewModule")
+        children.add(view_id)
+        frozen = tuple(sorted(values.items()))
+        tokens = self.__dict__.setdefault("_liveview_child_tokens", {})
+        cached = tokens.get(view_id)
+        if cached is not None and cached[0] is page_type and cached[1] == frozen:
+            token = cached[2]
+        else:
+            # A stable token keeps the container, and so the diff, unchanged.
+            token = signer(page_type, view_id, dict(frozen))
+            tokens[view_id] = (page_type, frozen, token)
+        open_tag = (
+            f'<div id="{view_id}" data-phx-session="{html.escape(token, quote=True)}" '
+            'data-phx-static="" '
+            f'data-phx-parent-id="{html.escape(self._liveview_view_id, quote=True)}">'
+        )
+        return _ChildRendered(f"{open_tag}</div>", view_id, open_tag, page_type, frozen)
 
     def stream_insert(
         self,
@@ -629,6 +694,11 @@ class LiveView(ABC):
             raise LiveViewError("push_patch target must be a non-empty string")
         if kind not in {"push", "replace"}:
             raise LiveViewError("push_patch kind must be 'push' or 'replace'")
+        if self._liveview_view_id != _ROOT_VIEW_ID:
+            raise LiveViewError(
+                "only the root LiveView can push_patch; child LiveViews "
+                "navigate with push_navigate"
+            )
         self._liveview_pending_redirect = ("patch", to, kind)
 
     def push_navigate(self, to: str, *, kind: str = "push") -> None:
@@ -894,6 +964,7 @@ class LiveView(ABC):
 
         rendered_components: set[_ComponentIdentity] = set()
         self._liveview_rendered_components = rendered_components
+        self._liveview_rendered_children: set[str] | None = set()
         try:
             result = self.render()
             if isinstance(result, Rendered):
@@ -908,6 +979,7 @@ class LiveView(ABC):
                 )
         finally:
             self._liveview_rendered_components = None
+            self._liveview_rendered_children = None
 
         stale = [
             identity
@@ -1039,6 +1111,7 @@ class LiveView(ABC):
 
 
 __all__ = [
+    "_ROOT_VIEW_ID",
     "AsyncResult",
     "LiveView",
     "MountContext",

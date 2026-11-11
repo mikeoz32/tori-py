@@ -35,8 +35,8 @@ This directory records the executable contract for `tori-py-liveview`.
     events, renders, and outbound writes are serialized on the WebSocket task;
     successful callbacks emit unreferenced Phoenix `diff` pushes, and disconnect
     detaches the queue and rejects later sends.
- 14. Child LiveViews, uploads, and `stream_async` remain outside the current
-    server surface. Components render nested components through
+ 14. Uploads, sticky child LiveViews, and `stream_async` remain outside the
+    current server surface. Components render nested components through
     `LiveComponent.live_component`; they share the page's identity namespace,
     CIDs, targets, updates, and destruction handshake.
  15. `@live_view` accepts `action` and `session` and may be stacked for several
@@ -91,6 +91,14 @@ This directory records the executable contract for `tori-py-liveview`.
     component tree copies equal statics from a component earlier in the same
     diff or from a cached component the same render keeps, never from one it
     leaves out. Info and async renders that change nothing push no `diff`.
+ 21. `live_render` places a registered page as a child LiveView in a container
+    whose child token binds the page, view id, parent view, params, resource,
+    and live session under its own HMAC purpose. The HTTP render includes each
+    child's disconnected render. Children join on their own `lv:<view_id>`
+    topics only under a parent joined on the same connection, run serialized
+    with the main view, close after their own children, never `push_patch`, and
+    navigate the page with `push_navigate`. Messages for topics that are not
+    joined receive Phoenix's `unmatched topic` error.
 
 The complete architectural and wire contract is maintained in
 `TORI_PY_LIVEVIEW_ARCHITECTURE.md`.

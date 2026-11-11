@@ -12,6 +12,7 @@ from tori_py import (
     ModuleSpec,
     Scope,
     ValueProvider,
+    WorkScopeFactory,
     controller,
     get,
 )
@@ -22,7 +23,7 @@ from tori_py_liveview.errors import LiveViewConfigurationError
 from tori_py_liveview.metadata import LiveViewMetadata
 from tori_py_liveview.options import LiveViewOptions, websocket_path
 from tori_py_liveview.page import LiveView
-from tori_py_liveview.routing import CompiledLiveRoute, LiveRoute
+from tori_py_liveview.routing import LiveRoute
 from tori_py_liveview.session import LiveSession, normalize_sessions
 
 _STATIC = files("tori_py_liveview").joinpath("static")
@@ -68,14 +69,24 @@ def _page_controller(
     route: LiveViewMetadata,
     options: LiveViewOptions,
     hooks: tuple[Callable[..., object], ...],
-    compiled: tuple[CompiledLiveRoute, ...],
+    registry: _Registry,
 ) -> type[object]:
     class PageController:
+        def __init__(self, scopes: WorkScopeFactory) -> None:
+            self._scopes = scopes
+
         async def initial(
             self, context: Annotated[HttpContext, Context()]
         ) -> HttpResponse:
             return await initial_response(
-                context, page, options, route, hooks, compiled
+                context,
+                page,
+                options,
+                route,
+                hooks,
+                registry.compiled,
+                scopes=self._scopes,
+                pages=registry.pages,
             )
 
     PageController.__module__ = __name__
@@ -105,6 +116,7 @@ class LiveViewModule:
         options: LiveViewOptions,
         *,
         pages: Iterable[type[LiveView]],
+        embedded: Iterable[type[LiveView]] = (),
         imports: Iterable[ModuleImport] = (),
         sessions: Iterable[LiveSession] = (),
         key: str = "default",
@@ -113,10 +125,11 @@ class LiveViewModule:
             raise LiveViewConfigurationError("options must be LiveViewOptions")
         try:
             declared = tuple(pages)
+            declared_embedded = tuple(embedded)
             imported = tuple(imports)
         except TypeError as error:
             raise LiveViewConfigurationError(
-                "pages and imports must be iterable"
+                "pages, embedded, and imports must be iterable"
             ) from error
         if not declared:
             raise LiveViewConfigurationError("at least one LiveView page is required")
@@ -153,6 +166,24 @@ class LiveViewModule:
                 live_routes.append(
                     LiveRoute(route.path, route.action, identity, route.session)
                 )
+        for page in declared_embedded:
+            # Embedded pages render only through live_render, never at a path.
+            if not isinstance(page, type) or not issubclass(page, LiveView):
+                raise LiveViewConfigurationError(
+                    "embedded pages must be LiveView subclasses"
+                )
+            if page.__dict__.get("__tori_py_liveview_routes__") is not None:
+                raise LiveViewConfigurationError(
+                    "embedded pages must not declare @live_view; list routed "
+                    "pages in pages"
+                )
+            identity = f"{page.__module__}.{page.__qualname__}"
+            if identity in registry:
+                raise LiveViewConfigurationError(
+                    "page identities must be unique within a LiveView module"
+                )
+            registry[identity] = page
+            seen_pages.append(page)
         route_registry = _Registry(registry, tuple(live_routes), known_sessions)
         gateway = gateway_type(options, route_registry)
         controllers = tuple(
@@ -161,9 +192,9 @@ class LiveViewModule:
                 route,
                 options,
                 known_sessions.get(route.session, ()),
-                route_registry.compiled,
+                route_registry,
             )
-            for page in seen_pages
+            for page in declared
             for route in _routes(page)
         ) + (_asset_controller(options),)
 

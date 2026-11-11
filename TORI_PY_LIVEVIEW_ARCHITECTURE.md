@@ -308,8 +308,9 @@ running detached, but their results are never delivered.
 
 ### 3.9 Dynamic module
 
-`LiveViewModule.for_root(options, pages, imports=(), key="default")` returns a
-ToriPy `DeferredModule`. It accepts explicit `LiveSession(name, on_mount)`
+`LiveViewModule.for_root(options, pages, embedded=(), imports=(), key="default")`
+returns a ToriPy `DeferredModule`. It accepts explicit
+`LiveSession(name, on_mount)`
 values grouping routes into navigate boundaries with shared mount hooks.
 Pages without a session belong to one unnamed default session. Materialization
 creates:
@@ -330,6 +331,41 @@ The configured `socket_path` is the Phoenix endpoint base. Phoenix Socket adds
 `/websocket?vsn=2.0.0`. Page paths must not conflict with the endpoint base,
 transport route, or asset path. Module keys distinguish independent
 materializations.
+
+`embedded=` lists pages rendered only as child LiveViews. They get a
+request-scoped provider but no path, and must not declare `@live_view`; a routed
+page may also be a child.
+
+### 3.10 Child LiveViews
+
+`LiveView.live_render(page_type, view_id, params=None)` may only run while the
+page renders. It places a child LiveView: a registered page that mounts with
+`params` (strings) as `MountContext.params` and the page's resource, and then
+renders, handles events, receives info and async results, and updates as its
+own view. `view_id` becomes the container's DOM id and the `lv:<view_id>`
+channel topic; it is 1 to 128 letters, digits, `_`, or `-`, not
+`tori-live-root`, and unique on the page.
+
+The container is `<div id data-phx-session data-phx-static="" data-phx-parent-id>`
+with the rendering view's id as parent. Its session is a child token with its
+own HMAC purpose, binding the child page, view id, parent view, params, and the
+page's resource and live session. A page keeps the token for a view id while
+its type and params stay the same, so an unchanged container stays out of
+diffs. The HTTP render mounts each child disconnected in its own work scope,
+renders its children in turn up to eight levels deep, and places the HTML in the
+container; a child may not navigate there. The connected tree carries the empty
+container, and the official client keeps a joined child's container and
+contents when its parent patches.
+
+Children do not run the live session's on-mount hooks or `handle_params`, as in
+Phoenix: a child authorizes in its own `mount`. Only the main view may
+`push_patch`; a child that calls it raises `LiveViewError`. A child's
+`push_navigate` replies `live_redirect` on its own topic and closes the child,
+and the client then replaces the main view; `redirect` replies `redirect`.
+A child's title travels only when it returns one. Sticky children that survive
+navigation, container tag and attribute options, rendering a child from a
+component, and isolating one child's failure from the connection are not
+implemented.
 
 ## 4. Browser Assets
 
@@ -373,7 +409,8 @@ For a page request, the generated controller:
 2. Resolves the request-scoped page provider from `HttpContext`.
 3. Seeds the flash from a valid `__phoenix_flash__` cookie.
 4. Calls `mount` with `connected=False`.
-5. Renders the page, components, and disconnected stream contents once.
+5. Renders the page, components, and disconnected stream contents once, and
+   mounts and renders each child LiveView into its container.
 6. Signs page identity, path params, resource, flash, and issue time.
 7. Builds `#tori-live-root` with `data-phx-main`, `data-phx-session`, an empty
    `data-phx-static`, and the ToriPy endpoint-base attribute.
@@ -517,6 +554,27 @@ Before acceptance, the gateway validates Origin. It then:
     `disconnect` exactly once when a connected page session ends. Live navigate
     disconnects the outgoing page and mounts the new page on a fresh join.
 
+While the main view is joined, the client joins each child container on its own
+`lv:<view_id>` topic over the same socket. A child join carries the child token
+as `session`, connect `params`, and an optional `flash` token, but no URL. It is
+answered only when the token verifies, names this topic, carries the main
+view's live session, and names a parent joined on this connection; otherwise the
+reply is `{reason: "unauthorized"}`. A second join of a joined topic closes with
+`1002`. A joined child has its own work scope, page instance, render state,
+info queue, and join ref; the gateway serializes its events, component
+messages, info callbacks, and async results with the main view's on the
+connection task and replies and pushes on the child's topic. A 4xx
+`HttpException` during a child's connected mount answers its join with a
+`reload` token for the main page and resource, and navigation while mounting
+answers with `live_redirect` or `redirect`.
+
+A child's `phx_leave` closes it after its own children. Closing any view,
+including the main view on leave, navigation, or disconnect, closes its children
+first. A message for a child topic that is not joined receives
+`{status: "error", response: {reason: "unmatched topic"}}`, as from Phoenix, and
+its `phx_leave` an empty successful reply. Application failures in a child close
+the connection with `1011`, like failures in the main view.
+
 Reconnect creates a new connection scope and page instance and repeats a full
 snapshot join. The server does not retain disconnected page instances.
 
@@ -551,7 +609,7 @@ stale-retry dialect.
 
 Heartbeats use topic `phoenix`, event `heartbeat`, null `join_ref`, and receive
 an empty successful reply with the same ref. `phx_leave` receives an empty
-successful reply. Between joins, every `phx_leave` on the root topic and every
+successful reply. Between joins, every `phx_leave` on an `lv:` topic and every
 valid heartbeat receives one, because after a join error the official client
 leaves that join from its error handler and again when it replaces the view,
 and its heartbeat timer keeps running; the idle deadline bounds the wait for the
@@ -594,8 +652,8 @@ expiry are abuse controls, not substitutes for rate limiting or authorization.
 
 ## 11. Deliberate Non-Goals
 
-The package does not implement child LiveViews, upload
-transport, durable sessions, cross-replica session migration, durable or
+The package does not implement upload transport, sticky child LiveViews,
+durable sessions, cross-replica session migration, durable or
 supervised background jobs, or `stream_async`. The LiveView integration requires the Starlette
 adapter; the native ASGI adapter serves no WebSocket scopes.
 
@@ -617,7 +675,11 @@ flash dismissal and transfer across `push_navigate` and `redirect`; an
 `_live_referer`; a reload after a connected-mount client error;
 changed-only diffs that update one component without touching its sibling,
 share cached component statics, bring back a component before its destruction,
-and keep stream items across updates that leave the stream out; and nested
-components that handle their own events and leave with their parent. Ruff,
+and keep stream items across updates that leave the stream out; nested
+components that handle their own events and leave with their parent; and
+child LiveViews that join under their parent, handle their own events, end when
+removed, and navigate the page. Package tests cover child tokens, HTTP child
+rendering, child joins under joined parents, child info, leaves, navigation,
+reload, and titles. Ruff,
 formatting, ty, wheel/sdist build, artifact verification, and isolated import
 smoke run through `uv`.

@@ -321,6 +321,8 @@ Principal public API:
   `live_view`, `LiveView.send_info`, `LiveView.handle_info`.
 - Components: `LiveView.live_component` and, for nested components,
   `LiveComponent.live_component`.
+- Child LiveViews: `LiveView.live_render` and
+  `LiveViewModule.for_root(embedded=...)`.
 - Client hooks and updates: `LiveView.push_event`, `LiveView.send_update`,
   `LiveComponent.push_event`, `LiveComponent.send_update`, and mapping replies
   returned from `handle_event`.
@@ -349,8 +351,9 @@ pushes. The client bootstrap registers `globalThis.ToriLiveHooks` as the
 render-tree `e` and `r` keys. Flash follows navigation through signed Phoenix
 flash tokens and the `__phoenix_flash__` cookie, async work settles on the
 connection task, and `globalThis.ToriLiveParams` reaches connected mounts as
-connect params. Components may render nested components. Child LiveViews and
-uploads are not part of the current server surface.
+connect params. Components may render nested components, and pages render
+child LiveViews with `live_render`. Uploads and sticky child LiveViews are not
+part of the current server surface.
 
 ## `tori-py-liveview-ui`
 

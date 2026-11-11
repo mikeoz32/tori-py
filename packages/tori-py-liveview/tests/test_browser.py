@@ -363,6 +363,60 @@ class BrowserNestedLive(LiveView):
         return t'<button id="toggle-tree" phx-click="toggle">Toggle</button>{branch}'
 
 
+class BrowserChildLive(LiveView):
+    def __init__(self) -> None:
+        self.label = ""
+        self.count = 0
+
+    async def mount(self, context: MountContext) -> None:
+        self.label = context.params.get("label", "")
+
+    async def handle_event(self, event: str, value: object) -> None:
+        del value
+        if event == "bump":
+            self.count += 1
+        elif event == "away":
+            self.push_navigate("/browser-counter")
+        else:
+            raise UnknownEventError(event)
+
+    def render(self):
+        return (
+            t'<p id="child-label">{self.label}</p>'
+            t'<output id="child-count">{self.count}</output>'
+            t'<button id="child-bump" phx-click="bump">+</button>'
+            t'<button id="child-away" phx-click="away">Away</button>'
+        )
+
+
+@live_view("/browser-children")
+class BrowserParentLive(LiveView):
+    def __init__(self) -> None:
+        self.count = 0
+        self.show = True
+
+    async def handle_event(self, event: str, value: object) -> None:
+        del value
+        if event == "bump":
+            self.count += 1
+        elif event == "toggle":
+            self.show = not self.show
+        else:
+            raise UnknownEventError(event)
+
+    def render(self):
+        child = (
+            self.live_render(BrowserChildLive, "child", {"label": "Inside"})
+            if self.show
+            else ""
+        )
+        return (
+            t'<output id="parent-count">{self.count}</output>'
+            t'<button id="parent-bump" phx-click="bump">+</button>'
+            t'<button id="toggle-child" phx-click="toggle">Toggle</button>{child}'
+        )
+
+
 def _asgi(application: NestApplication) -> ASGIApp:
     return application.get_adapter(StarletteAdapter).app
 
@@ -380,7 +434,9 @@ async def _create_application() -> NestApplication:
             BrowserGoneLive,
             BrowserDiffLive,
             BrowserNestedLive,
+            BrowserParentLive,
         ],
+        embedded=[BrowserChildLive],
     )
 
     @module(imports=[liveview_module])
@@ -674,3 +730,9 @@ def gone(page: Page, selector: str) -> None:
 @then(parsers.parse('"{selector}" lists {count:d} items'))
 def lists(page: Page, selector: str, count: int) -> None:
     expect(page.locator(f"{selector} > li")).to_have_count(count)
+
+
+@then(parsers.parse('"{selector}" is connected'))
+def view_connected(page: Page, selector: str) -> None:
+    # The client marks each joined view, child views included.
+    expect(page.locator(selector)).to_have_class(re.compile(r"\bphx-connected\b"))

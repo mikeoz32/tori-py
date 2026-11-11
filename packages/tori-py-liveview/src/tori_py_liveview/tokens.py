@@ -25,11 +25,22 @@ class MountToken:
     flash: dict[str, str] = field(default_factory=dict)
 
 
+@dataclass(frozen=True, slots=True)
+class ChildToken:
+    page: str
+    view_id: str
+    parent_id: str
+    params: dict[str, str]
+    resource: str
+    session: str
+
+
 _B64 = re.compile(r"[A-Za-z0-9_-]+\Z")
 _HEX = re.compile(r"[0-9a-f]{64}\Z")
 _FLASH_PURPOSE = b"flash."
 _FLASH_MAX_AGE_MS = 60_000
 _RELOAD_PURPOSE = b"reload."
+_CHILD_PURPOSE = b"child."
 _RELOAD_MAX_AGE_MS = 60_000
 _CLOCK_SKEW_MS = 30_000
 
@@ -221,7 +232,64 @@ class ReloadTokenCodec:
         return status
 
 
+class ChildTokenCodec:
+    """Sign the session of a child LiveView that ``live_render`` placed.
+
+    Child tokens use their own HMAC purpose, so they never verify as mount,
+    flash, or reload tokens. Each binds the child page, its view id, the view
+    that rendered it, its params, and the root page's resource and live session.
+    """
+
+    def __init__(self, secret: str, *, max_age_ms: int = 300_000) -> None:
+        self._secret = _secret(secret)
+        self._max_age_ms = _max_age(max_age_ms)
+
+    def sign(
+        self,
+        page: str,
+        view_id: str,
+        parent_id: str,
+        params: Mapping[str, str],
+        resource: str,
+        session: str,
+        *,
+        now_ms: int | None = None,
+    ) -> str:
+        payload = {
+            "p": page,
+            "v": view_id,
+            "o": parent_id,
+            "a": dict(params),
+            "r": resource,
+            "s": session,
+            "i": _clock() if now_ms is None else now_ms,
+        }
+        return _sign(self._secret, _CHILD_PURPOSE, payload)
+
+    def verify(self, token: object, *, now_ms: int | None = None) -> ChildToken:
+        try:
+            data = _verified_object(self._secret, _CHILD_PURPOSE, token)
+        except ValueError as error:
+            raise InvalidMountTokenError("invalid child token") from error
+        page, view_id, parent_id = data.get("p"), data.get("v"), data.get("o")
+        params, resource, session = data.get("a"), data.get("r"), data.get("s")
+        now = _clock() if now_ms is None else now_ms
+        if (
+            not isinstance(page, str)
+            or not isinstance(view_id, str)
+            or not isinstance(parent_id, str)
+            or not _string_map(params)
+            or not isinstance(resource, str)
+            or not isinstance(session, str)
+            or not _fresh(data.get("i"), now, self._max_age_ms)
+        ):
+            raise InvalidMountTokenError("expired or invalid child token")
+        return ChildToken(page, view_id, parent_id, params, resource, session)
+
+
 __all__ = [
+    "ChildToken",
+    "ChildTokenCodec",
     "FlashTokenCodec",
     "InvalidMountTokenError",
     "MountToken",

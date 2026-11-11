@@ -128,7 +128,21 @@
   parent through package tests, random diff sequences, and pytest-bdd scenarios
   on the exact pinned official clients.
 
+## LV13: Child LiveViews
+
+- Add `LiveView.live_render` and `LiveViewModule.for_root(embedded=...)`,
+  placing child containers with purpose-separated child tokens bound to the
+  child page, view id, parent view, params, resource, and live session, and
+  rendering children into their containers over HTTP.
+- Join children on their own `lv:<view_id>` topics under a joined parent with
+  their own scope, render state, and info queue; serialize them with the main
+  view; close descendants first; answer unmatched topics as Phoenix does; and
+  keep `push_patch` to the main view.
+- Exercise child tokens, HTTP rendering, joins, events, info, leaves,
+  navigation, reload, and titles through package tests, and the browser
+  behavior through pytest-bdd scenarios on the exact pinned official clients.
+
 ## Deferred
 
-- Evaluate child LiveViews, uploads, `stream_async`, and keyed list
+- Evaluate uploads, sticky child LiveViews, `stream_async`, and keyed list
   comprehensions as separate contracts.

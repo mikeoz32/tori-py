@@ -5,6 +5,8 @@ from typing import Any, cast
 import pytest
 from tori_py_liveview import LiveViewConfigurationError, LiveViewOptions, live_view
 from tori_py_liveview.tokens import (
+    ChildToken,
+    ChildTokenCodec,
     FlashTokenCodec,
     InvalidMountTokenError,
     MountToken,
@@ -121,6 +123,38 @@ def test_reload_tokens_bind_a_client_error_to_one_page_and_resource() -> None:
     assert FlashTokenCodec("s" * 32).verify(token, now_ms=1_000_000) == {}
     with pytest.raises(InvalidMountTokenError):
         MountTokenCodec("s" * 32).verify(token, now_ms=1_000_000)
+
+
+def test_child_tokens_bind_a_child_view_to_its_parent() -> None:
+    child = ChildTokenCodec("s" * 32, max_age_ms=60_000)
+    token = child.sign(
+        "pages.Cart",
+        "cart",
+        "tori-live-root",
+        {"store": "kyiv"},
+        "/shop?tab=a",
+        "shop",
+        now_ms=1_000_000,
+    )
+
+    assert child.verify(token, now_ms=1_060_000) == ChildToken(
+        "pages.Cart", "cart", "tori-live-root", {"store": "kyiv"}, "/shop?tab=a", "shop"
+    )
+    with pytest.raises(InvalidMountTokenError):
+        child.verify(token, now_ms=1_060_001)
+    with pytest.raises(InvalidMountTokenError):
+        child.verify(token, now_ms=969_999)
+    encoded, signature = token.split(".")
+    for invalid in (None, "", f"{encoded}x.{signature}", f"{encoded}.{'0' * 64}"):
+        with pytest.raises(InvalidMountTokenError):
+            child.verify(invalid, now_ms=1_000_000)
+
+    # Child and mount tokens never verify as each other.
+    with pytest.raises(InvalidMountTokenError):
+        MountTokenCodec("s" * 32).verify(token, now_ms=1_000_000)
+    mount = MountTokenCodec("s" * 32).sign("pages.Cart", {}, "/", now_ms=1_000_000)
+    with pytest.raises(InvalidMountTokenError):
+        child.verify(mount, now_ms=1_000_000)
 
 
 def test_options_validate_security_and_endpoint_limits() -> None:

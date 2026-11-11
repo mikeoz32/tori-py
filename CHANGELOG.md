@@ -61,6 +61,12 @@ one package does not require the same change in every package.
   component from a component's `render()`; nested components share the page's
   identity namespace, CIDs, targets, `send_update()`, async work, and
   destruction handshake.
+- LiveView child LiveViews. `LiveView.live_render()` places a registered page as
+  a child view, rendered into its container over HTTP and joined on its own
+  channel topic over the same socket, and `LiveViewModule.for_root(embedded=...)`
+  registers pages rendered only this way. Child tokens are signed for their
+  page, view id, parent, params, and session, and a child joins only under a
+  joined parent.
 
 ### Fixed
 

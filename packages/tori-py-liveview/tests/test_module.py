@@ -42,8 +42,14 @@ from tori_py_liveview import (
     rendered,
 )
 from tori_py_liveview._diff import _RenderState
+from tori_py_liveview.endpoint import _child_signer
 from tori_py_liveview.page import _AsyncTask
-from tori_py_liveview.tokens import FlashTokenCodec, MountTokenCodec, ReloadTokenCodec
+from tori_py_liveview.tokens import (
+    ChildTokenCodec,
+    FlashTokenCodec,
+    MountTokenCodec,
+    ReloadTokenCodec,
+)
 
 
 @live_view("/counter")
@@ -3149,3 +3155,440 @@ async def test_cancelled_async_work_is_awaited_only_until_the_cancel_deadline(
 
     release.set()
     await task
+
+
+class CounterChildLive(LiveView):
+    events: ClassVar[list[str]] = []
+    connected: ClassVar[dict[str, CounterChildLive]] = {}
+
+    def __init__(self) -> None:
+        self.label = ""
+        self.count = 0
+        self.nested = False
+
+    @classmethod
+    def reset(cls) -> None:
+        cls.events = []
+        cls.connected = {}
+
+    async def mount(self, context: MountContext) -> None:
+        self.label = context.params.get("label", "")
+        self.nested = context.params.get("nested") == "yes"
+        type(self).events.append(
+            f"mount:{self.label}:{context.connected}:{context.resource}"
+        )
+        if not context.connected:
+            return
+        type(self).connected[self.label] = self
+        if context.params.get("gone") == "yes":
+            raise HttpException(404, "gone")
+        if context.params.get("away") == "yes":
+            self.push_navigate("/children-other")
+
+    async def handle_event(self, event: str, value: object) -> None:
+        del value
+        if event == "bump":
+            self.count += 1
+        elif event == "away":
+            self.put_flash("info", "Away")
+            self.push_navigate("/children-other")
+        elif event == "leave":
+            self.redirect("/children-other")
+        else:
+            raise UnknownEventError(event)
+
+    async def handle_info(self, name: str, value: object) -> None:
+        if name != "set":
+            await super().handle_info(name, value)
+            return
+        self.count = cast(int, value)
+
+    def title(self) -> str | None:
+        return "Child" if self.label == "titled" else None
+
+    def render(self):
+        inner = (
+            self.live_render(
+                CounterChildLive, f"{self.label}-inner", {"label": "inner"}
+            )
+            if self.nested
+            else ""
+        )
+        return t"<p>{self.label}:{self.count}</p>{inner}"
+
+    async def disconnect(self) -> None:
+        type(self).events.append(f"disconnect:{self.label}")
+
+
+@live_view("/children")
+class ParentLive(LiveView):
+    def __init__(self) -> None:
+        self.show = True
+        self.count = 0
+        self.child_params = {"label": "a"}
+
+    async def mount(self, context: MountContext) -> None:
+        for key in ("label", "nested", "gone", "away"):
+            value = context.query_params.get(key)
+            if value is not None:
+                self.child_params[key] = value
+
+    async def handle_event(self, event: str, value: object) -> None:
+        del value
+        if event == "toggle":
+            self.show = not self.show
+        elif event == "bump":
+            self.count += 1
+        else:
+            raise UnknownEventError(event)
+
+    def render(self):
+        child = (
+            self.live_render(CounterChildLive, "counter", self.child_params)
+            if self.show
+            else ""
+        )
+        return t"<main><b>{self.count}</b>{child}</main>"
+
+
+@live_view("/children-other")
+class OtherChildrenLive(LiveView):
+    def render(self) -> str:
+        return "<p>other</p>"
+
+
+async def _children_application(key: str) -> NestApplication:
+    liveview_module = LiveViewModule.for_root(
+        LiveViewOptions(secret=_SECRET),
+        pages=[ParentLive, OtherChildrenLive],
+        embedded=[CounterChildLive],
+        key=key,
+    )
+
+    @module(imports=[liveview_module])
+    class Root:
+        pass
+
+    application = await NestApplication.create(Root, adapter=StarletteAdapter())
+    await application.start()
+    return application
+
+
+def _child_session(markup: object, view_id: str) -> str:
+    match = re.search(rf'<div id="{view_id}" data-phx-session="([^"]+)"', str(markup))
+    assert match is not None
+    return match[1]
+
+
+def _child_join(view_id: str, token: str, ref: str) -> Message:
+    payload = {"params": {"_mounts": 0}, "session": token, "static": ""}
+    return _receive_text([ref, ref, f"lv:{view_id}", "phx_join", payload])
+
+
+def _child_message(
+    view_id: str, join_ref: str, ref: str, event: str, payload: dict[str, object]
+) -> Message:
+    return _receive_text([join_ref, ref, f"lv:{view_id}", event, payload])
+
+
+def _child_event(view_id: str, join_ref: str, ref: str, event: str) -> Message:
+    payload: dict[str, object] = {"type": "click", "event": event, "value": {}}
+    return _child_message(view_id, join_ref, ref, "event", payload)
+
+
+async def _joined_parent(
+    application: NestApplication, path: str = "/children"
+) -> tuple[_ChannelSession, dict[str, object]]:
+    page = await _request(application, path)
+    session = _ChannelSession(application)
+    await session.start()
+    await session.push(_join(_token(page.text), url=f"http://testserver{path}"))
+    return session, _rendered((await session.frames(1))[0])
+
+
+@pytest.mark.asyncio
+async def test_http_render_includes_child_views_and_their_children() -> None:
+    CounterChildLive.reset()
+    application = await _children_application("children-http")
+    page = await _request(application, "/children?nested=yes")
+    assert '<main><b>0</b><div id="counter" data-phx-session="' in page.text
+    assert (
+        'data-phx-static="" data-phx-parent-id="tori-live-root"><p>a:0</p>'
+        '<div id="a-inner" data-phx-session="'
+    ) in page.text
+    assert (
+        'data-phx-parent-id="counter"><p>inner:0</p></div></div></main>'
+    ) in page.text
+    # Children mount with their params and the page's resource, and like the
+    # page itself they do not disconnect after the HTTP render.
+    assert CounterChildLive.events == [
+        "mount:a:False:/children?nested=yes",
+        "mount:inner:False:/children?nested=yes",
+    ]
+    await application.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_child_views_join_and_update_on_their_own_topic() -> None:
+    CounterChildLive.reset()
+    application = await _children_application("children-join")
+    session, root = await _joined_parent(application)
+    container = root["1"]
+    assert isinstance(container, str)
+    assert container.endswith('data-phx-parent-id="tori-live-root"></div>')
+
+    await session.push(
+        _child_join("counter", _child_session(container, "counter"), "10")
+    )
+    joined = (await session.frames(2))[1]
+    assert joined[:4] == ["10", "10", "lv:counter", "phx_reply"]
+    # A child without a title leaves the page title alone.
+    assert _response(joined) == {
+        "rendered": {"s": ["<p>", ":", "</p>", ""], "0": "a", "1": "0", "2": ""},
+        "liveview_version": "1.2.11",
+    }
+    assert CounterChildLive.events[-1] == "mount:a:True:/children"
+
+    await session.push(_child_event("counter", "10", "11", "bump"))
+    assert _response((await session.frames(3))[2]) == {"diff": {"1": "1"}}
+    # The parent renders around the joined child, whose container stays put.
+    await session.push(_event("2", "bump"))
+    assert _diff((await session.frames(4))[3]) == {"0": "1"}
+    assert CounterChildLive.connected["a"].send_info("set", 7)
+    assert (await session.frames(5))[4] == [
+        "10",
+        None,
+        "lv:counter",
+        "diff",
+        {"1": "7"},
+    ]
+
+    # The client leaves a removed child, which disconnects; Phoenix answers
+    # later messages for its topic as unmatched.
+    await session.push(_event("3", "toggle"))
+    assert _diff((await session.frames(6))[5]) == {"1": ""}
+    await session.push(_child_message("counter", "10", "12", "phx_leave", {}))
+    assert _reply_payload((await session.frames(7))[6]) == {
+        "status": "ok",
+        "response": {},
+    }
+    await _until(lambda: CounterChildLive.events[-1] == "disconnect:a")
+    await session.push(_child_event("counter", "10", "13", "bump"))
+    assert _reply_payload((await session.frames(8))[7]) == {
+        "status": "error",
+        "response": {"reason": "unmatched topic"},
+    }
+    await session.push(_event("4", "bump"))
+    assert _diff((await session.frames(9))[8]) == {"0": "2"}
+    await session.close()
+    await application.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_child_views_join_only_under_a_joined_parent_with_their_own_token() -> (
+    None
+):
+    CounterChildLive.reset()
+    application = await _children_application("children-auth")
+    page = await _request(application, "/children?nested=yes")
+    session = _ChannelSession(application)
+    await session.start()
+    await session.push(
+        _join(_token(page.text), url="http://testserver/children?nested=yes")
+    )
+    root = _rendered((await session.frames(1))[0])
+    child_token = _child_session(root["1"], "counter")
+    inner_token = _child_session(page.text, "a-inner")
+
+    unauthorized = {"status": "error", "response": {"reason": "unauthorized"}}
+    # Another view's token, the page's mount token, and a grandchild whose
+    # parent has not joined are all refused.
+    await session.push(_child_join("other", child_token, "20"))
+    await session.push(_child_join("counter", _token(page.text), "21"))
+    await session.push(_child_join("a-inner", inner_token, "22"))
+    frames = await session.frames(4)
+    assert [_reply_payload(frame) for frame in frames[1:4]] == [unauthorized] * 3
+
+    await session.push(_child_join("counter", child_token, "23"))
+    joined = _response((await session.frames(5))[4])
+    rendered = cast(dict[str, object], joined["rendered"])
+    await session.push(
+        _child_join("a-inner", _child_session(rendered["2"], "a-inner"), "24")
+    )
+    assert _reply_payload((await session.frames(6))[5])["status"] == "ok"
+
+    # Leaving the main view closes its children, grandchildren first.
+    await session.push(_receive_text(["1", "2", _TOPIC, "phx_leave", {}]))
+    await session.frames(7)
+    await _until(
+        lambda: CounterChildLive.events[-2:] == ["disconnect:inner", "disconnect:a"]
+    )
+    # Their own leaves may still follow, and are acknowledged between joins.
+    await session.push(_child_message("a-inner", "24", "25", "phx_leave", {}))
+    await session.push(_child_message("counter", "23", "26", "phx_leave", {}))
+    frames = await session.frames(9)
+    assert [_reply_payload(frame)["status"] for frame in frames[7:9]] == ["ok", "ok"]
+
+    # A second join of a joined child's topic breaks the protocol.
+    await session.push(
+        _join(_token(page.text), ref="3", url="http://testserver/children?nested=yes")
+    )
+    root = _rendered((await session.frames(10))[9])
+    token = _child_session(root["1"], "counter")
+    await session.push(_child_join("counter", token, "30"))
+    await session.frames(11)
+    await session.push(_child_join("counter", token, "31"))
+    sent = await session.ended()
+    assert [m.get("code") for m in sent if m["type"] == "websocket.close"] == [1002]
+    await application.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_a_leaving_child_closes_its_own_children() -> None:
+    CounterChildLive.reset()
+    application = await _children_application("children-nested-leave")
+    session, root = await _joined_parent(application, "/children?nested=yes")
+    await session.push(
+        _child_join("counter", _child_session(root["1"], "counter"), "10")
+    )
+    joined = _response((await session.frames(2))[1])
+    rendered = cast(dict[str, object], joined["rendered"])
+    await session.push(
+        _child_join("a-inner", _child_session(rendered["2"], "a-inner"), "11")
+    )
+    await session.frames(3)
+
+    await session.push(_child_message("counter", "10", "12", "phx_leave", {}))
+    await session.frames(4)
+    await _until(
+        lambda: CounterChildLive.events[-2:] == ["disconnect:inner", "disconnect:a"]
+    )
+    await session.push(_child_event("a-inner", "11", "13", "bump"))
+    assert _reply_payload((await session.frames(5))[4])["response"] == {
+        "reason": "unmatched topic"
+    }
+    await session.close()
+    await application.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_child_views_navigate_the_page_and_close() -> None:
+    CounterChildLive.reset()
+    application = await _children_application("children-navigate")
+    session, root = await _joined_parent(application)
+    token = _child_session(root["1"], "counter")
+    await session.push(_child_join("counter", token, "10"))
+    await session.frames(2)
+
+    await session.push(_child_event("counter", "10", "11", "away"))
+    navigated = _reply_payload((await session.frames(3))[2])
+    live_redirect = cast(
+        dict[str, object],
+        cast(dict[str, object], navigated["response"])["live_redirect"],
+    )
+    assert (live_redirect["kind"], live_redirect["to"]) == ("push", "/children-other")
+    assert FlashTokenCodec(_SECRET).verify(live_redirect["flash"]) == {"info": "Away"}
+    await _until(lambda: CounterChildLive.events[-1] == "disconnect:a")
+    # The main view stays until the client replaces it.
+    await session.push(_event("2", "bump"))
+    assert _diff((await session.frames(4))[3]) == {"0": "1"}
+
+    await session.push(_child_join("counter", token, "12"))
+    await session.frames(5)
+    await session.push(_child_event("counter", "12", "13", "leave"))
+    redirected = _reply_payload((await session.frames(6))[5])
+    assert redirected == {
+        "status": "ok",
+        "response": {"redirect": {"to": "/children-other"}},
+    }
+    await session.ended()
+    await application.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_child_mounts_can_navigate_or_reload_the_page() -> None:
+    CounterChildLive.reset()
+    application = await _children_application("children-mount")
+    session, root = await _joined_parent(application, "/children?away=yes")
+    await session.push(
+        _child_join("counter", _child_session(root["1"], "counter"), "10")
+    )
+    navigated = _reply_payload((await session.frames(2))[1])
+    assert navigated == {
+        "status": "error",
+        "response": {"live_redirect": {"kind": "push", "to": "/children-other"}},
+    }
+    assert CounterChildLive.events[-1] == "disconnect:a"
+    await session.close()
+
+    session, root = await _joined_parent(application, "/children?gone=yes")
+    await session.push(
+        _child_join("counter", _child_session(root["1"], "counter"), "10")
+    )
+    reload = cast(
+        dict[str, object], _reply_payload((await session.frames(2))[1])["response"]
+    )
+    assert (reload["reason"], reload["status"]) == ("reload", 404)
+    # The reload token names the main page, whose HTTP render then answers 404.
+    assert (
+        ReloadTokenCodec(_SECRET).verify(
+            reload["token"],
+            f"{ParentLive.__module__}.{ParentLive.__qualname__}",
+            "/children?gone=yes",
+        )
+        == 404
+    )
+    await session.close()
+    await application.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_a_child_that_sets_a_title_sends_it() -> None:
+    CounterChildLive.reset()
+    application = await _children_application("children-title")
+    session, root = await _joined_parent(application, "/children?label=titled")
+    await session.push(
+        _child_join("counter", _child_session(root["1"], "counter"), "10")
+    )
+    rendered = cast(
+        dict[str, object], _response((await session.frames(2))[1])["rendered"]
+    )
+    assert rendered["t"] == "Child"
+    await session.close()
+    await application.shutdown()
+
+
+def test_embedded_pages_are_registered_without_routes() -> None:
+    options = LiveViewOptions(secret=_SECRET)
+    with pytest.raises(LiveViewConfigurationError, match="must not declare @live_view"):
+        LiveViewModule.for_root(
+            options, pages=[ParentLive], embedded=[OtherChildrenLive]
+        )
+    with pytest.raises(LiveViewConfigurationError, match="LiveView subclasses"):
+        LiveViewModule.for_root(
+            options, pages=[ParentLive], embedded=[cast(Any, object)]
+        )
+    with pytest.raises(LiveViewConfigurationError, match="unique"):
+        LiveViewModule.for_root(
+            options, pages=[ParentLive], embedded=[CounterChildLive, CounterChildLive]
+        )
+    with pytest.raises(LiveViewConfigurationError, match="iterable"):
+        LiveViewModule.for_root(options, pages=[ParentLive], embedded=cast(Any, 1))
+
+
+def test_child_signer_accepts_only_registered_pages() -> None:
+    sign = _child_signer(
+        ChildTokenCodec(_SECRET),
+        {"pages.Counter": CounterChildLive},
+        parent_id="tori-live-root",
+        resource="/children",
+        session="",
+    )
+    token = ChildTokenCodec(_SECRET).verify(sign(CounterChildLive, "counter", {}))
+    assert (token.page, token.view_id, token.parent_id) == (
+        "pages.Counter",
+        "counter",
+        "tori-live-root",
+    )
+    with pytest.raises(LiveViewError, match="not registered"):
+        sign(OtherChildrenLive, "other", {})

@@ -169,3 +169,33 @@ Feature: LiveView pages in a real browser
     When I click "#toggle-tree"
     Then "#leaf-a-count" shows "0"
     And "#leaf-b-count" shows "0"
+
+  Scenario: A child LiveView joins and handles its own events
+    Given I open the "/browser-children" live page
+    Then "#child" is connected
+    And "#child-label" shows "Inside"
+    When I click "#child-bump"
+    Then "#child-count" shows "1"
+    And "#parent-count" shows "0"
+    When I click "#parent-bump"
+    Then "#parent-count" shows "1"
+    And "#child-count" shows "1"
+
+  Scenario: Removing a child LiveView ends it
+    Given I open the "/browser-children" live page
+    Then "#child" is connected
+    When I click "#child-bump"
+    Then "#child-count" shows "1"
+    When I click "#toggle-child"
+    Then "#child" is gone
+    When I click "#toggle-child"
+    Then "#child" is connected
+    And "#child-count" shows "0"
+
+  Scenario: A child LiveView navigates the whole page
+    Given I open the "/browser-children" live page
+    Then "#child" is connected
+    When I click "#child-away"
+    Then the URL is "/browser-counter"
+    And "#count" shows "0"
+    And the document was not reloaded

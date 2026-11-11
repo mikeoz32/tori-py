@@ -7,6 +7,7 @@ from typing import Final
 
 from tori_py_liveview.rendering import (
     Rendered,
+    _ChildRendered,
     _ComponentRendered,
     _RenderedDynamic,
     _StreamRendered,
@@ -51,9 +52,11 @@ class _RenderState:
     until the client prunes them after the server confirms `cids_destroyed`.
     """
 
-    __slots__ = ("_components", "_root", "_title")
+    __slots__ = ("_components", "_main", "_root", "_title")
 
-    def __init__(self) -> None:
+    def __init__(self, *, main: bool = True) -> None:
+        # Only the main view owns the document title.
+        self._main = main
         self._root: Rendered | None = None
         self._components: dict[int, Rendered] = {}
         self._title: str | None = None
@@ -72,8 +75,12 @@ class _RenderState:
         encoder.share_statics()
         if encoder.trees:
             payload["c"] = encoder.trees
-        if previous is None or title != self._title:
+        if self._main and (previous is None or title != self._title):
             payload["t"] = "" if title is None else title
+        elif not self._main and title is not None and title != self._title:
+            # The client writes any string title, and an empty one clears the
+            # page's, so a child sends only a title it sets.
+            payload["t"] = title
         self._root = rendered
         self._components = encoder.components
         self._title = title
@@ -141,6 +148,8 @@ class _Encoder:
             return self._component(value)
         if isinstance(value, _StreamRendered):
             return _stream_tree(value)
+        if isinstance(value, _ChildRendered):
+            return value.value
         if isinstance(value, Rendered):
             return self.full(value)
         return value
@@ -165,6 +174,11 @@ class _Encoder:
             ):
                 return _UNCHANGED
             return _stream_tree(value)
+        if isinstance(value, _ChildRendered):
+            # The client keeps a joined child's container and contents.
+            if isinstance(before, _ChildRendered) and before.value == value.value:
+                return _UNCHANGED
+            return value.value
         if isinstance(value, Rendered):
             if type(before) is Rendered and before.statics == value.statics:
                 return self.changed(value, before) or _UNCHANGED

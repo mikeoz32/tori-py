@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import FrozenInstanceError
 from string.templatelib import Template
-from typing import cast
+from typing import Any, cast
 
 import pytest
 from tori_py_liveview import (
@@ -17,7 +18,7 @@ from tori_py_liveview import (
     raw,
     rendered,
 )
-from tori_py_liveview.rendering import _ComponentRendered
+from tori_py_liveview.rendering import _ChildRendered, _ComponentRendered
 
 
 def _set_attribute(target: object, name: str, value: object) -> None:
@@ -447,6 +448,117 @@ def test_components_render_nested_components_only_while_the_page_renders() -> No
     branch._attach_liveview("branch", 1, False, Page())
     with pytest.raises(LiveViewError, match="while their page renders"):
         branch.live_component(Leaf, "leaf")
+
+
+class _ChildPage(LiveView):
+    def render(self) -> str:
+        return "<p>child</p>"
+
+
+def _signed(page_type: type[LiveView], view_id: str, params: Mapping[str, str]) -> str:
+    return f"{page_type.__name__}.{view_id}.{len(params)}"
+
+
+@pytest.mark.asyncio
+async def test_live_render_places_a_child_container_with_a_stable_token() -> None:
+    calls: list[tuple[str, dict[str, str]]] = []
+
+    def signer(
+        page_type: type[LiveView], view_id: str, params: Mapping[str, str]
+    ) -> str:
+        calls.append((view_id, dict(params)))
+        return _signed(page_type, view_id, params)
+
+    class Page(LiveView):
+        def __init__(self) -> None:
+            self.store = "kyiv"
+
+        def render(self) -> Template:
+            cart = self.live_render(_ChildPage, "cart", {"store": self.store})
+            return t"<main>{cart}</main>"
+
+    page = Page()
+    page._liveview_child_signer = signer
+    first = await page._render_liveview()
+    child = first.dynamics[0]
+    assert isinstance(child, _ChildRendered)
+    assert first.to_html() == (
+        '<main><div id="cart" data-phx-session="_ChildPage.cart.1" '
+        'data-phx-static="" data-phx-parent-id="tori-live-root"></div></main>'
+    )
+    assert (child.view_id, child.page_type, child.params) == (
+        "cart",
+        _ChildPage,
+        (("store", "kyiv"),),
+    )
+    # Unchanged params keep the token, so the container stays out of diffs.
+    assert (await page._render_liveview()).dynamics[0] == child
+    page.store = "lviv"
+    await page._render_liveview()
+    assert calls == [("cart", {"store": "kyiv"}), ("cart", {"store": "lviv"})]
+
+    page._liveview_view_id = "outer"
+    nested = await page._render_liveview()
+    assert 'data-phx-parent-id="outer"' in nested.to_html()
+
+
+@pytest.mark.asyncio
+async def test_live_render_validates_children_and_runs_only_while_rendering() -> None:
+    page = _ChildPage()
+    page._liveview_child_signer = _signed
+    with pytest.raises(LiveViewError, match="while their page renders"):
+        page.live_render(_ChildPage, "cart")
+
+    def render_with(*args: object) -> type[LiveView]:
+        class Page(LiveView):
+            def render(self) -> Template:
+                return t"{cast(Any, self.live_render)(*args)}"
+
+        return Page
+
+    async def render(page_type: type[LiveView]) -> None:
+        page = page_type()
+        page._liveview_child_signer = _signed
+        await page._render_liveview()
+
+    with pytest.raises(TypeError, match="LiveView subclass"):
+        await render(render_with(_NotAPage, "cart"))
+    with pytest.raises(TypeError, match="must be a string"):
+        await render(render_with(_ChildPage, 1))
+    for invalid in ("", "has space", "a" * 129, "tori-live-root"):
+        with pytest.raises(ValueError, match="letters, digits"):
+            await render(render_with(_ChildPage, invalid))
+    with pytest.raises(TypeError, match="map strings to strings"):
+        await render(render_with(_ChildPage, "cart", {"store": 1}))
+
+    class Twice(LiveView):
+        def render(self) -> Template:
+            first = self.live_render(_ChildPage, "cart")
+            return t"{first}{self.live_render(_ChildPage, 'cart')}"
+
+    with pytest.raises(LiveViewError, match="Duplicate child LiveView id"):
+        await render(Twice)
+
+    class Unserved(LiveView):
+        def render(self) -> Template:
+            return t"{self.live_render(_ChildPage, 'cart')}"
+
+    with pytest.raises(LiveViewError, match="served by LiveViewModule"):
+        await Unserved()._render_liveview()
+
+
+class _NotAPage:
+    pass
+
+
+def test_only_the_main_view_can_push_patch() -> None:
+    page = _ChildPage()
+    page.push_patch("/here")
+    child = _ChildPage()
+    child._liveview_view_id = "cart"
+    with pytest.raises(LiveViewError, match="only the root LiveView can push_patch"):
+        child.push_patch("/here")
+    child.push_navigate("/elsewhere")
 
 
 def test_stream_insert_accepts_a_template() -> None:
