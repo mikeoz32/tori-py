@@ -798,6 +798,8 @@ async def test_same_page_push_navigate_uses_live_redirect() -> None:
                     {"type": "click", "event": "edit", "value": None},
                 ]
             ),
+            # Otherwise the server waits for the next join until its idle deadline.
+            {"type": "websocket.disconnect", "code": 1000, "reason": ""},
         )
         replies = _replies(sent)
         assert cast(dict[str, object], replies[1][4]) == {

@@ -1395,6 +1395,8 @@ async def test_phoenix_channel_echoes_heartbeats_and_acknowledges_leave() -> Non
         _join(token),
         _receive_text([None, "2", "phoenix", "heartbeat", {}]),
         _receive_text(["1", "3", _TOPIC, "phx_leave", {}]),
+        # Otherwise the server waits for the next join until its idle deadline.
+        _disconnect(),
     )
     messages = _decode_sent(sent)
     assert messages[1] == [
