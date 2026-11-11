@@ -188,3 +188,6 @@ There is no CDN, Node dependency, external font, global reset, runtime
 JavaScript, validation/coercion engine, or widget-owned behavior in this
 package. A future Tailwind integration belongs in a separately distributed
 precompiled skin adapter, not in the core runtime dependency graph.
+
+See the [LiveView UI guide](https://mikeoz32.github.io/tori-py/techniques/liveview-ui/)
+for forms, themes, skins, and the full token reference.

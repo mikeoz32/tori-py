@@ -46,6 +46,8 @@ REQUIRED_FILES = (
     "techniques/event-sourcing/index.md",
     "techniques/microservices/index.md",
     "techniques/persistent-streams/index.md",
+    "techniques/liveview/index.md",
+    "techniques/liveview-ui/index.md",
     "operations/index.md",
     "operations/security.md",
     "operations/limitations.md",

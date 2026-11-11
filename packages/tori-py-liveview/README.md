@@ -314,8 +314,9 @@ trees, stateful component CIDs, targeted events, heartbeats,
 reconnect-compatible joins, title updates, browser-owned bounded streams, and
 serialized connection-local server updates through `send_info`/`handle_info`.
 The configured socket path is the Phoenix endpoint base; the browser connects to
-its `/websocket?vsn=2.0.0` transport route. Nested components, uploads,
-navigation, and application hook/reply APIs are reserved for later releases.
+its `/websocket?vsn=2.0.0` transport route. Nested components, uploads, and
+application hook/reply APIs are reserved for later releases.
 
-See the runnable example in `examples/tori_py/liveview` and the normative
+See the [LiveView guide](https://mikeoz32.github.io/tori-py/techniques/liveview/),
+the runnable example in `examples/tori_py/liveview`, and the normative
 architecture in `TORI_PY_LIVEVIEW_ARCHITECTURE.md`.
