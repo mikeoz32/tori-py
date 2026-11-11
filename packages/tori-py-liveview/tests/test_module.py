@@ -40,6 +40,7 @@ from tori_py_liveview import (
     live_view,
     rendered,
 )
+from tori_py_liveview.page import _AsyncTask
 from tori_py_liveview.tokens import FlashTokenCodec, MountTokenCodec, ReloadTokenCodec
 
 
@@ -1985,6 +1986,21 @@ def _open_gate(gate: str) -> None:
     _GATES.setdefault(gate, asyncio.Event()).set()
 
 
+def _immediately(value: object) -> Callable[[], Awaitable[object]]:
+    async def run() -> object:
+        return value
+
+    return run
+
+
+async def _until(predicate: Callable[[], bool]) -> None:
+    async def wait() -> None:
+        while not predicate():
+            await asyncio.sleep(0)
+
+    await asyncio.wait_for(wait(), timeout=2)
+
+
 class AsyncWidget(LiveComponent):
     def __init__(self) -> None:
         self.value = "waiting"
@@ -2053,6 +2069,8 @@ class AsyncLive(LiveView):
             self.assign_async("org", _gated(gate, "Beta"))
         elif event == "explode":
             self.start_async("explode", _gated(gate, "x"))
+        elif event == "leave":
+            self.push_navigate("/flash")
         else:
             raise UnknownEventError(event)
 
@@ -2757,6 +2775,122 @@ async def test_async_validates_and_cancels_component_work() -> None:
     await page._disconnect_liveview()
     assert _CANCELLED == ["widget"]
     assert widget.value == "waiting"
+
+
+class QueuedResultsLive(LiveView):
+    def __init__(self) -> None:
+        self.outcomes: list[tuple[str, AsyncResult[object]]] = []
+
+    async def handle_async(self, name: str, result: AsyncResult[object]) -> None:
+        self.outcomes.append((name, result))
+
+    def render(self) -> str:
+        return "<p></p>"
+
+
+async def _queued(page: LiveView, count: int) -> None:
+    """Wait until finished work has queued ``count`` undelivered completions."""
+    queue = page._liveview_info_queue
+    assert queue is not None
+    await _until(lambda: queue.qsize() == count)
+
+
+@pytest.mark.asyncio
+async def test_finished_work_waiting_in_the_queue_follows_replace_and_cancel() -> None:
+    page = QueuedResultsLive()
+    page._connect_liveview()
+
+    # Restarting a name drops the old result even after it finished and queued.
+    page.start_async("job", _immediately("old"))
+    await _queued(page, 1)
+    page.start_async("job", _immediately("new"))
+    await _queued(page, 2)
+    replaced = await page._receive_liveview_info()
+    assert isinstance(replaced, _AsyncTask)
+    assert await page._settle_liveview_async(replaced) is False
+    current = await page._receive_liveview_info()
+    assert isinstance(current, _AsyncTask)
+    assert await page._settle_liveview_async(current) is True
+    assert page.outcomes == [("job", AsyncResult(ok=True, result="new"))]
+
+    # Cancelling work that already finished delivers its real outcome.
+    page.start_async("done", _immediately("kept"))
+    await _queued(page, 1)
+    assert page.cancel_async("done") is True
+    finished = await page._receive_liveview_info()
+    assert isinstance(finished, _AsyncTask)
+    assert await page._settle_liveview_async(finished) is True
+    assert page.outcomes[-1] == ("done", AsyncResult(ok=True, result="kept"))
+    assert page.cancel_async("done") is False
+    await page._disconnect_liveview()
+
+
+class QuickWidget(LiveComponent):
+    delivered: ClassVar[list[object]] = []
+
+    def mount(self) -> None:
+        self.start_async("quick", _immediately("done"))
+
+    async def handle_async(self, name: str, result: AsyncResult[object]) -> None:
+        type(self).delivered.append(result.result)
+
+    def render(self) -> str:
+        return "<span></span>"
+
+
+class ToggleLive(LiveView):
+    def __init__(self) -> None:
+        self.show = True
+
+    def render(self):
+        widget = self.live_component(QuickWidget, "quick") if self.show else ""
+        return t"<div>{widget}</div>"
+
+
+@pytest.mark.asyncio
+async def test_destroyed_component_drops_its_finished_queued_result() -> None:
+    QuickWidget.delivered = []
+    page = ToggleLive()
+    page._connect_liveview()
+    await page._render_liveview()
+    await _queued(page, 1)
+
+    # The browser confirms the component's removal before the loop reads the
+    # queued completion, so the result never reaches the destroyed component.
+    page.show = False
+    await page._render_liveview()
+    page._prepare_liveview_component_destruction([1])
+    assert await page._destroy_liveview_components([1]) == [1]
+    orphaned = await page._receive_liveview_info()
+    assert isinstance(orphaned, _AsyncTask)
+    assert await page._settle_liveview_async(orphaned) is False
+    assert QuickWidget.delivered == []
+    await page._disconnect_liveview()
+
+
+@pytest.mark.asyncio
+async def test_live_navigation_cancels_the_outgoing_pages_work() -> None:
+    AsyncLive.reset()
+    application = await _lifecycle_application("async-navigation")
+    page = await _request(application, "/async")
+    session = _ChannelSession(application)
+    await session.start()
+    await session.push(_join_with(_token(page.text), "http://testserver/async"))
+    await session.frames(1)
+    await session.push(_event("2", "start", value={"gate": "slow"}))
+    await session.frames(2)
+
+    await session.push(_event("3", "leave"))
+    assert _response((await session.frames(3))[2]) == {
+        "live_redirect": {"kind": "push", "to": "/flash"}
+    }
+    # Page, assign_async, and component work all stop before the next join.
+    await _until(lambda: len(_CANCELLED) == 3)
+    assert sorted(_CANCELLED) == ["org", "slow", "widget"]
+    assert len(_decode_sent(session.sent)) == 3
+    await session.close()
+    assert AsyncLive.outcomes == []
+    await application.shutdown()
 
 
 class ReportWidget(LiveComponent):
