@@ -322,8 +322,9 @@ Principal public API:
 - Client hooks and updates: `LiveView.push_event`, `LiveView.send_update`,
   `LiveComponent.push_event`, `LiveComponent.send_update`, and mapping replies
   returned from `handle_event`.
-- Flash: `LiveView.flash`, `put_flash`, and `clear_flash`, also on
-  `LiveComponent`.
+- Flash: `LiveView.flash`, `LiveView.put_flash`, and `LiveView.clear_flash`;
+  `LiveComponent.put_flash` and `LiveComponent.clear_flash` forward to the
+  owning page, which renders the flash.
 - Async work: `AsyncResult`, `start_async`, `assign_async`, `cancel_async`, and
   `handle_async` on `LiveView` and `LiveComponent`.
 - Connect params: `MountContext.connect_params`, `tracked_static`, and
