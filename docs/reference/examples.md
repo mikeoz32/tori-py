@@ -32,7 +32,10 @@ The method-interception demo accepts `Bearer reader-token` and
 `Bearer publisher-token`; they are example credentials, not production auth.
 Connect to `ws://127.0.0.1:8000/echo/demo` for the WebSocket gateway, or run
 its test with `uv run pytest examples/tori_py/websocket`. The
-[WebSockets](../websockets.md) guide explains gateways.
+[WebSockets](../websockets.md) guide explains gateways. The
+[WebSocket task feed tutorial](../tutorials/websocket-task-feed.md) builds a
+larger gateway on Task API Part 1; test it with
+`uv run pytest examples/tori_py/tutorials/websocket_task_feed/task_app/test_app.py -q`.
 
 ### LiveView
 

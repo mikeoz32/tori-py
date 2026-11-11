@@ -32,6 +32,7 @@ REQUIRED_FILES = (
     "tutorials/distributed-application.md",
     "tutorials/event-sourced-application.md",
     "tutorials/live-task-board.md",
+    "tutorials/websocket-task-feed.md",
     "fundamentals/index.md",
     "fundamentals/modules.md",
     "fundamentals/providers-and-di.md",

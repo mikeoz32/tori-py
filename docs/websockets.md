@@ -68,6 +68,10 @@ uv run tori-py run examples.tori_py.websocket.app:create_application
 uv run pytest examples/tori_py/websocket
 ```
 
+[Add a Live Task Feed with WebSockets](tutorials/websocket-task-feed.md) builds
+a complete gateway step by step: an `Origin` guard, per-connection state as a
+managed request-scoped resource, disconnect detection while idle, and tests.
+
 ## Connection Bindings
 
 Every parameter except `self` requires exactly one `Annotated` marker:

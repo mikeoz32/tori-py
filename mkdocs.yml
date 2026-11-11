@@ -65,6 +65,7 @@ nav:
       - "Part 3: Distribute It": tutorials/distributed-application.md
       - "Part 4: Add Event Sourcing": tutorials/event-sourced-application.md
       - Live Task Board: tutorials/live-task-board.md
+      - Live Feed with WebSockets: tutorials/websocket-task-feed.md
   - Fundamentals:
       - Overview: fundamentals/index.md
       - Modules: fundamentals/modules.md
