@@ -68,6 +68,7 @@ nav:
       - Live Task Board: tutorials/live-task-board.md
       - Live Feed with WebSockets: tutorials/websocket-task-feed.md
       - Task Activity Stream: tutorials/stream-task-activity.md
+      - Persist with SQLAlchemy: tutorials/sqlalchemy-task-api.md
   - Fundamentals:
       - Overview: fundamentals/index.md
       - Modules: fundamentals/modules.md

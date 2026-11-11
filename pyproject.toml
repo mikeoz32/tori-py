@@ -57,6 +57,7 @@ dev = [
     "websockets>=17,<18",
     "uvicorn>=0.41,<1",
     "tzdata>=2026.3",
+    "alembic>=1.20,<2",
 ]
 docs = [
     "mkdocs>=1.6.1,<2",
@@ -78,6 +79,8 @@ indent-style = "space"
 
 [tool.ty.environment]
 python-version = "3.14"
+# Alembic runs the SQLAlchemy tutorial's env.py with task_app as a top-level package.
+extra-paths = ["examples/tori_py/tutorials/sqlalchemy_task_api"]
 
 [tool.pytest.ini_options]
 addopts = "--import-mode=importlib --ignore=benchmarks"
