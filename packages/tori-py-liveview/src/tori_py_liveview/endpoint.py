@@ -741,13 +741,18 @@ def gateway_type(options: LiveViewOptions, registry: _Registry) -> type[object]:
                         join_source = None
                     # After a join error the official client leaves that join
                     # more than once (from the error handler and again when it
-                    # replaces the view), so acknowledge every leave until the
-                    # next join; the idle deadline still bounds the wait.
-                    while (
-                        not first_join
-                        and join.topic == _TOPIC
-                        and join.event == "phx_leave"
+                    # replaces the view), and its 30 second heartbeat may land
+                    # between joins, so acknowledge both until the next join;
+                    # the idle deadline still bounds the wait. The first join
+                    # must arrive within the join deadline with nothing before.
+                    while not first_join and (
+                        (join.topic == _TOPIC and join.event == "phx_leave")
+                        or (join.topic == "phoenix" and join.event == "heartbeat")
                     ):
+                        if join.topic == "phoenix" and (
+                            join.join_ref is not None or join.ref is None
+                        ):
+                            raise _CloseConnection(1002)
                         await _reply(socket, join, "ok", {})
                         join = await _message(
                             socket,

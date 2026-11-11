@@ -510,10 +510,12 @@ not create a second event-version or stale-retry dialect.
 
 Heartbeats use topic `phoenix`, event `heartbeat`, null `join_ref`, and receive
 an empty successful reply with the same ref. `phx_leave` receives an empty
-successful reply. Between joins, every `phx_leave` on the root topic receives
-one, because after a join error the official client leaves that join from its
-error handler and again when it replaces the view; the idle deadline bounds the
-wait for the next join. Reconnect creates a new connection scope and page instance and
+successful reply. Between joins, every `phx_leave` on the root topic and every
+valid heartbeat receives one, because after a join error the official client
+leaves that join from its error handler and again when it replaces the view,
+and its heartbeat timer keeps running; the idle deadline bounds the wait for the
+next join. Before the first join only a join is accepted, within the join
+deadline. Reconnect creates a new connection scope and page instance and
 performs another full join; the server retains no disconnected page instance and
 does not add a second version/stale-event dialect.
 

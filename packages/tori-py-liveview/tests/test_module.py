@@ -2434,6 +2434,56 @@ async def test_every_leave_after_a_join_error_is_acknowledged() -> None:
     await application.shutdown()
 
 
+def _heartbeat(ref: str, *, join_ref: str | None = None) -> Message:
+    return _receive_text([join_ref, ref, "phoenix", "heartbeat", {}])
+
+
+@pytest.mark.asyncio
+async def test_heartbeats_between_joins_are_acknowledged_but_not_before_the_first() -> (
+    None
+):
+    FlashLive.reset()
+    application = await _lifecycle_application("heartbeat-between-joins")
+    token = _token((await _request(application, "/flash")).text)
+    hop = _join_with(token, "http://testserver/flash?go=hop", ref="12", redirect=True)
+    leave = _receive_text(["12", "13", _TOPIC, "phx_leave", {}])
+    rejoin = _join_with(token, "http://testserver/flash/next", ref="17", redirect=True)
+
+    sent = await _call_websocket(
+        application,
+        "/_tori/live/websocket",
+        hop,
+        _heartbeat("15"),
+        leave,
+        _heartbeat("16"),
+        rejoin,
+        _disconnect(),
+    )
+    frames = _decode_sent(sent)
+    assert [frame[:4] for frame in frames] == [
+        ["12", "12", _TOPIC, "phx_reply"],
+        [None, "15", "phoenix", "phx_reply"],
+        ["12", "13", _TOPIC, "phx_reply"],
+        [None, "16", "phoenix", "phx_reply"],
+        ["17", "17", _TOPIC, "phx_reply"],
+    ]
+    assert _reply_payload(frames[1]) == {"status": "ok", "response": {}}
+    assert _reply_payload(frames[4])["status"] == "ok"
+    assert [item["code"] for item in sent if item["type"] == "websocket.close"] == [
+        1000
+    ]
+
+    # A heartbeat with a join ref, or any heartbeat before the first join, is
+    # still a protocol error.
+    for incoming in (
+        (hop, _heartbeat("15", join_ref="12")),
+        (_heartbeat("1"),),
+    ):
+        sent = await _call_websocket(application, "/_tori/live/websocket", *incoming)
+        assert sent[-1] == {"type": "websocket.close", "code": 1002, "reason": ""}
+    await application.shutdown()
+
+
 @pytest.mark.asyncio
 async def test_join_exposes_connect_params_and_tracked_static() -> None:
     FlashLive.reset()
