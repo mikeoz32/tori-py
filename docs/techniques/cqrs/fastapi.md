@@ -154,6 +154,8 @@ through the provider.
 
 The adapter registration decorators are instance-specific:
 
+<!-- docs-test: skip -->
+
 ```python
 adapter.command_handler(MessageType)(HandlerClassOrInstance)
 adapter.query_handler(MessageType)(HandlerClassOrInstance)
@@ -275,6 +277,8 @@ only for handlers with no constructor dependencies or for prebuilt instances.
 
 `FastAPIHandlerProvider` adds explicit constructor dependencies and cleanup:
 
+<!-- docs-test: skip -->
+
 ```python
 provider = FastAPIHandlerProvider(
     {
@@ -310,6 +314,8 @@ owned by that event dispatch scope, never borrowed from a route dependency.
 
 Register long-lived resources before lifespan starts:
 
+<!-- docs-test: skip -->
+
 ```python
 provider.register_app_resource(DatabaseClient, database)
 ```
@@ -342,6 +348,8 @@ requests cancellation and returns rather than raising `TimeoutError`; resistant
 handlers can remain active. A deterministic async test should wait for an
 application signal first:
 
+<!-- docs-test: skip -->
+
 ```python
 await asyncio.wait_for(services.event_seen.wait(), timeout=1)
 await app.state.cqrs_buses.event_bus.drain(timeout=1)
@@ -372,6 +380,8 @@ start FastAPI lifespan.
 ## Transport Customization
 
 Pass three distinct public `Transport` implementations to the adapter:
+
+<!-- docs-test: skip -->
 
 ```python
 adapter = FastAPIAdapter(

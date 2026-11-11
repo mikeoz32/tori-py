@@ -114,6 +114,8 @@ not the filter's failure.
 
 Use one ordered decorator for each target:
 
+<!-- docs-test: skip -->
+
 ```python
 from typing import Annotated
 

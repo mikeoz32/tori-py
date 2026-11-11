@@ -171,6 +171,8 @@ need `MicroservicesModule` or a service identity of its own.
 
 Use the explicit transport-level API when a Protocol is not appropriate:
 
+<!-- docs-test: skip -->
+
 ```python
 from tori_py_microservices import ServiceCluster, ServiceIdentity
 
@@ -224,6 +226,8 @@ route before admitting new calls. It never republishes old requests.
 ## Handle Failures At The Boundary
 
 Catch the narrow outcomes that your boundary can translate meaningfully:
+
+<!-- docs-test: skip -->
 
 ```python
 from tori_py_microservices import (

@@ -127,6 +127,8 @@ transition classes are your own CSS; the client only adds and removes them.
 Keep one definition of a command list in a `phx-*` attribute and run it from
 several places with `exec()`:
 
+<!-- docs-test: skip -->
+
 ```python
 hide_modal = JS().hide(to="#modal").pop_focus()
 close = JS().exec("phx-remove", to="#modal")

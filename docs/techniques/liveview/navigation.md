@@ -108,6 +108,8 @@ the target the way browsers read it, so values such as `/\evil.example` cannot
 escape to another host. The host must be the request host or one of
 `LiveViewOptions.redirect_hosts`:
 
+<!-- docs-test: skip -->
+
 ```python
 from tori_py_liveview import LiveViewOptions
 
@@ -128,6 +130,8 @@ Check the value yourself first if you prefer a friendly fallback to an error.
 A `LiveSession` groups pages that can navigate to each other over one socket and
 share mount hooks. Pages without `session=` belong to the unnamed default
 session.
+
+<!-- docs-test: skip -->
 
 ```python
 from tori_py_liveview import LiveSession, LiveViewModule

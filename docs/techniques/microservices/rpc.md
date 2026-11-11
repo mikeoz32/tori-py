@@ -305,6 +305,8 @@ where global provider tokens must be visible.
 A normal result is encoded into a response with the original correlation ID. To
 expose an expected application failure, raise `PublicRpcError`:
 
+<!-- docs-test: raises PublicRpcError -->
+
 ```python
 from tori_py_microservices import PublicRpcError
 

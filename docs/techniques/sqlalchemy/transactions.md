@@ -10,6 +10,8 @@ same context automatically.
 Ordinary standalone CRUD, query, and statement-execution operations open a
 fresh session and top-level transaction:
 
+<!-- docs-test: skip -->
+
 ```python
 created = await tasks.add(TaskRow(title="Write guide"))
 loaded = await tasks.get(created.id)
@@ -40,6 +42,8 @@ has already closed. The same is true after an explicit transaction context exits
 With the default `expire_on_commit=False`, attributes that were loaded remain
 available:
 
+<!-- docs-test: skip -->
+
 ```python
 task = await tasks.get_one(task_id)
 return TaskResponse(id=task.id, title=task.title)
@@ -47,6 +51,8 @@ return TaskResponse(id=task.id, title=task.title)
 
 Lazy-loading after return cannot use the closed session. Load every relationship
 needed outside the operation with SQLAlchemy loader options:
+
+<!-- docs-test: skip -->
 
 ```python
 from sqlalchemy.orm import selectinload
@@ -64,6 +70,8 @@ instead of ORM entities makes the boundary explicit.
 
 Changing a detached entity does not start a Unit of Work. Use `merge()` for a
 single detached update:
+
+<!-- docs-test: skip -->
 
 ```python
 task = await tasks.get_one(task_id)
@@ -125,6 +133,8 @@ Validate inputs and perform remote work before opening the context when possible
 
 `flush()` is transaction-local:
 
+<!-- docs-test: skip -->
+
 ```python
 async with entities.transaction():
     task = await tasks.add(TaskRow(title="Assigned id"))
@@ -144,6 +154,8 @@ the result.
 
 Calling `transaction()` again on the same manager from the same task opens a
 native SQLAlchemy savepoint:
+
+<!-- docs-test: skip -->
 
 ```python
 async with entities.transaction():
@@ -173,6 +185,8 @@ database writes or constraint checks.
 A transaction belongs to the asyncio task that opened it. Python copies context
 variables into child tasks, but an `AsyncSession` cannot safely be shared that
 way. The manager therefore checks task identity on every operation:
+
+<!-- docs-test: skip -->
 
 ```python
 async with entities.transaction():

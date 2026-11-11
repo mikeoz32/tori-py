@@ -159,6 +159,8 @@ use a Starlette `RequestContext` only when native request access is deliberate.
 
 Register guards globally, on a controller, or on a route:
 
+<!-- docs-test: skip -->
+
 ```python
 from tori_py import controller, get, use_guard, use_guards
 

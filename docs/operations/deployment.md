@@ -164,6 +164,8 @@ assume a readiness response remains available after termination starts.
 
 `ApplicationOptions` controls the framework's one shared shutdown budget:
 
+<!-- docs-test: skip -->
+
 ```python
 from tori_py import ApplicationOptions, NestApplication
 from tori_py.starlette import StarletteAdapter

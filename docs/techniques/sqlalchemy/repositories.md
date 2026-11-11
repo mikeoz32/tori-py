@@ -88,6 +88,8 @@ rendered string.
 
 The default repository exposes model-bound operations:
 
+<!-- docs-test: skip -->
+
 ```python
 created = await tasks.add(TaskRow(title="Document transactions"))
 first, second = await tasks.add_all(
@@ -118,6 +120,8 @@ managed copy used by SQLAlchemy, not necessarily the object passed to it.
 Pass native SQLAlchemy expressions rather than dictionaries or repository-specific
 criteria objects:
 
+<!-- docs-test: skip -->
+
 ```python
 rows = await tasks.find(
     TaskRow.completed.is_(False),
@@ -135,6 +139,8 @@ operations should normally set a deterministic order and bounded limit.
 Use loader options for relationships that must remain available after the
 standalone query closes:
 
+<!-- docs-test: skip -->
+
 ```python
 from sqlalchemy.orm import selectinload
 
@@ -147,6 +153,8 @@ project = await projects.find_one_or_raise(
 
 Single-row helpers preserve exact-result behavior:
 
+<!-- docs-test: skip -->
+
 ```python
 optional = await tasks.find_one(TaskRow.title == title)
 required = await tasks.find_one_or_raise(TaskRow.title == title)
@@ -158,6 +166,8 @@ matches; they are not implicit "first row" operations.
 
 Counting and existence checks also accept native expressions:
 
+<!-- docs-test: skip -->
+
 ```python
 remaining = await tasks.count(TaskRow.completed.is_(False))
 duplicate = await tasks.exists(TaskRow.title == title)
@@ -166,6 +176,8 @@ duplicate = await tasks.exists(TaskRow.title == title)
 Primary-key loads and single-row queries accept `with_for_update=True`, but a
 locking read requires an explicit transaction so the lock survives beyond the
 method call:
+
+<!-- docs-test: skip -->
 
 ```python
 async with entities.transaction():

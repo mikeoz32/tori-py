@@ -90,6 +90,8 @@ On a controller with inherited security, this emits:
 
 Documentation metadata does not install or configure guards:
 
+<!-- docs-test: skip -->
+
 ```python
 from tori_py import get, use_guard
 

@@ -92,6 +92,8 @@ Invalid items raise `ValueError` or `TypeError` when inserted.
 Render the container with `phx-update="stream"` and the container's DOM `id`
 equal to `container_id`. Interpolate only `stream_contents()` inside it:
 
+<!-- docs-test: skip -->
+
 ```python
 items = self.stream_contents("activity")
 return t'<ul id="activity" phx-update="stream">{items}</ul>'

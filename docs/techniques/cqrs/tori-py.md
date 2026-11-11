@@ -14,6 +14,14 @@ This installs `tori-py-cqrs-core` and `tori-py-framework` as dependencies. The
 integration itself does not depend on Starlette, FastAPI, Pydantic, SQLAlchemy,
 or a persistence package.
 
+The
+[Advanced CQRS Task API](https://github.com/mikeoz32/tori-py/tree/main/examples/tori_py/cqrs/advanced)
+example runs discovered handlers, handler scopes, event fan-out, and an
+in-process read projection in one HTTP service.
+[Examples](../../reference/examples.md#cqrs-and-event-sourcing) lists its
+commands, and the [CQRS Task API tutorial](../../tutorials/cqrs-application.md)
+builds a smaller service step by step.
+
 ## Discovered Handler Setup
 
 ToriPy-native handler decorators combine CQRS metadata with ToriPy injectable
@@ -110,6 +118,8 @@ module. Decorators never add provider declarations by themselves, and discovery
 never scans Python packages.
 
 Resolve or inject the exported buses normally:
+
+<!-- docs-test: skip -->
 
 ```python
 commands = await application.resolve(CommandBus)
@@ -411,6 +421,8 @@ commit when later resource cleanup fails.
 
 Defaults are three distinct `InMemoryTransport` instances. Override them with
 sync or async factories:
+
+<!-- docs-test: skip -->
 
 ```python
 from tori_py_cqrs import CqrsModule, CqrsModuleOptions

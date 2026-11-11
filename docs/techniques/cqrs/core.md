@@ -125,6 +125,8 @@ handler explicitly.
 
 ### Decorated classes
 
+<!-- docs-test: skip -->
+
 ```python
 from tori_py_cqrs_core import CommandHandler
 
@@ -146,6 +148,8 @@ Metadata is direct, not inherited. A subclass of a decorated handler must be
 decorated itself or registered with an explicit message type.
 
 ### Function handlers
+
+<!-- docs-test: skip -->
 
 ```python
 from tori_py_cqrs_core import HandlerContext, handles
@@ -171,6 +175,8 @@ standalone core feature.
 
 Pass the message type when the target has no decorator metadata:
 
+<!-- docs-test: skip -->
+
 ```python
 builder.add_command_handler(Add, AddHandler())
 builder.add_query_handler(ReadTotal, ReadTotalHandler)
@@ -181,6 +187,8 @@ With the default provider, a registered instance is reused. A registered class
 is constructed without arguments for each invocation.
 
 ### Factories
+
+<!-- docs-test: skip -->
 
 ```python
 def make_add_handler() -> AddHandler:
@@ -261,6 +269,8 @@ An event-handler error:
 - does not kill the in-memory transport worker.
 
 Configure the hook before `build()`:
+
+<!-- docs-test: skip -->
 
 ```python
 from tori_py_cqrs_core import EventHandlerFailure
@@ -423,6 +433,8 @@ semantics. The ToriPy and FastAPI packages are concrete provider adapters.
 ## Custom Transports
 
 A transport implements the public `Transport` protocol:
+
+<!-- docs-test: skip -->
 
 ```python
 from tori_py_cqrs_core import Transport

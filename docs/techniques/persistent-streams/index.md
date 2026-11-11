@@ -102,6 +102,10 @@ It uses the in-memory semantic reference. Process exit loses its streams,
 checkpoints, producer state, and ownership, so it is suitable for examples and
 tests rather than durable workloads.
 
+For several processes that publish event-sourced commits to a persistent stream
+and consume it in independent projection and audit services, follow
+[Part 4: Add Event Sourcing](../../tutorials/event-sourced-application.md).
+
 ## Production Decision
 
 Before selecting an adapter, answer these questions:

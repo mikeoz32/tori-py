@@ -12,6 +12,8 @@ This guide assumes the aggregate and frozen schema registry from
 Applications and adapters program against two runtime-checkable public
 protocols:
 
+<!-- docs-test: skip -->
+
 ```python
 from tori_py_cqrs_event_sourcing_core import EventStore, EventStoreTransaction
 
@@ -21,6 +23,8 @@ assert isinstance(store, EventStore)
 
 `EventStore` exposes:
 
+<!-- docs-test: skip -->
+
 ```python
 await store.read_stream(stream_id, after_version=0, limit=100)
 await store.read_all(after_position=0, limit=100)
@@ -28,6 +32,8 @@ store.transaction()  # async context manager
 ```
 
 `EventStoreTransaction` exposes:
+
+<!-- docs-test: skip -->
 
 ```python
 await transaction.read_stream(stream_id, after_version=0, limit=100)
@@ -165,6 +171,8 @@ size must be positive and no greater than `schemas.limits.read_page_size`.
 
 `load(id)` is optional and `get(id)` is required:
 
+<!-- docs-test: skip -->
+
 ```python
 profile = await profiles.load(profile_id)
 if profile is None:
@@ -190,6 +198,8 @@ aggregate is faulted and never returned.
 
 Repository `save()` is synchronous because encoding and transaction staging are
 synchronous in the contract:
+
+<!-- docs-test: skip -->
 
 ```python
 profile.change_display_name("Alicia")
@@ -225,6 +235,8 @@ pending events. The surrounding Unit of Work still owns transaction cleanup.
 ## Basic Unit-of-Work Flow
 
 The Unit of Work creates and owns one event-store transaction:
+
+<!-- docs-test: skip -->
 
 ```python
 from tori_py_cqrs_event_sourcing_core import EventSourcingUnitOfWork
@@ -271,6 +283,8 @@ commit, and outcome inspection are rejected with `UnitOfWorkLifecycleError`.
 
 One Unit of Work can stage one aggregate per stream across several repositories:
 
+<!-- docs-test: skip -->
+
 ```python
 async with EventSourcingUnitOfWork(store) as unit_of_work:
     profiles = profile_repository(unit_of_work)
@@ -291,6 +305,8 @@ distributed transaction.
 
 Expected versions are checked at commit, so two repeatable snapshots can load
 the same stream version:
+
+<!-- docs-test: skip -->
 
 ```python
 from tori_py_cqrs_event_sourcing_core import OptimisticConcurrencyError
@@ -329,6 +345,8 @@ resubmit retained bytes.
 
 `unit_of_work.outcome` is available only after a final classification. Access in
 new, entering, active, or committing state raises `UnitOfWorkLifecycleError`.
+
+<!-- docs-test: skip -->
 
 ```python
 from tori_py_cqrs_event_sourcing_core import (
@@ -411,6 +429,8 @@ normal rollback or automatically retry the command.
 ## Repository Operation Leases
 
 Framework integrations can supply a synchronous lease check:
+
+<!-- docs-test: skip -->
 
 ```python
 def require_active_operation() -> None:

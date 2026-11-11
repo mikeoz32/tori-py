@@ -65,6 +65,8 @@ class in `providers` is valid only when that exact class has its own
 explicit `ClassProvider` when the token, implementation, scope, or ownership is a
 composition decision:
 
+<!-- docs-test: skip -->
+
 ```python
 from tori_py import ClassProvider, Scope
 
@@ -158,6 +160,8 @@ declare a middleware provider explicitly and register its token.
 A factory may be synchronous or asynchronous and receives dependencies by the
 same parameter rules:
 
+<!-- docs-test: skip -->
+
 ```python
 from tori_py import FactoryProvider
 
@@ -182,6 +186,8 @@ so constructors and sync factories must not perform blocking I/O.
 Use a value provider for a preconstructed immutable value or an externally owned
 object:
 
+<!-- docs-test: skip -->
+
 ```python
 from tori_py import ValueProvider
 
@@ -191,6 +197,8 @@ settings_provider = ValueProvider("app.settings", AppSettings(debug=False))
 
 The first argument is the provider token. In most applications a class token is
 clearer when the value has a stable type:
+
+<!-- docs-test: skip -->
 
 ```python
 settings = AppSettings(debug=False)
@@ -202,6 +210,8 @@ because the object existed before the container owned it. Set `manage=True` only
 when application composition deliberately transfers context-manager ownership.
 
 An alias exposes an already visible provider under another token:
+
+<!-- docs-test: skip -->
 
 ```python
 from tori_py import AliasProvider
@@ -259,6 +269,8 @@ fail and triggers application rollback.
 ## Testing Providers
 
 Override an exported token before compilation, not a live container cache:
+
+<!-- docs-test: skip -->
 
 ```python
 from tori_py.testing import TestingModule
