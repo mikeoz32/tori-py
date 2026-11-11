@@ -11,6 +11,7 @@ PART_TWO = TUTORIALS / "cqrs_task_api" / "task_app"
 PART_THREE = TUTORIALS / "distributed_task_api" / "task_app"
 PART_FOUR = TUTORIALS / "event_sourced_task_api" / "task_app"
 LIVE_BOARD = TUTORIALS / "live_task_board" / "task_app"
+WEBSOCKET_FEED = TUTORIALS / "websocket_task_feed" / "task_app"
 
 
 def test_task_tutorial_series_runs_as_an_isolated_project(tmp_path: Path) -> None:
@@ -177,6 +178,40 @@ def test_live_task_board_continues_part_two_in_an_isolated_project(
         cwd=project,
     )
     assert "6 passed" in live_board.stdout
+
+
+def test_websocket_feed_continues_part_one_in_an_isolated_project(
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "task-api"
+    uv = shutil.which("uv")
+    assert uv is not None
+
+    _run(uv, "init", "--python", "3.14", "--bare", str(project), cwd=tmp_path)
+    _run(uv, "python", "pin", "3.14", cwd=project)
+    (project / "pyproject.toml").write_text(
+        _project_metadata(),
+        encoding="utf-8",
+    )
+    _run(
+        uv,
+        "add",
+        "--editable",
+        f"{ROOT / 'packages' / 'tori-py'}[cli,testing]",
+        cwd=project,
+    )
+    _run(uv, "add", "--dev", "pytest", "pytest-asyncio", cwd=project)
+    _replace_application(PART_ONE, project)
+    part_one = _run(uv, "run", "pytest", "task_app/test_app.py", "-q", cwd=project)
+    assert "2 passed" in part_one.stdout
+
+    _replace_application(WEBSOCKET_FEED, project)
+    for unchanged in ("models.py", "state.py", "http.py"):
+        assert (WEBSOCKET_FEED / unchanged).read_bytes() == (
+            PART_ONE / unchanged
+        ).read_bytes()
+    feed = _run(uv, "run", "pytest", "task_app", "-q", cwd=project)
+    assert "5 passed" in feed.stdout
 
 
 def _project_metadata() -> str:

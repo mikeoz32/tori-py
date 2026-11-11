@@ -28,6 +28,11 @@ following Part 4. It keeps the same REST API and one process, and adds a
 LiveView page that creates tasks through the command bus, validates as the user
 types, and updates every open board through a CQRS event handler.
 
+[Add a Live Task Feed with WebSockets](websocket-task-feed.md) branches from
+Part 1. It keeps the same REST API and adds a WebSocket gateway that sends a
+snapshot of the tasks and then every new task, with an `Origin` check and
+per-connection state that cleans itself up.
+
 ## Choose A Learning Path
 
 | Path | Read in this order | You will learn |
