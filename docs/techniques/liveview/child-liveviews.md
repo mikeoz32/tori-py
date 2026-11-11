@@ -73,9 +73,11 @@ places its HTML in the container, so the first response shows the whole page.
 Children may render their own children, up to eight levels deep.
 
 Once the page connects, the browser joins each child on its own channel over the
-same WebSocket. The server accepts a child only under a parent that is already
-joined on that connection, and only with the signed token the parent rendered
-for that id. The child then mounts with `connected=True` in its own work scope.
+same WebSocket. The server accepts a child only with the signed token that the
+current join of its parent rendered for that id, so tokens from the HTTP render,
+another page, or an earlier connection are refused; the browser always joins
+with the latest ones, also after a reconnect. The child then mounts with
+`connected=True` in its own work scope.
 `phx-*` events inside the child's container go to the child, and a parent
 update leaves the child's container and contents alone.
 

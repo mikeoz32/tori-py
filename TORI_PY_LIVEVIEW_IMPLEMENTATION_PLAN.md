@@ -132,9 +132,10 @@
 
 - Add `LiveView.live_render` and `LiveViewModule.for_root(embedded=...)`,
   placing child containers with purpose-separated child tokens bound to the
-  child page, view id, parent view, params, resource, and live session, and
-  rendering children into their containers over HTTP.
-- Join children on their own `lv:<view_id>` topics under a joined parent with
+  child page, view id, parent view and its mount nonce, params, resource, and
+  live session, and rendering children into their containers over HTTP.
+- Join children on their own `lv:<view_id>` topics only under the parent mount
+  that rendered them, with
   their own scope, render state, and info queue; serialize them with the main
   view; close descendants first; answer unmatched topics as Phoenix does; and
   keep `push_patch` to the main view.

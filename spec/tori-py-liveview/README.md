@@ -92,10 +92,11 @@ This directory records the executable contract for `tori-py-liveview`.
     diff or from a cached component the same render keeps, never from one it
     leaves out. Info and async renders that change nothing push no `diff`.
  21. `live_render` places a registered page as a child LiveView in a container
-    whose child token binds the page, view id, parent view, params, resource,
-    and live session under its own HMAC purpose. The HTTP render includes each
-    child's disconnected render. Children join on their own `lv:<view_id>`
-    topics only under a parent joined on the same connection, run serialized
+    whose child token binds the page, view id, parent view and its mount nonce,
+    params, resource, and live session under its own HMAC purpose. The HTTP
+    render includes each child's disconnected render. Children join on their own
+    `lv:<view_id>` topics only under the mount of a parent joined on the same
+    connection that rendered them, run serialized
     with the main view, close after their own children, never `push_patch`, and
     navigate the page with `push_navigate`. Messages for topics that are not
     joined receive Phoenix's `unmatched topic` error.

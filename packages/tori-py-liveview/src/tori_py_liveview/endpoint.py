@@ -63,6 +63,7 @@ from tori_py_liveview.tokens import (
     InvalidMountTokenError,
     MountTokenCodec,
     ReloadTokenCodec,
+    new_view_nonce,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -125,10 +126,14 @@ def _child_signer(
     pages: Mapping[str, type[LiveView]],
     *,
     parent_id: str,
+    parent_nonce: str,
     resource: str,
     session: str,
 ) -> Callable[[type[LiveView], str, Mapping[str, str]], str]:
-    """Sign child views a page renders; only registered pages may be children."""
+    """Sign child views a page renders; only registered pages may be children.
+
+    The tokens bind to this mount of the page through ``parent_nonce``.
+    """
     identities = {page_type: identity for identity, page_type in pages.items()}
 
     def sign(page_type: type[LiveView], view_id: str, params: Mapping[str, str]) -> str:
@@ -138,7 +143,9 @@ def _child_signer(
                 f"child LiveView {page_type.__qualname__} is not registered with "
                 "LiveViewModule"
             )
-        return codec.sign(identity, view_id, parent_id, params, resource, session)
+        return codec.sign(
+            identity, view_id, parent_id, parent_nonce, params, resource, session
+        )
 
     return sign
 
@@ -200,6 +207,8 @@ class _View:
     page: LiveView
     render_state: _RenderState
     name: str
+    # The mount nonce the tokens of this view's children bind to.
+    nonce: str
     parent_id: str | None = None
     scope: AbstractAsyncContextManager[ScopedResolver] | None = None
     info_task: asyncio.Task[_Info | _AsyncTask] | None = None
@@ -274,14 +283,18 @@ async def initial_response(
             },
         )
     query = QueryParams(resource.partition("?")[2])
+    # The official client joins children with the tokens of their parent's
+    # connected render, so the tokens of this render never join.
+    root_nonce = new_view_nonce()
 
     def signer(
-        parent_id: str,
+        parent_id: str, parent_nonce: str
     ) -> Callable[[type[LiveView], str, Mapping[str, str]], str]:
         return _child_signer(
             child_codec,
             pages,
             parent_id=parent_id,
+            parent_nonce=parent_nonce,
             resource=resource,
             session=route.session,
         )
@@ -301,7 +314,9 @@ async def initial_response(
         )
         try:
             child_page._liveview_view_id = child.view_id
-            child_page._liveview_child_signer = signer(child.view_id)
+            child_page._liveview_child_signer = signer(
+                child.view_id, child_codec.verify(child.session).nonce
+            )
             child_page._set_liveview_flash({})
             await child_page._mount_liveview(
                 MountContext(request, dict(child.params), resource, False, query)
@@ -320,7 +335,7 @@ async def initial_response(
     page = cast(LiveView, await context.resolver.resolve(page_type))
     try:
         page._liveview_action = route.action
-        page._liveview_child_signer = signer(_ROOT_ID)
+        page._liveview_child_signer = signer(_ROOT_ID, root_nonce)
         page._set_liveview_flash(flash_codec.verify(flash_cookie))
         params = {name: str(value) for name, value in request.path_params.items()}
         mount_context = MountContext(
@@ -748,6 +763,7 @@ def gateway_type(options: LiveViewOptions, registry: _Registry) -> type[object]:
     flash_codec = FlashTokenCodec(options.secret)
     reload_codec = ReloadTokenCodec(options.secret)
     child_codec = ChildTokenCodec(options.secret, max_age_ms=options.token_max_age_ms)
+    mount_codec = MountTokenCodec(options.secret, max_age_ms=options.token_max_age_ms)
 
     class LiveGateway:
         def __init__(self, scopes: WorkScopeFactory) -> None:
@@ -776,6 +792,7 @@ def gateway_type(options: LiveViewOptions, registry: _Registry) -> type[object]:
             name = ""
             session = ""
             resource = ""
+            root_nonce = ""
 
             def incoming_message_task() -> asyncio.Task[_ChannelMessage]:
                 return asyncio.create_task(
@@ -981,14 +998,21 @@ def gateway_type(options: LiveViewOptions, registry: _Registry) -> type[object]:
                 except InvalidMountTokenError, KeyError:
                     await _reply(socket, message, "error", {"reason": "unauthorized"})
                     return
-                # A child joins only under a view joined on this connection.
+                # A child joins only under the very mount of a view joined on
+                # this connection that rendered it, not any view with that id.
+                parent = children.get(child_token.parent_id)
+                parent_nonce = (
+                    root_nonce
+                    if child_token.parent_id == _ROOT_ID
+                    else None
+                    if parent is None
+                    else parent.nonce
+                )
                 if (
                     child_token.view_id != view_id
                     or child_token.session != session
-                    or (
-                        child_token.parent_id != _ROOT_ID
-                        and child_token.parent_id not in children
-                    )
+                    or parent_nonce is None
+                    or child_token.parent_nonce != parent_nonce
                 ):
                     await _reply(socket, message, "error", {"reason": "unauthorized"})
                     return
@@ -999,6 +1023,7 @@ def gateway_type(options: LiveViewOptions, registry: _Registry) -> type[object]:
                     child_page,
                     _RenderState(main=False),
                     child_token.page,
+                    child_token.nonce,
                     parent_id=child_token.parent_id,
                     scope=child_scope,
                 )
@@ -1007,6 +1032,7 @@ def gateway_type(options: LiveViewOptions, registry: _Registry) -> type[object]:
                     child_codec,
                     registry.pages,
                     parent_id=view_id,
+                    parent_nonce=child_token.nonce,
                     resource=child_token.resource,
                     session=session,
                 )
@@ -1185,10 +1211,7 @@ def gateway_type(options: LiveViewOptions, registry: _Registry) -> type[object]:
                         raise _CloseConnection(1002)
                     connect_params = cast(dict[str, object], connect_params)
                     try:
-                        mounted = MountTokenCodec(
-                            options.secret,
-                            max_age_ms=options.token_max_age_ms,
-                        ).verify(token)
+                        mounted = mount_codec.verify(token)
                         if redirect_url is not None:
                             if (
                                 not isinstance(redirect_url, str)
@@ -1246,6 +1269,11 @@ def gateway_type(options: LiveViewOptions, registry: _Registry) -> type[object]:
                         initial_flash = {}
                     name = live_route.page
                     session = live_route.session
+                    # Each join mounts the page afresh, and the child tokens it
+                    # renders bind to this mount alone, as Phoenix binds them to
+                    # the parent process. The official client joins children,
+                    # also after a reconnect, with the tokens of the latest join.
+                    root_nonce = new_view_nonce()
                     page_scope, root_page = await _open_page(self._scopes, page_type)
                     page = root_page
                     # Each join starts the client's render tree afresh.
@@ -1255,6 +1283,7 @@ def gateway_type(options: LiveViewOptions, registry: _Registry) -> type[object]:
                         child_codec,
                         registry.pages,
                         parent_id=_ROOT_ID,
+                        parent_nonce=root_nonce,
                         resource=resource,
                         session=session,
                     )
@@ -1363,7 +1392,9 @@ def gateway_type(options: LiveViewOptions, registry: _Registry) -> type[object]:
                         }
                     await _reply(socket, join, "ok", join_reply)
 
-                    root = _View(_ROOT_ID, join, root_page, render_state, name)
+                    root = _View(
+                        _ROOT_ID, join, root_page, render_state, name, root_nonce
+                    )
                     incoming_task = incoming_message_task()
                     info_task = asyncio.create_task(root_page._receive_liveview_info())
                     while True:

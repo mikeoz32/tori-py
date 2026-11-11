@@ -112,6 +112,7 @@ class _ChildRendered(SafeHtml):
     open_tag: str
     page_type: type[object]
     params: tuple[tuple[str, str], ...]
+    session: str
 
 
 type _RenderedDynamic = str | Rendered | _StreamRendered | _ChildRendered

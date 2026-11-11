@@ -593,6 +593,11 @@ def document_reloaded(document_requests: list[str], requests_before_click: int) 
     assert len(document_requests) > requests_before_click
 
 
+@then("the document was loaded once")
+def document_loaded_once(document_requests: list[str]) -> None:
+    assert len(document_requests) == 1
+
+
 @then(parsers.parse('the "{name}" cookie is gone'))
 def cookie_gone(page: Page, name: str) -> None:
     assert all(cookie.get("name") != name for cookie in page.context.cookies())

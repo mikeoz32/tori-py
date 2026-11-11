@@ -348,8 +348,11 @@ channel topic; it is 1 to 128 letters, digits, `_`, or `-`, not
 
 The container is `<div id data-phx-session data-phx-static="" data-phx-parent-id>`
 with the rendering view's id as parent. Its session is a child token with its
-own HMAC purpose, binding the child page, view id, parent view, params, and the
-page's resource and live session. A page keeps the token for a view id while
+own HMAC purpose, binding the child page, view id, parent view and that view's
+mount nonce, params, and the page's resource and live session. Every mount of a
+view gets a fresh random nonce: each HTTP render, each join of the main view,
+and each child join, whose own children bind to the nonce in its token. A page
+keeps the token for a view id while
 its type and params stay the same, so an unchanged container stays out of
 diffs. The HTTP render mounts each child disconnected in its own work scope,
 renders its children in turn up to eight levels deep, and places the HTML in the
@@ -558,8 +561,13 @@ While the main view is joined, the client joins each child container on its own
 `lv:<view_id>` topic over the same socket. A child join carries the child token
 as `session`, connect `params`, and an optional `flash` token, but no URL. It is
 answered only when the token verifies, names this topic, carries the main
-view's live session, and names a parent joined on this connection; otherwise the
-reply is `{reason: "unauthorized"}`. A second join of a joined topic closes with
+view's live session, and was rendered by the current mount of a parent joined on
+this connection: its parent nonce must match that mount's. Otherwise the reply
+is `{reason: "unauthorized"}`, so a child token from the HTTP render, another
+page, or an earlier connection never joins, as Phoenix binds child sessions to
+the parent process. The official client joins children with the tokens of their
+parent's latest connected render, also after a reconnect. A second join of a
+joined topic closes with
 `1002`. A joined child has its own work scope, page instance, render state,
 info queue, and join ref; the gateway serializes its events, component
 messages, info callbacks, and async results with the main view's on the
@@ -679,7 +687,8 @@ and keep stream items across updates that leave the stream out; nested
 components that handle their own events and leave with their parent; and
 child LiveViews that join under their parent, handle their own events, end when
 removed, and navigate the page. Package tests cover child tokens, HTTP child
-rendering, child joins under joined parents, child info, leaves, navigation,
+rendering, child joins only under the parent mount that rendered them, child
+info, leaves, navigation,
 reload, and titles. Ruff,
 formatting, ty, wheel/sdist build, artifact verification, and isolated import
 smoke run through `uv`.

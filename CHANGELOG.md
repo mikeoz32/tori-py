@@ -70,8 +70,8 @@ one package does not require the same change in every package.
   a child view, rendered into its container over HTTP and joined on its own
   channel topic over the same socket, and `LiveViewModule.for_root(embedded=...)`
   registers pages rendered only this way. Child tokens are signed for their
-  page, view id, parent, params, and session, and a child joins only under a
-  joined parent.
+  page, view id, parent mount, params, and session, and a child joins only
+  under the mount of a joined parent that rendered it.
 
 ### Fixed
 

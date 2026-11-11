@@ -3444,6 +3444,65 @@ async def test_child_views_join_only_under_a_joined_parent_with_their_own_token(
 
 
 @pytest.mark.asyncio
+async def test_child_tokens_join_only_under_the_mount_that_rendered_them() -> None:
+    CounterChildLive.reset()
+    application = await _children_application("children-mount-binding")
+    unauthorized = {"status": "error", "response": {"reason": "unauthorized"}}
+    page = await _request(application, "/children?label=old-root")
+    url = "http://testserver/children?label=old-root"
+
+    session = _ChannelSession(application)
+    await session.start()
+    await session.push(_join(_token(page.text), url=url))
+    root = _rendered((await session.frames(1))[0])
+    token = _child_session(root["1"], "counter")
+    # The official client joins children with the tokens of their parent's
+    # connected render, so the HTTP render's tokens are refused.
+    await session.push(
+        _child_join("counter", _child_session(page.text, "counter"), "10")
+    )
+    assert _reply_payload((await session.frames(2))[1]) == unauthorized
+    await session.push(_child_join("counter", token, "11"))
+    assert _reply_payload((await session.frames(3))[2])["status"] == "ok"
+    await session.close()
+
+    # A reconnect mounts the page afresh, and the old mount's tokens no longer
+    # join, nor do they under another page of the same live session.
+    other = await _request(application, "/children-other")
+    for join in (
+        _join(_token(page.text), url=url),
+        _join(_token(other.text), url="http://testserver/children-other"),
+    ):
+        session = _ChannelSession(application)
+        await session.start()
+        await session.push(join)
+        await session.frames(1)
+        await session.push(_child_join("counter", token, "10"))
+        assert _reply_payload((await session.frames(2))[1]) == unauthorized
+        await session.close()
+    await application.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_a_page_reached_by_live_navigation_renders_joinable_children() -> None:
+    CounterChildLive.reset()
+    application = await _children_application("children-navigation-binding")
+    other = await _request(application, "/children-other")
+    session = _ChannelSession(application)
+    await session.start()
+    await session.push(
+        _join_with(_token(other.text), "http://testserver/children", redirect=True)
+    )
+    root = _rendered((await session.frames(1))[0])
+    await session.push(
+        _child_join("counter", _child_session(root["1"], "counter"), "10")
+    )
+    assert _reply_payload((await session.frames(2))[1])["status"] == "ok"
+    await session.close()
+    await application.shutdown()
+
+
+@pytest.mark.asyncio
 async def test_a_leaving_child_closes_its_own_children() -> None:
     CounterChildLive.reset()
     application = await _children_application("children-nested-leave")
@@ -3581,14 +3640,16 @@ def test_child_signer_accepts_only_registered_pages() -> None:
         ChildTokenCodec(_SECRET),
         {"pages.Counter": CounterChildLive},
         parent_id="tori-live-root",
+        parent_nonce="render-1",
         resource="/children",
         session="",
     )
     token = ChildTokenCodec(_SECRET).verify(sign(CounterChildLive, "counter", {}))
-    assert (token.page, token.view_id, token.parent_id) == (
+    assert (token.page, token.view_id, token.parent_id, token.parent_nonce) == (
         "pages.Counter",
         "counter",
         "tori-live-root",
+        "render-1",
     )
     with pytest.raises(LiveViewError, match="not registered"):
         sign(OtherChildrenLive, "other", {})

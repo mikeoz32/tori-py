@@ -199,3 +199,15 @@ Feature: LiveView pages in a real browser
     Then the URL is "/browser-counter"
     And "#count" shows "0"
     And the document was not reloaded
+
+  Scenario: A child LiveView rejoins with its token after a reconnect
+    Given I open the "/browser-children" live page
+    Then "#child" is connected
+    When I click "#child-bump"
+    Then "#child-count" shows "1"
+    When the client reconnects
+    Then "#child" is connected
+    And "#child-count" shows "0"
+    When I click "#child-bump"
+    Then "#child-count" shows "1"
+    And the document was loaded once

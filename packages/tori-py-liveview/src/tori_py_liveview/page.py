@@ -426,7 +426,9 @@ class LiveView(ABC):
             'data-phx-static="" '
             f'data-phx-parent-id="{html.escape(self._liveview_view_id, quote=True)}">'
         )
-        return _ChildRendered(f"{open_tag}</div>", view_id, open_tag, page_type, frozen)
+        return _ChildRendered(
+            f"{open_tag}</div>", view_id, open_tag, page_type, frozen, token
+        )
 
     def stream_insert(
         self,

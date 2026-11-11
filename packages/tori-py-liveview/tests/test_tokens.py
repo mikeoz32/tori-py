@@ -131,15 +131,30 @@ def test_child_tokens_bind_a_child_view_to_its_parent() -> None:
         "pages.Cart",
         "cart",
         "tori-live-root",
+        "render-1",
         {"store": "kyiv"},
         "/shop?tab=a",
         "shop",
+        nonce="cart-1",
         now_ms=1_000_000,
     )
 
     assert child.verify(token, now_ms=1_060_000) == ChildToken(
-        "pages.Cart", "cart", "tori-live-root", {"store": "kyiv"}, "/shop?tab=a", "shop"
+        "pages.Cart",
+        "cart",
+        "tori-live-root",
+        "render-1",
+        {"store": "kyiv"},
+        "/shop?tab=a",
+        "shop",
+        "cart-1",
     )
+    # Without an explicit nonce each child token gets its own.
+    nonces = {
+        child.verify(child.sign("pages.Cart", "cart", "root", "r", {}, "/", "")).nonce
+        for _ in range(2)
+    }
+    assert len(nonces) == 2
     with pytest.raises(InvalidMountTokenError):
         child.verify(token, now_ms=1_060_001)
     with pytest.raises(InvalidMountTokenError):

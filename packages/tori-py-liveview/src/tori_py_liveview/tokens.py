@@ -5,6 +5,7 @@ import hashlib
 import hmac
 import json
 import re
+import secrets
 import time
 from collections.abc import Mapping
 from dataclasses import dataclass, field
@@ -30,9 +31,11 @@ class ChildToken:
     page: str
     view_id: str
     parent_id: str
+    parent_nonce: str
     params: dict[str, str]
     resource: str
     session: str
+    nonce: str
 
 
 _B64 = re.compile(r"[A-Za-z0-9_-]+\Z")
@@ -96,6 +99,15 @@ def _fresh(issued: object, now: int, max_age_ms: int) -> bool:
         and issued <= now + _CLOCK_SKEW_MS
         and now - issued <= max_age_ms
     )
+
+
+def new_view_nonce() -> str:
+    """Return a random nonce identifying one mount of a view."""
+    return secrets.token_urlsafe(16)
+
+
+def _nonce(value: object) -> TypeIs[str]:
+    return isinstance(value, str) and bool(value)
 
 
 def _string_map(value: object) -> TypeIs[dict[str, str]]:
@@ -237,7 +249,9 @@ class ChildTokenCodec:
 
     Child tokens use their own HMAC purpose, so they never verify as mount,
     flash, or reload tokens. Each binds the child page, its view id, the view
-    that rendered it, its params, and the root page's resource and live session.
+    that rendered it and that view's mount nonce, its params, and the root
+    page's resource and live session. Each also carries the child's own nonce,
+    which the tokens of its own children bind to.
     """
 
     def __init__(self, secret: str, *, max_age_ms: int = 300_000) -> None:
@@ -249,19 +263,23 @@ class ChildTokenCodec:
         page: str,
         view_id: str,
         parent_id: str,
+        parent_nonce: str,
         params: Mapping[str, str],
         resource: str,
         session: str,
         *,
+        nonce: str | None = None,
         now_ms: int | None = None,
     ) -> str:
         payload = {
             "p": page,
             "v": view_id,
             "o": parent_id,
+            "q": parent_nonce,
             "a": dict(params),
             "r": resource,
             "s": session,
+            "n": new_view_nonce() if nonce is None else nonce,
             "i": _clock() if now_ms is None else now_ms,
         }
         return _sign(self._secret, _CHILD_PURPOSE, payload)
@@ -273,18 +291,23 @@ class ChildTokenCodec:
             raise InvalidMountTokenError("invalid child token") from error
         page, view_id, parent_id = data.get("p"), data.get("v"), data.get("o")
         params, resource, session = data.get("a"), data.get("r"), data.get("s")
+        parent_nonce, nonce = data.get("q"), data.get("n")
         now = _clock() if now_ms is None else now_ms
         if (
             not isinstance(page, str)
             or not isinstance(view_id, str)
             or not isinstance(parent_id, str)
+            or not _nonce(parent_nonce)
             or not _string_map(params)
             or not isinstance(resource, str)
             or not isinstance(session, str)
+            or not _nonce(nonce)
             or not _fresh(data.get("i"), now, self._max_age_ms)
         ):
             raise InvalidMountTokenError("expired or invalid child token")
-        return ChildToken(page, view_id, parent_id, params, resource, session)
+        return ChildToken(
+            page, view_id, parent_id, parent_nonce, params, resource, session, nonce
+        )
 
 
 __all__ = [
@@ -295,4 +318,5 @@ __all__ = [
     "MountToken",
     "MountTokenCodec",
     "ReloadTokenCodec",
+    "new_view_nonce",
 ]
