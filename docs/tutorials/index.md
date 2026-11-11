@@ -23,6 +23,11 @@ projection semantics:
 | 3 | [Distribute the Task API](distributed-application.md) | An HTTP gateway, typed task-service RPC, and idempotent audit event consumer |
 | 4 | [Add Event Sourcing](event-sourced-application.md) | Event-sourced command writes, projection-owned reads, and persistent-stream delivery to independent consumers |
 
+[Document the Task API with OpenAPI](openapi-task-api.md) branches from Part 1.
+It keeps the existing routes, serves an OpenAPI 3.1 document and Swagger UI,
+documents Problem Details error responses, and adds a delete route protected by
+a bearer token.
+
 [Build a Live Task Board](live-task-board.md) branches from Part 2 instead of
 following Part 4. It keeps the same REST API and one process, and adds a
 LiveView page that creates tasks through the command bus, validates as the user
