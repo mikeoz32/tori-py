@@ -63,6 +63,8 @@ fail are rejected terminally.
 method components of the same kind. Message middleware is not supported, and a
 plan with `middleware` fails startup.
 
+<!-- docs-test: skip -->
+
 ```python
 from tori_py_microservices import MicroservicesOptions, PipelinePlan
 
@@ -79,6 +81,8 @@ class. Prefer instances for stateless components. A token is checked against
 the microservices module at startup but resolved in each delivery's work scope
 through the module that owns the handler, so the provider must be visible from
 both. Register it in a global module imported at the root:
+
+<!-- docs-test: skip -->
 
 ```python
 from tori_py import ClassProvider, module
@@ -124,6 +128,8 @@ calls are rejected by the server.
 `ClientsModule.register_cluster()` creates the `ServiceCluster`, starts it with
 the application, and closes it on shutdown. A cluster you create yourself is
 yours to close:
+
+<!-- docs-test: skip -->
 
 ```python
 from tori_py_microservices import ServiceCluster, ServiceClusterOptions

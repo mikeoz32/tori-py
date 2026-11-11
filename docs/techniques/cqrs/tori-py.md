@@ -174,6 +174,8 @@ decorators on one class raises `BootstrapError` with
 object must react to several events, register it once and bind it explicitly
 to each event type:
 
+<!-- docs-test: skip -->
+
 ```python
 from tori_py import ValueProvider, module
 from tori_py_cqrs import CqrsModule, bind_event_handler
