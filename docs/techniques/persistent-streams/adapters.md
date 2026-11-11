@@ -70,6 +70,8 @@ The Tori Py integration injects the public runtime-checkable
 `ExampleAdapterOptions` and `ExamplePersistentLog` are placeholders for the
 adapter's own options and log classes:
 
+<!-- docs-test: skip -->
+
 ```python
 from dataclasses import dataclass
 
@@ -234,6 +236,8 @@ safer than replaying cached native subscriptions outside the contract.
 
 The core package ships a public reusable suite. `create_ready_isolated_log` is a
 placeholder for the adapter's own helper that returns a ready, isolated log:
+
+<!-- docs-test: skip -->
 
 ```python
 from tori_py_persistent_streams_core import PersistentLog

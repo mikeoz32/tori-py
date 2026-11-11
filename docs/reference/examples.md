@@ -25,10 +25,14 @@ run an existing example.
 | --- | --- | --- |
 | `examples/tori_py/app.py` | `uv run tori-py run examples.tori_py.app:create_application --set greeting=hello` | Typed settings, request scope, a guard, msgspec validation, a filter provider, and the CLI factory path |
 | Method-interception authorization | `uv run tori-py run examples.tori_py.method_interception.app:create_application` | Opt-in provider proxy, custom `@requires_permission` aspect, request-scoped caller context, and the same policy in an in-process work scope |
+| Native WebSocket gateway | `uv run tori-py run examples.tori_py.websocket.app:create_application` | A gateway with a path binding and request-scoped per-connection state |
 
 Request `GET /example/health?count=2` while it is running.
 The method-interception demo accepts `Bearer reader-token` and
 `Bearer publisher-token`; they are example credentials, not production auth.
+Connect to `ws://127.0.0.1:8000/echo/demo` for the WebSocket gateway, or run
+its test with `uv run pytest examples/tori_py/websocket`. The
+[WebSockets](../websockets.md) guide explains gateways.
 
 ### LiveView
 
@@ -210,6 +214,38 @@ relay, and idempotent notification event consumption. The schema jobs call the
 application-owned SQLAlchemy metadata's `create_all()`; they are not versioned
 migrations or a schema-evolution strategy. Delivery remains at least once; the
 outbox may publish duplicates and the consumer deduplicates by event ID.
+
+### Workplace reference application
+
+`examples/tori_py/reference_apps/workplace` is a standalone workplace-reservation
+application. Separate spaces, bookings, and notifications services each own a
+PostgreSQL database and communicate over RabbitMQ. The API gateway is the only
+process the browser reaches: it verifies Keycloak tokens from a login with
+Authorization Code and PKCE and serves Lit and LiveView browser applications.
+Docker Compose starts and removes the stack:
+
+```text
+docker compose -f examples/tori_py/reference_apps/workplace/compose.yaml up --build
+docker compose -f examples/tori_py/reference_apps/workplace/compose.yaml down -v
+```
+
+With the stack healthy, run the end-to-end smoke check:
+
+```text
+uv run --no-sync python -m examples.tori_py.reference_apps.workplace.smoke
+```
+
+The unit and security specifications run with:
+
+```text
+uv run pytest examples/tori_py/reference_apps/workplace/test_workplace.py examples/tori_py/reference_apps/workplace/tests
+```
+
+Its PostgreSQL concurrency specifications use `pytest-docker` and `psycopg`.
+The application's
+[README](https://github.com/mikeoz32/tori-py/blob/main/examples/tori_py/reference_apps/workplace/README.md)
+lists the local URLs, demo identities, and trust boundaries. It is a reference,
+not a production deployment template.
 
 ## Consumer project commands
 

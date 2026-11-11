@@ -152,6 +152,8 @@ not expose ACK/NACK or channel mutation.
 A normal result is encoded into a response with the original correlation ID. To
 expose an expected application failure, raise `PublicRpcError`:
 
+<!-- docs-test: raises PublicRpcError -->
+
 ```python
 from tori_py_microservices import PublicRpcError
 

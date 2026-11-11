@@ -185,6 +185,8 @@ the settings object or secret fields.
 Source selection, parsing, path mapping, precedence, and recursive merging happen
 before custom decoding. Extension points affect the final conversion only:
 
+<!-- docs-test: skip -->
+
 ```python
 class Codec(Protocol):
     def decode(

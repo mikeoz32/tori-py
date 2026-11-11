@@ -140,6 +140,8 @@ its `value` (`"true"` by default). A `select` submits the chosen option value,
 or `""` for the prompt. `phx-change` events also carry `_target`, the token list
 of the control that changed, so you can validate only that field:
 
+<!-- docs-test: skip -->
+
 ```python
 match value:
     case {"_target": ["profile", "email"], "profile": {"email": str(email)}}:
@@ -195,6 +197,8 @@ non-JavaScript fallback, add your own HTTP endpoint and point the form at it.
 Wrap a control the helpers do not provide with `field()` to get the same label,
 help, and error layout. Your control must use `control_id` as its `id` and wire
 the descriptions itself:
+
+<!-- docs-test: skip -->
 
 ```python
 from tori_py_liveview import attrs

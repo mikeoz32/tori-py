@@ -113,6 +113,11 @@ button("Close", variant="ghost", event=close)
 `self.myself`. A `target` without any event raises `ValueError`.
 
 ```python
+from string.templatelib import Template
+
+from tori_py_liveview import LiveComponent
+
+
 class TodoComponent(LiveComponent):
     def render(self) -> Template:
         done = button("Done", size="sm", event="done", target=self.myself)

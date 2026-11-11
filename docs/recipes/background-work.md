@@ -30,6 +30,8 @@ independent lifetime.
 
 Avoid this controller pattern:
 
+<!-- docs-test: skip -->
+
 ```python
 # Wrong: the task is unowned and captures request-lifetime state.
 asyncio.create_task(request_repository.finish_later(task_id))
@@ -117,6 +119,8 @@ A native Starlette response may carry `starlette.background.BackgroundTask`.
 Tori Py keeps the HTTP request scope open until the response ASGI call, including
 the Starlette background task, finishes. This is a deliberate driver-specific
 escape hatch:
+
+<!-- docs-test: skip -->
 
 ```python
 from starlette.background import BackgroundTask

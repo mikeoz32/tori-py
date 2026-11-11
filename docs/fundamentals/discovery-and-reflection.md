@@ -210,6 +210,8 @@ implementation, and instance information.
 `DiscoveryService` enumerates provider or controller views in deterministic
 compiled order:
 
+<!-- docs-test: skip -->
+
 ```python
 all_providers = discovery.get_providers()
 billing_providers = discovery.get_providers(include=[BillingModule])

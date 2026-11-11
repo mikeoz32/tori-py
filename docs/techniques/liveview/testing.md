@@ -51,6 +51,8 @@ code under test reads headers or cookies.
 
 Test form handlers with the decoded shape the framework passes:
 
+<!-- docs-test: skip -->
+
 ```python
 await page.handle_event("save", {"task": {"title": "  Write docs  "}})
 assert page.error is None

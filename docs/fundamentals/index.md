@@ -97,6 +97,8 @@ diagnostic code. `HttpException` and cancellation exceptions are not
 applying explicit pre-compilation overrides. Close every testing application so
 normal hooks and managed resource cleanup run:
 
+<!-- docs-test: skip -->
+
 ```python
 from tori_py.testing import TestingModule
 

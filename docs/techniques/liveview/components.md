@@ -91,6 +91,8 @@ identity keeps being rendered.
 Components are not resolved from the DI container. Constructor injection does
 not apply; pass dependencies through assigns or a `factory`:
 
+<!-- docs-test: skip -->
+
 ```python
 editor = self.live_component(
     EditorComponent,

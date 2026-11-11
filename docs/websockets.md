@@ -58,6 +58,16 @@ module's `providers`. Gateway shorthand always creates a singleton; use normal
 constructor injection for singleton dependencies. Bind request-scoped or
 transient providers to `handle` parameters with `Inject`.
 
+The runnable
+[`examples/tori_py/websocket`](https://github.com/mikeoz32/tori-py/tree/main/examples/tori_py/websocket)
+gateway keeps a request-scoped message count for each connection. From a
+repository checkout, serve it or run its test with:
+
+```text
+uv run tori-py run examples.tori_py.websocket.app:create_application
+uv run pytest examples/tori_py/websocket
+```
+
 ## Connection Bindings
 
 Every parameter except `self` requires exactly one `Annotated` marker:

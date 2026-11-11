@@ -8,3 +8,9 @@ uv run tori-py run examples.tori_py.websocket.app:create_application
 
 Connect to `ws://127.0.0.1:8000/echo/demo`, send one text frame, and receive
 `demo:1:<message>` before the gateway closes the connection.
+
+Run its test with:
+
+```text
+uv run pytest examples/tori_py/websocket
+```

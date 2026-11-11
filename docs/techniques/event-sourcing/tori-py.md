@@ -14,6 +14,14 @@ uv add tori-py-cqrs-event-sourcing
 The package requires Python 3.14 and installs its CQRS, event-sourcing core, and
 ToriPy dependencies.
 
+The
+[event-sourced community](https://github.com/mikeoz32/tori-py/tree/main/examples/tori_py/cqrs/event_sourcing)
+example combines three aggregates, explicit schemas and upcasting, automatic
+command transactions, optimistic concurrency, and projection checkpoints behind
+an HTTP API. [Examples](../../reference/examples.md#cqrs-and-event-sourcing)
+lists its commands. [Part 4: Add Event Sourcing](../../tutorials/event-sourced-application.md)
+builds an event-sourced service step by step.
+
 ## What the Integration Owns
 
 For an opted-in command, the integration:
@@ -37,6 +45,8 @@ integration-owned UoW and do not call `commit()` themselves.
 
 Aggregates remain framework-neutral. Repository classes belong to the ToriPy
 infrastructure layer and carry explicit declaration metadata:
+
+<!-- docs-test: skip -->
 
 ```python
 from uuid import UUID
@@ -88,6 +98,8 @@ second dependency-injection system.
 
 One keyed root owns store/schema infrastructure and transaction coordination.
 Feature modules own explicit repository providers.
+
+<!-- docs-test: skip -->
 
 ```python
 from tori_py import ClassProvider, Scope, module
@@ -148,6 +160,8 @@ compilation.
 Decorator order matters: `@command_handler` must run first so
 `@use_event_sourcing` can validate command metadata. In source, put
 `@use_event_sourcing` above it:
+
+<!-- docs-test: skip -->
 
 ```python
 from dataclasses import dataclass
@@ -312,6 +326,8 @@ to; context exit rolls it back harmlessly after reads.
 A factory provider has no statically inspectable class metadata. Bind it
 explicitly and attach the public outer transaction binding:
 
+<!-- docs-test: skip -->
+
 ```python
 from tori_py import FactoryProvider, Scope, module
 from tori_py_cqrs import CqrsModule, bind_command_handler
@@ -354,6 +370,8 @@ created.
 
 Root options accept a sync or async callable receiving the resolved store and
 returning one unentered `EventSourcingUnitOfWork`:
+
+<!-- docs-test: skip -->
 
 ```python
 from tori_py_cqrs_event_sourcing_core import EventSourcingUnitOfWork, EventStore
@@ -521,6 +539,8 @@ domain event and an in-process CQRS event delivery are separate facts.
 
 Direct publication in the handler occurs before event-store commit:
 
+<!-- docs-test: skip -->
+
 ```python
 await events.publish(ProfileOpenedNotification(profile.id))
 profiles.save(profile)
@@ -529,6 +549,8 @@ profiles.save(profile)
 The notification can run even if persistence later rolls back.
 
 An `after_commit` callback moves enqueue after confirmed commit:
+
+<!-- docs-test: skip -->
 
 ```python
 async def notify_after_commit(result) -> None:
@@ -566,6 +588,8 @@ same store or immutable registry object, but no transaction is shared
 implicitly.
 
 Override the exact keyed provider on the root descriptor in tests:
+
+<!-- docs-test: skip -->
 
 ```python
 replacement = InMemoryEventStore()

@@ -32,6 +32,8 @@ rather than the class alone when the distinction matters.
 
 Prefer code-based handling over matching message text:
 
+<!-- docs-test: skip -->
+
 ```python
 from tori_py import BootstrapError
 
