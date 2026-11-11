@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import html
+import json
 import logging
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Mapping
@@ -9,7 +10,7 @@ from dataclasses import dataclass
 from html.parser import HTMLParser
 from string.templatelib import Template
 from types import MappingProxyType
-from typing import TypeVar, cast
+from typing import Literal, TypeVar, cast
 
 from starlette.datastructures import QueryParams
 
@@ -145,6 +146,20 @@ def _fragment_root(value: str) -> tuple[bool, str | None]:
     return True, parser.root_id
 
 
+def _json_object(name: str, value: object) -> dict[str, object]:
+    """Snapshot a mapping as the JSON object the Phoenix client receives."""
+    if not isinstance(value, Mapping):
+        raise TypeError(f"{name} must be a mapping")
+    mapping = cast(Mapping[object, object], value)
+    if not all(isinstance(key, str) for key in mapping):
+        raise TypeError(f"{name} keys must be strings")
+    try:
+        encoded = json.dumps(dict(mapping), allow_nan=False)
+    except (TypeError, ValueError, RecursionError) as error:
+        raise ValueError(f"{name} must encode as a JSON object") from error
+    return cast(dict[str, object], json.loads(encoded))
+
+
 @dataclass(frozen=True, slots=True)
 class _Info:
     name: str
@@ -165,7 +180,10 @@ class LiveView(ABC):
     def live_action(self) -> str | None:
         return self._liveview_action
 
-    async def handle_event(self, event: str, value: object) -> None:
+    async def handle_event(
+        self, event: str, value: object
+    ) -> Mapping[str, object] | None:
+        """Handle a browser event; a returned mapping replies to the client."""
         del value
         raise UnknownEventError(event)
 
@@ -241,6 +259,7 @@ class LiveView(ABC):
                     component_id,
                     self._liveview_next_component_cid,
                     self._liveview_connected,
+                    self,
                 )
                 component.mount()
             else:
@@ -423,6 +442,53 @@ class LiveView(ABC):
             return False
         return True
 
+    def push_event(
+        self,
+        event: str,
+        payload: Mapping[str, object] | None = None,
+        *,
+        dispatch: Literal["after", "before"] = "after",
+    ) -> None:
+        """Send a ``phx:<event>`` browser event with the next render.
+
+        ``dispatch="before"`` dispatches it before the client applies the diff.
+        """
+        if not isinstance(event, str):
+            raise TypeError("LiveView pushed event name must be a string")
+        if not event:
+            raise ValueError("LiveView pushed event name cannot be empty")
+        if dispatch not in ("after", "before"):
+            raise ValueError("LiveView push_event dispatch must be 'after' or 'before'")
+        entry: list[object] = [
+            event,
+            _json_object(
+                "LiveView pushed event payload", {} if payload is None else payload
+            ),
+        ]
+        if dispatch == "before":
+            entry.append(True)
+        self._initialize_liveview_handler_queues()
+        self._liveview_pushed_events.append(entry)
+
+    def send_update(
+        self,
+        component_type: type[LiveComponent],
+        component_id: str,
+        assigns: object = None,
+    ) -> None:
+        """Call ``update(assigns)`` on a rendered component before the next render."""
+        if not isinstance(component_type, type) or not issubclass(
+            component_type,
+            LiveComponent,
+        ):
+            raise TypeError("component_type must be a LiveComponent subclass")
+        if not isinstance(component_id, str):
+            raise TypeError("LiveView component id must be a string")
+        self._initialize_liveview_handler_queues()
+        self._liveview_component_updates.append(
+            ((component_type, component_id), assigns)
+        )
+
     def push_patch(self, to: str, *, kind: str = "push") -> None:
         """Navigate within the current page; applied after the handler renders."""
         if not isinstance(to, str) or not to:
@@ -454,6 +520,29 @@ class LiveView(ABC):
         self._liveview_pending_redirect = None
         return pending
 
+    def _take_liveview_events(self) -> list[list[object]]:
+        self._initialize_liveview_handler_queues()
+        events = self._liveview_pushed_events
+        self._liveview_pushed_events = []
+        return events
+
+    def _discard_liveview_effects(self) -> None:
+        """Drop everything a rejected handler queued for the next render."""
+        self._liveview_pending_redirect = None
+        self._clear_liveview_stream_operations()
+        self._clear_liveview_handler_queues()
+
+    def _clear_liveview_handler_queues(self) -> None:
+        self._initialize_liveview_handler_queues()
+        self._liveview_pushed_events.clear()
+        self._liveview_component_updates.clear()
+
+    def _initialize_liveview_handler_queues(self) -> None:
+        if hasattr(self, "_liveview_pushed_events"):
+            return
+        self._liveview_pushed_events: list[list[object]] = []
+        self._liveview_component_updates: list[tuple[_ComponentIdentity, object]] = []
+
     def _connect_liveview(self) -> None:
         self._liveview_info_queue: asyncio.Queue[_Info] | None = asyncio.Queue(
             maxsize=_INFO_QUEUE_CAPACITY
@@ -478,6 +567,14 @@ class LiveView(ABC):
         self._initialize_liveview_components()
         if self._liveview_rendered_components is not None:
             raise LiveViewError("LiveView render is already in progress")
+
+        self._initialize_liveview_handler_queues()
+        updates = self._liveview_component_updates
+        self._liveview_component_updates = []
+        for identity, assigns in updates:
+            component = self._liveview_components.get(identity)
+            if component is not None:
+                component.update(assigns)
 
         rendered_components: set[_ComponentIdentity] = set()
         self._liveview_rendered_components = rendered_components
@@ -516,19 +613,19 @@ class LiveView(ABC):
         target: int | None,
         event: str,
         value: object,
-    ) -> None:
+    ) -> Mapping[str, object] | None:
         if target is None:
-            await self.handle_event(event, value)
-            return
+            return await self.handle_event(event, value)
         self._initialize_liveview_components()
         component = self._liveview_components_by_cid.get(target)
         if component is None:
             raise _UnknownComponentError("Unknown LiveView component target")
-        await component.handle_event(event, value)
+        return await component.handle_event(event, value)
 
     async def _disconnect_liveview_components(self) -> None:
         self._initialize_liveview_components()
         self._clear_liveview_stream_operations()
+        self._clear_liveview_handler_queues()
         components = [
             *self._liveview_components.values(),
             *self._liveview_pending_components.values(),
@@ -615,4 +712,4 @@ class LiveView(ABC):
             )
 
 
-__all__ = ["LiveView", "MountContext", "_UnknownComponentError"]
+__all__ = ["LiveView", "MountContext", "_UnknownComponentError", "_json_object"]

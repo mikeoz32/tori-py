@@ -5,6 +5,7 @@ import hashlib
 import json
 import logging
 import re
+from collections.abc import Mapping
 from importlib.resources import files
 from typing import Any, ClassVar, cast
 
@@ -305,6 +306,71 @@ class ServerUpdatesLive(LiveView):
         return rendered(("<output>", "</output>"), self.value)
 
 
+class EchoComponent(LiveComponent):
+    def __init__(self) -> None:
+        self.value = ""
+
+    def update(self, assigns: object) -> None:
+        if isinstance(assigns, dict) and "value" in assigns:
+            self.value = str(cast(dict[str, object], assigns)["value"])
+
+    async def handle_event(self, event: str, value: object) -> Mapping[str, object]:
+        if event != "echo":
+            raise UnknownEventError(event)
+        self.push_event("component-echo", {"id": self.id})
+        self.send_update(EchoComponent, "right", {"value": f"from-{self.id}"})
+        return {"echo": value}
+
+    def render(self):
+        return t'<p id="echo-{self.id}" phx-target="{self.myself}">{self.value}</p>'
+
+
+@live_view("/client-events")
+class ClientEventsLive(LiveView):
+    connected_page: ClassVar[ClientEventsLive | None] = None
+
+    @classmethod
+    def reset(cls) -> None:
+        cls.connected_page = None
+
+    async def mount(self, context: MountContext) -> None:
+        self.push_event("mounted", {"connected": context.connected})
+        if context.connected:
+            type(self).connected_page = self
+
+    async def handle_event(
+        self, event: str, value: object
+    ) -> Mapping[str, object] | None:
+        if event == "ping" and isinstance(value, dict):
+            count = cast(dict[str, object], value)["n"]
+            self.push_event("pinged", {"n": count}, dispatch="before")
+            return {"pong": count}
+        if event == "silent":
+            return None
+        if event == "rejected":
+            self.push_event("leaked")
+            self.send_update(EchoComponent, "left", {"value": "leaked"})
+            raise UnknownEventError(event)
+        if event == "update":
+            self.send_update(EchoComponent, "left", {"value": "updated"})
+            self.send_update(EchoComponent, "missing", {"value": "ignored"})
+            return None
+        if event == "bad_reply":
+            return {"value": float("nan")}
+        raise UnknownEventError(event)
+
+    async def handle_info(self, name: str, value: object) -> None:
+        if name != "notify":
+            await super().handle_info(name, value)
+            return
+        self.push_event("notified", {"value": value})
+
+    def render(self):
+        left = self.live_component(EchoComponent, "left", {})
+        right = self.live_component(EchoComponent, "right", {})
+        return t"<section>{left}{right}</section>"
+
+
 def _asgi(application: NestApplication) -> ASGIApp:
     return application.get_adapter(StarletteAdapter).app
 
@@ -436,6 +502,50 @@ def _reply_payload(frame: list[object]) -> dict[str, object]:
 def _response(frame: list[object]) -> dict[str, object]:
     payload = _reply_payload(frame)
     return cast(dict[str, object], payload["response"])
+
+
+class _ChannelSession:
+    """Drive one Channel connection a frame at a time."""
+
+    def __init__(self, application: NestApplication) -> None:
+        self._application = application
+        self._incoming: asyncio.Queue[Message] = asyncio.Queue()
+        self._changed = asyncio.Event()
+        self._task: asyncio.Future[None] | None = None
+        self.sent: list[Message] = []
+
+    async def start(self) -> None:
+        await self._incoming.put({"type": "websocket.connect"})
+
+        async def receive() -> Message:
+            return await self._incoming.get()
+
+        async def send(message: Message) -> None:
+            self.sent.append(message)
+            self._changed.set()
+
+        self._task = asyncio.ensure_future(
+            _asgi(self._application)(
+                _websocket_scope("/_tori/live/websocket"), receive, send
+            )
+        )
+
+    async def push(self, message: Message) -> None:
+        await self._incoming.put(message)
+
+    async def frames(self, count: int) -> list[list[object]]:
+        async def wait() -> None:
+            while len(_decode_sent(self.sent)) < count:
+                self._changed.clear()
+                await self._changed.wait()
+
+        await asyncio.wait_for(wait(), timeout=2)
+        return _decode_sent(self.sent)
+
+    async def close(self) -> None:
+        await self._incoming.put(_disconnect())
+        assert self._task is not None
+        await asyncio.wait_for(self._task, timeout=2)
 
 
 @pytest.mark.asyncio
@@ -821,6 +931,8 @@ async def test_http_mount_serves_initial_html_and_pinned_phoenix_clients() -> No
     assert "var Phoenix=" in client.text
     assert "var LiveView=" in client.text
     assert "new LiveView.LiveSocket" in client.text
+    assert "const hooks = (globalThis.ToriLiveHooks ??= {});" in client.text
+    assert "{hooks}," in client.text
     static = files("tori_py_liveview").joinpath("static")
     phoenix = static.joinpath("phoenix-1.8.13.min.js").read_bytes()
     phoenix_live_view = static.joinpath("phoenix_live_view-1.2.11.min.js").read_bytes()
@@ -1634,3 +1746,140 @@ async def test_phoenix_channel_cleans_up_after_component_handler_failures() -> N
     assert CrashingComponent.disconnects == 2
     assert CrashingComponentsLive.disconnects == 1
     await application.shutdown()
+
+
+async def _client_events_application(key: str) -> NestApplication:
+    liveview_module = LiveViewModule.for_root(
+        LiveViewOptions(secret="s" * 32),
+        pages=[ClientEventsLive],
+        key=key,
+    )
+
+    @module(imports=[liveview_module])
+    class Root:
+        pass
+
+    application = await NestApplication.create(Root, adapter=StarletteAdapter())
+    await application.start()
+    return application
+
+
+def _component_value(diff: dict[str, object], cid: int) -> object:
+    components = cast(dict[str, dict[str, object]], diff["c"])
+    return components[str(cid)]["2"]
+
+
+@pytest.mark.asyncio
+async def test_pushed_events_and_replies_ride_on_phoenix_render_trees() -> None:
+    ClientEventsLive.reset()
+    application = await _client_events_application("client-events")
+    page = await _request(application, "/client-events")
+    session = _ChannelSession(application)
+    await session.start()
+
+    await session.push(_join(_token(page.text), url="http://testserver/client-events"))
+    joined = _response((await session.frames(1))[0])
+    snapshot = cast(dict[str, object], joined["rendered"])
+    assert snapshot["e"] == [["mounted", {"connected": True}]]
+    assert "r" not in snapshot
+
+    await session.push(_event("2", "ping", value={"n": 41}, event_type="hook"))
+    ping = cast(dict[str, object], _response((await session.frames(2))[1])["diff"])
+    assert ping["r"] == {"pong": 41}
+    assert ping["e"] == [["pinged", {"n": 41}, True]]
+
+    await session.push(_event("3", "silent"))
+    silent = cast(dict[str, object], _response((await session.frames(3))[2])["diff"])
+    assert "r" not in silent
+    assert "e" not in silent
+
+    await session.push(_event("4", "rejected"))
+    assert _response((await session.frames(4))[3]) == {"reason": "unknown_event"}
+
+    await session.push(_event("5", "update"))
+    update = cast(dict[str, object], _response((await session.frames(5))[4])["diff"])
+    assert _component_value(update, 1) == "updated"
+    assert _component_value(update, 2) == ""
+    assert "e" not in update
+
+    connected_page = ClientEventsLive.connected_page
+    assert connected_page is not None
+    assert connected_page.send_info("notify", 7)
+    pushed = (await session.frames(6))[5]
+    assert pushed[:4] == ["1", None, _TOPIC, "diff"]
+    assert cast(dict[str, object], pushed[4])["e"] == [["notified", {"value": 7}]]
+
+    await session.push(_event("6", "echo", value={"x": 1}, cid=1))
+    echo = cast(dict[str, object], _response((await session.frames(7))[6])["diff"])
+    assert echo["r"] == {"echo": {"x": 1}}
+    assert echo["e"] == [["component-echo", {"id": "left"}]]
+    assert _component_value(echo, 1) == "updated"
+    assert _component_value(echo, 2) == "from-left"
+
+    await session.close()
+    await application.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_invalid_event_reply_closes_the_connection(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    application = await _client_events_application("invalid-reply")
+    page = await _request(application, "/client-events")
+
+    with caplog.at_level(logging.ERROR, logger="tori_py_liveview.endpoint"):
+        sent = await _call_websocket(
+            application,
+            "/_tori/live/websocket",
+            _join(_token(page.text), url="http://testserver/client-events"),
+            _event("2", "bad_reply"),
+        )
+    assert sent[-1] == {"type": "websocket.close", "code": 1011, "reason": ""}
+    assert len(_decode_sent(sent)) == 1
+    await application.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_push_event_and_send_update_validate_and_reset() -> None:
+    page = ClientEventsLive()
+    with pytest.raises(TypeError, match="name must be a string"):
+        page.push_event(cast(Any, 1))
+    with pytest.raises(ValueError, match="cannot be empty"):
+        page.push_event("")
+    with pytest.raises(ValueError, match="dispatch"):
+        page.push_event("x", dispatch=cast(Any, "later"))
+    with pytest.raises(TypeError, match="must be a mapping"):
+        page.push_event("x", cast(Any, [1]))
+    with pytest.raises(TypeError, match="keys must be strings"):
+        page.push_event("x", cast(Any, {1: "a"}))
+    with pytest.raises(ValueError, match="JSON object"):
+        page.push_event("x", {"value": float("inf")})
+    with pytest.raises(ValueError, match="JSON object"):
+        page.push_event("x", {"value": object()})
+
+    items = [1, 2]
+    page.push_event("snapshot", {"items": items})
+    items.append(3)
+    page.push_event("empty", dispatch="before")
+    assert page._take_liveview_events() == [
+        ["snapshot", {"items": [1, 2]}],
+        ["empty", {}, True],
+    ]
+    assert page._take_liveview_events() == []
+
+    with pytest.raises(TypeError, match="LiveComponent subclass"):
+        page.send_update(cast(Any, object), "left")
+    with pytest.raises(TypeError, match="id must be a string"):
+        page.send_update(EchoComponent, cast(Any, 1))
+
+    page.push_event("dropped")
+    page.send_update(EchoComponent, "left", {"value": "dropped"})
+    await page._disconnect_liveview_components()
+    assert page._take_liveview_events() == []
+    assert page._liveview_component_updates == []
+
+    detached = EchoComponent()
+    with pytest.raises(LiveViewError, match="not attached"):
+        detached.push_event("x")
+    with pytest.raises(LiveViewError, match="not attached"):
+        detached.send_update(EchoComponent, "left")

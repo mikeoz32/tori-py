@@ -319,6 +319,9 @@ Principal public API:
 - Composition: `LiveViewModule`, `LiveViewOptions`.
 - Page and component lifecycle: `LiveView`, `LiveComponent`, `MountContext`,
   `live_view`, `LiveView.send_info`, `LiveView.handle_info`.
+- Client hooks and updates: `LiveView.push_event`, `LiveView.send_update`,
+  `LiveComponent.push_event`, `LiveComponent.send_update`, and mapping replies
+  returned from `handle_event`.
 - Rendering: `Rendered`, `SafeHtml`, `html`, `fragment`, `classes`, `attrs`,
   `rendered`, `raw`.
 - Client JS commands: `JS`.
@@ -332,8 +335,10 @@ reconnect joins. Route-aware `push_patch` and `push_navigate` preserve live
 sessions when possible and fall back to full reloads when required.
 Server-initiated updates use the bounded connection-local
 `send_info` queue and serialized `handle_info` callback to emit Phoenix `diff`
-pushes. Nested components, uploads, and application hook/reply APIs are not part
-of the current server surface.
+pushes. The client bootstrap registers `globalThis.ToriLiveHooks` as the
+`LiveSocket` hooks object; pushed events and event replies travel under the
+render-tree `e` and `r` keys. Nested components, child LiveViews, uploads, and
+flash are not part of the current server surface.
 
 ## `tori-py-liveview-ui`
 

@@ -67,7 +67,23 @@
   stream operations, and outbound writes; reject sends outside the connected
   lifecycle and emit successful updates as unreferenced Phoenix `diff` pushes.
 
+## LV9: Hooks, Pushed Events, Replies, and Component Updates
+
+- Pass the `globalThis.ToriLiveHooks` object to the official `LiveSocket`
+  `hooks` option so application hooks bind to `phx-hook` elements; route hook
+  `pushEvent` messages through the normal event path.
+- Add page and component `push_event` with JSON-object payloads and
+  before/after dispatch, delivered once under the top-level `e` key of the next
+  join, reply, or info render and discarded with rejected events, navigation
+  away, the disconnected render, and disconnect.
+- Let page and component `handle_event` return a JSON-object reply carried under
+  the top-level `r` key of the event reply diff.
+- Add page and component `send_update`, applied in order to rendered components
+  before the next render and before the parent's `live_component` assigns.
+- Exercise frames through package tests and a hook through the exact pinned
+  official browser clients.
+
 ## Deferred
 
-- Evaluate nested components, uploads, and application hook/reply APIs as
-  separate contracts.
+- Evaluate nested components, child LiveViews, uploads, flash, async task
+  helpers, and changed-only diffs as separate contracts.

@@ -1,15 +1,17 @@
 from __future__ import annotations
 
 import asyncio
+import re
 import socket
 import threading
 import time
-from collections.abc import Coroutine, Iterator
-from typing import Any
+from collections.abc import Coroutine, Iterator, Mapping
+from typing import Any, cast
 
 import pytest
 import uvicorn
-from playwright.sync_api import Page, expect
+from playwright.sync_api import Page, Request, expect
+from pytest_bdd import given, parsers, scenarios, then, when
 from starlette.types import ASGIApp
 from tori_py import NestApplication, module
 from tori_py.starlette import StarletteAdapter
@@ -22,7 +24,7 @@ from tori_py_liveview import (
     live_view,
 )
 
-pytestmark = pytest.mark.browser
+scenarios("features/liveview_browser.feature")
 
 
 @live_view("/browser-counter")
@@ -68,6 +70,44 @@ class BrowserNavigationLive(LiveView):
         self.push_navigate("/browser-nav/edit")
 
 
+_ECHO_HOOK = """<script>
+globalThis.ToriLiveHooks = {
+  Echo: {
+    mounted() {
+      this.handleEvent("server-said", ({text}) => { this.el.dataset.server = text; });
+      this.pushEvent("hook-ping", {n: 41}, (reply) => {
+        this.el.textContent = String(reply.n);
+      });
+    },
+  },
+};
+</script>"""
+
+
+@live_view("/browser-hooks")
+class BrowserHooksLive(LiveView):
+    def __init__(self) -> None:
+        self.pings = 0
+
+    async def handle_event(self, event: str, value: object) -> Mapping[str, object]:
+        if event != "hook-ping" or not isinstance(value, dict):
+            raise UnknownEventError(event)
+        count = cast(dict[str, object], value)["n"]
+        assert isinstance(count, int)
+        self.pings += 1
+        self.push_event("server-said", {"text": f"pong {self.pings}"})
+        return {"n": count + 1}
+
+    def render(self) -> str:
+        return (
+            '<div id="hooked" phx-hook="Echo" phx-update="ignore"></div>'
+            f'<output id="pings">{self.pings}</output>'
+        )
+
+    def render_document(self, live_root: str, client_script: str) -> str:
+        return super().render_document(live_root, _ECHO_HOOK + client_script)
+
+
 def _asgi(application: NestApplication) -> ASGIApp:
     return application.get_adapter(StarletteAdapter).app
 
@@ -75,7 +115,7 @@ def _asgi(application: NestApplication) -> ASGIApp:
 async def _create_application() -> NestApplication:
     liveview_module = LiveViewModule.for_root(
         LiveViewOptions(secret="s" * 32),
-        pages=[BrowserCounterLive, BrowserNavigationLive],
+        pages=[BrowserCounterLive, BrowserNavigationLive, BrowserHooksLive],
     )
 
     @module(imports=[liveview_module])
@@ -146,66 +186,50 @@ def live_server() -> Iterator[str]:
         _run_async(application.shutdown())
 
 
-def test_browser_mounts_liveview_and_handles_event(
-    page: Page,
-    live_server: str,
-) -> None:
-    page.goto(f"{live_server}/browser-counter")
+@given(
+    parsers.parse('I open the "{path}" live page'),
+    target_fixture="document_requests",
+)
+def open_live_page(page: Page, live_server: str, path: str) -> list[str]:
+    requests: list[str] = []
 
-    expect(page.locator("#connection")).to_have_text("connected")
-    expect(page.locator("#count")).to_have_text("0")
+    def record(request: Request) -> None:
+        if request.is_navigation_request():
+            requests.append(request.url)
 
-    page.locator("#increment").click()
-
-    expect(page.locator("#count")).to_have_text("1")
-
-
-def test_browser_push_navigate_rejoins_without_document_reload(
-    page: Page,
-    live_server: str,
-) -> None:
-    document_requests: list[str] = []
-    page.on(
-        "request",
-        lambda request: (
-            document_requests.append(request.url)
-            if request.is_navigation_request()
-            else None
-        ),
+    page.on("request", record)
+    page.goto(f"{live_server}{path}")
+    expect(page.locator("[data-phx-main]")).to_have_class(
+        re.compile(r"\bphx-connected\b")
     )
-    page.goto(f"{live_server}/browser-nav")
-
-    expect(page.locator("#action")).to_have_text("index")
-    expect(page.locator("#edit")).to_be_visible()
-    document_request_count = len(document_requests)
-
-    page.locator("#edit").click()
-
-    expect(page).to_have_url(f"{live_server}/browser-nav/edit")
-    expect(page.locator("#action")).to_have_text("edit")
-    assert len(document_requests) == document_request_count
+    return requests
 
 
-def test_browser_anchor_redirect_rejoins_without_document_reload(
-    page: Page,
-    live_server: str,
+@when(parsers.parse('I click "{selector}"'), target_fixture="requests_before_click")
+def click(page: Page, document_requests: list[str], selector: str) -> int:
+    count = len(document_requests)
+    page.locator(selector).click()
+    return count
+
+
+@given(parsers.parse('"{selector}" shows "{text}"'))
+@then(parsers.parse('"{selector}" shows "{text}"'))
+def shows(page: Page, selector: str, text: str) -> None:
+    expect(page.locator(selector)).to_have_text(text)
+
+
+@then(parsers.parse('"{selector}" has "{name}" set to "{value}"'))
+def has_attribute(page: Page, selector: str, name: str, value: str) -> None:
+    expect(page.locator(selector)).to_have_attribute(name, value)
+
+
+@then(parsers.parse('the URL is "{path}"'))
+def url_is(page: Page, live_server: str, path: str) -> None:
+    expect(page).to_have_url(f"{live_server}{path}")
+
+
+@then("the document was not reloaded")
+def document_not_reloaded(
+    document_requests: list[str], requests_before_click: int
 ) -> None:
-    document_requests: list[str] = []
-    page.on(
-        "request",
-        lambda request: (
-            document_requests.append(request.url)
-            if request.is_navigation_request()
-            else None
-        ),
-    )
-    page.goto(f"{live_server}/browser-nav")
-
-    expect(page.locator("#action")).to_have_text("index")
-    document_request_count = len(document_requests)
-
-    page.locator("#anchor-edit").click()
-
-    expect(page).to_have_url(f"{live_server}/browser-nav/edit")
-    expect(page.locator("#action")).to_have_text("edit")
-    assert len(document_requests) == document_request_count
+    assert len(document_requests) == requests_before_click

@@ -1131,9 +1131,10 @@ normal owning scopes. ToriPy core contains no LiveView metadata or protocol code
 The package serves unchanged pinned official Phoenix and Phoenix LiveView
 JavaScript clients. Its server implements Phoenix V2 Channels framing,
 `phx-*` event bindings, render trees, heartbeats, connection-local stateful
-component CIDs, and browser-owned keyed stream operations. Nested components,
-uploads, navigation, hooks, and server-initiated messages remain outside the
-current package contract.
+component CIDs, browser-owned keyed stream operations, server-initiated
+messages, live navigation, client hooks, pushed events, event replies, and
+component updates. Nested components, child LiveViews, uploads, and flash
+remain outside the current package contract.
 
 The architecture and implementation order are maintained in
 [`TORI_PY_LIVEVIEW_ARCHITECTURE.md`](TORI_PY_LIVEVIEW_ARCHITECTURE.md),

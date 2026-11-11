@@ -35,8 +35,8 @@ This directory records the executable contract for `tori-py-liveview`.
     events, renders, and outbound writes are serialized on the WebSocket task;
     successful callbacks emit unreferenced Phoenix `diff` pushes, and disconnect
     detaches the queue and rejects later sends.
- 14. Nested components, uploads, and application hook/reply APIs remain outside
-    the current server surface.
+ 14. Nested components, child LiveViews, uploads, and flash remain outside the
+    current server surface.
  15. `@live_view` accepts `action` and `session` and may be stacked for several
     paths on one page class. `mount` runs before `handle_params` on every HTTP
     and Channel mount. `push_patch` navigates within the page, `push_navigate`
@@ -44,6 +44,15 @@ This directory records the executable contract for `tori-py-liveview`.
     back to a full reload. `LiveSession` groups routes with shared `on_mount`
     hooks; authorization lives in hooks, `mount`, and `handle_params`, never in
     the HTTP pipeline alone.
+ 16. The bootstrap passes `globalThis.ToriLiveHooks` to the official `LiveSocket`
+    as its `hooks` object; hook events reach `handle_event` unchanged.
+    `push_event` queues validated JSON-object payloads delivered once under the
+    top-level `e` render key, with `true` marking before-patch dispatch. A
+    `handle_event` mapping result becomes the top-level `r` key of its reply
+    diff. `send_update` updates rendered components in order before the next
+    render. Pushed events and updates are discarded with rejected events, the
+    disconnected render, and disconnect; pushed events and replies also drop
+    when a handler navigates away.
 
 The complete architectural and wire contract is maintained in
 `TORI_PY_LIVEVIEW_ARCHITECTURE.md`.

@@ -47,9 +47,14 @@ be stacked to map several paths to one page class. `LiveView` exposes:
   like a browser reads it, must be a path or an http(s) URL, and must stay on
   the request host name or a host in `LiveViewOptions.redirect_hosts`, so
   untrusted values such as `next` cannot run script or leave the site;
-- `handle_event(event, value)` for connected browser events;
+- `handle_event(event, value)` for connected browser events, optionally
+  returning a JSON-object reply;
 - `handle_info(name, value)` for serialized timer and subscription messages;
 - `send_info(name, value=None)` for connection-local message delivery;
+- `push_event(event, payload=None, dispatch="after")` for a browser event
+  delivered with the next render;
+- `send_update(component_type, component_id, assigns=None)` for updating a
+  rendered stateful component before the next render;
 - `render()` returning a Python 3.14 `Template`, `Rendered`, or trusted static
   HTML as `str`;
 - `title()` returning an optional document title;
@@ -79,6 +84,9 @@ transfer boundary.
 hooks plus asynchronous `handle_event` and `disconnect` hooks. `id` is the
 caller-provided stable identity. `myself` is the positive connection-local CID
 placed in `phx-target`. `connected` identifies the HTTP or WebSocket lifecycle.
+A component `handle_event` may return a reply like a page handler, and
+`push_event` and `send_update` delegate to the owning page's queues; calling
+them on a component that is not attached raises `LiveViewError`.
 
 `LiveView.live_component(component_type, id, assigns, factory=...)` may only run
 inside `render`. Identity is the concrete component type plus `id`. The first
@@ -145,7 +153,56 @@ stop and await its background tasks from `disconnect`; reconnect creates a fresh
 page instance and queue. Info traffic does not extend the browser's inbound idle
 deadline.
 
-### 3.6 Dynamic module
+### 3.6 Client hooks, pushed events, replies, and component updates
+
+The bootstrap passes `globalThis.ToriLiveHooks`, created as an empty object when
+absent, as the official `hooks` option of `LiveSocket`. The client keeps that
+object by reference, so application scripts register hooks by assigning
+properties on it before hooked elements mount; a script placed before the
+deferred client script in `render_document` always runs first. Elements use
+`phx-hook="Name"` with a unique DOM `id`. The official runtime's `Phoenix.*`
+built-in hooks and runtime hooks (`<script data-phx-runtime-hook="Name">` with
+`window.phx_hook_Name`) resolve unchanged. ToriPy adds no hook runtime and does
+not inspect hook code; hook scripts are trusted application code.
+
+`this.pushEvent` and `pushEventTo` in a hook send ordinary `event` messages
+with `type: "hook"`. They dispatch to page or component `handle_event` like any
+other browser event.
+
+`push_event(event, payload=None, dispatch="after")` validates a non-empty event
+name and a mapping payload with string keys that encodes as a JSON object with
+finite numbers, snapshots it, and queues it on the page. Components queue
+through their owning page. The next render sent to the browser carries the
+queue under the top-level `e` key of the join `rendered` tree, the event or live
+patch reply `diff`, or the info `diff` push:
+
+```text
+e: [[event, payload], [event, payload, true], ...]
+```
+
+The trailing `true` marks `dispatch="before"`, which the official client
+dispatches before applying the diff; other events dispatch after it. Each event
+becomes a `phx:<event>` window event, which hooks receive through
+`handleEvent`. Pushed events are discarded with rejected events, when the
+handler navigates away with `push_navigate` or `redirect` (a patch keeps them),
+after the disconnected HTTP render, and on disconnect.
+
+A page or component `handle_event` that returns a mapping replies to the
+browser event. The reply follows the `push_event` payload rules and becomes the
+top-level `r` key of that event's reply `diff`; the official client resolves the
+`pushEvent` reply callback or promise with it. `None` sends no reply. A handler
+that navigates away drops its reply, and an invalid reply is an application
+failure that closes the connection with `1011`.
+
+`send_update(component_type, component_id, assigns=None)` queues an update for
+the component identity `(component_type, component_id)`. Before the next render,
+queued updates call `update(assigns)` in call order on components rendered by
+the previous render; updates for other identities are dropped. Assigns passed
+to `live_component` during that render are applied afterwards. Queued updates
+are discarded with rejected events, after the disconnected HTTP render, and on
+disconnect. Background tasks still deliver work through `send_info`.
+
+### 3.7 Dynamic module
 
 `LiveViewModule.for_root(options, pages, imports=(), key="default")` returns a
 ToriPy `DeferredModule`. It accepts explicit `LiveSession(name, on_mount)`
@@ -189,9 +246,10 @@ serving or importing the package performs no network request. Minified assets
 are Git binary files so checkout line-ending conversion cannot change hashes.
 
 The served client concatenates Phoenix, Phoenix LiveView, and a small bootstrap
-that creates `LiveView.LiveSocket` with `Phoenix.Socket`, connects it, and
-publishes the instance as `globalThis.liveSocket`. This bootstrap does not fork
-or reinterpret the official browser runtime.
+that creates `LiveView.LiveSocket` with `Phoenix.Socket` and the
+`globalThis.ToriLiveHooks` hooks object, connects it, and publishes the instance
+as `globalThis.liveSocket`. This bootstrap does not fork or reinterpret the
+official browser runtime.
 
 ## 5. HTTP Lifecycle
 
@@ -248,6 +306,8 @@ normal tree  {s: [statics...], "0": dynamic, ...}
 component    parent dynamic = cid; c[cid] = {s, dynamics, r: 1}
 title        top-level t; an empty string clears a previous title
 stream       {s, k: {entry indexes, kc}, stream: tuple}
+events       top-level e: [[event, payload], [event, payload, true], ...]
+reply        top-level r: JSON object, in event reply diffs only
 ```
 
 The package currently sends a complete compatible render tree after each
@@ -317,7 +377,9 @@ Browser events use event name `event` and payload fields `type`, `event`,
 the full URL; same-page targets run `handle_params` and reply a diff, while
 other targets reply `link_redirect` so the client rejoins. Form values use Phoenix-compatible bracket
 and list decoding, and their metadata is merged before application dispatch.
-Successful events receive `{status: "ok", response: {diff: tree}}`. Unknown
+Successful events receive `{status: "ok", response: {diff: tree}}`; the tree
+carries pushed events under `e` and a handler reply under `r`. Hook events use
+`type: "hook"` and follow the same path. Unknown
 events and CIDs receive successful no-render replies carrying a reason so the
 client unlocks the event source. Application exceptions close with `1011`.
 Successful info callbacks push `[join_ref, null, topic, "diff", tree]`; they do
@@ -360,9 +422,9 @@ expiry are abuse controls, not substitutes for rate limiting or authorization.
 
 ## 11. Deliberate Non-Goals
 
-The package does not implement nested components, upload transport, durable
-sessions, cross-replica session migration, background event delivery, or
-application hook/reply APIs. The LiveView integration requires the Starlette
+The package does not implement nested components, child LiveViews, upload
+transport, flash, durable sessions, cross-replica session migration, or
+background event delivery. The LiveView integration requires the Starlette
 adapter; the native ASGI adapter serves no WebSocket scopes.
 
 ## 12. Acceptance
@@ -371,7 +433,9 @@ Acceptance requires package tests for rendering, token integrity/expiry,
 declaration validation, HTTP root output, exact asset hashes, Channels joins and
 replies, form/click events, component CIDs and destruction, heartbeats, reconnect,
 title updates, origins, limits, stream ordering/bounds/reset/delete behavior,
-serialized server updates, queue bounds, deadlines, close codes, and cleanup. The
-Playwright example must exercise the real vendored official clients. Ruff,
+serialized server updates, queue bounds, pushed events, event replies, component
+updates, deadlines, close codes, and cleanup. The Playwright tests must exercise
+the real vendored official clients, including a hook that pushes an event,
+receives its reply, and handles a pushed server event. Ruff,
 formatting, ty, wheel/sdist build, artifact verification, and isolated import
 smoke run through `uv`.

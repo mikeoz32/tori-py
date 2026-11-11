@@ -32,9 +32,11 @@ _BOOTSTRAP = b"""
 ;(() => {
   const root = document.querySelector("[data-phx-session][data-tori-live-socket]");
   if (!root) return;
+  const hooks = (globalThis.ToriLiveHooks ??= {});
   const liveSocket = new LiveView.LiveSocket(
     root.dataset.toriLiveSocket,
     Phoenix.Socket,
+    {hooks},
   );
   liveSocket.connect();
   globalThis.liveSocket = liveSocket;

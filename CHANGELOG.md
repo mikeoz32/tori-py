@@ -34,6 +34,12 @@ one package does not require the same change in every package.
   `Phoenix.LiveView.JS` and the pinned 1.2.11 client. Chains render as trusted
   `phx-*` values through interpolation, `attrs()`, and `rendered()`, and
   LiveView UI event options accept them.
+- LiveView client hooks, pushed events, event replies, and component updates.
+  The client bootstrap passes `globalThis.ToriLiveHooks` to the official
+  `LiveSocket` as its `hooks` object; pages and components gain `push_event()`
+  (`phx:<event>` window events delivered under the render-tree `e` key) and
+  `send_update()`, and a mapping returned from `handle_event()` replies to the
+  browser event under the `r` key.
 
 ### Fixed
 

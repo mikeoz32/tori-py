@@ -34,7 +34,13 @@ from tori_py_liveview.errors import (
 )
 from tori_py_liveview.metadata import LiveViewMetadata
 from tori_py_liveview.options import LiveViewOptions, normalize_origin, websocket_path
-from tori_py_liveview.page import LiveView, MountContext, _Info, _UnknownComponentError
+from tori_py_liveview.page import (
+    LiveView,
+    MountContext,
+    _Info,
+    _json_object,
+    _UnknownComponentError,
+)
 from tori_py_liveview.rendering import (
     Rendered,
     _ComponentRendered,
@@ -156,6 +162,16 @@ def _render_message(rendered: Rendered, *, title: str | None) -> dict[str, objec
     if components:
         payload["c"] = components
     payload["t"] = "" if title is None else title
+    return payload
+
+
+def _render_payload(page: LiveView, rendered: Rendered) -> dict[str, object]:
+    """Encode a render and consume the stream operations and pushed events."""
+    payload = _render_message(rendered, title=page.title())
+    page._clear_liveview_stream_operations()
+    events = page._take_liveview_events()
+    if events:
+        payload["e"] = events
     return payload
 
 
@@ -756,9 +772,7 @@ def gateway_type(options: LiveViewOptions, registry: _Registry) -> type[object]:
                             socket, join, "error", {"redirect": {"to": target}}
                         )
                         return
-                    current = await _render(page)
-                    rendered = _render_message(current, title=page.title())
-                    page._clear_liveview_stream_operations()
+                    rendered = _render_payload(page, await _render(page))
                     join_reply: dict[str, object] = {
                         "rendered": rendered,
                         "liveview_version": _LIVEVIEW_VERSION,
@@ -900,9 +914,7 @@ def gateway_type(options: LiveViewOptions, registry: _Registry) -> type[object]:
                                     info_task = None
                                     await close_current_page()
                                     break
-                                updated = await _render(page)
-                                diff = _render_message(updated, title=page.title())
-                                page._clear_liveview_stream_operations()
+                                diff = _render_payload(page, await _render(page))
                                 if drained is not None:
                                     _, patch_to, patch_kind = drained
                                     await _send(
@@ -934,14 +946,13 @@ def gateway_type(options: LiveViewOptions, registry: _Registry) -> type[object]:
                                 else _positive_int(target_value)
                             )
                             try:
-                                await page._handle_liveview_event(
+                                reply = await page._handle_liveview_event(
                                     target,
                                     event,
                                     _event_value(message.payload),
                                 )
                             except _UnknownComponentError:
-                                page._take_liveview_pending_redirect()
-                                page._clear_liveview_stream_operations()
+                                page._discard_liveview_effects()
                                 await _reply(
                                     socket,
                                     message,
@@ -950,8 +961,7 @@ def gateway_type(options: LiveViewOptions, registry: _Registry) -> type[object]:
                                 )
                                 continue
                             except UnknownEventError:
-                                page._take_liveview_pending_redirect()
-                                page._clear_liveview_stream_operations()
+                                page._discard_liveview_effects()
                                 await _reply(
                                     socket,
                                     message,
@@ -959,6 +969,11 @@ def gateway_type(options: LiveViewOptions, registry: _Registry) -> type[object]:
                                     {"reason": "unknown_event"},
                                 )
                                 continue
+                            reply_payload = (
+                                None
+                                if reply is None
+                                else _json_object("LiveView event reply", reply)
+                            )
 
                             drained = await _drain_navigation(
                                 page,
@@ -970,9 +985,9 @@ def gateway_type(options: LiveViewOptions, registry: _Registry) -> type[object]:
                                 redirect_hosts=options.redirect_hosts,
                             )
                             if drained is None or drained[0] == "patch":
-                                updated = await _render(page)
-                                diff = _render_message(updated, title=page.title())
-                                page._clear_liveview_stream_operations()
+                                diff = _render_payload(page, await _render(page))
+                                if reply_payload is not None:
+                                    diff["r"] = reply_payload
                                 if drained is not None:
                                     _, patch_to, patch_kind = drained
                                     await _send(
@@ -1045,9 +1060,7 @@ def gateway_type(options: LiveViewOptions, registry: _Registry) -> type[object]:
                                 redirect_hosts=options.redirect_hosts,
                             )
                             if drained is None or drained[0] == "patch":
-                                updated = await _render(page)
-                                diff = _render_message(updated, title=page.title())
-                                page._clear_liveview_stream_operations()
+                                diff = _render_payload(page, await _render(page))
                                 if drained is not None:
                                     _, patch_to, patch_kind = drained
                                     await _send(

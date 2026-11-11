@@ -221,6 +221,22 @@ stop component-owned resources. Nested components are not supported. Component
 output must contain exactly one root element and use explicit balanced end tags
 rather than optional-end-tag HTML.
 
+`send_update(component_type, component_id, assigns)` passes assigns to a
+rendered component from a page or component handler or from `handle_info()`,
+without the parent having to track them:
+
+```python
+async def handle_info(self, name: str, value: object) -> None:
+    if name == "progress":
+        self.send_update(ProgressComponent, "upload", {"percent": value})
+```
+
+Queued updates call `update(assigns)` in order before the next render, only for
+components the previous render produced; other identities are ignored. The
+assigns the parent passes to `live_component()` during that render are applied
+afterwards, so keep component state that `send_update()` sets separate from the
+fields the parent overwrites.
+
 ## Streams
 
 Use streams for collections whose children should be owned by the browser rather
@@ -288,6 +304,62 @@ writes run serially on the connection task. Stop and await page-owned background
 tasks from `disconnect()`; reconnect mounts a fresh page and queue. Server
 updates do not extend the browser's inbound idle deadline.
 
+## Hooks, pushed events, and replies
+
+The client bootstrap passes `globalThis.ToriLiveHooks` to the official
+`LiveSocket` as its `hooks` object. Register hooks on it from a script that runs
+before the deferred client script, for example by prepending it in
+`render_document`:
+
+```python
+_HOOKS = '<script defer src="/assets/hooks.js"></script>'
+
+
+class ChatLive(LiveView):
+    def render_document(self, live_root: str, client_script: str) -> str:
+        return super().render_document(live_root, _HOOKS + client_script)
+
+    def render(self) -> Template:
+        return t'<div id="messages" phx-hook="ScrollToEnd">{self.messages}</div>'
+```
+
+```js
+// /assets/hooks.js, served by the application
+globalThis.ToriLiveHooks ??= {};
+ToriLiveHooks.ScrollToEnd = {
+  mounted() {
+    this.handleEvent("scroll-to-end", () => this.el.scrollTo(0, this.el.scrollHeight));
+  },
+  updated() { this.el.scrollTo(0, this.el.scrollHeight); },
+};
+```
+
+Hooked elements need a unique DOM `id`. `this.pushEvent(event, value, reply)` in
+a hook reaches `handle_event` like any other browser event. A handler that
+returns a mapping replies to it; `None` sends no reply:
+
+```python
+async def handle_event(self, event: str, value: object) -> Mapping[str, object] | None:
+    if event == "load-more":
+        self.page += 1
+        self.push_event("scroll-to-end")
+        return {"page": self.page}
+    raise UnknownEventError(event)
+```
+
+`push_event(event, payload=None, dispatch="after")` sends a `phx:<event>` window
+event, which hooks receive through `handleEvent`, with the next render: the
+join, an event reply, or a `handle_info` update. `dispatch="before"` dispatches
+it before the client applies that render. Payloads and replies are mappings with
+string keys that must encode as JSON objects; they are copied when queued.
+Pushed events are dropped when the handler raises `UnknownEventError` or
+navigates away with `push_navigate()` or `redirect()`, during the disconnected
+HTTP render, and on disconnect. An invalid reply closes the connection like any
+other handler failure.
+
+Components have the same `push_event()` and reply behaviour. Hook scripts are
+trusted application code; ToriPy serves no hook runtime of its own.
+
 ## Configuration
 
 `LiveViewOptions` controls the root-relative socket and client paths, explicit
@@ -311,11 +383,12 @@ downloads before replacing either vendored file.
 
 This release implements Phoenix Channels joins and replies, Phoenix render
 trees, stateful component CIDs, targeted events, heartbeats,
-reconnect-compatible joins, title updates, browser-owned bounded streams, and
-serialized connection-local server updates through `send_info`/`handle_info`.
-The configured socket path is the Phoenix endpoint base; the browser connects to
-its `/websocket?vsn=2.0.0` transport route. Nested components, uploads,
-navigation, and application hook/reply APIs are reserved for later releases.
+reconnect-compatible joins, title updates, browser-owned bounded streams,
+serialized connection-local server updates through `send_info`/`handle_info`,
+live navigation, client hooks, pushed events, event replies, and
+`send_update`. The configured socket path is the Phoenix endpoint base; the
+browser connects to its `/websocket?vsn=2.0.0` transport route. Nested
+components, child LiveViews, uploads, and flash are reserved for later releases.
 
 See the runnable example in `examples/tori_py/liveview` and the normative
 architecture in `TORI_PY_LIVEVIEW_ARCHITECTURE.md`.
