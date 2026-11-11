@@ -31,6 +31,7 @@ REQUIRED_FILES = (
     "tutorials/cqrs-application.md",
     "tutorials/distributed-application.md",
     "tutorials/event-sourced-application.md",
+    "tutorials/openapi-task-api.md",
     "tutorials/live-task-board.md",
     "tutorials/websocket-task-feed.md",
     "fundamentals/index.md",

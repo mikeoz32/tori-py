@@ -155,6 +155,17 @@ public route override, response metadata, Swagger UI, guard enforcement, and a
 portable `HttpResponse` export. Browse `/openapi.json` and `/docs`; the protected
 member route accepts the educational `Bearer example-token` value only.
 
+The [OpenAPI tutorial](../tutorials/openapi-task-api.md) branches from Task API
+Part 1 and is tested with:
+
+```text
+uv run pytest examples/tori_py/tutorials/openapi_task_api/task_app/test_app.py -q
+```
+
+It documents the Part 1 routes, Problem Details error responses, and a
+`DELETE` route with a `204` response, a demonstration bearer guard, and the
+matching security requirement.
+
 ### Microservices
 
 The small microservices examples are exercised as one suite:
