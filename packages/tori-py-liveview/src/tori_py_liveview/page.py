@@ -725,6 +725,13 @@ class LiveView(ABC):
             raise TypeError("LiveView async name must be a string")
         if not name.isidentifier() or name.startswith("_"):
             raise ValueError("LiveView assign_async name must be a public attribute")
+        # Assigning over a method, property, or class variable such as `title`
+        # would break the page or component the next time it is used.
+        declared = getattr(type(owner), name, None)
+        if declared is not None and not isinstance(declared, AsyncResult):
+            raise ValueError(
+                f"LiveView assign_async name {name!r} shadows a class attribute"
+            )
         if not callable(function):
             raise TypeError("LiveView async function must be callable")
         current = getattr(owner, name, None)

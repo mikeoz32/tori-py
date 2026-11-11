@@ -278,7 +278,10 @@ drops its result.
 sets the public attribute `name` to an `AsyncResult` with `loading` true,
 keeping a previous `result` and `ok` unless `reset` is true, and settles it to
 ok or failed without calling `handle_async`. The disconnected render therefore
-shows the loading state.
+shows the loading state. `name` must be a public identifier that is not a class
+attribute of the page or component, so a method, property, or class variable
+such as `title`, `flash`, or a component's `id` cannot be replaced; a
+class-level `AsyncResult` default is allowed.
 
 `cancel_async(name)` cancels running work and returns whether the name had
 work pending. A cancelled task's outcome arrives with `failed` set to

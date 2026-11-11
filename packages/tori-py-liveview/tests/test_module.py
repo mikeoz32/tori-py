@@ -2709,6 +2709,37 @@ async def test_async_validates_and_cancels_component_work() -> None:
     assert widget.value == "waiting"
 
 
+class ReportWidget(LiveComponent):
+    report: AsyncResult[object] = AsyncResult()
+
+    def render(self) -> str:
+        return "<span></span>"
+
+
+def test_assign_async_never_shadows_page_or_component_api() -> None:
+    page = AsyncLive()
+    work = _gated("unused", "x")
+    for name in ("title", "flash", "render", "live_action", "send_info", "outcomes"):
+        with pytest.raises(ValueError, match=f"{name!r} shadows a class attribute"):
+            page.assign_async(name, work)
+    assert page.title() is None
+    assert page.flash == {}
+
+    widget = ReportWidget()
+    widget._attach_liveview("report", 1, False, page)
+    for name in ("id", "myself", "connected", "render", "handle_async"):
+        with pytest.raises(ValueError, match="shadows a class attribute"):
+            widget.assign_async(name, work)
+    assert widget.id == "report"
+
+    # Instance attributes and class-level AsyncResult defaults remain targets.
+    page.assign_async("org", work)
+    assert page.org == AsyncResult(loading=True)
+    widget.assign_async("report", work)
+    assert widget.report == AsyncResult(loading=True)
+    assert ReportWidget.report == AsyncResult()
+
+
 @pytest.mark.asyncio
 async def test_removed_component_work_stops_before_its_disconnect_hook() -> None:
     CleanupWidget.events = []

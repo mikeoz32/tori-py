@@ -411,8 +411,9 @@ async def handle_async(self, name: str, result: AsyncResult[object]) -> None:
 `assign_async(name, function, reset=False)` keeps an `AsyncResult` in the
 attribute `name` instead: it is `loading` until the work finishes and then `ok`
 with `result`, or `failed` with the exception. A reload keeps the previous
-result while loading unless `reset=True`. The disconnected render shows the
-loading state without starting work:
+result while loading unless `reset=True`. The name cannot be a method,
+property, or class variable such as `title` or `flash`. The disconnected render
+shows the loading state without starting work:
 
 ```python
 async def mount(self, context: MountContext) -> None:
