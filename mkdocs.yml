@@ -64,6 +64,7 @@ nav:
       - "Part 2: Add CQRS": tutorials/cqrs-application.md
       - "Part 3: Distribute It": tutorials/distributed-application.md
       - "Part 4: Add Event Sourcing": tutorials/event-sourced-application.md
+      - Live Task Board: tutorials/live-task-board.md
   - Fundamentals:
       - Overview: fundamentals/index.md
       - Modules: fundamentals/modules.md
