@@ -52,6 +52,11 @@ one package does not require the same change in every package.
   bootstrap passes `globalThis.ToriLiveParams` to the client, connected mounts
   receive `MountContext.connect_params` with `static_changed()`, and a 4xx
   `HttpException` during the connected mount reloads the page.
+- LiveView changed-only diffs. After the join, renders send only what the
+  official client's cached tree lacks: changed values without their statics,
+  only the components that changed, each component template's statics once,
+  stream entries only with operations, and the title only when it changes.
+  Info and async renders that change nothing push no `diff`.
 
 ### Fixed
 

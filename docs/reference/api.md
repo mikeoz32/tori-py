@@ -336,9 +336,9 @@ Principal public API:
   `UnknownInfoError`, `UnknownAsyncError`.
 
 The package interoperates with official Phoenix and Phoenix LiveView clients
-through Channels joins/replies, Phoenix render trees, stateful component CIDs,
-targeted events, heartbeats, title updates, browser-owned keyed streams, and
-reconnect joins. Route-aware `push_patch` and `push_navigate` preserve live
+through Channels joins/replies, Phoenix render trees with changed-only diffs,
+stateful component CIDs, targeted events, heartbeats, title updates,
+browser-owned keyed streams, and reconnect joins. Route-aware `push_patch` and `push_navigate` preserve live
 sessions when possible and fall back to full reloads when required.
 Server-initiated updates use the bounded connection-local
 `send_info` queue and serialized `handle_info` callback to emit Phoenix `diff`

@@ -413,18 +413,47 @@ ordinary text and loses structural semantics. The encoder produces:
 
 ```text
 normal tree  {s: [statics...], "0": dynamic, ...}
-component    parent dynamic = cid; c[cid] = {s, dynamics, r: 1}
-title        top-level t; an empty string clears a previous title
-stream       {s, k: {entry indexes, kc}, stream: tuple}
+changes      {"2": dynamic, ...}: changed keys only, no s
+component    parent dynamic = cid; c[cid] = {s, dynamics, r: 1} or changes
+shared       c[cid].s = cid sent in this diff, or -cid the client caches
+title        top-level t when it changes; an empty string clears the title
+stream       {s, k: {entry indexes, kc}, stream: tuple}, with operations only
 events       top-level e: [[event, payload], [event, payload, true], ...]
 reply        top-level r: JSON object, in event reply diffs only
 ```
 
-The package currently sends a complete compatible render tree after each
-successful event. Phoenix merge semantics still apply in the browser, and
-component/stream metadata remains canonical. The local `fingerprint` and `diff`
-helpers remain available for comparing `Rendered` values but are not a separate
-browser protocol.
+A join sends the complete render tree. Later renders send only what the
+official client's cached tree lacks, following Phoenix fingerprint semantics.
+Each join keeps the last page tree it sent, the last tree of every component CID
+the client still caches, and the last title:
+
+- A node whose statics are unchanged sends only its changed dynamic keys, and
+  the client merges them into the cached node. Unchanged values, nodes,
+  components, and titles are left out. A node with new statics, or a value of
+  another kind, is sent complete and replaces the cached one.
+- New page statics replace the client's whole tree and drop its component
+  cache, so every rendered component is then sent complete.
+- A component is compared with the last tree sent for its CID, wherever it was
+  rendered. A component left out of one render and rendered again before the
+  client confirms `cids_destroyed` sends only its changes, because the client
+  keeps its tree until that reply. The server forgets a component's tree in the
+  reply that lets the client prune it. When only components change, the diff
+  holds only `c`, so the client patches those components and leaves the rest
+  of the page alone.
+- A component sent complete copies its statics from a component sent earlier
+  in the same diff (a positive CID) or from a cached component that the same
+  render keeps (a negative CID). Its dynamics are sent in full, so they replace
+  the copied ones. A cached component the render leaves out never lends its
+  statics, because the client may prune it before applying a deferred diff.
+- A stream is sent only when the render carries operations. Each render
+  consumes them, and the client prunes entries once it applies them.
+- An info callback or async result that changes nothing pushes no `diff`; an
+  event reply then carries an empty diff.
+
+The local `fingerprint` and `diff` helpers remain available for comparing
+`Rendered` values but do not drive the wire protocol. Lists built with
+`fragment()` are plain trees, so a change in their length sends the whole list
+again; Phoenix keyed comprehensions are used only for streams.
 
 Template interpolation is safe for HTML text and quoted attribute values. It is
 not context-aware and must not supply tag names, attribute names, unquoted
@@ -464,13 +493,15 @@ Before acceptance, the gateway validates Origin. It then:
     document; that HTTP request answers with the same status, so the HTTP
     pipeline renders the error even when the disconnected mount would succeed,
     and the browser cannot reload in a loop.
- 5. Sends the complete Phoenix join render tree.
+ 5. Sends the complete Phoenix join render tree and starts the client's render
+    state afresh.
  6. Waits concurrently for inbound frames, accepted info messages, and finished
     async work.
  7. Processes one event, heartbeat, component-destruction message, live patch,
     info callback, or async result at a time.
  8. Sends referenced `phx_reply` event diffs or unreferenced server `diff`
-    pushes. A queued `push_patch` adds an unreferenced `live_patch` push;
+    pushes, each carrying only changes. A queued `push_patch` adds an
+    unreferenced `live_patch` push;
     `push_navigate` replies `live_redirect` and the client rejoins on the same
     socket; `redirect` replies `redirect` for a full page reload.
  9. Detaches the info queue, disconnects all remaining components, and calls page
@@ -505,8 +536,9 @@ carries pushed events under `e` and a handler reply under `r`. Hook events use
 `type: "hook"` and follow the same path. Unknown
 events and CIDs receive successful no-render replies carrying a reason so the
 client unlocks the event source. Application exceptions close with `1011`.
-Successful info callbacks push `[join_ref, null, topic, "diff", tree]`; they do
-not create a second event-version or stale-retry dialect.
+Successful info callbacks push `[join_ref, null, topic, "diff", tree]` when the
+render changed something; they do not create a second event-version or
+stale-retry dialect.
 
 Heartbeats use topic `phoenix`, event `heartbeat`, null `join_ref`, and receive
 an empty successful reply with the same ref. `phx_leave` receives an empty
@@ -566,12 +598,16 @@ replies, form/click events, component CIDs and destruction, heartbeats, reconnec
 title updates, origins, limits, stream ordering/bounds/reset/delete behavior,
 serialized server updates, queue bounds, pushed events, event replies, component
 updates, flash transfer and clearing, flash and mount token separation, async
-results and cancellation, connect params, reload join errors, deadlines, close
-codes, and cleanup. The pytest-bdd Playwright scenarios must exercise the real
-vendored official clients, including a hook that pushes an event, receives its
-reply, and handles a pushed server event; flash dismissal and transfer across
-`push_navigate` and `redirect`; an `assign_async` loading state; connect params
-with `_track_static` and `_live_referer`; and a reload after a connected-mount
-client error. Ruff,
+results and cancellation, connect params, reload join errors, changed-only diffs
+checked against a port of the pinned client's merge over random render
+sequences, deadlines, close codes, and cleanup. The pytest-bdd Playwright
+scenarios must exercise the real vendored official clients, including a hook
+that pushes an event, receives its reply, and handles a pushed server event;
+flash dismissal and transfer across `push_navigate` and `redirect`; an
+`assign_async` loading state; connect params with `_track_static` and
+`_live_referer`; a reload after a connected-mount client error; and
+changed-only diffs that update one component without touching its sibling,
+share cached component statics, bring back a component before its destruction,
+and keep stream items across updates that leave the stream out. Ruff,
 formatting, ty, wheel/sdist build, artifact verification, and isolated import
 smoke run through `uv`.

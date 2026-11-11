@@ -126,6 +126,15 @@ Phoenix render-tree values. Interpolate those structural values without `!s`,
 in HTML text and quoted attribute values; dynamic tag or attribute names, CSS,
 and JavaScript are outside the safe authoring contract.
 
+After the join, each update sends the browser only what changed. A template's
+literal text, its statics, stays with the client, so a click that changes one
+interpolated value sends that value alone. A component whose output did not
+change is left out, and its DOM is left untouched. Statics are compared by
+value, so a page or component that returns a plain `str`, such as an f-string,
+has new statics whenever its text changes and is sent whole each time. Prefer
+`t"..."` templates for anything that updates. A `fragment()` list whose length
+changes is also sent whole.
+
 ## JS commands
 
 The Phoenix client runs a `phx-*` binding value that starts with `[` as JS
@@ -484,7 +493,8 @@ trees, stateful component CIDs, targeted events, heartbeats,
 reconnect-compatible joins, title updates, browser-owned bounded streams,
 serialized connection-local server updates through `send_info`/`handle_info`,
 live navigation, client hooks, pushed events, event replies, `send_update`,
-flash, async work, connect params, and `reload` join errors. The configured
+flash, async work, connect params, `reload` join errors, and changed-only
+render diffs with shared component statics. The configured
 socket path is the Phoenix endpoint base; the browser connects to its
 `/websocket?vsn=2.0.0` transport route. Nested components, child LiveViews, and
 uploads are reserved for later releases.

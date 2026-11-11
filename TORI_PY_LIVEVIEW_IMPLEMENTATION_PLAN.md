@@ -100,7 +100,25 @@
 - Exercise frames through package tests and the browser behavior through
   pytest-bdd scenarios on the exact pinned official clients.
 
+## LV11: Changed-Only Diffs
+
+- Keep the render tree the client caches per join: the last page tree, the last
+  tree of every cached component CID, and the last title. A join starts afresh
+  and sends the complete tree.
+- Send later renders under Phoenix fingerprint rules: unchanged statics send
+  only changed dynamic keys, new statics send complete nodes, new page statics
+  resend every rendered component, streams travel only with operations, titles
+  only when they change, and info or async renders that change nothing push no
+  `diff`.
+- Compare components with the last tree sent for their CID, forget a tree in
+  the `cids_destroyed` reply that lets the client prune it, and send each
+  component template's statics once through positive (same diff) or negative
+  (cached and kept by the render) CID references.
+- Exercise the encoder against a port of the pinned client's merge over random
+  render sequences, and the browser behavior through pytest-bdd scenarios on
+  the exact pinned official clients.
+
 ## Deferred
 
 - Evaluate nested components, child LiveViews, uploads, `stream_async`, and
-  changed-only diffs as separate contracts.
+  keyed list comprehensions as separate contracts.

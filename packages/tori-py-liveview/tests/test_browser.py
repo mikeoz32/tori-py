@@ -1,17 +1,18 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import re
 import socket
 import threading
 import time
-from collections.abc import Coroutine, Iterator, Mapping
+from collections.abc import Callable, Coroutine, Iterator, Mapping
 from typing import Any, cast
 from urllib.parse import parse_qsl, urlsplit
 
 import pytest
 import uvicorn
-from playwright.sync_api import Page, Request, Response, expect
+from playwright.sync_api import Page, Request, Response, WebSocket, expect
 from pytest_bdd import given, parsers, scenarios, then, when
 from starlette.types import ASGIApp
 from tori_py import NestApplication, module
@@ -19,6 +20,7 @@ from tori_py.http import HttpException
 from tori_py.starlette import StarletteAdapter
 from tori_py_liveview import (
     AsyncResult,
+    LiveComponent,
     LiveView,
     LiveViewModule,
     LiveViewOptions,
@@ -235,6 +237,74 @@ class BrowserGoneLive(LiveView):
         return "<p>here</p>"
 
 
+class BrowserCard(LiveComponent):
+    def __init__(self) -> None:
+        self.count = 0
+
+    async def handle_event(self, event: str, value: object) -> None:
+        del value
+        if event != "bump":
+            raise UnknownEventError(event)
+        self.count += 1
+
+    def render(self):
+        return (
+            t'<section id="{self.id}-card">'
+            t'<output id="{self.id}-count">{self.count}</output>'
+            t'<button id="{self.id}-bump" phx-click="bump" '
+            t'phx-target="{self.myself}">+</button>'
+            t"</section>"
+        )
+
+
+@live_view("/browser-diff")
+class BrowserDiffLive(LiveView):
+    def __init__(self) -> None:
+        self.count = 0
+        self.show_right = True
+        self.items = 0
+
+    async def handle_event(self, event: str, value: object) -> None:
+        del value
+        if event == "bump":
+            self.count += 1
+        elif event == "toggle":
+            self.show_right = not self.show_right
+        elif event == "blink":
+            # Leave the right card out of this render and bring it back in the
+            # next one, before the client can confirm its destruction.
+            self.show_right = False
+            self.send_info("show-right")
+        elif event == "add":
+            self.items += 1
+            item = f"item-{self.items}"
+            self.stream_insert("items", item, t'<li id="{item}">{item}</li>')
+        else:
+            raise UnknownEventError(event)
+
+    async def handle_info(self, name: str, value: object) -> None:
+        if name != "show-right":
+            await super().handle_info(name, value)
+            return
+        self.show_right = True
+
+    def title(self) -> str:
+        return f"Clicks {self.count}"
+
+    def render(self):
+        left = self.live_component(BrowserCard, "left")
+        right = self.live_component(BrowserCard, "right") if self.show_right else ""
+        return (
+            t'<output id="page-count">{self.count}</output>'
+            t'<button id="bump" phx-click="bump">+</button>'
+            t'<button id="toggle" phx-click="toggle">Toggle</button>'
+            t'<button id="blink" phx-click="blink">Blink</button>'
+            t'<button id="add" phx-click="add">Add</button>'
+            t"{left}{right}"
+            t'<ul id="items" phx-update="stream">{self.stream_contents("items")}</ul>'
+        )
+
+
 def _asgi(application: NestApplication) -> ASGIApp:
     return application.get_adapter(StarletteAdapter).app
 
@@ -250,6 +320,7 @@ async def _create_application() -> NestApplication:
             BrowserAsyncLive,
             BrowserParamsLive,
             BrowserGoneLive,
+            BrowserDiffLive,
         ],
     )
 
@@ -321,11 +392,33 @@ def live_server() -> Iterator[str]:
         _run_async(application.shutdown())
 
 
+@pytest.fixture
+def socket_frames(page: Page) -> list[list[Any]]:
+    """Channel frames the server sent to the page."""
+    frames: list[list[Any]] = []
+
+    def watch(socket: WebSocket) -> None:
+        def received(payload: str | bytes) -> None:
+            if isinstance(payload, str):
+                frames.append(json.loads(payload))
+
+        socket.on("framereceived", received)
+
+    page.on("websocket", watch)
+    return frames
+
+
 @given(
     parsers.parse('I open the "{path}" live page'),
     target_fixture="document_requests",
 )
-def open_live_page(page: Page, live_server: str, path: str) -> list[str]:
+def open_live_page(
+    page: Page,
+    live_server: str,
+    socket_frames: list[list[Any]],
+    path: str,
+) -> list[str]:
+    del socket_frames  # Watch the socket before the page opens it.
     requests: list[str] = []
 
     def record(request: Request) -> None:
@@ -440,3 +533,85 @@ def reconnect_url_fields(reconnect_url: str, name: str, value: str) -> None:
     query = parse_qsl(urlsplit(reconnect_url).query, keep_blank_values=True)
     assert (name, value) in query
     assert not {key.partition("[")[0] for key, _ in query} & _JOIN_FIELDS
+
+
+def _latest_diff(frames: list[list[Any]]) -> dict[str, Any] | None:
+    for frame in reversed(frames):
+        if frame[3] == "diff":
+            return frame[4]
+        if frame[3] == "phx_reply" and "diff" in frame[4]["response"]:
+            return frame[4]["response"]["diff"]
+    return None
+
+
+def _eventually(page: Page, check: Callable[[], bool]) -> None:
+    # Frame events reach the sync API while it waits, so poll for a moment.
+    for _ in range(40):
+        if check():
+            return
+        page.wait_for_timeout(50)
+    assert check()
+
+
+@then(parsers.parse("the last update was {payload}"))
+def last_update(page: Page, socket_frames: list[list[Any]], payload: str) -> None:
+    expected = json.loads(payload)
+    _eventually(page, lambda: _latest_diff(socket_frames) == expected)
+
+
+@then(
+    parsers.parse(
+        "the last update gave component {cid:d} the statics of component {source:d}"
+    )
+)
+def shared_statics(
+    page: Page, socket_frames: list[list[Any]], cid: int, source: int
+) -> None:
+    def shared() -> bool:
+        diff = _latest_diff(socket_frames) or {}
+        component = diff.get("c", {}).get(str(cid), {})
+        return component.get("s") == -source
+
+    _eventually(page, shared)
+
+
+@then(parsers.parse("the server destroyed component {cid:d}"))
+def destroyed(page: Page, socket_frames: list[list[Any]], cid: int) -> None:
+    def confirmed() -> bool:
+        return any(
+            frame[3] == "phx_reply" and cid in frame[4]["response"].get("cids", [])
+            for frame in socket_frames
+        )
+
+    _eventually(page, confirmed)
+
+
+@then(parsers.parse('the page title is "{title}"'))
+def page_title(page: Page, title: str) -> None:
+    expect(page).to_have_title(title)
+
+
+@given(parsers.parse('I mark "{first}" and "{second}"'))
+def mark(page: Page, first: str, second: str) -> None:
+    for selector in (first, second):
+        page.locator(selector).evaluate("node => node.setAttribute('data-mark', '')")
+
+
+@then(parsers.parse('"{selector}" still has its mark'))
+def still_marked(page: Page, selector: str) -> None:
+    expect(page.locator(selector)).to_have_attribute("data-mark", "")
+
+
+@then(parsers.parse('"{selector}" lost its mark'))
+def mark_lost(page: Page, selector: str) -> None:
+    expect(page.locator(selector)).not_to_have_attribute("data-mark", "")
+
+
+@then(parsers.parse('"{selector}" is gone'))
+def gone(page: Page, selector: str) -> None:
+    expect(page.locator(selector)).to_have_count(0)
+
+
+@then(parsers.parse('"{selector}" lists {count:d} items'))
+def lists(page: Page, selector: str, count: int) -> None:
+    expect(page.locator(f"{selector} > li")).to_have_count(count)

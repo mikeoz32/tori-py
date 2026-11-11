@@ -80,6 +80,15 @@ This directory records the executable contract for `tori-py-liveview`.
     request carrying that token in `__phoenix_reload_status__` answers with the
     same status for the same page and resource, so the browser reloads at most
     once.
+ 20. After the complete join tree, renders send only what the client's cached
+    tree lacks: changed dynamic keys without statics, complete nodes for new
+    statics, every rendered component again after new page statics, streams
+    only with operations, and titles only when they change. Components diff
+    against the last tree sent for their CID until the `cids_destroyed` reply
+    that prunes them, and unchanged components stay out of `c`. A complete
+    component tree copies equal statics from a component earlier in the same
+    diff or from a cached component the same render keeps, never from one it
+    leaves out. Info and async renders that change nothing push no `diff`.
 
 The complete architectural and wire contract is maintained in
 `TORI_PY_LIVEVIEW_ARCHITECTURE.md`.

@@ -27,6 +27,7 @@ from tori_py import (
 )
 from tori_py.http import HttpContext, HttpException, HttpResponse
 
+from tori_py_liveview._diff import _RenderState
 from tori_py_liveview.errors import (
     LiveViewConfigurationError,
     LiveViewError,
@@ -41,11 +42,7 @@ from tori_py_liveview.page import (
     _json_object,
     _UnknownComponentError,
 )
-from tori_py_liveview.rendering import (
-    Rendered,
-    _ComponentRendered,
-    _StreamRendered,
-)
+from tori_py_liveview.rendering import Rendered
 from tori_py_liveview.routing import (
     CompiledLiveRoute,
     LiveRoute,
@@ -120,64 +117,13 @@ def _resource(request: Request) -> str:
     return path if not query else f"{path}?{query}"
 
 
-def _stream_tree(rendered: _StreamRendered) -> dict[str, object]:
-    keyed: dict[str, object] = {"kc": len(rendered.inserts)}
-    insert_metadata: list[list[object]] = []
-    for index, insert in enumerate(rendered.inserts):
-        keyed[str(index)] = {"0": insert.html}
-        insert_metadata.append([insert.item_id, insert.at, insert.limit, None])
-    stream: list[object] = [
-        rendered.ref,
-        insert_metadata,
-        list(rendered.delete_ids),
-    ]
-    if rendered.reset:
-        stream.append(True)
-    return {"s": ["", ""], "k": keyed, "stream": stream}
-
-
-def _rendered_tree(
+def _render_payload(
+    page: LiveView,
     rendered: Rendered,
-    components: dict[str, object],
-    *,
-    root: bool = False,
+    state: _RenderState,
 ) -> dict[str, object]:
-    tree: dict[str, object] = {"s": list(rendered.statics)}
-    if root:
-        tree["r"] = 1
-    for index, dynamic in enumerate(rendered.dynamics):
-        key = str(index)
-        if isinstance(dynamic, _ComponentRendered):
-            tree[key] = dynamic.cid
-            component = Rendered(dynamic.statics, dynamic.dynamics)
-            components[str(dynamic.cid)] = _rendered_tree(
-                component,
-                components,
-                root=True,
-            )
-        elif isinstance(dynamic, _StreamRendered):
-            tree[key] = _stream_tree(dynamic)
-        elif isinstance(dynamic, Rendered):
-            tree[key] = _rendered_tree(dynamic, components)
-        else:
-            tree[key] = dynamic
-    return tree
-
-
-def _render_message(rendered: Rendered, *, title: str | None) -> dict[str, object]:
-    components: dict[str, object] = {}
-    if isinstance(rendered, _ComponentRendered):
-        rendered = Rendered(("", ""), (rendered,))
-    payload = _rendered_tree(rendered, components)
-    if components:
-        payload["c"] = components
-    payload["t"] = "" if title is None else title
-    return payload
-
-
-def _render_payload(page: LiveView, rendered: Rendered) -> dict[str, object]:
-    """Encode a render and consume its stream, event, and flash effects."""
-    payload = _render_message(rendered, title=page.title())
+    """Encode a render's changes and consume its stream, event, and flash effects."""
+    payload = state.encode(rendered, page.title())
     page._clear_liveview_stream_operations()
     page._take_liveview_flash_changes()
     events = page._take_liveview_events()
@@ -840,6 +786,8 @@ def gateway_type(options: LiveViewOptions, registry: _Registry) -> type[object]:
                     name = live_route.page
                     session = live_route.session
                     page_scope, page = await _open_page(self._scopes, page_type)
+                    # Each join starts the client's render tree afresh.
+                    render_state = _RenderState()
                     page._liveview_action = action
                     page._set_liveview_flash(initial_flash)
                     page._connect_liveview(
@@ -872,7 +820,9 @@ def gateway_type(options: LiveViewOptions, registry: _Registry) -> type[object]:
                         rendered = (
                             {}
                             if navigating
-                            else _render_payload(page, await _render(page))
+                            else _render_payload(
+                                page, await _render(page), render_state
+                            )
                         )
                     except HttpException as error:
                         # Phoenix reloads the page so the HTTP pipeline renders
@@ -992,6 +942,8 @@ def gateway_type(options: LiveViewOptions, registry: _Registry) -> type[object]:
                                 destroyed = await page._destroy_liveview_components(
                                     _destroyed_cids(message.payload)
                                 )
+                                # The client prunes exactly the CIDs in this reply.
+                                render_state.forget(destroyed)
                                 await _reply(socket, message, "ok", {"cids": destroyed})
                                 continue
                             if message.event == "live_patch":
@@ -1071,7 +1023,9 @@ def gateway_type(options: LiveViewOptions, registry: _Registry) -> type[object]:
                                     info_task = None
                                     await close_current_page()
                                     break
-                                diff = _render_payload(page, await _render(page))
+                                diff = _render_payload(
+                                    page, await _render(page), render_state
+                                )
                                 if drained is not None:
                                     _, patch_to, patch_kind = drained
                                     await _send(
@@ -1142,7 +1096,9 @@ def gateway_type(options: LiveViewOptions, registry: _Registry) -> type[object]:
                                 redirect_hosts=options.redirect_hosts,
                             )
                             if drained is None or drained[0] == "patch":
-                                diff = _render_payload(page, await _render(page))
+                                diff = _render_payload(
+                                    page, await _render(page), render_state
+                                )
                                 if reply_payload is not None:
                                     diff["r"] = reply_payload
                                 if drained is not None:
@@ -1239,7 +1195,9 @@ def gateway_type(options: LiveViewOptions, registry: _Registry) -> type[object]:
                                 redirect_hosts=options.redirect_hosts,
                             )
                             if drained is None or drained[0] == "patch":
-                                diff = _render_payload(page, await _render(page))
+                                diff = _render_payload(
+                                    page, await _render(page), render_state
+                                )
                                 if drained is not None:
                                     _, patch_to, patch_kind = drained
                                     await _send(
@@ -1250,14 +1208,16 @@ def gateway_type(options: LiveViewOptions, registry: _Registry) -> type[object]:
                                         "live_patch",
                                         {"kind": patch_kind, "to": patch_to},
                                     )
-                                await _send(
-                                    socket,
-                                    join.join_ref,
-                                    None,
-                                    join.topic,
-                                    "diff",
-                                    diff,
-                                )
+                                # Like Phoenix, push nothing when nothing changed.
+                                if diff:
+                                    await _send(
+                                        socket,
+                                        join.join_ref,
+                                        None,
+                                        join.topic,
+                                        "diff",
+                                        diff,
+                                    )
                                 continue
                             navigation, target, kind = drained
                             flash = page._take_liveview_flash_changes()

@@ -97,3 +97,51 @@ Feature: LiveView pages in a real browser
     When I visit "/browser-gone" and it fails after connecting
     Then the document answered 200 and then 404
     And the "__phoenix_reload_status__" cookie is gone
+
+  Scenario: An update sends only the values and title that changed
+    Given I open the "/browser-diff" live page
+    When I click "#bump"
+    Then "#page-count" shows "1"
+    And the last update was {"0": "1", "t": "Clicks 1"}
+    And the page title is "Clicks 1"
+
+  Scenario: A component update leaves its unchanged sibling untouched
+    Given I open the "/browser-diff" live page
+    And I mark "#left-card" and "#right-card"
+    When I click "#left-bump"
+    Then "#left-count" shows "1"
+    And "#right-card" still has its mark
+    And "#left-card" lost its mark
+    And the last update was {"c": {"1": {"2": "1"}}}
+    And the page title is "Clicks 0"
+
+  Scenario: A component mounted again copies the statics of a cached one
+    Given I open the "/browser-diff" live page
+    When I click "#toggle"
+    Then "#right-card" is gone
+    And the server destroyed component 2
+    When I click "#toggle"
+    Then "#right-count" shows "0"
+    And the last update gave component 3 the statics of component 1
+    When I click "#right-bump"
+    Then "#right-count" shows "1"
+
+  Scenario: A component brought back before it is destroyed keeps its state
+    Given I open the "/browser-diff" live page
+    When I click "#right-bump"
+    Then "#right-count" shows "1"
+    When I click "#blink"
+    Then the last update was {"2": 2}
+    And "#right-count" shows "1"
+    When I click "#right-bump"
+    Then "#right-count" shows "2"
+
+  Scenario: Stream items stay when updates leave the stream out
+    Given I open the "/browser-diff" live page
+    When I click "#add"
+    Then "#items" lists 1 items
+    When I click "#bump"
+    Then "#page-count" shows "1"
+    And "#items" lists 1 items
+    When I click "#add"
+    Then "#items" lists 2 items

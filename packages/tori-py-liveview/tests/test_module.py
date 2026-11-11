@@ -5,7 +5,7 @@ import hashlib
 import json
 import logging
 import re
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable, Iterable, Mapping
 from importlib.resources import files
 from typing import Any, ClassVar, cast
 
@@ -40,6 +40,7 @@ from tori_py_liveview import (
     live_view,
     rendered,
 )
+from tori_py_liveview._diff import _RenderState
 from tori_py_liveview.page import _AsyncTask
 from tori_py_liveview.tokens import FlashTokenCodec, MountTokenCodec, ReloadTokenCodec
 
@@ -1009,11 +1010,8 @@ async def test_phoenix_channel_connects_renders_and_correlates_events() -> None:
     assert messages[1][:4] == ["1", "2", _TOPIC, "phx_reply"]
     event_payload = _reply_payload(messages[1])
     assert event_payload["status"] == "ok"
-    assert _response(messages[1])["diff"] == {
-        "s": snapshot["s"],
-        "0": "3",
-        "t": "Counter 3",
-    }
+    # Unchanged statics stay with the client; only the change and title travel.
+    assert _response(messages[1])["diff"] == {"0": "3", "t": "Counter 3"}
     assert CounterLive.mounts == [False, True]
     assert CounterLive.disconnects == 1
     await application.shutdown()
@@ -1142,13 +1140,7 @@ async def test_send_info_serializes_with_events_and_closes_on_handler_failure(
         "phx_reply",
         {
             "status": "ok",
-            "response": {
-                "diff": {
-                    "s": snapshot["s"],
-                    "0": "1",
-                    "t": "",
-                }
-            },
+            "response": {"diff": {"0": "1"}},
         },
     ]
     assert messages[2] == [
@@ -1156,11 +1148,7 @@ async def test_send_info_serializes_with_events_and_closes_on_handler_failure(
         None,
         _TOPIC,
         "diff",
-        {
-            "s": snapshot["s"],
-            "0": "7",
-            "t": "",
-        },
+        {"0": "7"},
     ]
 
     with caplog.at_level(logging.ERROR, logger="tori_py_liveview.endpoint"):
@@ -1175,8 +1163,52 @@ async def test_send_info_serializes_with_events_and_closes_on_handler_failure(
 
 
 @pytest.mark.asyncio
-async def test_components_keep_state_route_targets_and_cleanup() -> None:
+async def test_server_updates_that_change_nothing_push_no_diff() -> None:
+    ServerUpdatesLive.reset()
+    liveview_module = LiveViewModule.for_root(
+        LiveViewOptions(secret="s" * 32),
+        pages=[ServerUpdatesLive],
+        key="quiet-updates",
+    )
+
+    @module(imports=[liveview_module])
+    class Root:
+        pass
+
+    application = await NestApplication.create(Root, adapter=StarletteAdapter())
+    await application.start()
+    page = await _request(application, "/server-updates")
+    session = _ChannelSession(application)
+    await session.start()
+    await session.push(_join(_token(page.text), url="http://testserver/server-updates"))
+    await session.frames(1)
+    connected_page = ServerUpdatesLive.connected_page
+    assert connected_page is not None
+
+    # Updates are handled in order, so a push for the first would come first.
+    assert connected_page.send_info("set", 0)
+    assert connected_page.send_info("set", 5)
+    frames = await session.frames(2)
+    assert frames[1] == ["1", None, _TOPIC, "diff", {"0": "5"}]
+
+    await session.close()
+    await application.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_components_keep_state_route_targets_and_cleanup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     CounterComponent.reset()
+    forgotten: list[list[int]] = []
+    forget = _RenderState.forget
+
+    def record_forget(state: _RenderState, cids: Iterable[int]) -> None:
+        cids = list(cids)
+        forgotten.append(cids)
+        forget(state, cids)
+
+    monkeypatch.setattr(_RenderState, "forget", record_forget)
     liveview_module = LiveViewModule.for_root(
         LiveViewOptions(secret="s" * 32),
         pages=[ComponentsLive],
@@ -1219,14 +1251,13 @@ async def test_components_keep_state_route_targets_and_cleanup() -> None:
     assert components["1"]["2"] == "Left"
     assert components["1"]["3"] == "0"
     assert components["1"]["r"] == 1
+    # The second instance of a template copies the first one's statics.
+    assert components["2"]["s"] == 1
     assert components["2"]["2"] == "Right"
 
-    left_diff = cast(dict[str, object], _response(messages[1])["diff"])
-    left_components = cast(dict[str, dict[str, object]], left_diff["c"])
-    assert left_components["1"]["3"] == "1"
-    right_diff = cast(dict[str, object], _response(messages[2])["diff"])
-    right_components = cast(dict[str, dict[str, object]], right_diff["c"])
-    assert right_components["2"]["3"] == "1"
+    # A component event changes only that component.
+    assert _response(messages[1])["diff"] == {"c": {"1": {"3": "1"}}}
+    assert _response(messages[2])["diff"] == {"c": {"2": {"3": "1"}}}
     assert _reply_payload(messages[3]) == {
         "status": "ok",
         "response": {"reason": "unknown_target"},
@@ -1235,14 +1266,16 @@ async def test_components_keep_state_route_targets_and_cleanup() -> None:
         "status": "ok",
         "response": {"reason": "unknown_event"},
     }
-    removed = cast(dict[str, object], _response(messages[5])["diff"])
-    assert removed["1"] == ""
-    assert set(cast(dict[str, object], removed["c"])) == {"1"}
+    assert _response(messages[5])["diff"] == {"1": ""}
     assert _response(messages[6]) == {}
     assert _response(messages[7]) == {"cids": [2]}
+    # The server forgets the trees the client prunes after this reply.
+    assert forgotten == [[2]]
     restored = cast(dict[str, object], _response(messages[8])["diff"])
     assert restored["1"] == 3
     restored_components = cast(dict[str, dict[str, object]], restored["c"])
+    # The new component copies the statics of a cached one this render keeps.
+    assert restored_components["3"]["s"] == -1
     assert restored_components["3"]["2"] == "Right"
     assert restored_components["3"]["3"] == "0"
     assert CounterComponent.mounts == 5
@@ -1610,7 +1643,7 @@ async def test_slow_event_handler_does_not_consume_idle_timeout() -> None:
         await application.shutdown()
 
     frames = _decode_sent(sent)
-    assert _response(frames[1]) == {"diff": {"s": ["<div>slow</div>"], "t": ""}}
+    assert _response(frames[1]) == {"diff": {}}
     assert _reply_payload(frames[2]) == {"status": "ok", "response": {}}
     assert [
         message.get("code") for message in sent if message["type"] == "websocket.close"
@@ -1781,11 +1814,6 @@ async def _client_events_application(key: str) -> NestApplication:
     return application
 
 
-def _component_value(diff: dict[str, object], cid: int) -> object:
-    components = cast(dict[str, dict[str, object]], diff["c"])
-    return components[str(cid)]["2"]
-
-
 @pytest.mark.asyncio
 async def test_pushed_events_and_replies_ride_on_phoenix_render_trees() -> None:
     ClientEventsLive.reset()
@@ -1815,9 +1843,8 @@ async def test_pushed_events_and_replies_ride_on_phoenix_render_trees() -> None:
 
     await session.push(_event("5", "update"))
     update = cast(dict[str, object], _response((await session.frames(5))[4])["diff"])
-    assert _component_value(update, 1) == "updated"
-    assert _component_value(update, 2) == ""
-    assert "e" not in update
+    # Only the updated component travels; its unchanged sibling stays cached.
+    assert update == {"c": {"1": {"2": "updated"}}}
 
     connected_page = ClientEventsLive.connected_page
     assert connected_page is not None
@@ -1830,8 +1857,7 @@ async def test_pushed_events_and_replies_ride_on_phoenix_render_trees() -> None:
     echo = cast(dict[str, object], _response((await session.frames(7))[6])["diff"])
     assert echo["r"] == {"echo": {"x": 1}}
     assert echo["e"] == [["component-echo", {"id": "left"}]]
-    assert _component_value(echo, 1) == "updated"
-    assert _component_value(echo, 2) == "from-left"
+    assert echo["c"] == {"2": {"2": "from-left"}}
 
     await session.close()
     await application.shutdown()
@@ -2661,13 +2687,15 @@ async def test_async_results_settle_assigns_and_reach_handle_async() -> None:
     # Reloading keeps the previous result while loading.
     await session.push(_event("2", "reload", value={"gate": "org2"}))
     reloading = _diff((await session.frames(4))[3])
-    assert (reloading["0"], reloading["1"]) == ("loading", "Acme")
+    # The kept result is unchanged, so only the loading state travels.
+    assert reloading == {"0": "loading"}
     _open_gate("org2")
     reloaded = _pushed_diff((await session.frames(5))[4])
     assert (reloaded["0"], reloaded["1"]) == ("ready", "Beta")
 
     await session.push(_event("3", "start", value={"gate": "job"}))
-    assert _diff((await session.frames(6))[5])["2"] == "idle"
+    # Starting work changes nothing on the page until its result arrives.
+    assert _diff((await session.frames(6))[5]) == {}
     _open_gate("job")
     assert _pushed_diff((await session.frames(7))[6])["2"] == "ok"
     await session.push(_event("4", "fail", value={"gate": "job"}))

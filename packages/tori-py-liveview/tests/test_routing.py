@@ -606,7 +606,7 @@ async def test_live_patch_event_runs_handle_params_and_replies_diff() -> None:
         assert replies[1][3] == "phx_reply"
         assert cast(dict[str, object], replies[1][4])["status"] == "ok"
         assert cast(dict[str, object], replies[1][4])["response"] == {
-            "diff": {"s": ["<output>2</output>"], "t": ""}
+            "diff": {"s": ["<output>2</output>"]}
         }
         assert PagesLive.params_calls[-1] == {"page": "2"}
     finally:
@@ -656,9 +656,8 @@ async def test_live_patch_drains_navigation_queued_by_handle_params() -> None:
             "live_patch",
             {"kind": "push", "to": "/callback-patch?step=3"},
         ]
-        assert cast(dict[str, object], replies[2][4])["response"] == {
-            "diff": {"s": ["<output>callback</output>"], "t": ""}
-        }
+        # The page renders the same constant output, so the patch changes nothing.
+        assert cast(dict[str, object], replies[2][4])["response"] == {"diff": {}}
         assert params_calls[-2:] == [{"step": "2"}, {"step": "3"}]
     finally:
         await application.shutdown()
@@ -720,7 +719,7 @@ async def test_push_patch_from_event_sends_diff_and_live_patch_push() -> None:
         ]
         assert cast(dict[str, object], replies[2][4])["status"] == "ok"
         assert cast(dict[str, object], replies[2][4])["response"] == {
-            "diff": {"s": ["<output>2</output>"], "t": ""}
+            "diff": {"s": ["<output>2</output>"]}
         }
         assert PagesLive.params_calls[-1] == {"page": "2"}
     finally:
