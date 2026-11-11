@@ -147,6 +147,159 @@ message/correlation/causation IDs, attempt/redelivery facts, immutable metadata,
 the scoped resolver, and read-only native metadata through `unwrap()`. It does
 not expose ACK/NACK or channel mutation.
 
+## Write Pipeline Components
+
+Message components implement the same protocols as HTTP components and receive
+an `RpcContext` or `EventContext` as their `ExecutionContext`:
+
+| Context member | Value |
+| --- | --- |
+| `execution_kind` | `"rpc"` or `"event"` |
+| `route_id` | `ControllerClass.method` of the handler |
+| `message_id`, `correlation_id`, `causation_id` | Message identities |
+| `attempt`, `redelivered` | Delivery attempt facts |
+| `received_at`, `expires_at` | UTC timestamps |
+| `metadata` | `routing_key` and `kind` of the delivery |
+| `resolver` | The delivery's work-scope resolver |
+| `unwrap()` | The transport's native value, read-only |
+
+Application headers are not in `metadata`. Bind them in the handler with
+`Header("name")` or `Headers()`; pipes then see them as arguments.
+
+### Guards
+
+A guard returns `False` to deny the message. Denial raises
+`MessageAuthorizationError`: an RPC caller receives `authorization_failed`, and
+an event is rejected terminally.
+
+```python
+from tori_py import ExecutionContext
+
+
+class Maintenance:
+    def __init__(self) -> None:
+        self.enabled = False
+
+
+class MaintenanceGuard:
+    async def can_activate(self, context: ExecutionContext) -> bool:
+        maintenance = await context.resolver.resolve(Maintenance)
+        assert isinstance(maintenance, Maintenance)
+        return not maintenance.enabled
+```
+
+### Pipes
+
+A pipe runs once per bound payload, header, or headers argument, in declaration
+order, and returns the value the handler receives. `metadata.binding_kind` is
+`"payload"`, `"header"`, or `"headers"`, and `metadata.source_name` is the header
+name for a single header:
+
+```python
+from tori_py import ArgumentMetadata
+
+
+class TrimTenant:
+    async def transform(self, value: object, metadata: ArgumentMetadata) -> object:
+        if metadata.binding_kind == "header" and metadata.source_name == "tenant":
+            return str(value).strip().lower()
+        return value
+```
+
+### Interceptors
+
+An interceptor wraps everything after the pipes, including the handler. It can
+time the call, add logging context, or translate exceptions. Translate in an
+interceptor or in the handler, not in a filter:
+
+```python
+from collections.abc import Awaitable, Callable
+
+from tori_py import ExecutionContext, PipelineResult
+from tori_py_microservices import PublicRpcError
+
+
+class OutOfStock(Exception):
+    pass
+
+
+class PublicErrors:
+    async def intercept(
+        self,
+        context: ExecutionContext,
+        next: Callable[[], Awaitable[PipelineResult]],
+    ) -> PipelineResult:
+        try:
+            return await next()
+        except OutOfStock as error:
+            raise PublicRpcError("out_of_stock", "The item is out of stock.") from error
+```
+
+Each `next` callback may be awaited once.
+
+### Filters
+
+A message filter can only replace a failure with a successful result. Return
+`PipelineResult.from_value(value)`; the value is validated against the handler's
+return annotation and encoded like a normal result. A filter that raises or
+returns nothing passes the original error to the next filter. A native response
+from `PipelineResult.from_response()` is rejected with
+`MessageConfigurationError`.
+
+```python
+from tori_py import ExecutionContext, PipelineResult
+
+
+class EmptyQuoteOnTimeout:
+    async def catch(self, error: Exception, context: ExecutionContext) -> PipelineResult:
+        if isinstance(error, TimeoutError):
+            return PipelineResult.from_value(Quote(sku="unknown", total_cents=0))
+        raise error
+```
+
+### Register Components
+
+Use the normal decorators on a message controller or handler method, or the
+service-wide `global_pipeline`:
+
+```python
+from typing import Annotated
+
+from tori_py import controller, use_guards, use_interceptors
+from tori_py_microservices import MicroservicesOptions, Payload, PipelinePlan, rpc
+
+
+@controller()
+@use_guards(MaintenanceGuard)
+class PricingController:
+    @rpc("quote")
+    @use_interceptors(PublicErrors())
+    async def quote(self, request: Annotated[QuoteRequest, Payload()]) -> Quote: ...
+
+
+options = MicroservicesOptions(
+    global_pipeline=PipelinePlan(pipes=(TrimTenant(),)),
+)
+```
+
+An instance is used as is. A class token such as `MaintenanceGuard` is resolved
+as a provider in each delivery's work scope, so register it explicitly, for
+example `ClassProvider(MaintenanceGuard)`, in a module visible to the
+controller. Unlike HTTP guards, message pipeline classes do not become implicit
+providers: an unregistered token fails startup with `HandlerCompilationError`.
+See the [configuration reference](configuration.md#global-message-pipeline) for
+where global provider tokens must be visible.
+
+### How Failures Reach the Caller
+
+| Handler or pipeline outcome | RPC reply | Event delivery |
+| --- | --- | --- |
+| `PublicRpcError(code, message, ...)` | `RemoteRpcError` with that code and message | Terminal reject |
+| `MessageAuthorizationError`, including a guard denial | `authorization_failed` | Terminal reject |
+| `MessageRetryableError` | `temporarily_unavailable`, `retryable=True` | Bounded retry for reliable subscriptions |
+| `MessageRejectedError` | `invalid_request` | Terminal reject |
+| Any other exception | `internal_error` | Bounded retry for reliable subscriptions |
+
 ## Response And Error Contract
 
 A normal result is encoded into a response with the original correlation ID. To

@@ -136,6 +136,7 @@ nav:
           - Transports: techniques/microservices/transports.md
           - RabbitMQ: techniques/microservices/rabbitmq.md
           - Operations: techniques/microservices/operations.md
+          - Configuration Reference: techniques/microservices/configuration.md
       - Persistent Streams:
           - Overview: techniques/persistent-streams/index.md
           - Core Contracts: techniques/persistent-streams/core.md

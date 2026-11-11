@@ -167,6 +167,8 @@ database. Exactly-once execution and remote cancellation are not provided.
   reconnect, retry/DLX, readiness, and shutdown.
 - [Operations](operations.md): production checks, monitoring, runbooks,
   idempotency, outbox/inbox, and the multi-process example.
+- [Configuration Reference](configuration.md): service and client options,
+  message limits, the global message pipeline, manual clients, and codecs.
 
 ## Executable Examples
 
