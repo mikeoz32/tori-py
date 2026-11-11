@@ -24,6 +24,8 @@ discovery, scoped command handling, event fan-out, and a read projection, see
 
 For the smaller application built file by file in the documentation, see the
 executable [`tutorials/cqrs_task_api`](tutorials/cqrs_task_api/README.md) source.
+Its LiveView continuation is
+[`tutorials/live_task_board`](tutorials/live_task_board/README.md).
 
 For a full event-sourced community project with three aggregates, schema
 upcasting, optimistic concurrency, request-scoped Unit of Work, checkpointed

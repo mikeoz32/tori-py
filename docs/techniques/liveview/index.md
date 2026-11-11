@@ -148,7 +148,9 @@ HTTP only and serves no WebSocket scopes.
 | Unit, HTTP, and browser tests | [Testing LiveView](testing.md) |
 | Styled forms, layout, themes, and skins | [LiveView UI](../liveview-ui/index.md) |
 
-A runnable showcase with a browser end-to-end test lives in
+To build a page step by step, follow the
+[Live Task Board tutorial](../../tutorials/live-task-board.md). A runnable
+showcase with a browser end-to-end test lives in
 [`examples/tori_py/liveview`](https://github.com/mikeoz32/tori-py/tree/main/examples/tori_py/liveview).
 
 ## Current Scope

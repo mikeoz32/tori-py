@@ -23,6 +23,11 @@ projection semantics:
 | 3 | [Distribute the Task API](distributed-application.md) | An HTTP gateway, typed task-service RPC, and idempotent audit event consumer |
 | 4 | [Add Event Sourcing](event-sourced-application.md) | Event-sourced command writes, projection-owned reads, and persistent-stream delivery to independent consumers |
 
+[Build a Live Task Board](live-task-board.md) branches from Part 2 instead of
+following Part 4. It keeps the same REST API and one process, and adds a
+LiveView page that creates tasks through the command bus, validates as the user
+types, and updates every open board through a CQRS event handler.
+
 ## Choose A Learning Path
 
 | Path | Read in this order | You will learn |
@@ -32,7 +37,7 @@ projection semantics:
 | CQRS | [Task API Part 1](task-api.md) -> [Part 2: Add CQRS](cqrs-application.md) -> [CQRS guide](../techniques/cqrs/index.md) -> [Event Sourcing](../techniques/event-sourcing/index.md) | Commands, queries, local event fan-out, handler scopes, and the next persistence model |
 | Distributed application | [Task API Part 1](task-api.md) -> [Part 2: Add CQRS](cqrs-application.md) -> [Part 3: Distribute the API](distributed-application.md) -> [Microservices](../techniques/microservices/index.md) | Service ownership, typed RabbitMQ RPC, at-least-once events, outbox boundaries, deduplication, and failure policy |
 | Event-sourced application | [Task API Part 1](task-api.md) -> [Part 2: Add CQRS](cqrs-application.md) -> [Part 3: Distribute the API](distributed-application.md) -> [Part 4: Add Event Sourcing](event-sourced-application.md) -> [Event Sourcing](../techniques/event-sourcing/index.md) -> [Persistent Streams](../techniques/persistent-streams/index.md) | Aggregate persistence, direct event publication, projection-owned reads, consumer groups, checkpoints, and eventual consistency |
-| Interactive UI | [First Application](../getting-started/first-application.md) -> [LiveView](../techniques/liveview/index.md) -> [Pages and Lifecycle](../techniques/liveview/pages.md) -> [LiveView UI](../techniques/liveview-ui/index.md) -> [LiveView example](https://github.com/mikeoz32/tori-py/tree/main/examples/tori_py/liveview) | Server-rendered pages, Phoenix events, components, streams, navigation, forms, and themes without client JavaScript |
+| Interactive UI | [Task API Part 1](task-api.md) -> [Part 2: Add CQRS](cqrs-application.md) -> [Build a Live Task Board](live-task-board.md) -> [LiveView](../techniques/liveview/index.md) -> [LiveView UI](../techniques/liveview-ui/index.md) -> [LiveView example](https://github.com/mikeoz32/tori-py/tree/main/examples/tori_py/liveview) | Server-rendered pages, Phoenix events, streams, server-initiated updates, forms, and themes without client JavaScript |
 | FastAPI | [CQRS with FastAPI](../techniques/cqrs/fastapi.md) -> [tested profile application](https://github.com/mikeoz32/tori-py/blob/main/examples/profile_app.py) | Using CQRS core under FastAPI-owned registration and lifespan without the Tori Py framework |
 | Operator | [Operations](../operations/index.md) -> [Deployment](../operations/deployment.md) -> [Limitations](../operations/limitations.md) | Lifespan, readiness, process supervision, graceful shutdown, security boundaries, and production checks |
 
