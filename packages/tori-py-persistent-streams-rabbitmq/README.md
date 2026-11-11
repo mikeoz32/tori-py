@@ -16,8 +16,8 @@ requires CPython 3.14, RabbitMQ 4.1, the
   admission. Receipts contain no offset. Accepted or indeterminate sends are
   never automatically retried.
 - One canonical base `rstream.Producer` serves every unnamed physical stream;
-  `max_streams` bounds its internal per-stream publisher cache and counts physical
-  regular/Super Stream partitions. Lifetime-stable coordinate slots serialize
+  `max_streams` limits the physical regular/Super Stream partitions declared
+  through one adapter instance. Lifetime-stable coordinate slots serialize
   unnamed barriers/publications, while `max_named_producers` bounds all additional
   named producer resources and slots.
 - Named producer IDs scoped to each physical partition. Reuse the same record

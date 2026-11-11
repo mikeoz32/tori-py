@@ -89,6 +89,10 @@ Aliases and consumer groups use lowercase ASCII
 `[a-z][a-z0-9_-]{0,62}`. The `StreamDefinition.name` is the adapter-facing logical
 stream identity and need not equal the alias.
 
+`start` defaults to `Beginning()` and `checkpoint_strategy` defaults to
+`CheckpointStrategy.BROKER_MANAGED`. See
+[checkpoints and retention](checkpoints-and-retention.md) for the strategies.
+
 Configuration is immutable before startup. A publication cannot override the
 codec, payload type, partition-key resolver, router, partition count, physical
 stream, producer identity, or publishing-ID source.
@@ -101,7 +105,9 @@ corresponding public protocols.
 ## Configure Runtime Options Asynchronously
 
 Bindings and publisher registrations are static because they create DI tokens.
-An injected factory may supply runtime-only values:
+An injected factory may supply runtime-only values. `adapter_module` and
+`configuration_module` below are placeholders for the application's own adapter
+and configuration modules:
 
 ```python
 from typing import Annotated
@@ -466,7 +472,17 @@ def stream_health(runtime: StreamRuntime) -> dict[str, object]:
     return {
         "ready": runtime.ready,
         "state": runtime.state.value,
-        "partitions": runtime.statuses,
+        "partitions": [
+            {
+                "stream": status.stream,
+                "consumer_group": status.consumer_group,
+                "partition": status.partition,
+                "state": status.state,
+                "offset": status.offset,
+                "diagnostic_code": status.diagnostic_code,
+            }
+            for status in runtime.statuses
+        ],
     }
 ```
 

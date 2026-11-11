@@ -357,10 +357,10 @@ task and shutdown management. It never shares an implicit transaction.
 
 ```python
 transport = InMemoryTransport(
-    max_queue_size=1024,
-    default_timeout=2.0,
-    error_handler=None,
-    name="commands",
+    max_queue_size=1024,  # default
+    default_timeout=2.0,  # default is None (no timeout)
+    error_handler=None,  # default
+    name="commands",  # default is "cqrs-inmemory"
 )
 ```
 
@@ -376,8 +376,11 @@ Timeout behavior is intentionally specific:
 - caller timeout or cancellation does not cancel a handler that already started;
 - that handler can still finish and mutate state after the caller stopped
   waiting;
-- `default_timeout` applies to submissions, not to shutdown unless a shutdown
-  timeout is supplied explicitly.
+- when a call passes `timeout=None`, `default_timeout` is the effective
+  timeout; for `request()` it is also the overall deadline for the reply, so
+  `execute(timeout=None)` falls back to it and raises `RequestTimeoutError`;
+- `default_timeout` does not apply to shutdown unless a shutdown timeout is
+  supplied explicitly.
 
 Delivery is process-local, non-durable, and at-most-once. There are no retries,
 acknowledgements, requeues, dead letters, or persistence guarantees.

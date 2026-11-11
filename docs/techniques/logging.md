@@ -115,11 +115,17 @@ inside that operation.
 
 ## HTTP Request IDs
 
-For each Starlette HTTP request, ToriPy establishes ambient fields for the
+For each HTTP request, ToriPy establishes ambient fields for the
 application identity, `scope="request"`, and `request_id`. The context remains
 available through request-scope cleanup and through a native Starlette response's
 transmission and `BackgroundTask`. It is reset after the complete ASGI response
 and request cleanup.
+
+Each WebSocket connection handled by a `@websocket_gateway` establishes the same
+ambient fields with `scope="websocket"` and `request_id` set to the connection
+ID. The connection ID follows the same `X-Request-ID` validation as HTTP, read
+from the handshake headers, and falls back to a generated ID. The context is
+reset when the connection handler finishes.
 
 The inbound `X-Request-ID` policy is:
 

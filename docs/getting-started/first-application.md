@@ -3,7 +3,9 @@
 An application factory compiles a root module. The ASGI server owns startup and
 shutdown through the wrapper, so the factory must return an unstarted
 application. `NestApplication` is driver-neutral; this HTTP example selects the
-explicit `StarletteAdapter`.
+explicit `StarletteAdapter`. `NestApplication.create(...)` also accepts
+`options=` (`ApplicationOptions`) and `pipeline=` (`PipelineOptions`); see
+[Application Lifecycle](../fundamentals/lifecycle.md).
 
 DI-managed global ToriPy middleware, guards, pipes, interceptors, and filters
 belong to driver-neutral `PipelineOptions`. An application factory can append

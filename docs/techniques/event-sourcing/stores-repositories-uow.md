@@ -36,7 +36,8 @@ await transaction.commit()
 await transaction.rollback()
 ```
 
-Every read has a positive finite limit. `after_version` and `after_position` are
+Every read has a positive finite limit; a limit above `limits.read_page_size`
+raises `ResourceLimitError`. `after_version` and `after_position` are
 non-negative exclusive cursors. A missing stream returns an empty tuple.
 
 ## Transaction Snapshot
@@ -200,15 +201,19 @@ Save performs these steps:
 1. Check an optional operation lease.
 2. Require the exact configured aggregate type.
 3. Derive and validate the stream ID.
-4. Reject a faulted or already enlisted aggregate.
-5. Reject an aggregate that already has a staged save in the Unit of Work.
-6. Reject another aggregate instance targeting an already staged stream.
-7. Capture the complete pending-event tuple.
-8. Return without enlistment when that tuple is empty; repeated no-op saves
+4. Require an active Unit of Work; otherwise `UnitOfWorkLifecycleError`.
+5. Reject an aggregate that already has a staged save in the Unit of Work
+   (`DuplicateAggregateSaveError`).
+6. Reject another aggregate instance targeting an already staged stream
+   (`DuplicateStreamAggregateError`).
+7. Reject a faulted or already enlisted aggregate, or one bound to a different
+   stream.
+8. Capture the complete pending-event tuple.
+9. Return without enlistment when that tuple is empty; repeated no-op saves
    remain valid.
-9. Encode each event while retaining occurrence metadata.
-10. Enlist and seal the aggregate.
-11. Stage one append at `expected_version=aggregate.version`.
+10. Encode each event while retaining occurrence metadata.
+11. Enlist and seal the aggregate.
+12. Stage one append at `expected_version=aggregate.version`.
 
 Lifecycle and duplicate checks happen before event encoders, so rejected saves
 do not trigger serialization side effects. Encoding does not clear pending

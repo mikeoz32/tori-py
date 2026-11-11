@@ -1,12 +1,14 @@
 # Request Binding
 
-Every route parameter other than `self` declares exactly one source. ToriPy
+Every route parameter other than `self` declares exactly one source: one marker
+from the table below or one custom resolver. ToriPy
 extracts that source as a raw transport value. The declared Python annotation is
 metadata for pipes and integrations; it does not perform conversion by itself.
 
 ## Binding Markers
 
-Use `typing.Annotated` with one marker:
+Use `typing.Annotated` with one marker (or a custom resolver, described under
+[Custom Resolvers](#custom-resolvers)):
 
 | Marker | Bound value |
 | --- | --- |
@@ -21,6 +23,35 @@ Use `typing.Annotated` with one marker:
 
 Source names are always explicit. ToriPy does not infer `Query("page")` from a
 parameter named `page`, and an HTTP marker cannot be combined with `Inject`.
+
+## Custom Resolvers
+
+Any object implementing the `RouteParameterResolver` protocol can be the
+`Annotated` marker. Its `resolve(context)` method receives the
+`ExecutionContext` and returns the parameter value, or an awaitable of it. The
+resolver bypasses the fixed table, so it cannot be combined with another marker
+on the same parameter.
+
+```python
+from typing import Annotated
+
+from tori_py import ExecutionContext, controller, get
+
+
+class RequestId:
+    def resolve(self, context: ExecutionContext) -> str:
+        return context.request_id or "unknown"
+
+
+@controller("/echo")
+class EchoController:
+    @get("/")
+    async def read(
+        self,
+        request_id: Annotated[str, RequestId()],
+    ) -> dict[str, str]:
+        return {"request_id": request_id}
+```
 
 ## Raw Means Raw
 
@@ -122,7 +153,8 @@ can be handled by filters before response start.
 
 Route compilation requires:
 
-- exactly one recognized marker on every non-`self` parameter;
+- exactly one recognized marker or custom resolver on every non-`self`
+  parameter;
 - no unrelated extra `Annotated` metadata in the binding annotation;
 - a non-empty explicit source name for path, query, header, and cookie markers;
 - at most one `Body()` or `BodyStream()` parameter;

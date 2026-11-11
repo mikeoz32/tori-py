@@ -40,6 +40,16 @@ openapi_module = OpenApiModule.for_root(
 | `servers` | `()` | Ordered absolute or relative server URLs |
 | `security_schemes` | `()` | Named bearer security components |
 | `swagger_ui` | `SwaggerUiOptions()` | Asset URLs and client parameters |
+| `include_paths` | `()` | When non-empty, only routes under these prefixes are documented |
+| `exclude_paths` | `()` | Routes under these prefixes are not documented; wins over include |
+
+Path prefixes must be absolute, static (no `{}`), and free of `//`, query,
+fragment, backslash, whitespace, and control characters. `/` matches every
+route; any other prefix matches the path itself or paths below it on a segment
+boundary, so `/v1` matches `/v1` and `/v1/items` but not `/v10`. Matching uses
+the normalized route template. A route removed by these options is skipped like
+an `api_exclude` route: it is not validated or documented, but it still counts
+as an earlier route when a templated route shadows a documented concrete path.
 
 `OpenApiModule.for_root(options, key="default")` returns a normal keyed
 `DeferredModule`. Most applications configure one descriptor and import it once

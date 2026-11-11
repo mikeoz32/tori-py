@@ -1,8 +1,8 @@
 # tori-py-cqrs-fastapi
 
-`tori-py-cqrs-fastapi` adapts `tori-py-cqrs-core` buses and request-scoped
-provider behavior to FastAPI applications. The CQRS core remains independent of
-FastAPI and Pydantic.
+`tori-py-cqrs-fastapi` connects `tori-py-cqrs-core` buses to FastAPI
+applications through a handler provider that opens a fresh scope for each
+dispatch. The CQRS core remains independent of FastAPI and Pydantic.
 
 ```bash
 uv add tori-py-cqrs-fastapi

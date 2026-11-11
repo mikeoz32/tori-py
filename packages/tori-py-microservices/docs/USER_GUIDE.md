@@ -58,8 +58,8 @@ context or payload markers.
 ```python
 from typing import Annotated
 
-from tori_py import Context, controller
-from tori_py_microservices import Payload, RpcContext, rpc
+from tori_py import controller
+from tori_py_microservices import Context, Payload, RpcContext, rpc
 
 
 @controller()

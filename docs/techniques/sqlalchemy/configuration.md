@@ -53,11 +53,17 @@ The factory may be synchronous or asynchronous and uses normal annotation-based
 ToriPy injection:
 
 ```python
+from pathlib import Path
+
 from tori_py.settings import SettingsModule, SettingsOptions
 
 
 settings_module = SettingsModule.for_root(
-    SettingsOptions(model=AppSettings, env_prefix="APP_"),
+    SettingsOptions(
+        model=AppSettings,
+        base_dir=Path(__file__).parent,
+        env_prefix="APP_",
+    ),
     global_=True,
 )
 
