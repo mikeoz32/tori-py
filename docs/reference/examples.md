@@ -198,6 +198,23 @@ global stream root, in-memory adapter lifecycle, and raw, named, and Protocol
 publisher surfaces. The process intentionally uses the in-memory adapter and is
 not a RabbitMQ production test.
 
+The [task activity tutorial](../tutorials/stream-task-activity.md) branches from
+Task API Part 1. Its tests use the in-memory adapter:
+
+```text
+uv run pytest examples/tori_py/tutorials/stream_task_activity/task_app/test_app.py -q
+```
+
+Its smoke check runs the same application twice against RabbitMQ Streams from
+the tutorial's Compose file and confirms that the second process rebuilds the
+read model from the stream:
+
+```text
+docker compose -f examples/tori_py/tutorials/stream_task_activity/compose.yaml up -d --wait
+uv run python -m examples.tori_py.tutorials.stream_task_activity.task_app.smoke
+docker compose -f examples/tori_py/tutorials/stream_task_activity/compose.yaml down -v
+```
+
 ### Four-process microservices application
 
 The application under `examples/tori_py/microservices_app` requires Docker,

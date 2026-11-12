@@ -67,6 +67,7 @@ nav:
       - Document with OpenAPI: tutorials/openapi-task-api.md
       - Live Task Board: tutorials/live-task-board.md
       - Live Feed with WebSockets: tutorials/websocket-task-feed.md
+      - Task Activity Stream: tutorials/stream-task-activity.md
   - Fundamentals:
       - Overview: fundamentals/index.md
       - Modules: fundamentals/modules.md
