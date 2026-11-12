@@ -102,6 +102,11 @@ It uses the in-memory semantic reference. Process exit loses its streams,
 checkpoints, producer state, and ownership, so it is suitable for examples and
 tests rather than durable workloads.
 
+[Publish Task Activity to a Persistent Stream](../../tutorials/stream-task-activity.md)
+adds a stream to an existing application step by step: a versioned record, a
+publisher Protocol, an idempotent read model, readiness, in-memory tests, and the
+same code on RabbitMQ Streams with Docker Compose.
+
 For several processes that publish event-sourced commits to a persistent stream
 and consume it in independent projection and audit services, follow
 [Part 4: Add Event Sourcing](../../tutorials/event-sourced-application.md).

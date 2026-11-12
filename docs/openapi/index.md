@@ -81,6 +81,10 @@ them with validated authentication in a real application. Its export route also
 demonstrates an opaque `HttpResponse`; current explicit metadata documents that
 route's status and description, not its text body or dynamic headers.
 
+[Document the Task API with OpenAPI](../tutorials/openapi-task-api.md) adds this
+integration to an existing application step by step, including Problem Details
+error responses, a protected `204` route, and tests for the document.
+
 Run it from the repository root:
 
 ```text
