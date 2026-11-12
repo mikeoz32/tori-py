@@ -7,7 +7,7 @@ import logging
 import re
 from collections.abc import Awaitable, Callable, Iterable, Mapping
 from importlib.resources import files
-from typing import Any, ClassVar, cast
+from typing import Annotated, Any, ClassVar, cast
 
 import httpx
 import pytest
@@ -15,6 +15,8 @@ from starlette.datastructures import QueryParams
 from starlette.types import ASGIApp, Message
 from tori_py import (
     ClassProvider,
+    Inject,
+    MethodInvocationContext,
     ModuleSpec,
     NestApplication,
     Scope,
@@ -22,6 +24,7 @@ from tori_py import (
     get_route_metadata,
     get_websocket_gateway_metadata,
     module,
+    use_method_interceptors,
 )
 from tori_py.http import HttpException
 from tori_py.starlette import StarletteAdapter
@@ -635,6 +638,14 @@ class _ChannelSession:
     async def close(self) -> None:
         await self._incoming.put(_disconnect())
         await self.ended()
+
+    async def cancel(self) -> None:
+        """Cancel the connection's handling, as a stopping server does."""
+        assert self._task is not None
+        self._task.cancel()
+        await asyncio.wait_for(
+            asyncio.gather(self._task, return_exceptions=True), timeout=2
+        )
 
     async def ended(self) -> list[Message]:
         """Wait for the server to finish the connection and return every frame."""
@@ -3623,6 +3634,218 @@ async def test_a_child_that_sets_a_title_sends_it() -> None:
     )
     assert rendered["t"] == "Child"
     await session.close()
+    await application.shutdown()
+
+
+class ScopeStamp:
+    """A request-scoped value that tells one work scope from another."""
+
+    issued = 0
+
+    def __init__(self) -> None:
+        type(self).issued += 1
+        self.value = type(self).issued
+
+
+class ScopeStampInterceptor:
+    def __init__(self, stamp: Annotated[ScopeStamp, Inject(ScopeStamp)]) -> None:
+        self.stamp = stamp
+
+    async def intercept(
+        self,
+        context: MethodInvocationContext,
+        next: Callable[[], Awaitable[object]],
+    ) -> object:
+        del context
+        await next()
+        return self.stamp.value
+
+
+class ScopeProbe:
+    @use_method_interceptors("scope-stamp")
+    async def active_scope(self) -> object:
+        return None
+
+
+@module(
+    providers=[
+        ClassProvider(ScopeStamp, scope=Scope.REQUEST),
+        ClassProvider("scope-stamp", ScopeStampInterceptor, scope=Scope.REQUEST),
+        ClassProvider(ScopeProbe, proxy=True),
+    ],
+    exports=[ScopeStamp, ScopeProbe],
+)
+class ScopeProbeModule:
+    pass
+
+
+class _ScopeCheckingLive(LiveView):
+    checks: ClassVar[list[tuple[str, int, object]]] = []
+    pages: ClassVar[dict[str, _ScopeCheckingLive]] = {}
+    waiting: ClassVar[asyncio.Event] = asyncio.Event()
+
+    def __init__(
+        self,
+        stamp: Annotated[ScopeStamp, Inject(ScopeStamp)],
+        probe: Annotated[ScopeProbe, Inject(ScopeProbe)],
+    ) -> None:
+        self.stamp = stamp
+        self.probe = probe
+        self.label = "page"
+        self.show = True
+
+    @classmethod
+    def reset(cls) -> None:
+        _ScopeCheckingLive.checks = []
+        _ScopeCheckingLive.pages = {}
+        _ScopeCheckingLive.waiting = asyncio.Event()
+
+    async def check(self, phase: str) -> None:
+        # The interceptor reports the scope active while this view runs.
+        active = await self.probe.active_scope()
+        _ScopeCheckingLive.checks.append(
+            (f"{self.label}:{phase}", self.stamp.value, active)
+        )
+
+    async def mount(self, context: MountContext) -> None:
+        self.label = context.params.get("label", "page")
+        if context.connected:
+            _ScopeCheckingLive.pages[self.label] = self
+            await self.check("mount")
+
+    async def handle_event(self, event: str, value: object) -> None:
+        del value
+        if event == "toggle":
+            self.show = not self.show
+        elif event == "check":
+            await self.check("event")
+        elif event == "wait":
+            _ScopeCheckingLive.waiting.set()
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                await self.check("cancelled")
+                raise
+        else:
+            raise UnknownEventError(event)
+
+    async def handle_info(self, name: str, value: object) -> None:
+        if name != "check":
+            await super().handle_info(name, value)
+            return
+        await self.check("info")
+
+    async def disconnect(self) -> None:
+        await self.check("disconnect")
+
+
+class ScopedChildLive(_ScopeCheckingLive):
+    def render(self):
+        return t"<p>{self.label}</p>"
+
+
+@live_view("/scoped-children")
+class ScopedParentLive(_ScopeCheckingLive):
+    def render(self):
+        if not self.show:
+            return t"<main></main>"
+        a = self.live_render(ScopedChildLive, "a", {"label": "a"})
+        b = self.live_render(ScopedChildLive, "b", {"label": "b"})
+        return t"<main>{a}{b}</main>"
+
+
+async def _scoped_children_application(key: str) -> NestApplication:
+    _ScopeCheckingLive.reset()
+    liveview_module = LiveViewModule.for_root(
+        LiveViewOptions(secret=_SECRET),
+        pages=[ScopedParentLive],
+        embedded=[ScopedChildLive],
+        imports=[ScopeProbeModule],
+        key=key,
+    )
+
+    @module(imports=[liveview_module])
+    class Root:
+        pass
+
+    application = await NestApplication.create(Root, adapter=StarletteAdapter())
+    await application.start()
+    return application
+
+
+@pytest.mark.asyncio
+async def test_every_view_runs_in_its_own_work_scope() -> None:
+    application = await _scoped_children_application("children-scopes")
+    session, root = await _joined_parent(application, "/scoped-children")
+    await session.push(_event("2", "check"))
+    await session.frames(2)
+    await session.push(_child_join("a", _child_session(root["0"], "a"), "10"))
+    await session.frames(3)
+    await session.push(_event("3", "check"))
+    await session.frames(4)
+    await session.push(_child_join("b", _child_session(root["1"], "b"), "11"))
+    await session.frames(5)
+    await session.push(_child_event("a", "10", "12", "check"))
+    await session.frames(6)
+    await session.push(_child_event("b", "11", "13", "check"))
+    await session.frames(7)
+    assert _ScopeCheckingLive.pages["a"].send_info("check", None)
+    await _until(lambda: _ScopeCheckingLive.checks[-1][0] == "a:info")
+    # The page drops both children, and the client leaves them.
+    await session.push(_event("4", "toggle"))
+    await session.frames(8)
+    await session.push(_child_message("a", "10", "14", "phx_leave", {}))
+    await session.frames(9)
+    await session.push(_child_message("b", "11", "15", "phx_leave", {}))
+    await session.frames(10)
+    await _until(lambda: _ScopeCheckingLive.checks[-1][0] == "b:disconnect")
+    await session.push(_event("5", "check"))
+    assert _reply_payload((await session.frames(11))[10])["status"] == "ok"
+    await session.close()
+
+    checks = _ScopeCheckingLive.checks
+    assert [phase for phase, _, _ in checks] == [
+        "page:mount",
+        "page:event",
+        "a:mount",
+        "page:event",
+        "b:mount",
+        "a:event",
+        "b:event",
+        "a:info",
+        "a:disconnect",
+        "b:disconnect",
+        "page:event",
+        "page:disconnect",
+    ]
+    # Each view's scoped interceptors see the scope its page was resolved in,
+    # before, while, and after other views run beside it.
+    assert [own for _, own, _ in checks] == [active for _, _, active in checks]
+    assert len({own for _, own, _ in checks}) == 3
+    await application.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_a_cancelled_connection_stops_its_busy_child_views() -> None:
+    application = await _scoped_children_application("children-cancel")
+    session, root = await _joined_parent(application, "/scoped-children")
+    await session.push(_child_join("a", _child_session(root["0"], "a"), "10"))
+    await session.frames(2)
+    await session.push(_child_event("a", "10", "11", "wait"))
+    await asyncio.wait_for(_ScopeCheckingLive.waiting.wait(), timeout=2)
+
+    # Cancelling the connection also cancels the child's running handler, and
+    # every view still disconnects and closes its scope.
+    await session.cancel()
+    checks = _ScopeCheckingLive.checks
+    assert [phase for phase, _, _ in checks] == [
+        "page:mount",
+        "a:mount",
+        "a:cancelled",
+        "a:disconnect",
+        "page:disconnect",
+    ]
+    assert [own for _, own, _ in checks] == [active for _, _, active in checks]
     await application.shutdown()
 
 

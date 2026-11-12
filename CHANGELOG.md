@@ -72,7 +72,8 @@ one package does not require the same change in every package.
   channel topic over the same socket, and `LiveViewModule.for_root(embedded=...)`
   registers pages rendered only this way. Child tokens are signed for their
   page, view id, parent mount, params, and session, and a child joins only
-  under the mount of a joined parent that rendered it.
+  under the mount of a joined parent that rendered it. Each child runs its
+  callbacks in its own work scope.
 
 ### Fixed
 

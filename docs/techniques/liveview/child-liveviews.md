@@ -77,7 +77,10 @@ same WebSocket. The server accepts a child only with the signed token that the
 current join of its parent rendered for that id, so tokens from the HTTP render,
 another page, or an earlier connection are refused; the browser always joins
 with the latest ones, also after a reconnect. The child then mounts with
-`connected=True` in its own work scope.
+`connected=True` in its own work scope, which stays the active scope for all of
+the child's callbacks: request-scoped dependencies and scoped method
+interceptors of the page and of each child see their own view's scope. The
+views of a page still handle one message at a time.
 `phx-*` events inside the child's container go to the child, and a parent
 update leaves the child's container and contents alone.
 

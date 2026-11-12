@@ -574,9 +574,15 @@ the parent process. The official client joins children with the tokens of their
 parent's latest connected render, also after a reconnect. A second join of a
 joined topic closes with
 `1002`. A joined child has its own work scope, page instance, render state,
-info queue, and join ref; the gateway serializes its events, component
-messages, info callbacks, and async results with the main view's on the
-connection task and replies and pushes on the child's topic. A 4xx
+info queue, and join ref. Entering a work scope makes it the active scope of
+the entering task, and only that task may resolve from it, so each child's
+scope opens, serves every callback of the child, and closes on a task of its
+own; the scoped interceptors and dependencies of every view see that view's
+scope, never the one another view opened last. The gateway awaits each call, so
+it still serializes the child's events, component messages, info callbacks, and
+async results with the main view's, and replies and pushes on the child's
+topic. Cancelling the connection cancels a child's running callback, and the
+child still disconnects and closes its scope. A 4xx
 `HttpException` during a child's connected mount answers its join with a
 `reload` token for the main page and resource, and navigation while mounting
 answers with `live_redirect` or `redirect`.

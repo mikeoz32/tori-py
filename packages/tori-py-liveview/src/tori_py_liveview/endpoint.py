@@ -7,9 +7,10 @@ import json
 import logging
 import re
 import sys
-from collections.abc import Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass, field
+from functools import partial
 from types import MappingProxyType
 from typing import Annotated, cast
 from urllib.parse import parse_qsl, urlsplit
@@ -210,7 +211,8 @@ class _View:
     # The mount nonce the tokens of this view's children bind to.
     nonce: str
     parent_id: str | None = None
-    scope: AbstractAsyncContextManager[ScopedResolver] | None = None
+    # A child view runs on a task of its own; the main view needs none.
+    task: _ChildTask | None = None
     info_task: asyncio.Task[_Info | _AsyncTask] | None = None
 
 
@@ -688,6 +690,94 @@ async def _close_page(
             await scope.__aexit__(None, None, None)
 
 
+type _Call = tuple[Callable[[], Awaitable[object]], asyncio.Future[object]]
+
+
+class _ChildTask:
+    """Run one child view's scope and callbacks on a task of its own.
+
+    Entering a work scope makes it the active scope in the entering task's
+    context, and only that task may resolve from it. The main view's scope
+    stays on the gateway task, so each child opens, uses, and closes its scope
+    on its own task, where its scoped interceptors and dependencies see that
+    scope rather than whichever view opened one last. The gateway awaits every
+    call, so the views of one connection still run one at a time.
+    """
+
+    __slots__ = ("_calls", "_ended", "_page", "_scope", "_task")
+
+    def __init__(self) -> None:
+        self._calls: asyncio.Queue[_Call | None] = asyncio.Queue()
+        self._ended = False
+        self._page: LiveView | None = None
+        self._scope: AbstractAsyncContextManager[ScopedResolver] | None = None
+        self._task = asyncio.create_task(self._serve())
+
+    async def open(
+        self, scopes: WorkScopeFactory, page_type: type[LiveView]
+    ) -> LiveView:
+        """Open the child's scope and resolve its page on the child's task."""
+
+        async def open_page() -> LiveView:
+            self._scope, self._page = await _open_page(scopes, page_type)
+            return self._page
+
+        return await self.call(open_page)
+
+    async def call[T](self, operation: Callable[[], Awaitable[T]]) -> T:
+        """Run one operation on the child's task and return its result."""
+        if self._ended:
+            raise LiveViewError("the child LiveView has ended")
+        result: asyncio.Future[object] = asyncio.get_running_loop().create_future()
+        self._calls.put_nowait((operation, result))
+        try:
+            return cast(T, await result)
+        except asyncio.CancelledError:
+            # The connection is going away, so the child stops with it.
+            self._task.cancel()
+            raise
+
+    async def close(self) -> None:
+        """Disconnect the page and close its scope on the child's task."""
+        self._calls.put_nowait(None)
+        # Waiting does not cancel the task, so its cleanup finishes regardless.
+        await asyncio.wait((self._task,))
+        if not self._task.cancelled() and (error := self._task.exception()):
+            raise error
+
+    async def _serve(self) -> None:
+        try:
+            while (call := await self._calls.get()) is not None:
+                operation, result = call
+                try:
+                    value = await operation()
+                except asyncio.CancelledError:
+                    if not result.done():
+                        result.set_exception(
+                            LiveViewError("the child LiveView was cancelled")
+                        )
+                    raise
+                except BaseException as error:
+                    if not result.done():
+                        result.set_exception(error)
+                    if not isinstance(error, Exception):
+                        raise
+                else:
+                    if not result.done():
+                        result.set_result(value)
+        finally:
+            self._ended = True
+            while not self._calls.empty():
+                pending = self._calls.get_nowait()
+                if pending is not None and not pending[1].done():
+                    pending[1].set_exception(
+                        LiveViewError("the child LiveView has ended")
+                    )
+            page, scope = self._page, self._scope
+            self._page = self._scope = None
+            await _close_page(page, scope)
+
+
 async def _drain_navigation(
     page: LiveView,
     compiled: tuple[CompiledLiveRoute, ...],
@@ -819,7 +909,8 @@ def gateway_type(options: LiveViewOptions, registry: _Registry) -> type[object]:
                     if child.info_task is not None:
                         child.info_task.cancel()
                         await asyncio.gather(child.info_task, return_exceptions=True)
-                    await _close_page(child.page, child.scope)
+                    if child.task is not None:
+                        await child.task.close()
 
             async def close_current_page() -> None:
                 nonlocal page, page_scope
@@ -1016,7 +1107,12 @@ def gateway_type(options: LiveViewOptions, registry: _Registry) -> type[object]:
                 ):
                     await _reply(socket, message, "error", {"reason": "unauthorized"})
                     return
-                child_scope, child_page = await _open_page(self._scopes, child_type)
+                child_task = _ChildTask()
+                try:
+                    child_page = await child_task.open(self._scopes, child_type)
+                except BaseException:
+                    await child_task.close()
+                    raise
                 child = _View(
                     view_id,
                     message,
@@ -1025,7 +1121,7 @@ def gateway_type(options: LiveViewOptions, registry: _Registry) -> type[object]:
                     child_token.page,
                     child_token.nonce,
                     parent_id=child_token.parent_id,
-                    scope=child_scope,
+                    task=child_task,
                 )
                 child_page._liveview_view_id = view_id
                 child_page._liveview_child_signer = _child_signer(
@@ -1050,18 +1146,22 @@ def gateway_type(options: LiveViewOptions, registry: _Registry) -> type[object]:
                     QueryParams(child_token.resource.partition("?")[2]),
                     cast(dict[str, object], connect_params),
                 )
-                try:
+
+                async def mount_child() -> tuple[
+                    tuple[str, str, str] | None, dict[str, object] | None
+                ]:
                     await child_page._mount_liveview(mount_context)
                     drained = await drain(child)
-                    rendered = (
-                        None
-                        if drained is not None
-                        else _render_payload(
-                            child_page, await _render(child_page), child.render_state
-                        )
+                    if drained is not None:
+                        return drained, None
+                    return None, _render_payload(
+                        child_page, await _render(child_page), child.render_state
                     )
+
+                try:
+                    drained, rendered = await child_task.call(mount_child)
                 except HttpException as error:
-                    await _close_page(child_page, child_scope)
+                    await child_task.close()
                     if not 400 <= error.status_code < 500:
                         raise
                     # The reload renders the main page, which answers with this
@@ -1080,13 +1180,13 @@ def gateway_type(options: LiveViewOptions, registry: _Registry) -> type[object]:
                     )
                     return
                 except BaseException:
-                    await _close_page(child_page, child_scope)
+                    await child_task.close()
                     raise
                 if drained is not None:
                     navigation, target, kind = drained
                     # The child never rendered, so its whole flash travels on.
                     flash = dict(child_page.flash)
-                    await _close_page(child_page, child_scope)
+                    await child_task.close()
                     error_payload: dict[str, object]
                     if navigation == "navigate" and (
                         _resolve_navigate(registry, session, target) is not None
@@ -1113,6 +1213,23 @@ def gateway_type(options: LiveViewOptions, registry: _Registry) -> type[object]:
                     {"rendered": rendered, "liveview_version": _LIVEVIEW_VERSION},
                 )
 
+            async def run_child_event(child: _View, message: _ChannelMessage) -> str:
+                """Handle a child's channel event; runs on the child's task."""
+                if message.event == "cids_will_destroy":
+                    child.page._prepare_liveview_component_destruction(
+                        _destroyed_cids(message.payload)
+                    )
+                    await _reply(socket, message, "ok", {})
+                    return "continue"
+                if message.event == "cids_destroyed":
+                    destroyed = await child.page._destroy_liveview_components(
+                        _destroyed_cids(message.payload)
+                    )
+                    child.render_state.forget(destroyed)
+                    await _reply(socket, message, "ok", {"cids": destroyed})
+                    return "continue"
+                return await run_event(child, message)
+
             async def run_child_message(message: _ChannelMessage) -> str:
                 if not message.topic.startswith("lv:") or message.ref is None:
                     raise _CloseConnection(1002)
@@ -1135,22 +1252,15 @@ def gateway_type(options: LiveViewOptions, registry: _Registry) -> type[object]:
                     await _reply(socket, message, "ok", {})
                     await close_child(view_id)
                     return "continue"
-                if message.event == "cids_will_destroy":
-                    child.page._prepare_liveview_component_destruction(
-                        _destroyed_cids(message.payload)
-                    )
-                    await _reply(socket, message, "ok", {})
-                    return "continue"
-                if message.event == "cids_destroyed":
-                    destroyed = await child.page._destroy_liveview_components(
-                        _destroyed_cids(message.payload)
-                    )
-                    child.render_state.forget(destroyed)
-                    await _reply(socket, message, "ok", {"cids": destroyed})
-                    return "continue"
-                if message.event != "event":
+                if message.event not in {
+                    "cids_will_destroy",
+                    "cids_destroyed",
+                    "event",
+                }:
                     raise _CloseConnection(1002)
-                outcome = await run_event(child, message)
+                outcome = await cast(_ChildTask, child.task).call(
+                    partial(run_child_event, child, message)
+                )
                 if outcome == "navigated":
                     # The client now replaces the main view; this child is done.
                     await close_child(view_id)
@@ -1471,7 +1581,9 @@ def gateway_type(options: LiveViewOptions, registry: _Registry) -> type[object]:
                             child.info_task = asyncio.create_task(
                                 child.page._receive_liveview_info()
                             )
-                            outcome = await run_info(child, server_message)
+                            outcome = await cast(_ChildTask, child.task).call(
+                                partial(run_info, child, server_message)
+                            )
                             if outcome == "navigated":
                                 await close_child(child.view_id)
                                 continue
