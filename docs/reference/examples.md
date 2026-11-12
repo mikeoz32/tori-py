@@ -129,6 +129,14 @@ The advanced CQRS projection is non-durable, and its write plus event publicatio
 is not atomic. The event-sourcing project uses `InMemoryEventStore` and an
 in-memory projection; its tests prove semantics, not production durability.
 
+The [one-process event sourcing tutorial](../tutorials/local-event-sourcing.md)
+branches from Task API Part 2. Its tests cover the aggregate, an upcaster, both
+version conflicts, and an unknown commit outcome:
+
+```text
+uv run pytest examples/tori_py/tutorials/local_event_sourced_task_api/task_app -q
+```
+
 ### FastAPI CQRS
 
 `examples/profile_app.py` is the FastAPI acceptance application for
