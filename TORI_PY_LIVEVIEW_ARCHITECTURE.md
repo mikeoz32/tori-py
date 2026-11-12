@@ -129,7 +129,12 @@ trees under the Phoenix `c` map. Component trees carry `r: 1`, allowing the
 official client to add `data-phx-component` and `data-phx-view` to their single
 root elements. Component markup must use explicit balanced end tags rather than
 HTML optional-end-tag shorthand so the server can validate that boundary before
-advertising `r: 1`. Components omitted by a successful parent render remain
+advertising `r: 1`. As in Phoenix, the root's start tag must open in the
+template's first static, after optional whitespace and comments: a component
+that returns a nested component, or whose root is a nested component or another
+dynamic value, raises `LiveViewError`, because the client would mark that
+element as this component's and the nested one would lose its CID and targets.
+Components omitted by a successful parent render remain
 pending through the official `cids_will_destroy`/`cids_destroyed` handshake.
 Rendering the identity before final confirmation revives the same instance, CID,
 and state; final confirmation disconnects and forgets only components still

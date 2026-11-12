@@ -46,6 +46,7 @@ _INFO_QUEUE_CAPACITY = 32
 _ASYNC_CANCEL_TIMEOUT_SECONDS = 5.0
 # The main view's DOM id; child views use the ids passed to live_render.
 _ROOT_VIEW_ID = "tori-live-root"
+_ELEMENT_START = re.compile(r"<[A-Za-z]")
 # Child view ids become DOM ids and `lv:<id>` channel topics.
 _VIEW_ID = re.compile(r"[A-Za-z0-9_-]{1,128}\Z")
 type _ChildSigner = Callable[[type[LiveView], str, Mapping[str, str]], str]
@@ -229,6 +230,24 @@ def _fragment_root(value: str) -> tuple[bool, str | None]:
     return True, parser.root_id
 
 
+def _static_root(rendered: Rendered) -> bool:
+    """Whether the root element's start tag opens in the first static.
+
+    The official client marks a component's root element as the component's,
+    so the root must be the component's own tag, as Phoenix requires, not a
+    nested component or another dynamic value. Comments may precede it.
+    """
+    text = rendered.statics[0]
+    while True:
+        text = text.lstrip()
+        if not text.startswith("<!--"):
+            return _ELEMENT_START.match(text) is not None
+        end = text.find("-->", 4)
+        if end < 0:
+            return False
+        text = text[end + 3 :]
+
+
 def _json_object(name: str, value: object) -> dict[str, object]:
     """Snapshot a mapping as the JSON object the Phoenix client receives."""
     if not isinstance(value, Mapping):
@@ -365,6 +384,13 @@ class LiveView(ABC):
             raise LiveViewError(
                 "LiveView components require exactly one explicitly balanced "
                 "root element"
+            )
+        if isinstance(component_rendered, _ComponentRendered) or not _static_root(
+            component_rendered
+        ):
+            raise LiveViewError(
+                "LiveView components require a static root element tag; a nested "
+                "component or another dynamic value cannot be the root"
             )
         return _ComponentRendered(
             component_rendered.statics,

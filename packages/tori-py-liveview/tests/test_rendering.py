@@ -414,6 +414,46 @@ async def test_components_render_nested_components_owned_by_the_page() -> None:
 
 
 @pytest.mark.asyncio
+async def test_components_render_their_own_static_root_element() -> None:
+    class Leaf(LiveComponent):
+        def render(self) -> Template:
+            return t'<button phx-target="{self.myself}">leaf</button>'
+
+    class ReturnsComponent(LiveComponent):
+        def render(self) -> Rendered:
+            return self.live_component(Leaf, "leaf")
+
+    class WrapsComponent(LiveComponent):
+        def render(self) -> Template:
+            return t"{self.live_component(Leaf, 'leaf')}"
+
+    class DynamicTag(LiveComponent):
+        def render(self) -> Template:
+            tag = "section"
+            return t"<{tag}>dynamic</{tag}>"
+
+    class CommentedRoot(LiveComponent):
+        def render(self) -> Template:
+            kind = "note"
+            return t' <!-- note --> <p class="{kind}">ok</p>'
+
+    def page(component_type: type[LiveComponent]) -> LiveView:
+        class Page(LiveView):
+            def render(self) -> Template:
+                return t"<main>{self.live_component(component_type, 'root')}</main>"
+
+        return Page()
+
+    # The client marks a component's root element as the component's, so a
+    # nested component there would lose its own CID and targets.
+    for component_type in (ReturnsComponent, WrapsComponent, DynamicTag):
+        with pytest.raises(LiveViewError, match="static root element tag"):
+            await page(component_type)._render_liveview()
+    result = await page(CommentedRoot)._render_liveview()
+    assert result.to_html() == '<main> <!-- note --> <p class="note">ok</p></main>'
+
+
+@pytest.mark.asyncio
 async def test_nested_component_identity_is_unique_across_the_page() -> None:
     class Leaf(LiveComponent):
         def render(self) -> str:

@@ -228,6 +228,8 @@ After final confirmation it is disconnected and forgotten; rendering it later
 creates fresh state and a new target. Override the async `disconnect()` hook to
 stop component-owned resources. Component output must contain exactly one root
 element and use explicit balanced end tags rather than optional-end-tag HTML.
+Write the root tag in the component's own template: a nested component or any
+other interpolated value cannot be the root.
 
 A component's `render()` may render nested components with its own
 `live_component()`:

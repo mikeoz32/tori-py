@@ -65,7 +65,8 @@ one package does not require the same change in every package.
 - LiveView nested components. `LiveComponent.live_component()` renders a nested
   component from a component's `render()`; nested components share the page's
   identity namespace, CIDs, targets, `send_update()`, async work, and
-  destruction handshake.
+  destruction handshake. A component's root must be a tag in its own template,
+  not a nested component or another dynamic value.
 - LiveView child LiveViews. `LiveView.live_render()` places a registered page as
   a child view, rendered into its container over HTTP and joined on its own
   channel topic over the same socket, and `LiveViewModule.for_root(embedded=...)`

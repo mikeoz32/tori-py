@@ -125,6 +125,9 @@ are logged and do not affect other components.
 - A component's output must have exactly one root element with explicit,
   balanced end tags. Optional end tags, such as an unclosed `<li>` or `<p>`, are
   rejected.
+- Write the root tag in the component's own template. Returning a nested
+  component, or rendering one or any other interpolated value as the root,
+  raises `LiveViewError`; wrap it in an element of the component's own instead.
 - Treat `myself` as connection-local. Never store it or construct one; render it
   from the component.
 - A component renders nested components with its own `live_component()`, as
