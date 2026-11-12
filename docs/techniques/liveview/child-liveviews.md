@@ -85,7 +85,8 @@ views of a page still handle one message at a time.
 update leaves the child's container and contents alone.
 
 Removing the child from the parent's render makes the browser leave it, which
-disconnects the child. When a parent ends, its children end first.
+disconnects the child. When a parent ends, its children end first, and each
+of them ends even when another one's cleanup fails.
 
 ## Rules
 

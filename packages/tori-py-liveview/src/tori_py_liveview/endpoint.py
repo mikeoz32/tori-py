@@ -894,17 +894,37 @@ def gateway_type(options: LiveViewOptions, registry: _Registry) -> type[object]:
                     )
                 )
 
+            async def close_children(view_ids: list[str]) -> None:
+                """Close every child view in turn, even when one fails to close.
+
+                The first failure is raised once all of them closed; any later
+                ones are logged.
+                """
+                failure: Exception | None = None
+                for view_id in view_ids:
+                    try:
+                        await close_child(view_id)
+                    except Exception as error:
+                        if failure is None:
+                            failure = error
+                        else:
+                            _LOGGER.exception("LiveView child cleanup failed")
+                if failure is not None:
+                    raise failure
+
             async def close_child(view_id: str) -> None:
                 child = children.pop(view_id, None)
                 if child is None:
                     return
                 try:
-                    for descendant in [
-                        view.view_id
-                        for view in children.values()
-                        if view.parent_id == view_id
-                    ]:
-                        await close_child(descendant)
+                    # A child's own children end first.
+                    await close_children(
+                        [
+                            view.view_id
+                            for view in children.values()
+                            if view.parent_id == view_id
+                        ]
+                    )
                 finally:
                     if child.info_task is not None:
                         child.info_task.cancel()
@@ -920,8 +940,7 @@ def gateway_type(options: LiveViewOptions, registry: _Registry) -> type[object]:
                 page_scope = None
                 try:
                     # Child views end with the main view that rendered them.
-                    for view_id in reversed(list(children)):
-                        await close_child(view_id)
+                    await close_children(list(reversed(children)))
                 finally:
                     await _close_page(closing_page, closing_scope)
 

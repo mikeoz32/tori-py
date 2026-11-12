@@ -3849,6 +3849,140 @@ async def test_a_cancelled_connection_stops_its_busy_child_views() -> None:
     await application.shutdown()
 
 
+class ViewResource:
+    """A request-scoped resource whose exit fails for chosen views."""
+
+    exits: ClassVar[list[str]] = []
+    failing: ClassVar[set[str]] = set()
+
+    def __init__(self) -> None:
+        self.label = ""
+
+    async def __aenter__(self) -> ViewResource:
+        return self
+
+    async def __aexit__(self, *exc_info: object) -> None:
+        if not self.label:
+            return
+        ViewResource.exits.append(self.label)
+        if self.label in ViewResource.failing:
+            raise RuntimeError(f"{self.label} resource failed")
+
+
+@module(
+    providers=[ClassProvider(ViewResource, scope=Scope.REQUEST)],
+    exports=[ViewResource],
+)
+class ViewResourceModule:
+    pass
+
+
+class _ResourceLive(LiveView):
+    disconnects: ClassVar[list[str]] = []
+
+    def __init__(self, resource: Annotated[ViewResource, Inject(ViewResource)]) -> None:
+        self.resource = resource
+        self.label = "page"
+        self.nested = False
+
+    async def mount(self, context: MountContext) -> None:
+        self.label = context.params.get("label", "page")
+        self.nested = context.params.get("nested") == "yes"
+        if context.connected:
+            self.resource.label = self.label
+
+    async def disconnect(self) -> None:
+        _ResourceLive.disconnects.append(self.label)
+
+
+class ResourceChildLive(_ResourceLive):
+    def render(self):
+        if not self.nested:
+            return t"<p>{self.label}</p>"
+        one = self.live_render(ResourceChildLive, f"{self.label}-1", {"label": "a-1"})
+        two = self.live_render(ResourceChildLive, f"{self.label}-2", {"label": "a-2"})
+        return t"<p>{self.label}{one}{two}</p>"
+
+
+@live_view("/resource-children")
+class ResourceParentLive(_ResourceLive):
+    def render(self):
+        a = self.live_render(ResourceChildLive, "a", {"label": "a", "nested": "yes"})
+        b = self.live_render(ResourceChildLive, "b", {"label": "b"})
+        return t"<main>{a}{b}</main>"
+
+
+async def _resource_children_application(
+    key: str, failing: set[str]
+) -> NestApplication:
+    _ResourceLive.disconnects = []
+    ViewResource.exits = []
+    ViewResource.failing = failing
+    liveview_module = LiveViewModule.for_root(
+        LiveViewOptions(secret=_SECRET),
+        pages=[ResourceParentLive],
+        embedded=[ResourceChildLive],
+        imports=[ViewResourceModule],
+        key=key,
+    )
+
+    @module(imports=[liveview_module])
+    class Root:
+        pass
+
+    application = await NestApplication.create(Root, adapter=StarletteAdapter())
+    await application.start()
+    return application
+
+
+@pytest.mark.asyncio
+async def test_failing_child_cleanup_still_closes_every_other_view(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    application = await _resource_children_application("children-cleanup", {"a", "b"})
+    session, root = await _joined_parent(application, "/resource-children")
+    await session.push(_child_join("a", _child_session(root["0"], "a"), "10"))
+    await session.frames(2)
+    await session.push(_child_join("b", _child_session(root["1"], "b"), "11"))
+    await session.frames(3)
+
+    with caplog.at_level(logging.ERROR, logger="tori_py_liveview.endpoint"):
+        await session.close()
+    # Both children fail to close their scopes, yet every view still
+    # disconnects and exits its resources, and each failure is logged.
+    assert sorted(_ResourceLive.disconnects) == ["a", "b", "page"]
+    assert sorted(ViewResource.exits) == ["a", "b", "page"]
+    assert "LiveView child cleanup failed" in caplog.text
+    assert "LiveView scope cleanup failed" in caplog.text
+    await application.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_a_leaving_child_closes_all_its_children_despite_failures() -> None:
+    application = await _resource_children_application(
+        "children-nested-cleanup", {"a-1"}
+    )
+    session, root = await _joined_parent(application, "/resource-children")
+    await session.push(_child_join("a", _child_session(root["0"], "a"), "10"))
+    rendered = cast(
+        dict[str, object], _response((await session.frames(2))[1])["rendered"]
+    )
+    await session.push(_child_join("a-1", _child_session(rendered["1"], "a-1"), "11"))
+    await session.frames(3)
+    await session.push(_child_join("a-2", _child_session(rendered["2"], "a-2"), "12"))
+    await session.frames(4)
+
+    # Leaving the child closes both of its children before itself, though the
+    # first one fails, and the failure then closes the connection.
+    await session.push(_child_message("a", "10", "13", "phx_leave", {}))
+    sent = await session.ended()
+    assert sent[-1]["type"] == "websocket.close"
+    assert sent[-1]["code"] == 1011
+    assert _ResourceLive.disconnects == ["a-1", "a-2", "a", "page"]
+    assert sorted(ViewResource.exits) == ["a", "a-1", "a-2", "page"]
+    await application.shutdown()
+
+
 def test_embedded_pages_are_registered_without_routes() -> None:
     options = LiveViewOptions(secret=_SECRET)
     with pytest.raises(LiveViewConfigurationError, match="must not declare @live_view"):

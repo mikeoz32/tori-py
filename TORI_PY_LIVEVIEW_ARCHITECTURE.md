@@ -589,7 +589,10 @@ answers with `live_redirect` or `redirect`.
 
 A child's `phx_leave` closes it after its own children. Closing any view,
 including the main view on leave, navigation, or disconnect, closes its children
-first. A message for a child topic that is not joined receives
+first. A child whose disconnect or scope cleanup fails does not stop the others:
+every view still disconnects and closes its scope, then the first cleanup
+failure is raised like any application failure and later ones are logged. A
+message for a child topic that is not joined receives
 `{status: "error", response: {reason: "unmatched topic"}}`, as from Phoenix, and
 its `phx_leave` an empty successful reply. Application failures in a child close
 the connection with `1011`, like failures in the main view.
