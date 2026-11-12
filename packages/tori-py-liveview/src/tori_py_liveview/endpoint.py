@@ -1132,13 +1132,17 @@ def gateway_type(options: LiveViewOptions, registry: _Registry) -> type[object]:
                 except BaseException:
                     await child_task.close()
                     raise
+                # Each join mounts the child afresh, so the tokens it renders for
+                # its own children bind to this mount alone, even when the client
+                # joins the child again with the same token.
+                child_nonce = new_view_nonce()
                 child = _View(
                     view_id,
                     message,
                     child_page,
                     _RenderState(main=False),
                     child_token.page,
-                    child_token.nonce,
+                    child_nonce,
                     parent_id=child_token.parent_id,
                     task=child_task,
                 )
@@ -1147,7 +1151,7 @@ def gateway_type(options: LiveViewOptions, registry: _Registry) -> type[object]:
                     child_codec,
                     registry.pages,
                     parent_id=view_id,
-                    parent_nonce=child_token.nonce,
+                    parent_nonce=child_nonce,
                     resource=child_token.resource,
                     session=session,
                 )

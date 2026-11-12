@@ -3551,6 +3551,35 @@ async def test_a_leaving_child_closes_its_own_children() -> None:
 
 
 @pytest.mark.asyncio
+async def test_a_rejoined_child_refuses_the_tokens_of_its_earlier_mount() -> None:
+    CounterChildLive.reset()
+    application = await _children_application("children-rejoin")
+    unauthorized = {"status": "error", "response": {"reason": "unauthorized"}}
+    session, root = await _joined_parent(application, "/children?nested=yes")
+    token = _child_session(root["1"], "counter")
+    await session.push(_child_join("counter", token, "10"))
+    first = cast(dict[str, object], _response((await session.frames(2))[1])["rendered"])
+    earlier = _child_session(first["2"], "a-inner")
+    await session.push(_child_message("counter", "10", "11", "phx_leave", {}))
+    await session.frames(3)
+
+    # Joining the child again with the same token mounts it afresh, so only the
+    # tokens its new mount renders join its own children.
+    await session.push(_child_join("counter", token, "12"))
+    second = cast(
+        dict[str, object], _response((await session.frames(4))[3])["rendered"]
+    )
+    await session.push(_child_join("a-inner", earlier, "13"))
+    assert _reply_payload((await session.frames(5))[4]) == unauthorized
+    await session.push(
+        _child_join("a-inner", _child_session(second["2"], "a-inner"), "14")
+    )
+    assert _reply_payload((await session.frames(6))[5])["status"] == "ok"
+    await session.close()
+    await application.shutdown()
+
+
+@pytest.mark.asyncio
 async def test_child_views_navigate_the_page_and_close() -> None:
     CounterChildLive.reset()
     application = await _children_application("children-navigate")

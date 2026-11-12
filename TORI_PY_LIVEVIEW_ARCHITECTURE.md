@@ -355,8 +355,10 @@ The container is `<div id data-phx-session data-phx-static="" data-phx-parent-id
 with the rendering view's id as parent. Its session is a child token with its
 own HMAC purpose, binding the child page, view id, parent view and that view's
 mount nonce, params, and the page's resource and live session. Every mount of a
-view gets a fresh random nonce: each HTTP render, each join of the main view,
-and each child join, whose own children bind to the nonce in its token. A page
+view gets a fresh random nonce: each HTTP render, where a child's own children
+bind to the nonce in its token, each join of the main view, and each child
+join, also of a child the client joins again with the same token, so only the
+tokens that join renders admit the child's own children. A page
 keeps the token for a view id while every render includes it with the same
 type and params, so an unchanged container stays out of diffs. A child left
 out of a render ends, and when it is rendered again it gets a fresh token. The HTTP render mounts each child disconnected in its own work scope,
