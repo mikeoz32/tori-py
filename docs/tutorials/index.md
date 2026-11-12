@@ -43,12 +43,18 @@ branches from Part 1. It publishes a versioned record after each create,
 builds an activity read model with a stream handler, tests with the in-memory
 adapter, and runs the same code on RabbitMQ Streams with Docker Compose.
 
+[Persist the Task API with SQLAlchemy](sqlalchemy-task-api.md) branches from
+Part 1. It keeps the same REST API, stores tasks in SQLite through async
+SQLAlchemy, adds an all-or-nothing batch route, and creates the schema with
+Alembic migrations.
+
 ## Choose A Learning Path
 
 | Path | Read in this order | You will learn |
 | --- | --- | --- |
 | Beginner | [Installation](../getting-started/installation.md) -> [First Application](../getting-started/first-application.md) -> [Project Structure](../getting-started/project-structure.md) -> [Task API tutorial](task-api.md) | Application factories, explicit modules, constructor injection, HTTP, lifecycle, and testing |
 | Web API | [Task API tutorial](task-api.md) -> [HTTP](../http/index.md) -> [Request Pipeline](../pipeline/index.md) -> [OpenAPI](../openapi/index.md) | Typed request conversion, guards, errors, request scope, ASGI hosting, and generated API documentation |
+| Database | [Task API Part 1](task-api.md) -> [Persist with SQLAlchemy](sqlalchemy-task-api.md) -> [SQLAlchemy](../techniques/sqlalchemy/index.md) | Settings-driven engines, repositories, automatic and explicit transactions, Alembic migrations, and database tests |
 | CQRS | [Task API Part 1](task-api.md) -> [Part 2: Add CQRS](cqrs-application.md) -> [CQRS guide](../techniques/cqrs/index.md) -> [Event Sourcing](../techniques/event-sourcing/index.md) | Commands, queries, local event fan-out, handler scopes, and the next persistence model |
 | Distributed application | [Task API Part 1](task-api.md) -> [Part 2: Add CQRS](cqrs-application.md) -> [Part 3: Distribute the API](distributed-application.md) -> [Microservices](../techniques/microservices/index.md) | Service ownership, typed RabbitMQ RPC, at-least-once events, outbox boundaries, deduplication, and failure policy |
 | Event-sourced application | [Task API Part 1](task-api.md) -> [Part 2: Add CQRS](cqrs-application.md) -> [Part 3: Distribute the API](distributed-application.md) -> [Part 4: Add Event Sourcing](event-sourced-application.md) -> [Event Sourcing](../techniques/event-sourcing/index.md) -> [Persistent Streams](../techniques/persistent-streams/index.md) | Aggregate persistence, direct event publication, projection-owned reads, consumer groups, checkpoints, and eventual consistency |

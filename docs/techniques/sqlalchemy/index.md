@@ -113,6 +113,9 @@ the schema with Alembic.
 
 The complete runnable example is in
 `examples/tori_py/reference_apps/sqlalchemy_task_api/`.
+[Persist the Task API with SQLAlchemy](../../tutorials/sqlalchemy-task-api.md)
+builds a similar application step by step, including Alembic migrations and
+tests on a real database.
 
 ## Boundaries
 
