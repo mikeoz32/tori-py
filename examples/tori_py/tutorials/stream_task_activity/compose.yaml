@@ -1,0 +1,21 @@
+services:
+  rabbitmq:
+    image: rabbitmq:4.1-management
+    hostname: task-activity-rabbitmq
+    command: >-
+      sh -c "rabbitmq-plugins enable --offline rabbitmq_stream
+      rabbitmq_stream_management && rabbitmq-server"
+    environment:
+      RABBITMQ_DEFAULT_USER: tutorial
+      RABBITMQ_DEFAULT_PASS: tutorial
+      RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS: >-
+        -rabbitmq_stream advertised_host localhost
+    ports:
+      - "5552:5552"
+      - "15672:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "check_port_connectivity"]
+      interval: 5s
+      timeout: 5s
+      retries: 24
+      start_period: 10s

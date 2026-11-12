@@ -34,6 +34,7 @@ REQUIRED_FILES = (
     "tutorials/openapi-task-api.md",
     "tutorials/live-task-board.md",
     "tutorials/websocket-task-feed.md",
+    "tutorials/stream-task-activity.md",
     "fundamentals/index.md",
     "fundamentals/modules.md",
     "fundamentals/providers-and-di.md",

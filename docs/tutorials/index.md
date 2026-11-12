@@ -38,6 +38,11 @@ Part 1. It keeps the same REST API and adds a WebSocket gateway that sends a
 snapshot of the tasks and then every new task, with an `Origin` check and
 per-connection state that cleans itself up.
 
+[Publish Task Activity to a Persistent Stream](stream-task-activity.md)
+branches from Part 1. It publishes a versioned record after each create,
+builds an activity read model with a stream handler, tests with the in-memory
+adapter, and runs the same code on RabbitMQ Streams with Docker Compose.
+
 ## Choose A Learning Path
 
 | Path | Read in this order | You will learn |
