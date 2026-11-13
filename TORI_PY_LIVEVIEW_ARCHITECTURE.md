@@ -587,8 +587,9 @@ topic. Only the gateway ends a child, after the child's own children.
 Cancelling the connection cancels a child's running callback; the child, like
 one whose task an application shutdown cancels, then serves no more calls and
 waits for the gateway, which still disconnects every view and closes its scope
-after its children. A child cancelled again, as when the event loop shuts
-down, ends at once. A 4xx
+after its children. An application shutdown cancels the gateway and each child
+together, and the cancelled gateway does not cancel a child a second time. A
+child cancelled again, as when the event loop shuts down, ends at once. A 4xx
 `HttpException` during a child's connected mount answers its join with a
 `reload` token for the main page and resource, and navigation while mounting
 answers with `live_redirect` or `redirect`.

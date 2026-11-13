@@ -14,6 +14,7 @@ import pytest
 from starlette.datastructures import QueryParams
 from starlette.types import ASGIApp, Message
 from tori_py import (
+    ApplicationOptions,
     ClassProvider,
     Inject,
     MethodInvocationContext,
@@ -3788,7 +3789,9 @@ class ScopedParentLive(_ScopeCheckingLive):
         return t"<main>{a}{b}</main>"
 
 
-async def _scoped_children_application(key: str) -> NestApplication:
+async def _scoped_children_application(
+    key: str, options: ApplicationOptions | None = None
+) -> NestApplication:
     _ScopeCheckingLive.reset()
     liveview_module = LiveViewModule.for_root(
         LiveViewOptions(secret=_SECRET),
@@ -3802,7 +3805,9 @@ async def _scoped_children_application(key: str) -> NestApplication:
     class Root:
         pass
 
-    application = await NestApplication.create(Root, adapter=StarletteAdapter())
+    application = await NestApplication.create(
+        Root, options=options, adapter=StarletteAdapter()
+    )
     await application.start()
     return application
 
@@ -3887,6 +3892,54 @@ async def test_a_cancelled_connection_stops_its_busy_child_views() -> None:
     ]
     assert [own for _, own, _ in checks] == [active for _, _, active in checks]
     await application.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_application_shutdown_stops_busy_child_views_after_their_children(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    phases: list[str] = []
+
+    async def record(view: _ScopeCheckingLive, phase: str) -> None:
+        # Shutdown closes the scopes to new resolution before cancelling their
+        # tasks, so the views record their phases without the probe.
+        phases.append(f"{view.label}:{phase}")
+
+    monkeypatch.setattr(_ScopeCheckingLive, "check", record)
+    # Shutdown cancels the connection and each child view in no set order, so
+    # the scenario runs on several applications to meet the orders.
+    for attempt in range(8):
+        # With no time left to drain scopes, shutdown cancels the open
+        # connection's tasks at once.
+        application = await _scoped_children_application(
+            f"children-shutdown-{attempt}",
+            ApplicationOptions(
+                shutdown_timeout=2.1, cancellation_grace=2, cleanup_reserve=0.1
+            ),
+        )
+        phases.clear()
+        session, root = await _joined_parent(application, "/scoped-children")
+        await session.push(_child_join("a", _child_session(root["0"], "a"), "10"))
+        joined = cast(
+            dict[str, object], _response((await session.frames(2))[1])["rendered"]
+        )
+        await session.push(
+            _child_join("inner", _child_session(joined["1"], "inner"), "11")
+        )
+        await session.frames(3)
+        await session.push(_child_event("a", "10", "12", "wait"))
+        await asyncio.wait_for(_ScopeCheckingLive.waiting.wait(), timeout=2)
+
+        await asyncio.wait_for(application.shutdown(), timeout=5)
+        assert phases == [
+            "page:mount",
+            "a:mount",
+            "inner:mount",
+            "a:cancelled",
+            "inner:disconnect",
+            "a:disconnect",
+            "page:disconnect",
+        ]
 
 
 class ViewResource:
@@ -4026,10 +4079,13 @@ async def test_a_leaving_child_closes_all_its_children_despite_failures() -> Non
 @pytest.mark.asyncio
 async def test_a_child_task_ends_only_when_the_gateway_closes_it() -> None:
     events: list[str] = []
+    pending_cancellations: list[int] = []
 
     class TaskPage(LiveView):
         async def disconnect(self) -> None:
             events.append("disconnect")
+            task = cast(asyncio.Task[None], asyncio.current_task())
+            pending_cancellations.append(task.cancelling())
 
         def render(self) -> str:
             return ""
@@ -4059,11 +4115,16 @@ async def test_a_child_task_ends_only_when_the_gateway_closes_it() -> None:
         await child.open(cast(Any, Scopes()), TaskPage)
         return child
 
-    started = asyncio.Event()
+    async def running_call(child: _ChildTask) -> asyncio.Task[None]:
+        started = asyncio.Event()
 
-    async def wait_forever() -> None:
-        started.set()
-        await asyncio.Event().wait()
+        async def wait_forever() -> None:
+            started.set()
+            await asyncio.Event().wait()
+
+        running = asyncio.create_task(child.call(wait_forever))
+        await asyncio.wait_for(started.wait(), timeout=2)
+        return running
 
     ran: list[str] = []
 
@@ -4086,8 +4147,7 @@ async def test_a_child_task_ends_only_when_the_gateway_closes_it() -> None:
     # way; cancelled again, as when the event loop shuts down, it ends at once.
     events.clear()
     busy = await opened()
-    running = asyncio.create_task(busy.call(wait_forever))
-    await asyncio.wait_for(started.wait(), timeout=2)
+    running = await running_call(busy)
     busy._task.cancel()
     with pytest.raises(LiveViewError, match="cancelled"):
         await asyncio.wait_for(running, timeout=2)
@@ -4097,6 +4157,31 @@ async def test_a_child_task_ends_only_when_the_gateway_closes_it() -> None:
     await settle()
     assert events == ["disconnect", "scope exit"]
     await asyncio.wait_for(busy.close(), timeout=2)
+
+    # A shutting down application cancels both the child and the gateway
+    # waiting on its call, in either order. The cancelled gateway then does not
+    # cancel the child again, so it still waits for the gateway to close it and
+    # cleans up with no cancellation pending, as timeouts and task groups in
+    # `disconnect()` expect.
+    for child_first in (True, False):
+        events.clear()
+        pending_cancellations.clear()
+        stopping = await opened()
+        running = await running_call(stopping)
+        if child_first:
+            stopping._task.cancel()
+            running.cancel()
+        else:
+            running.cancel()
+            stopping._task.cancel()
+        await asyncio.wait_for(
+            asyncio.gather(running, return_exceptions=True), timeout=2
+        )
+        await settle()
+        assert events == []
+        await asyncio.wait_for(stopping.close(), timeout=2)
+        assert events == ["disconnect", "scope exit"]
+        assert pending_cancellations == [0]
 
     # A call whose caller stopped waiting before it started never runs.
     events.clear()

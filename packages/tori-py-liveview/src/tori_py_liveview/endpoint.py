@@ -706,8 +706,10 @@ class _ChildTask:
     Only `close()` ends a child, so the gateway closes every child after its own
     children. Cancelling the task, as a cancelled caller or an application
     shutting down the tasks of open scopes does, cancels the running call; the
-    child then serves no more calls and waits for `close()`. Cancelled again,
-    as when the event loop shuts down, it ends at once.
+    child then serves no more calls and waits for `close()`. A shutting down
+    application cancels the gateway too, whose cancelled call then leaves the
+    already cancelled child alone. Cancelled again, as when the event loop
+    shuts down, it ends at once.
     """
 
     __slots__ = ("_calls", "_ended", "_page", "_scope", "_task")
@@ -740,8 +742,11 @@ class _ChildTask:
             return cast(T, await result)
         except asyncio.CancelledError:
             # The caller stopped waiting, as a cancelled connection does, so
-            # the call stops too.
-            self._task.cancel()
+            # the call stops too, unless the child was already cancelled, as
+            # an application shutting down cancels both. A second cancellation
+            # would end the child before the gateway closes its children.
+            if not self._ended and not self._task.cancelling():
+                self._task.cancel()
             raise
 
     async def close(self) -> None:
