@@ -125,3 +125,6 @@ work would stall the whole event loop, so run them with `asyncio.to_thread()`.
 Components run their own work with the same methods. Results go to the
 component's `handle_async()` or attribute, and the component's work is
 cancelled when it is destroyed, before its `disconnect()` runs.
+
+To load a stream's items this way, see
+[Loading Items Asynchronously](streams.md#loading-items-asynchronously).
