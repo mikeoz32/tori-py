@@ -583,8 +583,12 @@ own; the scoped interceptors and dependencies of every view see that view's
 scope, never the one another view opened last. The gateway awaits each call, so
 it still serializes the child's events, component messages, info callbacks, and
 async results with the main view's, and replies and pushes on the child's
-topic. Cancelling the connection cancels a child's running callback, and the
-child still disconnects and closes its scope. A 4xx
+topic. Only the gateway ends a child, after the child's own children.
+Cancelling the connection cancels a child's running callback; the child, like
+one whose task an application shutdown cancels, then serves no more calls and
+waits for the gateway, which still disconnects every view and closes its scope
+after its children. A child cancelled again, as when the event loop shuts
+down, ends at once. A 4xx
 `HttpException` during a child's connected mount answers its join with a
 `reload` token for the main page and resource, and navigation while mounting
 answers with `live_redirect` or `redirect`.

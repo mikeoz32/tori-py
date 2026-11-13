@@ -702,6 +702,12 @@ class _ChildTask:
     on its own task, where its scoped interceptors and dependencies see that
     scope rather than whichever view opened one last. The gateway awaits every
     call, so the views of one connection still run one at a time.
+
+    Only `close()` ends a child, so the gateway closes every child after its own
+    children. Cancelling the task, as a cancelled caller or an application
+    shutting down the tasks of open scopes does, cancels the running call; the
+    child then serves no more calls and waits for `close()`. Cancelled again,
+    as when the event loop shuts down, it ends at once.
     """
 
     __slots__ = ("_calls", "_ended", "_page", "_scope", "_task")
@@ -733,7 +739,8 @@ class _ChildTask:
         try:
             return cast(T, await result)
         except asyncio.CancelledError:
-            # The connection is going away, so the child stops with it.
+            # The caller stopped waiting, as a cancelled connection does, so
+            # the call stops too.
             self._task.cancel()
             raise
 
@@ -749,6 +756,9 @@ class _ChildTask:
         try:
             while (call := await self._calls.get()) is not None:
                 operation, result = call
+                if result.done():
+                    # Its caller stopped waiting before it started.
+                    continue
                 try:
                     value = await operation()
                 except asyncio.CancelledError:
@@ -765,6 +775,14 @@ class _ChildTask:
                 else:
                     if not result.done():
                         result.set_result(value)
+        except asyncio.CancelledError:
+            # The gateway closes this child after its own children, so wait for
+            # that; a second cancellation ends the wait.
+            cast(asyncio.Task[None], asyncio.current_task()).uncancel()
+            self._ended = True
+            while (call := await self._calls.get()) is not None:
+                if not call[1].done():
+                    call[1].set_exception(LiveViewError("the child LiveView has ended"))
         finally:
             self._ended = True
             while not self._calls.empty():

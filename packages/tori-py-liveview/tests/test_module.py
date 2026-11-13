@@ -45,7 +45,7 @@ from tori_py_liveview import (
     rendered,
 )
 from tori_py_liveview._diff import _RenderState
-from tori_py_liveview.endpoint import _child_signer
+from tori_py_liveview.endpoint import _child_signer, _ChildTask
 from tori_py_liveview.page import _AsyncTask
 from tori_py_liveview.tokens import (
     ChildTokenCodec,
@@ -3770,7 +3770,12 @@ class _ScopeCheckingLive(LiveView):
 
 class ScopedChildLive(_ScopeCheckingLive):
     def render(self):
-        return t"<p>{self.label}</p>"
+        inner = (
+            self.live_render(ScopedChildLive, "inner", {"label": "inner"})
+            if self.label == "a"
+            else ""
+        )
+        return t"<p>{self.label}{inner}</p>"
 
 
 @live_view("/scoped-children")
@@ -3859,18 +3864,24 @@ async def test_a_cancelled_connection_stops_its_busy_child_views() -> None:
     application = await _scoped_children_application("children-cancel")
     session, root = await _joined_parent(application, "/scoped-children")
     await session.push(_child_join("a", _child_session(root["0"], "a"), "10"))
-    await session.frames(2)
-    await session.push(_child_event("a", "10", "11", "wait"))
+    joined = cast(
+        dict[str, object], _response((await session.frames(2))[1])["rendered"]
+    )
+    await session.push(_child_join("inner", _child_session(joined["1"], "inner"), "11"))
+    await session.frames(3)
+    await session.push(_child_event("a", "10", "12", "wait"))
     await asyncio.wait_for(_ScopeCheckingLive.waiting.wait(), timeout=2)
 
     # Cancelling the connection also cancels the child's running handler, and
-    # every view still disconnects and closes its scope.
+    # every view still disconnects and closes its scope after its children.
     await session.cancel()
     checks = _ScopeCheckingLive.checks
     assert [phase for phase, _, _ in checks] == [
         "page:mount",
         "a:mount",
+        "inner:mount",
         "a:cancelled",
+        "inner:disconnect",
         "a:disconnect",
         "page:disconnect",
     ]
@@ -4010,6 +4021,95 @@ async def test_a_leaving_child_closes_all_its_children_despite_failures() -> Non
     assert _ResourceLive.disconnects == ["a-1", "a-2", "a", "page"]
     assert sorted(ViewResource.exits) == ["a", "a-1", "a-2", "page"]
     await application.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_a_child_task_ends_only_when_the_gateway_closes_it() -> None:
+    events: list[str] = []
+
+    class TaskPage(LiveView):
+        async def disconnect(self) -> None:
+            events.append("disconnect")
+
+        def render(self) -> str:
+            return ""
+
+    class Resolver:
+        async def resolve(self, token: object) -> object:
+            del token
+            return TaskPage()
+
+    class TaskScope:
+        async def __aenter__(self) -> Resolver:
+            return Resolver()
+
+        async def __aexit__(self, *exc_info: object) -> None:
+            events.append("scope exit")
+
+    class Scopes:
+        def open(self) -> TaskScope:
+            return TaskScope()
+
+    async def settle() -> None:
+        for _ in range(5):
+            await asyncio.sleep(0)
+
+    async def opened() -> _ChildTask:
+        child = _ChildTask()
+        await child.open(cast(Any, Scopes()), TaskPage)
+        return child
+
+    started = asyncio.Event()
+
+    async def wait_forever() -> None:
+        started.set()
+        await asyncio.Event().wait()
+
+    ran: list[str] = []
+
+    async def record() -> None:
+        ran.append("ran")
+
+    # Cancelled while idle, as a shutting down application cancels the tasks of
+    # open scopes, a child serves no more calls but keeps its page and scope
+    # until the gateway closes it, after its own children.
+    idle = await opened()
+    idle._task.cancel()
+    await settle()
+    assert events == []
+    with pytest.raises(LiveViewError, match="ended"):
+        await idle.call(record)
+    await asyncio.wait_for(idle.close(), timeout=2)
+    assert events == ["disconnect", "scope exit"]
+
+    # Cancelled while running a call, it cancels the call and waits the same
+    # way; cancelled again, as when the event loop shuts down, it ends at once.
+    events.clear()
+    busy = await opened()
+    running = asyncio.create_task(busy.call(wait_forever))
+    await asyncio.wait_for(started.wait(), timeout=2)
+    busy._task.cancel()
+    with pytest.raises(LiveViewError, match="cancelled"):
+        await asyncio.wait_for(running, timeout=2)
+    await settle()
+    assert events == []
+    busy._task.cancel()
+    await settle()
+    assert events == ["disconnect", "scope exit"]
+    await asyncio.wait_for(busy.close(), timeout=2)
+
+    # A call whose caller stopped waiting before it started never runs.
+    events.clear()
+    abandoning = await opened()
+    abandoned = asyncio.create_task(abandoning.call(record))
+    await asyncio.sleep(0)
+    abandoned.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(abandoned, timeout=2)
+    await settle()
+    await asyncio.wait_for(abandoning.close(), timeout=2)
+    assert ran == []
+    assert events == ["disconnect", "scope exit"]
 
 
 def test_embedded_pages_are_registered_without_routes() -> None:
