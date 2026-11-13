@@ -30,7 +30,7 @@ browser                                   server
                                           mount(connected=True), render
   ◀── full render tree  ────────────────
   phx-click="increment"  ──────────────▶  handle_event, render
-  ◀── render tree; client patches DOM ──
+  ◀── changes only; client patches DOM ─
 ```
 
 1. A normal HTTP `GET` resolves the page, mounts it disconnected, and returns a
@@ -41,7 +41,8 @@ browser                                   server
 3. The client opens a WebSocket and joins with the token. The server mounts a
    new connected page instance and sends the full render tree.
 4. Each `phx-*` event runs one page callback. The server renders again and
-   replies with the Phoenix render tree; the client patches only the DOM nodes
+   replies with only the values that changed since the last render; the client
+   merges them into its copy of the render tree and patches only the DOM nodes
    that changed.
 
 The HTTP page and the connected page are separate provider instances.
@@ -142,6 +143,9 @@ HTTP only and serves no WebSocket scopes.
 | Template strings, escaping, `attrs()`, `classes()`, `fragment()` | [Templates and Rendering](templates.md) |
 | Client-side commands such as show, hide, and transitions | [JS Commands](js-commands.md) |
 | Independently stateful parts of a page | [Stateful Components](components.md) |
+| JavaScript hooks, events pushed to the browser, replies, component updates | [Hooks and Server Events](client-events.md) |
+| Flash messages and concurrent work such as loading data | [Flash and Async Work](flash-and-async.md) |
+| A page embedded in another page with its own state and events | [Child LiveViews](child-liveviews.md) |
 | Large or append-only collections owned by the browser | [Streams](streams.md) |
 | Several routes per page, patches, live navigation, mount hooks | [Routing and Navigation](navigation.md) |
 | Options, origins, tokens, limits, authorization | [Configuration and Security](configuration-and-security.md) |
@@ -155,12 +159,13 @@ showcase with a browser end-to-end test lives in
 
 ## Current Scope
 
-The package implements Phoenix Channels joins and replies, render-tree diffs,
-stateful components with targeted events, browser-owned streams, title updates,
-heartbeats, reconnect joins, route-aware patches and live navigation, mount
-hooks, the `JS` command builder, and serialized server-initiated updates.
+The package implements Phoenix Channels joins and replies, changed-only
+render-tree diffs, stateful and nested components with targeted events,
+browser-owned streams, title updates, heartbeats, reconnect joins, route-aware
+patches and live navigation, mount hooks, the `JS` command builder, serialized
+server-initiated updates, client hooks with pushed events and replies, flash,
+async work, connect params, and child LiveViews.
 
-Not implemented: nested components, file uploads, and application hook/reply
-APIs (`phx-hook` with `pushEvent` replies or server `push_event`). The server
-keeps no page after a disconnect and does not migrate sessions between replicas;
-a reconnect always mounts a fresh page.
+Not implemented: file uploads and sticky child LiveViews that survive
+navigation. The server keeps no page after a disconnect and does not migrate
+sessions between replicas; a reconnect always mounts a fresh page.

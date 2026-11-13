@@ -126,6 +126,15 @@ Phoenix render-tree values. Interpolate those structural values without `!s`,
 in HTML text and quoted attribute values; dynamic tag or attribute names, CSS,
 and JavaScript are outside the safe authoring contract.
 
+After the join, each update sends the browser only what changed. A template's
+literal text, its statics, stays with the client, so a click that changes one
+interpolated value sends that value alone. A component whose output did not
+change is left out, and its DOM is left untouched. Statics are compared by
+value, so a page or component that returns a plain `str`, such as an f-string,
+has new statics whenever its text changes and is sent whole each time. Prefer
+`t"..."` templates for anything that updates. A `fragment()` list whose length
+changes is also sent whole.
+
 ## JS commands
 
 The Phoenix client runs a `phx-*` binding value that starts with `[` as JS
@@ -217,9 +226,43 @@ connection-local; do not persist or construct it. An omitted identity remains
 revivable until the browser completes Phoenix's component-destruction handshake.
 After final confirmation it is disconnected and forgotten; rendering it later
 creates fresh state and a new target. Override the async `disconnect()` hook to
-stop component-owned resources. Nested components are not supported. Component
-output must contain exactly one root element and use explicit balanced end tags
-rather than optional-end-tag HTML.
+stop component-owned resources. Component output must contain exactly one root
+element and use explicit balanced end tags rather than optional-end-tag HTML.
+Write the root tag in the component's own template: a nested component or any
+other interpolated value cannot be the root.
+
+A component's `render()` may render nested components with its own
+`live_component()`:
+
+```python
+class TreeComponent(LiveComponent):
+    def render(self) -> Template:
+        leaves = fragment(
+            self.live_component(LeafComponent, leaf_id) for leaf_id in self.leaf_ids
+        )
+        return t'<ul phx-target="{self.myself}">{leaves}</ul>'
+```
+
+Nested components belong to the page: their identity is unique across the whole
+page, and their targets, `send_update()`, async work, and cleanup behave as for
+components the page renders. A child the parent stops rendering, including every
+child of a removed parent, goes through the same destruction handshake.
+
+`send_update(component_type, component_id, assigns)` passes assigns to a
+rendered component from a page or component handler or from `handle_info()`,
+without the parent having to track them:
+
+```python
+async def handle_info(self, name: str, value: object) -> None:
+    if name == "progress":
+        self.send_update(ProgressComponent, "upload", {"percent": value})
+```
+
+Queued updates call `update(assigns)` in order before the next render, only for
+components the previous render produced; other identities are ignored. The
+assigns the parent passes to `live_component()` during that render are applied
+afterwards, so keep component state that `send_update()` sets separate from the
+fields the parent overwrites.
 
 ## Streams
 
@@ -288,11 +331,206 @@ writes run serially on the connection task. Stop and await page-owned background
 tasks from `disconnect()`; reconnect mounts a fresh page and queue. Server
 updates do not extend the browser's inbound idle deadline.
 
+## Hooks, pushed events, and replies
+
+The client bootstrap passes `globalThis.ToriLiveHooks` to the official
+`LiveSocket` as its `hooks` object. Register hooks on it from a script that runs
+before the deferred client script, for example by prepending it in
+`render_document`:
+
+```python
+_HOOKS = '<script defer src="/assets/hooks.js"></script>'
+
+
+class ChatLive(LiveView):
+    def render_document(self, live_root: str, client_script: str) -> str:
+        return super().render_document(live_root, _HOOKS + client_script)
+
+    def render(self) -> Template:
+        return t'<div id="messages" phx-hook="ScrollToEnd">{self.messages}</div>'
+```
+
+```js
+// /assets/hooks.js, served by the application
+globalThis.ToriLiveHooks ??= {};
+ToriLiveHooks.ScrollToEnd = {
+  mounted() {
+    this.handleEvent("scroll-to-end", () => this.el.scrollTo(0, this.el.scrollHeight));
+  },
+  updated() { this.el.scrollTo(0, this.el.scrollHeight); },
+};
+```
+
+Hooked elements need a unique DOM `id`. `this.pushEvent(event, value, reply)` in
+a hook reaches `handle_event` like any other browser event. A handler that
+returns a mapping replies to it; `None` sends no reply:
+
+```python
+async def handle_event(self, event: str, value: object) -> Mapping[str, object] | None:
+    if event == "load-more":
+        self.page += 1
+        self.push_event("scroll-to-end")
+        return {"page": self.page}
+    raise UnknownEventError(event)
+```
+
+`push_event(event, payload=None, dispatch="after")` sends a `phx:<event>` window
+event, which hooks receive through `handleEvent`, with the next render: the
+join, an event reply, or a `handle_info` update. `dispatch="before"` dispatches
+it before the client applies that render. Payloads and replies are mappings with
+string keys that must encode as JSON objects; they are copied when queued.
+Pushed events are dropped when the handler raises `UnknownEventError` or
+navigates away with `push_navigate()` or `redirect()`, during the disconnected
+HTTP render, and on disconnect. An invalid reply closes the connection like any
+other handler failure.
+
+Components have the same `push_event()` and reply behaviour. Hook scripts are
+trusted application code; ToriPy serves no hook runtime of its own.
+
+## Flash
+
+`put_flash(kind, message)` sets a flash message, `clear_flash(kind=None)`
+removes one kind or all, and `self.flash` is the read-only mapping to render.
+The official `lv:clear-flash` event clears the kind named by its `key` value:
+
+```python
+async def handle_event(self, event: str, value: object) -> None:
+    if event == "save":
+        await self.repository.save(self.draft)
+        self.put_flash("info", "Saved")
+        self.push_navigate("/drafts")
+
+
+def render(self) -> Template:
+    info = self.flash.get("info", "")
+    return t"""
+      <p id="flash" phx-click="lv:clear-flash" phx-value-key="info">{info}</p>
+      ...
+    """
+```
+
+Flash put in a handler follows `push_navigate()` as a signed token and
+`redirect()` through the Phoenix `__phoenix_flash__` cookie, which the next HTTP
+render reads and deletes. A page that navigates while mounting, such as `/`
+redirecting to `/dashboard`, passes on all of its flash, including flash it
+received, unless it clears it. Flash does not follow a `redirect()` to another
+host. Flash tokens expire after 60 seconds. The disconnected
+render's flash also appears on the first connected render, but not again after a
+reconnect. Components forward `put_flash()` and `clear_flash()` to their page.
+
+## Async work
+
+`start_async(name, function)` awaits `function()` concurrently and passes the
+outcome to `handle_async`, which runs serially with events and re-renders:
+
+```python
+async def handle_event(self, event: str, value: object) -> None:
+    if event == "ask":
+        self.answer = "thinking"
+        self.start_async("answer", lambda: self.llm.complete(self.prompt))
+
+
+async def handle_async(self, name: str, result: AsyncResult[object]) -> None:
+    if name == "answer":
+        self.answer = str(result.result) if result.ok else "failed"
+```
+
+`assign_async(name, function, reset=False)` keeps an `AsyncResult` in the
+attribute `name` instead: it is `loading` until the work finishes and then `ok`
+with `result`, or `failed` with the exception. A reload keeps the previous
+result while loading unless `reset=True`. The name cannot be a method,
+property, or class variable such as `title` or `flash`. The disconnected render
+shows the loading state without starting work:
+
+```python
+async def mount(self, context: MountContext) -> None:
+    self.org: AsyncResult[Organization] = AsyncResult()
+    self.assign_async("org", lambda: self.organizations.get(self.org_id))
+```
+
+Restarting a running name cancels the previous task. `cancel_async(name)`
+cancels work and delivers `asyncio.CancelledError` as its failure. Disconnect
+and live navigation cancel all work, and component work is cancelled before
+the component's `disconnect()` when it is removed. Cancelled work gets up to
+`LiveViewOptions.async_cancel_timeout_seconds` (5 seconds by default) to stop;
+work that ignores cancellation longer is logged and left behind. Work runs on
+the event loop, so wrap blocking calls in `asyncio.to_thread`.
+
+## Connect params
+
+`MountContext.connect_params` holds the join params the browser sent to a
+connected mount, mirroring Phoenix `get_connect_params`, and is `None` for the
+disconnected render. Applications add their own params through
+`globalThis.ToriLiveParams`, set before the client script runs:
+
+```python
+_PARAMS = (
+    "<script>globalThis.ToriLiveParams = "
+    "{timezone: Intl.DateTimeFormat().resolvedOptions().timeZone};</script>"
+)
+```
+
+The official client also sends `_mounts`, `_live_referer` after live navigation,
+and `_track_static` with the URLs of `phx-track-static` elements.
+`context.static_changed(current_urls)` reports whether those assets differ from
+the application's current ones, for example to show a reload notice after a
+deploy. Connect params come from the browser, so treat them as untrusted. Your
+own params also appear in the WebSocket URL, so never put secrets in them; the
+LiveView join fields above are kept out of that URL.
+
+A connected `mount`, `handle_params`, on-mount hook, or first `render` that
+raises a 4xx `HttpException` makes the browser reload the page once. The reload carries a
+signed token in the official `__phoenix_reload_status__` cookie, so the HTTP
+render answers with that status even if only the connected mount fails, for
+example when data loads only once connected.
+
+## Child LiveViews
+
+`live_render()` places another page inside this one as a child LiveView with its
+own state, events, and updates. List pages that are only ever rendered this way
+under `embedded=`; they get no path:
+
+```python
+class CartLive(LiveView):
+    async def mount(self, context: MountContext) -> None:
+        self.store = context.params["store"]
+        self.items: list[str] = []
+
+    def render(self) -> Template:
+        return t"<aside>{len(self.items)} items in {self.store}</aside>"
+
+
+@live_view("/shop")
+class ShopLive(LiveView):
+    def render(self) -> Template:
+        cart = self.live_render(CartLive, "cart", {"store": "kyiv"})
+        return t"<main>{cart}</main>"
+
+
+LiveViewModule.for_root(options, pages=[ShopLive], embedded=[CartLive])
+```
+
+The HTTP response includes the child's disconnected render. Once the page
+connects, the browser joins the child on its own channel, so the child's events,
+`send_info()`, async work, and renders stay separate from the page's, and a page
+update leaves the child alone. The id becomes the container's DOM id and must be
+unique on the page; params are strings and arrive as `context.params`, while
+`context.resource` is the page's resource. Removing the child from the page's
+render ends it.
+
+Children do not run the session's on-mount hooks or `handle_params`, so a child
+authorizes in its own `mount()`. Only the page can `push_patch()`; a child that
+calls `push_navigate()` navigates the whole page. A child's title replaces the
+page's only if the child returns one. A failure in a child closes the
+connection, as a failure in the page does. Sticky children that survive
+navigation are not supported.
+
 ## Configuration
 
 `LiveViewOptions` controls the root-relative socket and client paths, explicit
 allowed origins, inbound message limit, mount-token lifetime, join deadline,
-and idle deadline. The default origin policy accepts only the HTTP origin
+idle deadline, and the deadline for cancelled async work. The default origin
+policy accepts only the HTTP origin
 corresponding to the WebSocket `Host`; deployments behind a host-rewriting
 proxy should set `allowed_origins` explicitly. `redirect_hosts` lists the bare
 host names, such as an identity provider, that `redirect()` may leave the site
@@ -311,11 +549,15 @@ downloads before replacing either vendored file.
 
 This release implements Phoenix Channels joins and replies, Phoenix render
 trees, stateful component CIDs, targeted events, heartbeats,
-reconnect-compatible joins, title updates, browser-owned bounded streams, and
-serialized connection-local server updates through `send_info`/`handle_info`.
-The configured socket path is the Phoenix endpoint base; the browser connects to
-its `/websocket?vsn=2.0.0` transport route. Nested components, uploads, and
-application hook/reply APIs are reserved for later releases.
+reconnect-compatible joins, title updates, browser-owned bounded streams,
+serialized connection-local server updates through `send_info`/`handle_info`,
+live navigation, client hooks, pushed events, event replies, `send_update`,
+flash, async work, connect params, `reload` join errors, and changed-only
+render diffs with shared component statics. The configured
+socket path is the Phoenix endpoint base; the browser connects to its
+`/websocket?vsn=2.0.0` transport route. Nested components and child LiveViews
+are supported; sticky child LiveViews and uploads are reserved for later
+releases.
 
 See the [LiveView guide](https://mikeoz32.github.io/tori-py/techniques/liveview/),
 the runnable example in `examples/tori_py/liveview`, and the normative

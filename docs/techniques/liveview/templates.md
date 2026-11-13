@@ -179,11 +179,20 @@ generated markup. `Rendered(statics, dynamics)` is the immutable tree type;
 
 ## How Updates Reach the Browser
 
-After every event, info message, or patch, the page renders again and the server
-sends the render tree with its statics and dynamics. The Phoenix client merges it
-with its copy and patches only the DOM nodes whose content changed, so focus,
-scroll position, and unchanged elements survive. Keep `render()` free of side
-effects and reasonably cheap: it runs after every state change.
+After every event, info message, or patch, the page renders again. The join
+sends the whole render tree; after that, the server compares each render with
+the previous one and sends only what changed. A template's literal text, its
+statics, stays in the browser, so an event that changes one interpolated value
+sends just that value, and a component whose output did not change is left out
+and keeps its DOM. The Phoenix client merges the changes into its copy and
+patches only the DOM nodes whose content changed, so focus, scroll position,
+and unchanged elements survive. Keep `render()` free of side effects and
+reasonably cheap: it runs after every state change.
+
+Statics are compared by value. A `str` returned from `render()`, such as an
+f-string, has new statics whenever its text changes and is sent whole each time,
+and a `fragment()` whose length changes is sent whole too. Prefer templates for
+anything that updates.
 
 Choosing between whole templates also works naturally:
 

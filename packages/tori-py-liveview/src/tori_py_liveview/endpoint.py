@@ -7,9 +7,10 @@ import json
 import logging
 import re
 import sys
-from collections.abc import Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass, field
+from functools import partial
 from types import MappingProxyType
 from typing import Annotated, cast
 from urllib.parse import parse_qsl, urlsplit
@@ -25,8 +26,9 @@ from tori_py import (
     WorkScopeFactory,
     websocket_gateway,
 )
-from tori_py.http import HttpContext, HttpResponse
+from tori_py.http import HttpContext, HttpException, HttpResponse
 
+from tori_py_liveview._diff import _RenderState
 from tori_py_liveview.errors import (
     LiveViewConfigurationError,
     LiveViewError,
@@ -34,11 +36,19 @@ from tori_py_liveview.errors import (
 )
 from tori_py_liveview.metadata import LiveViewMetadata
 from tori_py_liveview.options import LiveViewOptions, normalize_origin, websocket_path
-from tori_py_liveview.page import LiveView, MountContext, _Info, _UnknownComponentError
+from tori_py_liveview.page import (
+    _ROOT_VIEW_ID,
+    LiveView,
+    MountContext,
+    _AsyncTask,
+    _Info,
+    _json_object,
+    _UnknownComponentError,
+)
 from tori_py_liveview.rendering import (
     Rendered,
-    _ComponentRendered,
-    _StreamRendered,
+    _ChildRendered,
+    _dynamic_html,
 )
 from tori_py_liveview.routing import (
     CompiledLiveRoute,
@@ -48,13 +58,27 @@ from tori_py_liveview.routing import (
     redirect_host_allowed,
     same_origin,
 )
-from tori_py_liveview.tokens import InvalidMountTokenError, MountTokenCodec
+from tori_py_liveview.tokens import (
+    ChildTokenCodec,
+    FlashTokenCodec,
+    InvalidMountTokenError,
+    MountTokenCodec,
+    ReloadTokenCodec,
+    new_view_nonce,
+)
 
 _LOGGER = logging.getLogger(__name__)
 _LIVEVIEW_VERSION = "1.2.11"
-_ROOT_ID = "tori-live-root"
+_ROOT_ID = _ROOT_VIEW_ID
 _TOPIC = f"lv:{_ROOT_ID}"
+# Child LiveViews may nest this deep under the main view.
+_MAX_CHILD_DEPTH = 8
 _MAX_SAFE_INTEGER = 2**53 - 1
+# The official client stores a redirect's flash token in this cookie for 60s.
+_FLASH_COOKIE = "__phoenix_flash__"
+_FLASH_COOKIE_MAX_AGE = 60
+# The official client stores a `reload` join error's token here before reloading.
+_RELOAD_COOKIE = "__phoenix_reload_status__"
 
 
 @dataclass(frozen=True, slots=True)
@@ -98,65 +122,135 @@ async def _render(page: LiveView) -> Rendered:
     return await page._render_liveview()
 
 
+def _child_signer(
+    codec: ChildTokenCodec,
+    pages: Mapping[str, type[LiveView]],
+    *,
+    parent_id: str,
+    parent_nonce: str,
+    resource: str,
+    session: str,
+) -> Callable[[type[LiveView], str, Mapping[str, str]], str]:
+    """Sign child views a page renders; only registered pages may be children.
+
+    The tokens bind to this mount of the page through ``parent_nonce``.
+    """
+    identities = {page_type: identity for identity, page_type in pages.items()}
+
+    def sign(page_type: type[LiveView], view_id: str, params: Mapping[str, str]) -> str:
+        identity = identities.get(page_type)
+        if identity is None:
+            raise LiveViewError(
+                f"child LiveView {page_type.__qualname__} is not registered with "
+                "LiveViewModule"
+            )
+        return codec.sign(
+            identity, view_id, parent_id, parent_nonce, params, resource, session
+        )
+
+    return sign
+
+
+def _child_containers(rendered: Rendered) -> list[_ChildRendered]:
+    children: list[_ChildRendered] = []
+    for value in rendered.dynamics:
+        if isinstance(value, _ChildRendered):
+            children.append(value)
+        elif isinstance(value, Rendered):
+            children.extend(_child_containers(value))
+    return children
+
+
+def _html_with_children(rendered: Rendered, contents: Mapping[str, str]) -> str:
+    """Render HTML with each child view's disconnected render in its container."""
+    parts: list[str] = []
+    for index, static in enumerate(rendered.statics):
+        parts.append(static)
+        if index == len(rendered.dynamics):
+            break
+        value = rendered.dynamics[index]
+        if isinstance(value, _ChildRendered):
+            parts.append(f"{value.open_tag}{contents[value.view_id]}</div>")
+        elif isinstance(value, Rendered):
+            parts.append(_html_with_children(value, contents))
+        else:
+            parts.append(_dynamic_html(value))
+    return "".join(parts)
+
+
 def _resource(request: Request) -> str:
     path = request.url.path
     query = request.url.query
     return path if not query else f"{path}?{query}"
 
 
-def _stream_tree(rendered: _StreamRendered) -> dict[str, object]:
-    keyed: dict[str, object] = {"kc": len(rendered.inserts)}
-    insert_metadata: list[list[object]] = []
-    for index, insert in enumerate(rendered.inserts):
-        keyed[str(index)] = {"0": insert.html}
-        insert_metadata.append([insert.item_id, insert.at, insert.limit, None])
-    stream: list[object] = [
-        rendered.ref,
-        insert_metadata,
-        list(rendered.delete_ids),
-    ]
-    if rendered.reset:
-        stream.append(True)
-    return {"s": ["", ""], "k": keyed, "stream": stream}
-
-
-def _rendered_tree(
+def _render_payload(
+    page: LiveView,
     rendered: Rendered,
-    components: dict[str, object],
-    *,
-    root: bool = False,
+    state: _RenderState,
 ) -> dict[str, object]:
-    tree: dict[str, object] = {"s": list(rendered.statics)}
-    if root:
-        tree["r"] = 1
-    for index, dynamic in enumerate(rendered.dynamics):
-        key = str(index)
-        if isinstance(dynamic, _ComponentRendered):
-            tree[key] = dynamic.cid
-            component = Rendered(dynamic.statics, dynamic.dynamics)
-            components[str(dynamic.cid)] = _rendered_tree(
-                component,
-                components,
-                root=True,
-            )
-        elif isinstance(dynamic, _StreamRendered):
-            tree[key] = _stream_tree(dynamic)
-        elif isinstance(dynamic, Rendered):
-            tree[key] = _rendered_tree(dynamic, components)
-        else:
-            tree[key] = dynamic
-    return tree
-
-
-def _render_message(rendered: Rendered, *, title: str | None) -> dict[str, object]:
-    components: dict[str, object] = {}
-    if isinstance(rendered, _ComponentRendered):
-        rendered = Rendered(("", ""), (rendered,))
-    payload = _rendered_tree(rendered, components)
-    if components:
-        payload["c"] = components
-    payload["t"] = "" if title is None else title
+    """Encode a render's changes and consume its stream, event, and flash effects."""
+    payload = state.encode(rendered, page.title())
+    page._clear_liveview_stream_operations()
+    page._take_liveview_flash_changes()
+    events = page._take_liveview_events()
+    if events:
+        payload["e"] = events
     return payload
+
+
+@dataclass(eq=False, slots=True)
+class _View:
+    """One joined LiveView channel: the main view or a child view."""
+
+    view_id: str
+    join: _ChannelMessage
+    page: LiveView
+    render_state: _RenderState
+    name: str
+    # The mount nonce the tokens of this view's children bind to.
+    nonce: str
+    parent_id: str | None = None
+    # A child view runs on a task of its own; the main view needs none.
+    task: _ChildTask | None = None
+    info_task: asyncio.Task[_Info | _AsyncTask] | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class _SiteFlash:
+    """Sign navigation flash for one connection's own site."""
+
+    codec: FlashTokenCodec
+    host: str
+    scheme: str
+
+    def follows(self, target: str) -> bool:
+        # Flash leaving the site would sit in the cookie for the next page.
+        return same_origin(self.host, target, scheme=self.scheme)
+
+
+def _with_flash(
+    navigation: dict[str, object],
+    flash: Mapping[str, str],
+    site: _SiteFlash,
+) -> dict[str, object]:
+    """Attach the flash put before a navigation as a signed Phoenix flash token."""
+    target = navigation["to"]
+    if flash and isinstance(target, str) and site.follows(target):
+        navigation["flash"] = site.codec.sign(flash)
+    return navigation
+
+
+def _cookie(name: str, value: str, *, max_age: int, secure: bool) -> str:
+    # Not HttpOnly: the official client writes these cookies with
+    # document.cookie, which cannot replace an HttpOnly cookie of the same name.
+    cookie = f"{name}={value}; Max-Age={max_age}; Path=/; SameSite=Lax"
+    return f"{cookie}; Secure" if secure else cookie
+
+
+def _first_mount(connect_params: Mapping[str, object]) -> bool:
+    mounts = connect_params.get("_mounts")
+    return type(mounts) is int and mounts == 0
 
 
 async def initial_response(
@@ -166,12 +260,85 @@ async def initial_response(
     route: LiveViewMetadata,
     hooks: tuple[Callable[..., object], ...] = (),
     compiled: tuple[CompiledLiveRoute, ...] = (),
+    *,
+    scopes: WorkScopeFactory,
+    pages: Mapping[str, type[LiveView]],
 ) -> HttpResponse:
     request = cast(Request, context.request)
+    flash_codec = FlashTokenCodec(options.secret)
+    child_codec = ChildTokenCodec(options.secret, max_age_ms=options.token_max_age_ms)
+    flash_cookie = request.cookies.get(_FLASH_COOKIE)
+    secure = request.url.scheme == "https"
+    identity = f"{page_type.__module__}.{page_type.__qualname__}"
+    resource = _resource(request)
+    reload_status = ReloadTokenCodec(options.secret).verify(
+        request.cookies.get(_RELOAD_COOKIE), identity, resource
+    )
+    if reload_status is not None:
+        # The connected mount of this page failed after this request's HTTP
+        # mount succeeded; answering with its error ends the reload loop.
+        raise HttpException(
+            reload_status,
+            "The live page could not be mounted.",
+            headers={
+                "set-cookie": _cookie(_RELOAD_COOKIE, "", max_age=0, secure=secure)
+            },
+        )
+    query = QueryParams(resource.partition("?")[2])
+    # The official client joins children with the tokens of their parent's
+    # connected render, so the tokens of this render never join.
+    root_nonce = new_view_nonce()
+
+    def signer(
+        parent_id: str, parent_nonce: str
+    ) -> Callable[[type[LiveView], str, Mapping[str, str]], str]:
+        return _child_signer(
+            child_codec,
+            pages,
+            parent_id=parent_id,
+            parent_nonce=parent_nonce,
+            resource=resource,
+            session=route.session,
+        )
+
+    async def render_html(rendered: Rendered, depth: int) -> str:
+        contents: dict[str, str] = {}
+        for child in _child_containers(rendered):
+            contents[child.view_id] = await render_child(child, depth + 1)
+        return _html_with_children(rendered, contents)
+
+    async def render_child(child: _ChildRendered, depth: int) -> str:
+        if depth > _MAX_CHILD_DEPTH:
+            raise LiveViewError("child LiveViews are nested too deeply")
+        # Each child gets its own scope, so two children of one type stay apart.
+        child_scope, child_page = await _open_page(
+            scopes, cast(type[LiveView], child.page_type)
+        )
+        try:
+            child_page._liveview_view_id = child.view_id
+            child_page._liveview_child_signer = signer(
+                child.view_id, child_codec.verify(child.session).nonce
+            )
+            child_page._set_liveview_flash({})
+            await child_page._mount_liveview(
+                MountContext(request, dict(child.params), resource, False, query)
+            )
+            if child_page._take_liveview_pending_redirect() is not None:
+                raise LiveViewError(
+                    "child LiveViews cannot navigate during the HTTP render"
+                )
+            return await render_html(await _render(child_page), depth)
+        finally:
+            try:
+                await child_page._disconnect_liveview_components()
+            finally:
+                await child_scope.__aexit__(None, None, None)
+
     page = cast(LiveView, await context.resolver.resolve(page_type))
     try:
         page._liveview_action = route.action
-        resource = _resource(request)
+        page._liveview_child_signer = signer(_ROOT_ID, root_nonce)
+        page._set_liveview_flash(flash_codec.verify(flash_cookie))
         params = {name: str(value) for name, value in request.path_params.items()}
         mount_context = MountContext(
             request,
@@ -189,43 +356,63 @@ async def initial_response(
         drained = await _drain_navigation(
             page,
             compiled,
-            f"{page_type.__module__}.{page_type.__qualname__}",
+            identity,
             route.session,
             host=request.headers.get("host", ""),
             scheme=request.url.scheme,
             redirect_hosts=options.redirect_hosts,
         )
         if drained is not None and drained[0] != "patch":
-            return HttpResponse(b"", status_code=302, headers={"location": drained[1]})
+            redirect_headers = {"location": drained[1]}
+            # Nothing has displayed the page yet, so all of its flash, including
+            # flash received from the previous page, follows the redirect, as
+            # long as the redirect stays on this site.
+            site = _SiteFlash(
+                flash_codec, request.headers.get("host", ""), request.url.scheme
+            )
+            flash = dict(page.flash) if site.follows(drained[1]) else {}
+            if flash:
+                redirect_headers["set-cookie"] = _cookie(
+                    _FLASH_COOKIE,
+                    flash_codec.sign(flash),
+                    max_age=_FLASH_COOKIE_MAX_AGE,
+                    secure=secure,
+                )
+            elif flash_cookie is not None:
+                redirect_headers["set-cookie"] = _cookie(
+                    _FLASH_COOKIE, "", max_age=0, secure=secure
+                )
+            return HttpResponse(b"", status_code=302, headers=redirect_headers)
         token = MountTokenCodec(
             options.secret,
             max_age_ms=options.token_max_age_ms,
         ).sign(
-            f"{page_type.__module__}.{page_type.__qualname__}",
+            identity,
             params,
             resource,
             route.action,
             route.session,
+            flash=page.flash,
         )
         root = (
             f'<div id="{_ROOT_ID}" data-phx-main '
             f'data-phx-session="{html.escape(token, quote=True)}" '
             'data-phx-static="" '
             f'data-tori-live-socket="{html.escape(options.socket_path, quote=True)}">'
-            f"{(await _render(page)).to_html()}</div>"
+            f"{await render_html(await _render(page), 0)}</div>"
         )
         client_script = (
             "<script defer "
             f'src="{html.escape(options.client_path, quote=True)}"></script>'
         )
         document = page.render_document(root, client_script)
-        return HttpResponse(
-            document.encode(),
-            headers={
-                "content-type": "text/html; charset=utf-8",
-                "cache-control": "no-store",
-            },
-        )
+        headers = {
+            "content-type": "text/html; charset=utf-8",
+            "cache-control": "no-store",
+        }
+        if flash_cookie is not None:
+            headers["set-cookie"] = _cookie(_FLASH_COOKIE, "", max_age=0, secure=secure)
+        return HttpResponse(document.encode(), headers=headers)
     finally:
         await page._disconnect_liveview_components()
 
@@ -503,6 +690,117 @@ async def _close_page(
             await scope.__aexit__(None, None, None)
 
 
+type _Call = tuple[Callable[[], Awaitable[object]], asyncio.Future[object]]
+
+
+class _ChildTask:
+    """Run one child view's scope and callbacks on a task of its own.
+
+    Entering a work scope makes it the active scope in the entering task's
+    context, and only that task may resolve from it. The main view's scope
+    stays on the gateway task, so each child opens, uses, and closes its scope
+    on its own task, where its scoped interceptors and dependencies see that
+    scope rather than whichever view opened one last. The gateway awaits every
+    call, so the views of one connection still run one at a time.
+
+    Only `close()` ends a child, so the gateway closes every child after its own
+    children. Cancelling the task, as a cancelled caller or an application
+    shutting down the tasks of open scopes does, cancels the running call; the
+    child then serves no more calls and waits for `close()`. A shutting down
+    application cancels the gateway too, whose cancelled call then leaves the
+    already cancelled child alone. Cancelled again, as when the event loop
+    shuts down, it ends at once.
+    """
+
+    __slots__ = ("_calls", "_ended", "_page", "_scope", "_task")
+
+    def __init__(self) -> None:
+        self._calls: asyncio.Queue[_Call | None] = asyncio.Queue()
+        self._ended = False
+        self._page: LiveView | None = None
+        self._scope: AbstractAsyncContextManager[ScopedResolver] | None = None
+        self._task = asyncio.create_task(self._serve())
+
+    async def open(
+        self, scopes: WorkScopeFactory, page_type: type[LiveView]
+    ) -> LiveView:
+        """Open the child's scope and resolve its page on the child's task."""
+
+        async def open_page() -> LiveView:
+            self._scope, self._page = await _open_page(scopes, page_type)
+            return self._page
+
+        return await self.call(open_page)
+
+    async def call[T](self, operation: Callable[[], Awaitable[T]]) -> T:
+        """Run one operation on the child's task and return its result."""
+        if self._ended:
+            raise LiveViewError("the child LiveView has ended")
+        result: asyncio.Future[object] = asyncio.get_running_loop().create_future()
+        self._calls.put_nowait((operation, result))
+        try:
+            return cast(T, await result)
+        except asyncio.CancelledError:
+            # The caller stopped waiting, as a cancelled connection does, so
+            # the call stops too, unless the child was already cancelled, as
+            # an application shutting down cancels both. A second cancellation
+            # would end the child before the gateway closes its children.
+            if not self._ended and not self._task.cancelling():
+                self._task.cancel()
+            raise
+
+    async def close(self) -> None:
+        """Disconnect the page and close its scope on the child's task."""
+        self._calls.put_nowait(None)
+        # Waiting does not cancel the task, so its cleanup finishes regardless.
+        await asyncio.wait((self._task,))
+        if not self._task.cancelled() and (error := self._task.exception()):
+            raise error
+
+    async def _serve(self) -> None:
+        try:
+            while (call := await self._calls.get()) is not None:
+                operation, result = call
+                if result.done():
+                    # Its caller stopped waiting before it started.
+                    continue
+                try:
+                    value = await operation()
+                except asyncio.CancelledError:
+                    if not result.done():
+                        result.set_exception(
+                            LiveViewError("the child LiveView was cancelled")
+                        )
+                    raise
+                except BaseException as error:
+                    if not result.done():
+                        result.set_exception(error)
+                    if not isinstance(error, Exception):
+                        raise
+                else:
+                    if not result.done():
+                        result.set_result(value)
+        except asyncio.CancelledError:
+            # The gateway closes this child after its own children, so wait for
+            # that; a second cancellation ends the wait.
+            cast(asyncio.Task[None], asyncio.current_task()).uncancel()
+            self._ended = True
+            while (call := await self._calls.get()) is not None:
+                if not call[1].done():
+                    call[1].set_exception(LiveViewError("the child LiveView has ended"))
+        finally:
+            self._ended = True
+            while not self._calls.empty():
+                pending = self._calls.get_nowait()
+                if pending is not None and not pending[1].done():
+                    pending[1].set_exception(
+                        LiveViewError("the child LiveView has ended")
+                    )
+            page, scope = self._page, self._scope
+            self._page = self._scope = None
+            await _close_page(page, scope)
+
+
 async def _drain_navigation(
     page: LiveView,
     compiled: tuple[CompiledLiveRoute, ...],
@@ -575,6 +873,11 @@ async def _close(socket: WebSocket, code: int) -> None:
 
 
 def gateway_type(options: LiveViewOptions, registry: _Registry) -> type[object]:
+    flash_codec = FlashTokenCodec(options.secret)
+    reload_codec = ReloadTokenCodec(options.secret)
+    child_codec = ChildTokenCodec(options.secret, max_age_ms=options.token_max_age_ms)
+    mount_codec = MountTokenCodec(options.secret, max_age_ms=options.token_max_age_ms)
+
     class LiveGateway:
         def __init__(self, scopes: WorkScopeFactory) -> None:
             self._scopes = scopes
@@ -590,14 +893,19 @@ def gateway_type(options: LiveViewOptions, registry: _Registry) -> type[object]:
             await socket.accept()
             origin_host = socket.headers.get("host", "")
             origin_scheme = "https" if socket.url.scheme == "wss" else "http"
+            site_flash = _SiteFlash(flash_codec, origin_host, origin_scheme)
             page: LiveView | None = None
             page_scope: AbstractAsyncContextManager[ScopedResolver] | None = None
             incoming_task: asyncio.Task[_ChannelMessage] | None = None
-            info_task: asyncio.Task[_Info] | None = None
+            info_task: asyncio.Task[_Info | _AsyncTask] | None = None
             join_source: asyncio.Task[_ChannelMessage] | None = None
+            # Child views joined under the main view, by view id.
+            children: dict[str, _View] = {}
             first_join = True
             name = ""
             session = ""
+            resource = ""
+            root_nonce = ""
 
             def incoming_message_task() -> asyncio.Task[_ChannelMessage]:
                 return asyncio.create_task(
@@ -609,13 +917,400 @@ def gateway_type(options: LiveViewOptions, registry: _Registry) -> type[object]:
                     )
                 )
 
+            async def close_children(view_ids: list[str]) -> None:
+                """Close every child view in turn, even when one fails to close.
+
+                The first failure is raised once all of them closed; any later
+                ones are logged.
+                """
+                failure: Exception | None = None
+                for view_id in view_ids:
+                    try:
+                        await close_child(view_id)
+                    except Exception as error:
+                        if failure is None:
+                            failure = error
+                        else:
+                            _LOGGER.exception("LiveView child cleanup failed")
+                if failure is not None:
+                    raise failure
+
+            async def close_child(view_id: str) -> None:
+                child = children.pop(view_id, None)
+                if child is None:
+                    return
+                try:
+                    # A child's own children end first.
+                    await close_children(
+                        [
+                            view.view_id
+                            for view in children.values()
+                            if view.parent_id == view_id
+                        ]
+                    )
+                finally:
+                    if child.info_task is not None:
+                        child.info_task.cancel()
+                        await asyncio.gather(child.info_task, return_exceptions=True)
+                    if child.task is not None:
+                        await child.task.close()
+
             async def close_current_page() -> None:
                 nonlocal page, page_scope
                 closing_page = page
                 closing_scope = page_scope
                 page = None
                 page_scope = None
-                await _close_page(closing_page, closing_scope)
+                try:
+                    # Child views end with the main view that rendered them.
+                    await close_children(list(reversed(children)))
+                finally:
+                    await _close_page(closing_page, closing_scope)
+
+            async def drain(view: _View) -> tuple[str, str, str] | None:
+                return await _drain_navigation(
+                    view.page,
+                    registry.compiled,
+                    view.name,
+                    session,
+                    host=origin_host,
+                    scheme=origin_scheme,
+                    redirect_hosts=options.redirect_hosts,
+                )
+
+            async def deliver(
+                view: _View,
+                message: _ChannelMessage | None,
+                drained: tuple[str, str, str] | None,
+                reply_payload: dict[str, object] | None = None,
+            ) -> str:
+                """Render a view's changes, or send its navigation.
+
+                Returns ``continue``, ``navigated`` for a live redirect, or
+                ``redirect`` for a full page load.
+                """
+                join_ref, topic = view.join.join_ref, view.join.topic
+                if drained is None or drained[0] == "patch":
+                    diff = _render_payload(
+                        view.page, await _render(view.page), view.render_state
+                    )
+                    if reply_payload is not None:
+                        diff["r"] = reply_payload
+                    if drained is not None:
+                        _, patch_to, patch_kind = drained
+                        await _send(
+                            socket,
+                            join_ref,
+                            None,
+                            topic,
+                            "live_patch",
+                            {"kind": patch_kind, "to": patch_to},
+                        )
+                    if message is not None:
+                        await _reply(socket, message, "ok", {"diff": diff})
+                    elif diff:
+                        # Like Phoenix, push nothing when nothing changed.
+                        await _send(socket, join_ref, None, topic, "diff", diff)
+                    return "continue"
+                navigation, target, kind = drained
+                flash = view.page._take_liveview_flash_changes()
+                if navigation == "redirect" or (
+                    _resolve_navigate(registry, session, target) is None
+                ):
+                    event = "redirect"
+                    payload = _with_flash({"to": target}, flash, site_flash)
+                else:
+                    event = "live_redirect"
+                    payload = _with_flash(
+                        {"kind": kind, "to": target}, flash, site_flash
+                    )
+                if message is not None:
+                    await _reply(socket, message, "ok", {event: payload})
+                else:
+                    await _send(socket, join_ref, None, topic, event, payload)
+                return "redirect" if event == "redirect" else "navigated"
+
+            async def run_event(view: _View, message: _ChannelMessage) -> str:
+                event = message.payload.get("event")
+                event_type = message.payload.get("type")
+                if (
+                    not isinstance(event, str)
+                    or not event
+                    or not isinstance(event_type, str)
+                    or not event_type
+                ):
+                    raise _CloseConnection(1002)
+                target_value = message.payload.get("cid")
+                target = None if target_value is None else _positive_int(target_value)
+                try:
+                    reply = await view.page._handle_liveview_event(
+                        target, event, _event_value(message.payload)
+                    )
+                except _UnknownComponentError:
+                    view.page._discard_liveview_effects()
+                    await _reply(socket, message, "ok", {"reason": "unknown_target"})
+                    return "continue"
+                except UnknownEventError:
+                    view.page._discard_liveview_effects()
+                    await _reply(socket, message, "ok", {"reason": "unknown_event"})
+                    return "continue"
+                reply_payload = (
+                    None
+                    if reply is None
+                    else _json_object("LiveView event reply", reply)
+                )
+                return await deliver(view, message, await drain(view), reply_payload)
+
+            async def run_info(view: _View, server_message: _Info | _AsyncTask) -> str:
+                if isinstance(server_message, _Info):
+                    try:
+                        await view.page.handle_info(
+                            server_message.name, server_message.value
+                        )
+                    except Exception as error:
+                        _LOGGER.exception(
+                            "LiveView info failed: page=%s info=%s",
+                            type(view.page).__qualname__,
+                            server_message.name,
+                        )
+                        raise _CloseConnection(1011) from error
+                else:
+                    try:
+                        delivered = await view.page._settle_liveview_async(
+                            server_message
+                        )
+                    except Exception as error:
+                        _LOGGER.exception(
+                            "LiveView async result failed: owner=%s async=%s",
+                            type(server_message.owner).__qualname__,
+                            server_message.name,
+                        )
+                        raise _CloseConnection(1011) from error
+                    if not delivered:
+                        return "continue"
+                return await deliver(view, None, await drain(view))
+
+            async def run_live_patch(view: _View, message: _ChannelMessage) -> str:
+                patch_url = message.payload.get("url")
+                if (
+                    not isinstance(patch_url, str)
+                    or not patch_url
+                    or not _url_allowed(socket, patch_url)
+                ):
+                    raise _CloseConnection(1002)
+                patch_resolved = match_live_url(registry.compiled, patch_url)
+                if (
+                    patch_resolved is None
+                    or patch_resolved[0].page != view.name
+                    or patch_resolved[0].session != session
+                ):
+                    await _reply(socket, message, "ok", {"link_redirect": True})
+                    return "continue"
+                patch_route, patch_params, patch_uri = patch_resolved
+                view.page._liveview_action = patch_route.action
+                await view.page.handle_params(patch_params, patch_uri)
+                return await deliver(view, message, await drain(view))
+
+            async def join_child(message: _ChannelMessage, view_id: str) -> None:
+                token = message.payload.get("session")
+                connect_params = message.payload.get("params", {})
+                flash_token = message.payload.get("flash")
+                if (
+                    message.join_ref is None
+                    or message.join_ref != message.ref
+                    or view_id == _ROOT_ID
+                    or view_id in children
+                    or not isinstance(token, str)
+                    or not isinstance(connect_params, dict)
+                    or not isinstance(flash_token, str | None)
+                ):
+                    raise _CloseConnection(1002)
+                try:
+                    child_token = child_codec.verify(token)
+                    child_type = registry.pages[child_token.page]
+                except InvalidMountTokenError, KeyError:
+                    await _reply(socket, message, "error", {"reason": "unauthorized"})
+                    return
+                # A child joins only under the very mount of a view joined on
+                # this connection that rendered it, not any view with that id.
+                parent = children.get(child_token.parent_id)
+                parent_nonce = (
+                    root_nonce
+                    if child_token.parent_id == _ROOT_ID
+                    else None
+                    if parent is None
+                    else parent.nonce
+                )
+                if (
+                    child_token.view_id != view_id
+                    or child_token.session != session
+                    or parent_nonce is None
+                    or child_token.parent_nonce != parent_nonce
+                ):
+                    await _reply(socket, message, "error", {"reason": "unauthorized"})
+                    return
+                child_task = _ChildTask()
+                try:
+                    child_page = await child_task.open(self._scopes, child_type)
+                except BaseException:
+                    await child_task.close()
+                    raise
+                # Each join mounts the child afresh, so the tokens it renders for
+                # its own children bind to this mount alone, even when the client
+                # joins the child again with the same token.
+                child_nonce = new_view_nonce()
+                child = _View(
+                    view_id,
+                    message,
+                    child_page,
+                    _RenderState(main=False),
+                    child_token.page,
+                    child_nonce,
+                    parent_id=child_token.parent_id,
+                    task=child_task,
+                )
+                child_page._liveview_view_id = view_id
+                child_page._liveview_child_signer = _child_signer(
+                    child_codec,
+                    registry.pages,
+                    parent_id=view_id,
+                    parent_nonce=child_nonce,
+                    resource=child_token.resource,
+                    session=session,
+                )
+                child_page._set_liveview_flash(
+                    {} if flash_token is None else flash_codec.verify(flash_token)
+                )
+                child_page._connect_liveview(
+                    async_cancel_timeout=options.async_cancel_timeout_seconds
+                )
+                mount_context = MountContext(
+                    socket,
+                    child_token.params,
+                    child_token.resource,
+                    True,
+                    QueryParams(child_token.resource.partition("?")[2]),
+                    cast(dict[str, object], connect_params),
+                )
+
+                async def mount_child() -> tuple[
+                    tuple[str, str, str] | None, dict[str, object] | None
+                ]:
+                    await child_page._mount_liveview(mount_context)
+                    drained = await drain(child)
+                    if drained is not None:
+                        return drained, None
+                    return None, _render_payload(
+                        child_page, await _render(child_page), child.render_state
+                    )
+
+                try:
+                    drained, rendered = await child_task.call(mount_child)
+                except HttpException as error:
+                    await child_task.close()
+                    if not 400 <= error.status_code < 500:
+                        raise
+                    # The reload renders the main page, which answers with this
+                    # error, as Phoenix does for any view's connected mount.
+                    await _reply(
+                        socket,
+                        message,
+                        "error",
+                        {
+                            "reason": "reload",
+                            "status": error.status_code,
+                            "token": reload_codec.sign(
+                                name, resource, error.status_code
+                            ),
+                        },
+                    )
+                    return
+                except BaseException:
+                    await child_task.close()
+                    raise
+                if drained is not None:
+                    navigation, target, kind = drained
+                    # The child never rendered, so its whole flash travels on.
+                    flash = dict(child_page.flash)
+                    await child_task.close()
+                    error_payload: dict[str, object]
+                    if navigation == "navigate" and (
+                        _resolve_navigate(registry, session, target) is not None
+                    ):
+                        error_payload = {
+                            "live_redirect": _with_flash(
+                                {"kind": kind, "to": target}, flash, site_flash
+                            )
+                        }
+                    else:
+                        error_payload = {
+                            "redirect": _with_flash({"to": target}, flash, site_flash)
+                        }
+                    await _reply(socket, message, "error", error_payload)
+                    return
+                child.info_task = asyncio.create_task(
+                    child_page._receive_liveview_info()
+                )
+                children[view_id] = child
+                await _reply(
+                    socket,
+                    message,
+                    "ok",
+                    {"rendered": rendered, "liveview_version": _LIVEVIEW_VERSION},
+                )
+
+            async def run_child_event(child: _View, message: _ChannelMessage) -> str:
+                """Handle a child's channel event; runs on the child's task."""
+                if message.event == "cids_will_destroy":
+                    child.page._prepare_liveview_component_destruction(
+                        _destroyed_cids(message.payload)
+                    )
+                    await _reply(socket, message, "ok", {})
+                    return "continue"
+                if message.event == "cids_destroyed":
+                    destroyed = await child.page._destroy_liveview_components(
+                        _destroyed_cids(message.payload)
+                    )
+                    child.render_state.forget(destroyed)
+                    await _reply(socket, message, "ok", {"cids": destroyed})
+                    return "continue"
+                return await run_event(child, message)
+
+            async def run_child_message(message: _ChannelMessage) -> str:
+                if not message.topic.startswith("lv:") or message.ref is None:
+                    raise _CloseConnection(1002)
+                view_id = message.topic.removeprefix("lv:")
+                if message.event == "phx_join":
+                    await join_child(message, view_id)
+                    return "continue"
+                child = children.get(view_id)
+                if child is None or message.join_ref != child.join.join_ref:
+                    # The view already left or navigated away; Phoenix answers
+                    # other messages for a topic it does not hold the same way.
+                    if message.event == "phx_leave":
+                        await _reply(socket, message, "ok", {})
+                    else:
+                        await _reply(
+                            socket, message, "error", {"reason": "unmatched topic"}
+                        )
+                    return "continue"
+                if message.event == "phx_leave":
+                    await _reply(socket, message, "ok", {})
+                    await close_child(view_id)
+                    return "continue"
+                if message.event not in {
+                    "cids_will_destroy",
+                    "cids_destroyed",
+                    "event",
+                }:
+                    raise _CloseConnection(1002)
+                outcome = await cast(_ChildTask, child.task).call(
+                    partial(run_child_event, child, message)
+                )
+                if outcome == "navigated":
+                    # The client now replaces the main view; this child is done.
+                    await close_child(view_id)
+                return outcome
 
             try:
                 while True:
@@ -633,11 +1328,20 @@ def gateway_type(options: LiveViewOptions, registry: _Registry) -> type[object]:
                     else:
                         join = await join_source
                         join_source = None
-                    if (
-                        not first_join
-                        and join.topic == _TOPIC
-                        and join.event == "phx_leave"
+                    # After a join error the official client leaves that join
+                    # more than once (from the error handler and again when it
+                    # replaces the view), and its 30 second heartbeat may land
+                    # between joins, so acknowledge both until the next join;
+                    # the idle deadline still bounds the wait. The first join
+                    # must arrive within the join deadline with nothing before.
+                    while not first_join and (
+                        (join.topic.startswith("lv:") and join.event == "phx_leave")
+                        or (join.topic == "phoenix" and join.event == "heartbeat")
                     ):
+                        if join.topic == "phoenix" and (
+                            join.join_ref is not None or join.ref is None
+                        ):
+                            raise _CloseConnection(1002)
                         await _reply(socket, join, "ok", {})
                         join = await _message(
                             socket,
@@ -649,19 +1353,21 @@ def gateway_type(options: LiveViewOptions, registry: _Registry) -> type[object]:
                     token = join.payload.get("session")
                     redirect_url = join.payload.get("redirect")
                     url = join.payload.get("url")
+                    connect_params = join.payload.get("params", {})
+                    flash_token = join.payload.get("flash")
                     if (
                         join.event != "phx_join"
                         or join.topic != _TOPIC
                         or join.join_ref is None
                         or join.join_ref != join.ref
                         or not isinstance(token, str)
+                        or not isinstance(connect_params, dict)
+                        or not isinstance(flash_token, str | None)
                     ):
                         raise _CloseConnection(1002)
+                    connect_params = cast(dict[str, object], connect_params)
                     try:
-                        mounted = MountTokenCodec(
-                            options.secret,
-                            max_age_ms=options.token_max_age_ms,
-                        ).verify(token)
+                        mounted = mount_codec.verify(token)
                         if redirect_url is not None:
                             if (
                                 not isinstance(redirect_url, str)
@@ -708,34 +1414,100 @@ def gateway_type(options: LiveViewOptions, registry: _Registry) -> type[object]:
                         await _reply(socket, join, "error", {"reason": "unauthorized"})
                         return
 
+                    # A navigation's flash token wins. The disconnected render's
+                    # flash shows only on the first mount of the HTTP page, not
+                    # on reconnects or live navigation.
+                    if flash_token is not None:
+                        initial_flash = flash_codec.verify(flash_token)
+                    elif redirect_url is None and _first_mount(connect_params):
+                        initial_flash = mounted.flash
+                    else:
+                        initial_flash = {}
                     name = live_route.page
                     session = live_route.session
-                    page_scope, page = await _open_page(self._scopes, page_type)
-                    page._liveview_action = action
-                    page._connect_liveview()
+                    # Each join mounts the page afresh, and the child tokens it
+                    # renders bind to this mount alone, as Phoenix binds them to
+                    # the parent process. The official client joins children,
+                    # also after a reconnect, with the tokens of the latest join.
+                    root_nonce = new_view_nonce()
+                    page_scope, root_page = await _open_page(self._scopes, page_type)
+                    page = root_page
+                    # Each join starts the client's render tree afresh.
+                    render_state = _RenderState()
+                    root_page._liveview_action = action
+                    root_page._liveview_child_signer = _child_signer(
+                        child_codec,
+                        registry.pages,
+                        parent_id=_ROOT_ID,
+                        parent_nonce=root_nonce,
+                        resource=resource,
+                        session=session,
+                    )
+                    root_page._set_liveview_flash(initial_flash)
+                    root_page._connect_liveview(
+                        async_cancel_timeout=options.async_cancel_timeout_seconds
+                    )
                     mount_context = MountContext(
                         socket,
                         mount_params,
                         resource,
                         True,
                         QueryParams(resource.partition("?")[2]),
+                        connect_params,
                     )
-                    await _run_on_mount(
-                        registry.sessions.get(session, ()), page, mount_context
-                    )
-                    await page._mount_liveview(mount_context)
-                    await page.handle_params(join_params, uri)
-                    drained = await _drain_navigation(
-                        page,
-                        registry.compiled,
-                        name,
-                        session,
-                        host=origin_host,
-                        scheme=origin_scheme,
-                        redirect_hosts=options.redirect_hosts,
-                    )
+                    try:
+                        await _run_on_mount(
+                            registry.sessions.get(session, ()), root_page, mount_context
+                        )
+                        await root_page._mount_liveview(mount_context)
+                        await root_page.handle_params(join_params, uri)
+                        drained = await _drain_navigation(
+                            root_page,
+                            registry.compiled,
+                            name,
+                            session,
+                            host=origin_host,
+                            scheme=origin_scheme,
+                            redirect_hosts=options.redirect_hosts,
+                        )
+                        navigating = drained is not None and drained[0] != "patch"
+                        rendered = (
+                            {}
+                            if navigating
+                            else _render_payload(
+                                root_page, await _render(root_page), render_state
+                            )
+                        )
+                    except HttpException as error:
+                        # Phoenix reloads the page so the HTTP pipeline renders
+                        # the client error the connected mount raised, whether
+                        # from mounting, a patch the mount queued, or the join
+                        # render.
+                        if not 400 <= error.status_code < 500:
+                            raise
+                        await close_current_page()
+                        # The client stores the token in the reload cookie, so
+                        # the reloaded HTTP render answers with this error even
+                        # when its own disconnected mount would succeed.
+                        reload_token = reload_codec.sign(
+                            name, resource, error.status_code
+                        )
+                        await _reply(
+                            socket,
+                            join,
+                            "error",
+                            {
+                                "reason": "reload",
+                                "status": error.status_code,
+                                "token": reload_token,
+                            },
+                        )
+                        return
                     if drained is not None and drained[0] != "patch":
                         navigation, target, kind = drained
+                        # This connected page never rendered, so its whole flash,
+                        # including a navigation's incoming flash, travels on.
+                        flash = dict(root_page.flash)
                         await close_current_page()
                         if navigation == "navigate":
                             target_route = _resolve_navigate(registry, session, target)
@@ -745,20 +1517,25 @@ def gateway_type(options: LiveViewOptions, registry: _Registry) -> type[object]:
                                     join,
                                     "error",
                                     {
-                                        "live_redirect": {
-                                            "kind": kind,
-                                            "to": target,
-                                        }
+                                        "live_redirect": _with_flash(
+                                            {"kind": kind, "to": target},
+                                            flash,
+                                            site_flash,
+                                        )
                                     },
                                 )
                                 continue
                         await _reply(
-                            socket, join, "error", {"redirect": {"to": target}}
+                            socket,
+                            join,
+                            "error",
+                            {
+                                "redirect": _with_flash(
+                                    {"to": target}, flash, site_flash
+                                )
+                            },
                         )
                         return
-                    current = await _render(page)
-                    rendered = _render_message(current, title=page.title())
-                    page._clear_liveview_stream_operations()
                     join_reply: dict[str, object] = {
                         "rendered": rendered,
                         "liveview_version": _LIVEVIEW_VERSION,
@@ -771,13 +1548,23 @@ def gateway_type(options: LiveViewOptions, registry: _Registry) -> type[object]:
                         }
                     await _reply(socket, join, "ok", join_reply)
 
+                    root = _View(
+                        _ROOT_ID, join, root_page, render_state, name, root_nonce
+                    )
                     incoming_task = incoming_message_task()
-                    info_task = asyncio.create_task(page._receive_liveview_info())
+                    info_task = asyncio.create_task(root_page._receive_liveview_info())
                     while True:
                         if incoming_task is None:
                             incoming_task = incoming_message_task()
+                        if info_task is None:
+                            raise LiveViewError("LiveView info task is missing")
+                        child_tasks = {
+                            child.info_task: child
+                            for child in children.values()
+                            if child.info_task is not None
+                        }
                         done, _ = await asyncio.wait(
-                            (incoming_task, info_task),
+                            (incoming_task, info_task, *child_tasks),
                             return_when=asyncio.FIRST_COMPLETED,
                         )
                         if incoming_task in done:
@@ -791,328 +1578,77 @@ def gateway_type(options: LiveViewOptions, registry: _Registry) -> type[object]:
                                     raise _CloseConnection(1002)
                                 await _reply(socket, message, "ok", {})
                                 continue
-                            if (
-                                message.topic != _TOPIC
-                                or message.join_ref != join.join_ref
-                                or message.ref is None
-                            ):
+                            if message.topic != _TOPIC:
+                                if await run_child_message(message) == "redirect":
+                                    return
+                                continue
+                            if message.join_ref != join.join_ref or message.ref is None:
                                 raise _CloseConnection(1002)
                             if message.event == "phx_leave":
                                 await _reply(socket, message, "ok", {})
-                                if info_task is None:
-                                    raise LiveViewError(
-                                        "LiveView receive tasks are missing"
-                                    )
-                                info_task.cancel()
-                                await asyncio.gather(info_task, return_exceptions=True)
-                                info_task = None
-                                join_source = incoming_message_task()
-                                await close_current_page()
-                                break
-                            if message.event == "cids_will_destroy":
-                                page._prepare_liveview_component_destruction(
+                                outcome = "left"
+                            elif message.event == "cids_will_destroy":
+                                root_page._prepare_liveview_component_destruction(
                                     _destroyed_cids(message.payload)
                                 )
                                 await _reply(socket, message, "ok", {})
                                 continue
-                            if message.event == "cids_destroyed":
-                                destroyed = await page._destroy_liveview_components(
-                                    _destroyed_cids(message.payload)
+                            elif message.event == "cids_destroyed":
+                                destroyed = (
+                                    await root_page._destroy_liveview_components(
+                                        _destroyed_cids(message.payload)
+                                    )
                                 )
+                                # The client prunes exactly the CIDs in this reply.
+                                render_state.forget(destroyed)
                                 await _reply(socket, message, "ok", {"cids": destroyed})
                                 continue
-                            if message.event == "live_patch":
-                                patch_url = message.payload.get("url")
-                                if (
-                                    not isinstance(patch_url, str)
-                                    or not patch_url
-                                    or not _url_allowed(socket, patch_url)
-                                ):
-                                    raise _CloseConnection(1002)
-                                patch_resolved = match_live_url(
-                                    registry.compiled, patch_url
-                                )
-                                if (
-                                    patch_resolved is None
-                                    or patch_resolved[0].page != name
-                                    or patch_resolved[0].session != session
-                                ):
-                                    await _reply(
-                                        socket,
-                                        message,
-                                        "ok",
-                                        {"link_redirect": True},
-                                    )
-                                    continue
-                                patch_route, patch_params, patch_uri = patch_resolved
-                                page._liveview_action = patch_route.action
-                                await page.handle_params(patch_params, patch_uri)
-                                drained = await _drain_navigation(
-                                    page,
-                                    registry.compiled,
-                                    name,
-                                    session,
-                                    host=origin_host,
-                                    scheme=origin_scheme,
-                                    redirect_hosts=options.redirect_hosts,
-                                )
-                                if drained is not None and drained[0] != "patch":
-                                    navigation, target, kind = drained
-                                    if navigation == "redirect":
-                                        await _reply(
-                                            socket,
-                                            message,
-                                            "ok",
-                                            {"redirect": {"to": target}},
-                                        )
-                                        return
-                                    target_route = _resolve_navigate(
-                                        registry, session, target
-                                    )
-                                    if target_route is None:
-                                        await _reply(
-                                            socket,
-                                            message,
-                                            "ok",
-                                            {"redirect": {"to": target}},
-                                        )
-                                        return
-                                    await _reply(
-                                        socket,
-                                        message,
-                                        "ok",
-                                        {
-                                            "live_redirect": {
-                                                "kind": kind,
-                                                "to": target,
-                                            }
-                                        },
-                                    )
-                                    if info_task is None:
-                                        raise LiveViewError(
-                                            "LiveView receive tasks are missing"
-                                        )
-                                    join_source = incoming_message_task()
-                                    info_task.cancel()
-                                    await asyncio.gather(
-                                        info_task, return_exceptions=True
-                                    )
-                                    info_task = None
-                                    await close_current_page()
-                                    break
-                                updated = await _render(page)
-                                diff = _render_message(updated, title=page.title())
-                                page._clear_liveview_stream_operations()
-                                if drained is not None:
-                                    _, patch_to, patch_kind = drained
-                                    await _send(
-                                        socket,
-                                        join.join_ref,
-                                        None,
-                                        join.topic,
-                                        "live_patch",
-                                        {"kind": patch_kind, "to": patch_to},
-                                    )
-                                await _reply(socket, message, "ok", {"diff": diff})
-                                continue
-                            if message.event != "event":
+                            elif message.event == "live_patch":
+                                outcome = await run_live_patch(root, message)
+                            elif message.event == "event":
+                                outcome = await run_event(root, message)
+                            else:
                                 raise _CloseConnection(1002)
-
-                            event = message.payload.get("event")
-                            event_type = message.payload.get("type")
-                            if (
-                                not isinstance(event, str)
-                                or not event
-                                or not isinstance(event_type, str)
-                                or not event_type
-                            ):
-                                raise _CloseConnection(1002)
-                            target_value = message.payload.get("cid")
-                            target = (
-                                None
-                                if target_value is None
-                                else _positive_int(target_value)
-                            )
-                            try:
-                                await page._handle_liveview_event(
-                                    target,
-                                    event,
-                                    _event_value(message.payload),
-                                )
-                            except _UnknownComponentError:
-                                page._take_liveview_pending_redirect()
-                                page._clear_liveview_stream_operations()
-                                await _reply(
-                                    socket,
-                                    message,
-                                    "ok",
-                                    {"reason": "unknown_target"},
-                                )
-                                continue
-                            except UnknownEventError:
-                                page._take_liveview_pending_redirect()
-                                page._clear_liveview_stream_operations()
-                                await _reply(
-                                    socket,
-                                    message,
-                                    "ok",
-                                    {"reason": "unknown_event"},
-                                )
-                                continue
-
-                            drained = await _drain_navigation(
-                                page,
-                                registry.compiled,
-                                name,
-                                session,
-                                host=origin_host,
-                                scheme=origin_scheme,
-                                redirect_hosts=options.redirect_hosts,
-                            )
-                            if drained is None or drained[0] == "patch":
-                                updated = await _render(page)
-                                diff = _render_message(updated, title=page.title())
-                                page._clear_liveview_stream_operations()
-                                if drained is not None:
-                                    _, patch_to, patch_kind = drained
-                                    await _send(
-                                        socket,
-                                        join.join_ref,
-                                        None,
-                                        join.topic,
-                                        "live_patch",
-                                        {"kind": patch_kind, "to": patch_to},
-                                    )
-                                await _reply(socket, message, "ok", {"diff": diff})
-                                continue
-                            navigation, target, kind = drained
-                            if navigation == "redirect":
-                                await _reply(
-                                    socket,
-                                    message,
-                                    "ok",
-                                    {"redirect": {"to": target}},
-                                )
-                                return
-                            target_route = _resolve_navigate(registry, session, target)
-                            if target_route is None:
-                                await _reply(
-                                    socket,
-                                    message,
-                                    "ok",
-                                    {"redirect": {"to": target}},
-                                )
-                                return
-                            await _reply(
-                                socket,
-                                message,
-                                "ok",
-                                {"live_redirect": {"kind": kind, "to": target}},
-                            )
-                            if info_task is None:
-                                raise LiveViewError(
-                                    "LiveView receive tasks are missing"
-                                )
-                            info_task.cancel()
-                            await asyncio.gather(info_task, return_exceptions=True)
-                            info_task = None
-                            join_source = incoming_message_task()
-                            await close_current_page()
-                            break
-                        else:
-                            if info_task is None:
-                                raise LiveViewError("LiveView info task is missing")
-                            info = info_task.result()
+                        elif info_task in done:
+                            server_message = info_task.result()
                             info_task = asyncio.create_task(
-                                page._receive_liveview_info()
+                                root_page._receive_liveview_info()
                             )
-                            try:
-                                await page.handle_info(info.name, info.value)
-                            except Exception as error:
-                                _LOGGER.exception(
-                                    "LiveView info failed: page=%s info=%s",
-                                    type(page).__qualname__,
-                                    info.name,
-                                )
-                                raise _CloseConnection(1011) from error
-                            drained = await _drain_navigation(
-                                page,
-                                registry.compiled,
-                                name,
-                                session,
-                                host=origin_host,
-                                scheme=origin_scheme,
-                                redirect_hosts=options.redirect_hosts,
+                            outcome = await run_info(root, server_message)
+                        else:
+                            child = next(
+                                child
+                                for task, child in child_tasks.items()
+                                if task in done
                             )
-                            if drained is None or drained[0] == "patch":
-                                updated = await _render(page)
-                                diff = _render_message(updated, title=page.title())
-                                page._clear_liveview_stream_operations()
-                                if drained is not None:
-                                    _, patch_to, patch_kind = drained
-                                    await _send(
-                                        socket,
-                                        join.join_ref,
-                                        None,
-                                        join.topic,
-                                        "live_patch",
-                                        {"kind": patch_kind, "to": patch_to},
-                                    )
-                                await _send(
-                                    socket,
-                                    join.join_ref,
-                                    None,
-                                    join.topic,
-                                    "diff",
-                                    diff,
-                                )
+                            server_message = cast(
+                                asyncio.Task[_Info | _AsyncTask], child.info_task
+                            ).result()
+                            child.info_task = asyncio.create_task(
+                                child.page._receive_liveview_info()
+                            )
+                            outcome = await cast(_ChildTask, child.task).call(
+                                partial(run_info, child, server_message)
+                            )
+                            if outcome == "navigated":
+                                await close_child(child.view_id)
                                 continue
-                            navigation, target, kind = drained
-                            if navigation == "redirect":
-                                await _send(
-                                    socket,
-                                    join.join_ref,
-                                    None,
-                                    join.topic,
-                                    "redirect",
-                                    {"to": target},
-                                )
-                                return
-                            target_route = _resolve_navigate(registry, session, target)
-                            if target_route is None:
-                                await _send(
-                                    socket,
-                                    join.join_ref,
-                                    None,
-                                    join.topic,
-                                    "redirect",
-                                    {"to": target},
-                                )
-                                return
-                            await _send(
-                                socket,
-                                join.join_ref,
-                                None,
-                                join.topic,
-                                "live_redirect",
-                                {"kind": kind, "to": target},
-                            )
-                            if info_task is None:
-                                raise LiveViewError(
-                                    "LiveView receive tasks are missing"
-                                )
-                            if incoming_task is not None:
-                                incoming_task.cancel()
-                                await asyncio.gather(
-                                    incoming_task, return_exceptions=True
-                                )
-                                incoming_task = None
-                            join_source = incoming_message_task()
-                            info_task.cancel()
-                            await asyncio.gather(info_task, return_exceptions=True)
-                            info_task = None
-                            await close_current_page()
-                            break
+                        if outcome == "redirect":
+                            return
+                        if outcome == "continue":
+                            continue
+                        # The main view left or navigated: wait for the next join.
+                        info_task.cancel()
+                        await asyncio.gather(info_task, return_exceptions=True)
+                        info_task = None
+                        join_source = (
+                            incoming_task
+                            if incoming_task is not None
+                            else incoming_message_task()
+                        )
+                        incoming_task = None
+                        await close_current_page()
+                        break
             except _ClientDisconnected:
                 pass
             except _CloseConnection as error:

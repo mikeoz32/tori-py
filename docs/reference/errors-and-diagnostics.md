@@ -217,6 +217,7 @@ diagnostic contract.
 | `tori_py_liveview.LiveViewConfigurationError` | `LiveViewError` | `liveview.configuration_error` | `LiveViewOptions`, `@live_view`, `LiveSession`, or `LiveViewModule.for_root()` arguments are invalid |
 | `tori_py_liveview.UnknownEventError` | `LiveViewError` | `liveview.unknown_event` | A page or component does not handle an event; the event is acknowledged without a render |
 | `tori_py_liveview.UnknownInfoError` | `LiveViewError` | `liveview.unknown_info` | A page does not handle a `send_info()` message; the socket closes with `1011` |
+| `tori_py_liveview.UnknownAsyncError` | `LiveViewError` | `liveview.unknown_async` | A page or component does not handle the result of its `start_async()` work; the socket closes with `1011` |
 
 The SQLAlchemy, OpenAPI, and LiveView configuration errors generally fail
 compilation or startup. Do not convert them into a

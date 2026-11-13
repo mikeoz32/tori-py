@@ -35,8 +35,10 @@ This directory records the executable contract for `tori-py-liveview`.
     events, renders, and outbound writes are serialized on the WebSocket task;
     successful callbacks emit unreferenced Phoenix `diff` pushes, and disconnect
     detaches the queue and rejects later sends.
- 14. Nested components, uploads, and application hook/reply APIs remain outside
-    the current server surface.
+ 14. Uploads, sticky child LiveViews, and `stream_async` remain outside the
+    current server surface. Components render nested components through
+    `LiveComponent.live_component`; they share the page's identity namespace,
+    CIDs, targets, updates, and destruction handshake.
  15. `@live_view` accepts `action` and `session` and may be stacked for several
     paths on one page class. `mount` runs before `handle_params` on every HTTP
     and Channel mount. `push_patch` navigates within the page, `push_navigate`
@@ -44,6 +46,60 @@ This directory records the executable contract for `tori-py-liveview`.
     back to a full reload. `LiveSession` groups routes with shared `on_mount`
     hooks; authorization lives in hooks, `mount`, and `handle_params`, never in
     the HTTP pipeline alone.
+ 16. The bootstrap passes `globalThis.ToriLiveHooks` to the official `LiveSocket`
+    as its `hooks` object; hook events reach `handle_event` unchanged.
+    `push_event` queues validated JSON-object payloads delivered once under the
+    top-level `e` render key, with `true` marking before-patch dispatch. A
+    `handle_event` mapping result becomes the top-level `r` key of its reply
+    diff. `send_update` updates rendered components in order before the next
+    render. Pushed events and updates are discarded with rejected events, the
+    disconnected render, and disconnect; pushed events and replies also drop
+    when a handler navigates away.
+ 17. `put_flash` flash follows `push_navigate` as a signed `flash` token that the
+    next join returns, and `redirect` through the official `__phoenix_flash__`
+    cookie that the HTTP render verifies and deletes; it never follows a
+    redirect to another host, and server-written cookies are not `HttpOnly` so
+    the client can replace them. Flash tokens expire after
+    60 seconds and never verify as mount tokens. Handler navigation carries the
+    flash put since the last render; navigation while mounting carries the whole
+    flash, so received flash passes through a page that moves on. The
+    disconnected render's flash seeds only the document's first connected mount.
+    `lv:clear-flash` clears a kind or all flash before page or component
+    handlers.
+ 18. `start_async` and `assign_async` run only when connected, deliver one
+    `AsyncResult` per task on the WebSocket task, drop replaced work, report
+    cancellation as `asyncio.CancelledError`, and cancel work with its page or
+    component, waiting at most `async_cancel_timeout_seconds` for cancelled
+    work. A component's work stops before its `disconnect` hook. A raising
+    `handle_async` closes with `1011`.
+ 19. The bootstrap passes the official client a params function returning a
+    fresh copy of `globalThis.ToriLiveParams`, so the client's join fields never
+    reach the WebSocket URL. Connected mounts receive the join params as
+    `MountContext.connect_params`; `static_changed` compares `_track_static`
+    URLs by path and query. A 4xx `HttpException` anywhere in the connected
+    join, from on-mount hooks through patches the mount queued and the join
+    render, answers the join with `{reason: "reload", status, token}`. The reloaded HTTP
+    request carrying that token in `__phoenix_reload_status__` answers with the
+    same status for the same page and resource, so the browser reloads at most
+    once.
+ 20. After the complete join tree, renders send only what the client's cached
+    tree lacks: changed dynamic keys without statics, complete nodes for new
+    statics, every rendered component again after new page statics, streams
+    only with operations, and titles only when they change. Components diff
+    against the last tree sent for their CID until the `cids_destroyed` reply
+    that prunes them, and unchanged components stay out of `c`. A complete
+    component tree copies equal statics from a component earlier in the same
+    diff or from a cached component the same render keeps, never from one it
+    leaves out. Info and async renders that change nothing push no `diff`.
+ 21. `live_render` places a registered page as a child LiveView in a container
+    whose child token binds the page, view id, parent view and its mount nonce,
+    params, resource, and live session under its own HMAC purpose. The HTTP
+    render includes each child's disconnected render. Children join on their own
+    `lv:<view_id>` topics only under the mount of a parent joined on the same
+    connection that rendered them, run serialized
+    with the main view, close after their own children, never `push_patch`, and
+    navigate the page with `push_navigate`. Messages for topics that are not
+    joined receive Phoenix's `unmatched topic` error.
 
 The complete architectural and wire contract is maintained in
 `TORI_PY_LIVEVIEW_ARCHITECTURE.md`.
