@@ -133,6 +133,11 @@ production flow normally separates:
 4. Ask a policy provider about the requested action and resource.
 5. Enforce domain invariants again where state changes occur.
 
+[Authenticate and Audit the Task API](../tutorials/pipeline-and-auth.md) applies
+steps 1 to 4 to a complete application: a token verifier provider, a
+request-scoped principal bound by a controller guard, and route guards that
+decide.
+
 Request IDs, path parameters, message routing keys, broker headers, and stream
 partition keys are observability or transport facts, never authorization facts.
 For inaccessible private resources, a generic 404 may disclose less than a 403;
