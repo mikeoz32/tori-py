@@ -102,13 +102,14 @@ consumer project.
 | Distributed Task API | `uv run pytest examples/tori_py/tutorials/distributed_task_api/task_app/test_system.py -q` | Three application roots, typed RPC, local CQRS, integration events, and idempotent audit over an in-memory transport |
 | Event-Sourced Task API | `uv run pytest examples/tori_py/tutorials/event_sourced_task_api/task_app -q` | Event-sourced commands, direct persistent-stream publication, projection-owned reads, and independent projection and audit consumers |
 
-The Live Task Board branches from Part 2, and the SQLAlchemy tutorial branches
-from Part 1:
+The Live Task Board branches from Part 2; the SQLAlchemy and authentication
+tutorials branch from Part 1:
 
 | Tutorial | Exact command | Demonstrates |
 | --- | --- | --- |
 | Live Task Board | `uv run pytest examples/tori_py/tutorials/live_task_board/task_app/test_app.py -q` | The Part 2 REST API plus a LiveView page with a stream, live form validation, command-bus writes, and CQRS-driven `send_info` updates; `browser_e2e.py` drives two tabs with Playwright |
 | Persist with SQLAlchemy | `uv run pytest examples/tori_py/tutorials/sqlalchemy_task_api/task_app/test_app.py -q` | The Part 1 REST API on SQLite through async SQLAlchemy, a settings-driven root, a custom repository, an atomic batch route, Alembic migrations, and tests with `for_engine()` |
+| Authenticate and Audit | `uv run pytest examples/tori_py/tutorials/pipeline_auth_task_api/task_app/test_app.py -q` | The Part 1 REST API with a maintenance middleware, a bearer-token guard on each controller, role guards and an audit interceptor on routes, and an admin-only audit log |
 
 Run the complete source-checkout evolution check, including every branch
 tutorial, with:
