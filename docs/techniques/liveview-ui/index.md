@@ -92,30 +92,34 @@ Every helper returns a `Template`, so helpers nest inside each other and inside
 your own templates. Content arguments follow LiveView's escaping rules: strings
 are escaped, and templates and helper results stay markup.
 
-### Layout and Display
+Import them from `tori_py_liveview_ui`. With many helpers on one page, an alias
+keeps the calls short:
 
-| Helper | Output | Options |
+```python
+import tori_py_liveview_ui as ui
+
+panel = ui.card(ui.stack([ui.badge("New"), ui.text("Ready.")]), title="Status")
+```
+
+| Family | Helpers | Guide |
 | --- | --- | --- |
-| `stack(children, *, gap, align)` | Vertical flow | `gap`: `xs`, `sm`, `md`, `lg`, `xl`; `align`: `start`, `center`, `end`, `stretch` |
-| `grid(children, *, columns, gap)` | Responsive grid | `columns`: `"auto"`, `"1"`, `"2"`, `"3"`, `"4"` (strings) |
-| `card(content, *, eyebrow, title, footer)` | `<article>` with optional header and footer | `title` renders as `<h2>` |
-| `alert(content, *, title, tone)` | `<section>` with `role="status"`, or `role="alert"` for `danger` | `tone`: `neutral`, `info`, `success`, `warning`, `danger` |
-| `badge(content, *, tone)` | Inline status label | Same tones as `alert` |
-| `button(label, *, variant, size, button_type, disabled, event, target)` | `<button>` | `variant`: `primary`, `secondary`, `ghost`, `danger`; `size`: `sm`, `md`, `lg`; `button_type`: `button`, `submit`, `reset` |
+| Layout | `app_shell`, `card`, `center`, `container`, `divider`, `grid`, `page_header`, `row`, `scroll_area`, `section`, `spacer`, `split`, `stack`, `toolbar` | [Layout](layout.md) |
+| Content | `blockquote`, `code`, `code_block`, `description_list`, `heading`, `icon`, `image`, `item_list`, `kbd`, `link`, `prose`, `text` | [Content and Icons](content.md) |
+| Actions | `button`, `button_group`, `copy_button`, `icon_button`, `link_button`, `theme_toggle` | [Actions](actions.md) |
+| Display | `badge` | Below |
+| Feedback | `alert` | Below |
+| Forms | `checkbox`, `field`, `field_error`, `form`, `input`, `select`, `textarea` | [Forms](forms.md) |
 
-### Forms
+`badge(content, *, tone)` renders an inline status label, and
+`alert(content, *, title, tone)` renders a `<section>` with `role="status"`, or
+`role="alert"` for the `danger` tone. Both take a `tone` of `neutral`, `info`,
+`success`, `warning`, or `danger`.
 
-| Helper | Output |
-| --- | --- |
-| `form(content, *, id, change_event, submit_event, target)` | `<form method="post">` with optional `phx-change`, `phx-submit`, `phx-target` |
-| `input(label, *, id, name, value, input_type, ...)` | Labeled `<input>` with help and error text |
-| `textarea(label, *, id, name, value, rows, ...)` | Labeled `<textarea>` with 1 to 100 rows |
-| `select(label, options, *, id, name, value, prompt, ...)` | Labeled `<select>` over `(value, label)` pairs |
-| `checkbox(label, *, id, name, value, checked, ...)` | Labeled checkbox with an explicit submitted value |
-| `field(label, control, *, control_id, help_text, error, required)` | Label and messages around your own control |
-| `field_error(message, *, id)` | Error paragraph with `role="alert"` |
+The gallery example shows every helper in each theme and skin:
 
-[Forms](forms.md) explains names, decoded values, validation, and accessibility.
+```text
+uv run tori-py run examples.tori_py.liveview_ui_gallery.app:create_application
+```
 
 ## Events
 
@@ -166,6 +170,9 @@ reset, so the helpers can sit next to your own styles.
 
 | Topic | Read |
 | --- | --- |
+| Rows, grids, panes, regions, and the application shell | [Layout](layout.md) |
+| Headings, text, links, code, lists, images, and icons | [Content and Icons](content.md) |
+| Buttons, link buttons, copying, and the theme toggle | [Actions](actions.md) |
 | Form controls, names, validation feedback, accessibility | [Forms](forms.md) |
 | Light and dark themes, bundled skins, custom skins, CSS tokens | [Themes and Skins](theming.md) |
 | Page lifecycle, events, and escaping | [LiveView](../liveview/index.md) |

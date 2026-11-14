@@ -67,7 +67,12 @@ Every helper follows the same contract:
 
 | Helper | Closed values | Other documented inputs |
 | --- | --- | --- |
-| `button` | variants: `primary`, `secondary`, `ghost`, `danger`; sizes: `sm`, `md`, `lg`; types: `button`, `submit`, `reset` | `label`, `disabled`, optional `event`, and optional `target` |
+| `button` | variants: `primary`, `secondary`, `ghost`, `danger`; sizes: `sm`, `md`, `lg`; types: `button`, `submit`, `reset`; icons: the bundled set | `label`, `disabled`, optional `event` and `target`, event `values`, `loading`, `disable_with`, `confirm`, `full_width` |
+| `icon_button` | the `button` variants, sizes, and types; icon: the bundled set | required `label`, `disabled`, optional `pressed`, `event`, `target`, `values`, `confirm` |
+| `link_button` | the `button` variants and sizes; live: `patch`, `navigate` | `label`, `href`, `replace`, `external`, icons, `full_width` |
+| `button_group` | - | finite `children` iterable, required `label`, `attached` |
+| `copy_button` | the `button` variants and sizes | `to` target, `label`, `copied_label` |
+| `theme_toggle` | - | required selector-safe `id`, group and option labels |
 
 `button(event=..., target=...)` emits `phx-click` and `phx-target`. A page
 button normally omits `target`; a stateful LiveView component passes its
@@ -76,6 +81,41 @@ state, and visible focus styling. A submit button inside a `phx-submit` form
 normally omits its own click event so one user action does not intentionally
 dispatch two application events.
 
+Event `values` is a mapping whose keys match `[a-z][a-z0-9_-]{0,62}` and whose
+values are strings, numbers, or booleans. It maps to `phx-value-*` attributes,
+with booleans as `true` and `false`, and requires an event. `loading` disables
+the button, sets `aria-busy`, and shows a spinner. `disable_with` maps to
+`phx-disable-with`. `confirm` maps to `data-tori-ui-confirm`: the script asks in
+the browser's native dialog from a capturing click listener it adds to `window`
+before the LiveView client adds its own, and a declined click neither reaches
+LiveView nor performs its default action.
+
+`icon_button` has no visible text, so `label` is required and becomes both
+`aria-label` and `title`. `pressed` renders `aria-pressed` for a toggle whose
+state the page owns.
+
+`link_button` and `link` share one link contract. `href` is required and
+subject to the `attrs()` scheme rules. `live` maps `patch` and `navigate` to
+`data-phx-link="patch"` and `data-phx-link="redirect"` with
+`data-phx-link-state` of `push`, or `replace` when `replace` is set. A live
+`href` is a root-relative path without a leading `//` or a backslash.
+`external` adds `target="_blank"` and `rel="noopener noreferrer"`. A link is not
+both live and external, and `replace` requires a live link.
+
+`copy_button` dispatches the `tori-ui:copy` DOM event to its `to` target through
+a `JS` command. `to` is a CSS selector or a `("closest", selector)` or
+`("inner", selector)` pair. One `window` listener in the script copies the text
+of the target's first `data-tori-ui-copy-source` descendant, or of the target
+itself, and marks the dispatching button with `data-tori-ui-copied` for two
+seconds while a `role="status"` element inside it announces `copied_label`. The
+button keeps `label` as its accessible name throughout. The page is not
+notified.
+
+`theme_toggle` renders three `aria-pressed` buttons for the `auto`, `light`,
+and `dark` themes in a `phx-update="ignore"` group with the `ToriUiTheme` hook.
+The hook applies the chosen theme to `<html>`, stores it in `localStorage`
+under `tori-ui-theme`, and keeps every toggle on the page in step.
+
 ### 4.2 Layout
 
 | Helper | Closed values | Other documented inputs |
@@ -83,16 +123,77 @@ dispatch two application events.
 | `card` | - | `content`, optional string `eyebrow` and `title`, optional `footer` |
 | `stack` | gaps: `xs`, `sm`, `md`, `lg`, `xl`; alignment: `start`, `center`, `end`, `stretch` | finite `children` iterable |
 | `grid` | columns: `auto`, `1`, `2`, `3`, `4`; gaps: `xs`, `sm`, `md`, `lg`, `xl` | finite `children` iterable |
+| `row` | the gaps; alignment: `start`, `center`, `end`, `stretch`, `baseline`; justification: `start`, `center`, `end`, `between` | finite `children` iterable, `wrap` |
+| `container` | sizes: `sm`, `md`, `lg`, `xl`, `full` | `content`, `padded` |
+| `center` | minimum heights: `content`, `half`, `screen` | `content` |
+| `divider` | orientations: `horizontal`, `vertical` | optional non-empty `label`, horizontal only |
+| `spacer` | sizes: `grow` and the gaps | - |
+| `section` | - | `content`, required `title`, optional `description`, `actions`, and `id` |
+| `page_header` | - | required `title`, optional `eyebrow`, `description`, `actions`, and `navigation` |
+| `toolbar` | - | finite `start` and `end` iterables, required `label` |
+| `split` | ratios: `1:1`, `1:2`, `2:1`, `1:3`, `3:1`; the gaps | `primary` and `secondary` content |
+| `scroll_area` | maximum heights: `sm`, `md`, `lg`, `xl` | `content`, required `label` |
+| `app_shell` | - | `content`, required selector-safe `id`, optional `header`, `sidebar`, `aside`, and `footer`, sidebar and menu labels |
 
 `card` uses an `article`, optional header and footer, and an `h2` title.
+`section` uses a `section` with an `h2` title; with an `id` the title receives
+`<id>-title` and labels the section. `page_header` renders the page's `h1`.
+`toolbar` is a `role="group"` named by its label, and `scroll_area` is a
+focusable `role="region"` named by its label, so it scrolls from the keyboard.
+An unlabeled horizontal `divider` is an `hr`; the other forms use
+`role="separator"`.
 
-### 4.3 Display
+`app_shell` fills the viewport, renders the page's `main` landmark, and lets the
+sidebar, main area, and aside scroll independently. Below 56rem the sidebar
+leaves the grid and a menu button in the header opens it over the content with
+`JS` commands that toggle a class on the shell and `aria-expanded` on the
+button. Escape, a click on the scrim, and a `phx:navigate` event close it. The
+open state belongs to the browser and survives server renders. The shell `id`
+matches `[A-Za-z][A-Za-z0-9_-]*` because the commands select the shell by it.
+
+### 4.3 Content
+
+| Helper | Closed values | Other documented inputs |
+| --- | --- | --- |
+| `heading` | levels: 1 through 6; sizes: `xs`, `sm`, `md`, `lg`, `xl`, `2xl` | `content`, optional `id` |
+| `text` | sizes: `sm`, `md`, `lg` | `content`, `muted` |
+| `link` | live: `patch`, `navigate` | `label`, `href`, `replace`, `external` |
+| `code` | - | `content` |
+| `code_block` | - | `content`, optional non-empty `language`, `copy`, `wrap`, copy labels |
+| `kbd` | - | `content` |
+| `blockquote` | - | `content`, optional `cite` |
+| `prose` | - | `content` |
+| `item_list` | markers: `bullet`, `number`, `none` | finite `items` iterable |
+| `description_list` | layouts: `rows`, `stacked` | finite iterable of `(term, detail)` pairs |
+| `image` | ratios: `auto`, `square`, `video`, `wide`; fits: `cover`, `contain` | required `src` and string `alt`, optional `caption`, `width`, `height`, `lazy` |
+
+A heading's `level` selects the element and its `size` the look; each level has
+a default size. `code_block` does not highlight: its `pre` is focusable so it
+scrolls from the keyboard, its `code` element is the copy source, and its copy
+button targets the enclosing block. `prose` styles descendant elements that
+carry no class through zero-specificity selectors, so helper classes inside it
+keep their own rules; it does not sanitize its content. `item_list` renders an
+`ol` for the `number` marker and a `ul` otherwise. `image` requires `alt`, which
+may be empty for a decorative image, and bounds `width` and `height` to 1
+through 16384.
+
+### 4.4 Icons
+
+`icon(name, *, size, label)` renders one of the bundled icons as inline SVG:
+static shapes on a 24 by 24 grid with a round 2 unit stroke in the current text
+color. The set of names is closed and the markup is fixed package text; callers
+cannot supply paths. Sizes are `sm`, `md`, and `lg`, relative to the text size.
+An icon without a `label` has `aria-hidden="true"`; with a non-empty `label` it
+has `role="img"` and that accessible name. Helpers that take an icon take its
+name.
+
+### 4.5 Display
 
 | Helper | Closed values | Other documented inputs |
 | --- | --- | --- |
 | `badge` | tones: `neutral`, `info`, `success`, `warning`, `danger` | `content` |
 
-### 4.4 Feedback
+### 4.6 Feedback
 
 | Helper | Closed values | Other documented inputs |
 | --- | --- | --- |
@@ -101,7 +202,7 @@ dispatch two application events.
 `alert` uses `role="alert"` for the `danger` tone and `role="status"` otherwise.
 Its optional title is an `h2`.
 
-### 4.5 Forms
+### 4.7 Forms
 
 | Helper | Closed values | Other documented inputs |
 | --- | --- | --- |
@@ -231,7 +332,10 @@ provide the light theme and editorial skin for custom documents that include
 only the stylesheet.
 
 Public theme tokens cover paper, panel surfaces, ink, muted text, lines, accent,
-tone colors, and shadow color. Public skin tokens include:
+tone colors, shadow color, and the scrim behind content an overlay covers.
+Tokens that no skin changes cover the application shell's sidebar and aside
+widths and the stacking order of raised, drawer, overlay, and toast layers.
+Public skin tokens include:
 
 - `--tori-ui-space-{xs,sm,md,lg,xl}`;
 - `--tori-ui-radius-{control,surface,pill}`;
@@ -256,8 +360,11 @@ or other assets, and the stylesheet contains no `@import` or asset URL.
 
 The stylesheet supports explicit light/dark themes and automatic system-color
 selection, responsive grid collapse at narrow widths, `:focus-visible` for
-buttons and form controls, disabled and invalid form affordances, and
-`prefers-reduced-motion` transition removal.
+every interactive helper, disabled and invalid form affordances, and
+`prefers-reduced-motion` transition removal. Every class a helper emits either
+has a rule or is listed by the test suite as a structural name, every rule
+belongs to a class a helper emits, and keyframe names and custom properties
+carry the package prefix.
 
 ## 8. Non-Goals
 

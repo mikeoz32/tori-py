@@ -4,29 +4,64 @@ import tomllib
 from pathlib import Path
 
 import tori_py_liveview_ui
+from tori_py_liveview_ui import (
+    actions,
+    content,
+    display,
+    feedback,
+    forms,
+    icons,
+    layout,
+    module,
+)
+
+# Each family test pins its own module's names; the facade is their union.
+_FAMILIES = (actions, content, display, feedback, forms, icons, layout, module)
 
 
-def test_public_facade_is_explicit() -> None:
-    assert tori_py_liveview_ui.__all__ == [
-        "SCRIPT_PATH",
-        "STYLESHEET_PATH",
-        "LiveViewUiModule",
-        "UiLiveView",
-        "alert",
-        "badge",
-        "button",
-        "card",
+def test_public_facade_is_the_union_of_the_family_modules() -> None:
+    exported = tori_py_liveview_ui.__all__
+    family_names = [name for family in _FAMILIES for name in family.__all__]
+
+    assert len(family_names) == len(set(family_names))
+    assert sorted(exported) == sorted(family_names)
+    assert len(exported) == len(set(exported))
+    for family in _FAMILIES:
+        for name in family.__all__:
+            assert getattr(tori_py_liveview_ui, name) is getattr(family, name)
+
+
+def test_public_facade_lists_constants_then_classes_then_helpers() -> None:
+    exported = tori_py_liveview_ui.__all__
+    constants = [name for name in exported if name.isupper()]
+    classes = [name for name in exported if name[0].isupper() and not name.isupper()]
+    helpers = [name for name in exported if name[0].islower()]
+
+    assert exported == sorted(constants) + sorted(classes) + sorted(helpers)
+    assert constants == ["SCRIPT_PATH", "STYLESHEET_PATH"]
+    assert classes == ["LiveViewUiModule", "UiLiveView"]
+
+
+def test_foundation_families_are_explicit() -> None:
+    assert display.__all__ == ["badge"]
+    assert feedback.__all__ == ["alert"]
+    assert forms.__all__ == [
         "checkbox",
         "field",
         "field_error",
         "form",
-        "grid",
         "input",
-        "script_tag",
         "select",
-        "stack",
-        "stylesheet_link",
         "textarea",
+    ]
+    assert icons.__all__ == ["icon"]
+    assert module.__all__ == [
+        "SCRIPT_PATH",
+        "STYLESHEET_PATH",
+        "LiveViewUiModule",
+        "UiLiveView",
+        "script_tag",
+        "stylesheet_link",
     ]
 
 

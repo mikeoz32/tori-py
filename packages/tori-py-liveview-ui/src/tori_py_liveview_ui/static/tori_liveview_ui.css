@@ -17,6 +17,7 @@
   --tori-ui-success: #2f7450;
   --tori-ui-warning: #9a640b;
   --tori-ui-shadow-color: rgb(45 36 24 / 0.16);
+  --tori-ui-scrim: rgb(32 28 22 / 0.5);
 }
 
 [data-tori-ui-theme="dark"] {
@@ -35,6 +36,7 @@
   --tori-ui-success: #79d3a1;
   --tori-ui-warning: #efbd5c;
   --tori-ui-shadow-color: rgb(0 0 0 / 0.42);
+  --tori-ui-scrim: rgb(0 0 0 / 0.62);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -54,6 +56,7 @@
     --tori-ui-success: #79d3a1;
     --tori-ui-warning: #efbd5c;
     --tori-ui-shadow-color: rgb(0 0 0 / 0.42);
+    --tori-ui-scrim: rgb(0 0 0 / 0.62);
   }
 }
 
@@ -218,6 +221,16 @@
   --tori-ui-hover-translate: -1px;
 }
 
+/* Values that do not change with the skin. */
+:root {
+  --tori-ui-sidebar-width: 16rem;
+  --tori-ui-aside-width: 20rem;
+  --tori-ui-layer-raised: 10;
+  --tori-ui-layer-drawer: 30;
+  --tori-ui-layer-overlay: 40;
+  --tori-ui-layer-toast: 60;
+}
+
 /* Border-box sizing is limited to component trees; there is no global
    reset. */
 :where([class*="tori-ui-"]),
@@ -249,12 +262,14 @@
   font-family: var(--tori-ui-font-body);
   font-size: 0.8rem;
   font-weight: var(--tori-ui-control-font-weight);
+  gap: 0.5em;
   justify-content: center;
   letter-spacing: var(--tori-ui-control-letter-spacing);
   line-height: 1.1;
   min-height: var(--tori-ui-control-height-md);
   padding: var(--tori-ui-control-padding-block)
     var(--tori-ui-control-padding-inline);
+  text-decoration: none;
   text-transform: var(--tori-ui-control-text-transform);
   transition:
     background-color 140ms ease,
@@ -621,5 +636,1103 @@
 @media (prefers-reduced-motion: reduce) {
   .tori-ui-button {
     transition: none;
+  }
+}
+
+/* ------------------------------------------------------------ Utilities */
+
+.tori-ui-visually-hidden {
+  border: 0;
+  clip-path: inset(50%);
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  padding: 0;
+  position: absolute;
+  white-space: nowrap;
+  width: 1px;
+}
+
+/* ---------------------------------------------------------------- Icons */
+
+.tori-ui-icon {
+  display: inline-block;
+  flex: none;
+  height: 1.25em;
+  vertical-align: -0.25em;
+  width: 1.25em;
+}
+
+.tori-ui-icon--sm {
+  height: 1em;
+  vertical-align: -0.125em;
+  width: 1em;
+}
+
+.tori-ui-icon--lg {
+  height: 1.75em;
+  vertical-align: -0.4em;
+  width: 1.75em;
+}
+
+/* -------------------------------------------------------------- Actions */
+
+.tori-ui-button--full {
+  width: 100%;
+}
+
+.tori-ui-button.phx-click-loading,
+.phx-submit-loading .tori-ui-button[type="submit"] {
+  cursor: progress;
+  opacity: 0.72;
+}
+
+.tori-ui-spinner {
+  animation: tori-ui-spin 0.8s linear infinite;
+  border: 2px solid color-mix(in srgb, currentcolor 24%, transparent);
+  border-radius: 50%;
+  border-top-color: currentcolor;
+  display: inline-block;
+  flex: none;
+  height: 1.25em;
+  width: 1.25em;
+}
+
+.tori-ui-spinner--sm {
+  height: 1em;
+  width: 1em;
+}
+
+@keyframes tori-ui-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.tori-ui-icon-button {
+  appearance: none;
+  align-items: center;
+  background: transparent;
+  border: var(--tori-ui-border-width) solid transparent;
+  border-radius: var(--tori-ui-radius-control);
+  color: var(--tori-ui-ink);
+  cursor: pointer;
+  display: inline-flex;
+  flex: none;
+  font-size: 1rem;
+  height: var(--tori-ui-control-height-md);
+  justify-content: center;
+  padding: 0;
+  transition:
+    background-color 140ms ease,
+    border-color 140ms ease;
+  width: var(--tori-ui-control-height-md);
+}
+
+.tori-ui-icon-button--sm {
+  font-size: 0.9rem;
+  height: var(--tori-ui-control-height-sm);
+  width: var(--tori-ui-control-height-sm);
+}
+
+.tori-ui-icon-button--lg {
+  font-size: 1.15rem;
+  height: var(--tori-ui-control-height-lg);
+  width: var(--tori-ui-control-height-lg);
+}
+
+.tori-ui-icon-button--primary {
+  background: var(--tori-ui-accent);
+  border-color: var(--tori-ui-line-strong);
+  color: var(--tori-ui-accent-ink);
+}
+
+.tori-ui-icon-button--secondary {
+  background: var(--tori-ui-panel);
+  border-color: var(--tori-ui-line-strong);
+}
+
+.tori-ui-icon-button--danger {
+  color: var(--tori-ui-danger);
+}
+
+:where(.tori-ui-icon-button--ghost, .tori-ui-icon-button--danger):hover:not(
+    :disabled
+  ),
+.tori-ui-icon-button[aria-pressed="true"] {
+  background: color-mix(in srgb, currentcolor 12%, transparent);
+}
+
+.tori-ui-icon-button[aria-pressed="true"] {
+  border-color: var(--tori-ui-line-strong);
+}
+
+:where(.tori-ui-icon-button--primary, .tori-ui-icon-button--secondary):hover:not(
+    :disabled
+  ) {
+  box-shadow: var(--tori-ui-shadow);
+}
+
+.tori-ui-icon-button:focus-visible,
+.tori-ui-theme-toggle__option:focus-visible,
+.tori-ui-app-shell__menu:focus-visible {
+  outline: var(--tori-ui-focus-width) solid var(--tori-ui-accent);
+  outline-offset: var(--tori-ui-focus-offset);
+}
+
+.tori-ui-icon-button:disabled {
+  cursor: not-allowed;
+  opacity: var(--tori-ui-disabled-opacity);
+}
+
+.tori-ui-button-group {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: var(--tori-ui-space-sm);
+}
+
+.tori-ui-button-group--attached {
+  flex-wrap: nowrap;
+  gap: 0;
+}
+
+.tori-ui-button-group--attached > * {
+  border-radius: 0;
+  margin-inline-start: calc(-1 * var(--tori-ui-border-width));
+}
+
+.tori-ui-button-group--attached > :first-child {
+  border-end-start-radius: var(--tori-ui-radius-control);
+  border-start-start-radius: var(--tori-ui-radius-control);
+  margin-inline-start: 0;
+}
+
+.tori-ui-button-group--attached > :last-child {
+  border-end-end-radius: var(--tori-ui-radius-control);
+  border-start-end-radius: var(--tori-ui-radius-control);
+}
+
+.tori-ui-button-group--attached > :where(:hover, :focus-visible) {
+  position: relative;
+  z-index: 1;
+}
+
+.tori-ui-button-group--attached > .tori-ui-button:hover:not(:disabled) {
+  box-shadow: none;
+  transform: none;
+}
+
+.tori-ui-copy-button__idle,
+.tori-ui-copy-button__done {
+  align-items: center;
+  display: inline-flex;
+  gap: 0.4em;
+}
+
+.tori-ui-copy-button__done,
+.tori-ui-copy-button[data-tori-ui-copied] .tori-ui-copy-button__idle {
+  display: none;
+}
+
+.tori-ui-copy-button[data-tori-ui-copied] .tori-ui-copy-button__done {
+  display: inline-flex;
+}
+
+.tori-ui-theme-toggle {
+  background: var(--tori-ui-panel);
+  border: var(--tori-ui-border-width) solid var(--tori-ui-line);
+  border-radius: var(--tori-ui-radius-pill);
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+}
+
+.tori-ui-theme-toggle__option {
+  appearance: none;
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: var(--tori-ui-radius-pill);
+  color: var(--tori-ui-muted);
+  cursor: pointer;
+  display: inline-flex;
+  font-size: 0.95rem;
+  height: 1.8rem;
+  justify-content: center;
+  padding: 0;
+  width: 1.8rem;
+}
+
+.tori-ui-theme-toggle__option:hover {
+  color: var(--tori-ui-ink);
+}
+
+.tori-ui-theme-toggle__option[aria-pressed="true"] {
+  background: var(--tori-ui-ink);
+  color: var(--tori-ui-paper);
+}
+
+/* --------------------------------------------------------------- Layout */
+
+.tori-ui-row {
+  display: flex;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.tori-ui-row--nowrap {
+  flex-wrap: nowrap;
+}
+
+.tori-ui-row--gap-xs,
+.tori-ui-split--gap-xs {
+  gap: var(--tori-ui-space-xs);
+}
+
+.tori-ui-row--gap-sm,
+.tori-ui-split--gap-sm {
+  gap: var(--tori-ui-space-sm);
+}
+
+.tori-ui-row--gap-md,
+.tori-ui-split--gap-md {
+  gap: var(--tori-ui-space-md);
+}
+
+.tori-ui-row--gap-lg,
+.tori-ui-split--gap-lg {
+  gap: var(--tori-ui-space-lg);
+}
+
+.tori-ui-row--gap-xl,
+.tori-ui-split--gap-xl {
+  gap: var(--tori-ui-space-xl);
+}
+
+.tori-ui-row--align-start {
+  align-items: flex-start;
+}
+
+.tori-ui-row--align-center {
+  align-items: center;
+}
+
+.tori-ui-row--align-end {
+  align-items: flex-end;
+}
+
+.tori-ui-row--align-stretch {
+  align-items: stretch;
+}
+
+.tori-ui-row--align-baseline {
+  align-items: baseline;
+}
+
+.tori-ui-row--justify-start {
+  justify-content: flex-start;
+}
+
+.tori-ui-row--justify-center {
+  justify-content: center;
+}
+
+.tori-ui-row--justify-end {
+  justify-content: flex-end;
+}
+
+.tori-ui-row--justify-between {
+  justify-content: space-between;
+}
+
+.tori-ui-container {
+  margin-inline: auto;
+  max-width: 72rem;
+  width: 100%;
+}
+
+.tori-ui-container--sm {
+  max-width: 40rem;
+}
+
+.tori-ui-container--md {
+  max-width: 56rem;
+}
+
+.tori-ui-container--xl {
+  max-width: 90rem;
+}
+
+.tori-ui-container--full {
+  max-width: none;
+}
+
+.tori-ui-container--padded {
+  padding-block: var(--tori-ui-space-lg);
+  padding-inline: clamp(var(--tori-ui-space-md), 4vw, var(--tori-ui-space-xl));
+}
+
+.tori-ui-center {
+  display: grid;
+  place-items: center;
+}
+
+.tori-ui-center--half {
+  min-height: 50vh;
+}
+
+.tori-ui-center--screen {
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+
+.tori-ui-divider {
+  background: var(--tori-ui-line);
+  border: 0;
+  flex: none;
+  height: var(--tori-ui-border-width);
+  margin: 0;
+  width: 100%;
+}
+
+.tori-ui-divider--vertical {
+  align-self: stretch;
+  height: auto;
+  min-height: 1em;
+  width: var(--tori-ui-border-width);
+}
+
+.tori-ui-divider--labeled {
+  align-items: center;
+  background: none;
+  color: var(--tori-ui-muted);
+  display: flex;
+  font-family: var(--tori-ui-font-body);
+  font-size: 0.72rem;
+  font-weight: var(--tori-ui-label-font-weight);
+  gap: var(--tori-ui-space-sm);
+  height: auto;
+  letter-spacing: var(--tori-ui-label-letter-spacing);
+  text-transform: var(--tori-ui-label-text-transform);
+}
+
+.tori-ui-divider--labeled::before,
+.tori-ui-divider--labeled::after {
+  background: var(--tori-ui-line);
+  content: "";
+  flex: 1;
+  height: var(--tori-ui-border-width);
+}
+
+.tori-ui-spacer {
+  display: block;
+  flex: none;
+}
+
+.tori-ui-spacer--grow {
+  flex: 1 1 auto;
+}
+
+.tori-ui-spacer--xs {
+  height: var(--tori-ui-space-xs);
+  width: var(--tori-ui-space-xs);
+}
+
+.tori-ui-spacer--sm {
+  height: var(--tori-ui-space-sm);
+  width: var(--tori-ui-space-sm);
+}
+
+.tori-ui-spacer--md {
+  height: var(--tori-ui-space-md);
+  width: var(--tori-ui-space-md);
+}
+
+.tori-ui-spacer--lg {
+  height: var(--tori-ui-space-lg);
+  width: var(--tori-ui-space-lg);
+}
+
+.tori-ui-spacer--xl {
+  height: var(--tori-ui-space-xl);
+  width: var(--tori-ui-space-xl);
+}
+
+.tori-ui-section {
+  color: var(--tori-ui-ink);
+  display: grid;
+  gap: var(--tori-ui-space-md);
+  min-width: 0;
+}
+
+.tori-ui-section__header {
+  align-items: end;
+  border-bottom: var(--tori-ui-border-width) solid var(--tori-ui-line);
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--tori-ui-space-sm) var(--tori-ui-space-md);
+  justify-content: space-between;
+  padding-bottom: var(--tori-ui-space-sm);
+}
+
+.tori-ui-section__title {
+  font: 700 1.35rem/1.15 var(--tori-ui-font-display);
+  margin: 0;
+}
+
+.tori-ui-section__description {
+  color: var(--tori-ui-muted);
+  font: 500 0.9rem/1.5 var(--tori-ui-font-body);
+  margin: 0.3rem 0 0;
+}
+
+.tori-ui-section__actions,
+.tori-ui-page-header__actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--tori-ui-space-sm);
+}
+
+.tori-ui-section__body {
+  min-width: 0;
+}
+
+.tori-ui-page-header {
+  color: var(--tori-ui-ink);
+  display: grid;
+  gap: var(--tori-ui-space-sm);
+  padding-block: var(--tori-ui-space-md);
+}
+
+.tori-ui-page-header__row {
+  align-items: end;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--tori-ui-space-md);
+  justify-content: space-between;
+}
+
+.tori-ui-page-header__eyebrow {
+  color: var(--tori-ui-accent);
+  font: 700 0.7rem/1 var(--tori-ui-font-code);
+  letter-spacing: 0.12em;
+  margin: 0 0 0.55rem;
+  text-transform: var(--tori-ui-label-text-transform);
+}
+
+.tori-ui-page-header__title {
+  font: 700 clamp(1.8rem, 4vw, 2.6rem) / 1.05 var(--tori-ui-font-display);
+  margin: 0;
+  text-wrap: balance;
+}
+
+.tori-ui-page-header__description {
+  color: var(--tori-ui-muted);
+  font: 500 1.02rem/1.55 var(--tori-ui-font-body);
+  margin: 0.6rem 0 0;
+  max-width: 46rem;
+}
+
+.tori-ui-toolbar {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--tori-ui-space-sm) var(--tori-ui-space-md);
+}
+
+.tori-ui-toolbar__group {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--tori-ui-space-sm);
+}
+
+.tori-ui-toolbar__group--end {
+  margin-inline-start: auto;
+}
+
+.tori-ui-split {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.tori-ui-split--1-2 {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
+}
+
+.tori-ui-split--2-1 {
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+}
+
+.tori-ui-split--1-3 {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 3fr);
+}
+
+.tori-ui-split--3-1 {
+  grid-template-columns: minmax(0, 3fr) minmax(0, 1fr);
+}
+
+.tori-ui-split__pane {
+  min-width: 0;
+}
+
+.tori-ui-scroll-area {
+  max-height: 20rem;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.tori-ui-scroll-area--sm {
+  max-height: 12rem;
+}
+
+.tori-ui-scroll-area--lg {
+  max-height: 32rem;
+}
+
+.tori-ui-scroll-area--xl {
+  max-height: 48rem;
+}
+
+.tori-ui-scroll-area:focus-visible,
+.tori-ui-code-block__pre:focus-visible {
+  outline: var(--tori-ui-focus-width) solid var(--tori-ui-accent);
+  outline-offset: calc(-1 * var(--tori-ui-focus-width));
+}
+
+.tori-ui-app-shell {
+  background: var(--tori-ui-paper);
+  color: var(--tori-ui-ink);
+  display: grid;
+  font-family: var(--tori-ui-font-body);
+  grid-template-areas:
+    "header header header"
+    "sidebar main aside"
+    "footer footer footer";
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
+  position: relative;
+}
+
+.tori-ui-app-shell__header {
+  align-items: center;
+  background: var(--tori-ui-panel);
+  border-bottom: var(--tori-ui-border-width) solid var(--tori-ui-line-strong);
+  display: flex;
+  gap: var(--tori-ui-space-sm);
+  grid-area: header;
+  min-height: 3.5rem;
+  padding: var(--tori-ui-space-sm) var(--tori-ui-space-md);
+}
+
+.tori-ui-app-shell__header-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.tori-ui-app-shell__menu {
+  appearance: none;
+  align-items: center;
+  background: transparent;
+  border: var(--tori-ui-border-width) solid var(--tori-ui-line);
+  border-radius: var(--tori-ui-radius-control);
+  color: var(--tori-ui-ink);
+  cursor: pointer;
+  display: none;
+  flex: none;
+  font-size: 1rem;
+  height: var(--tori-ui-control-height-md);
+  justify-content: center;
+  padding: 0;
+  width: var(--tori-ui-control-height-md);
+}
+
+.tori-ui-app-shell__sidebar {
+  background: var(--tori-ui-panel);
+  border-inline-end: var(--tori-ui-border-width) solid var(--tori-ui-line);
+  grid-area: sidebar;
+  overflow: auto;
+  padding: var(--tori-ui-space-md);
+  width: var(--tori-ui-sidebar-width);
+}
+
+.tori-ui-app-shell__scrim {
+  display: none;
+}
+
+.tori-ui-app-shell__main {
+  grid-area: main;
+  min-width: 0;
+  overflow: auto;
+}
+
+.tori-ui-app-shell__aside {
+  background: var(--tori-ui-panel);
+  border-inline-start: var(--tori-ui-border-width) solid var(--tori-ui-line);
+  grid-area: aside;
+  overflow: auto;
+  padding: var(--tori-ui-space-md);
+  width: var(--tori-ui-aside-width);
+}
+
+.tori-ui-app-shell__footer {
+  background: var(--tori-ui-panel);
+  border-top: var(--tori-ui-border-width) solid var(--tori-ui-line);
+  color: var(--tori-ui-muted);
+  font-size: 0.82rem;
+  grid-area: footer;
+  padding: var(--tori-ui-space-sm) var(--tori-ui-space-md);
+}
+
+/* -------------------------------------------------------------- Content */
+
+.tori-ui-heading {
+  color: var(--tori-ui-ink);
+  font-family: var(--tori-ui-font-display);
+  font-weight: 700;
+  line-height: 1.12;
+  margin: 0;
+  text-wrap: balance;
+}
+
+.tori-ui-heading--xs {
+  font-family: var(--tori-ui-font-body);
+  font-size: 0.78rem;
+  letter-spacing: var(--tori-ui-label-letter-spacing);
+  text-transform: var(--tori-ui-label-text-transform);
+}
+
+.tori-ui-heading--sm {
+  font-size: 1rem;
+}
+
+.tori-ui-heading--md {
+  font-size: 1.2rem;
+}
+
+.tori-ui-heading--lg {
+  font-size: 1.5rem;
+}
+
+.tori-ui-heading--xl {
+  font-size: 1.9rem;
+}
+
+.tori-ui-heading--2xl {
+  font-size: clamp(2.1rem, 5vw, 2.9rem);
+  line-height: 1.04;
+}
+
+.tori-ui-text {
+  color: var(--tori-ui-ink);
+  font: 500 0.97rem/1.6 var(--tori-ui-font-body);
+  margin: 0;
+  text-wrap: pretty;
+}
+
+.tori-ui-text--sm {
+  font-size: 0.84rem;
+}
+
+.tori-ui-text--lg {
+  font-size: 1.12rem;
+}
+
+.tori-ui-text--muted {
+  color: var(--tori-ui-muted);
+}
+
+.tori-ui-link,
+:where(.tori-ui-prose) :where(a) {
+  color: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+  text-decoration-color: var(--tori-ui-accent);
+  text-decoration-thickness: 0.09em;
+  text-underline-offset: 0.2em;
+}
+
+.tori-ui-link:hover,
+:where(.tori-ui-prose) :where(a):hover {
+  text-decoration-thickness: 0.17em;
+}
+
+.tori-ui-link:focus-visible,
+:where(.tori-ui-prose) :where(a):focus-visible {
+  border-radius: 2px;
+  outline: var(--tori-ui-focus-width) solid var(--tori-ui-accent);
+  outline-offset: 2px;
+}
+
+.tori-ui-link > .tori-ui-icon {
+  margin-inline-start: 0.2em;
+}
+
+.tori-ui-code,
+:where(.tori-ui-prose) :where(:not(pre) > code) {
+  background: color-mix(in srgb, var(--tori-ui-ink) 8%, transparent);
+  border-radius: calc(var(--tori-ui-radius-control) * 0.6);
+  font: 500 0.88em/1.4 var(--tori-ui-font-code);
+  padding: 0.12em 0.36em;
+}
+
+.tori-ui-kbd {
+  background: var(--tori-ui-panel);
+  border: var(--tori-ui-border-width) solid var(--tori-ui-line-strong);
+  border-bottom-width: calc(var(--tori-ui-border-width) + 1px);
+  border-radius: var(--tori-ui-radius-control);
+  color: var(--tori-ui-ink);
+  font: 600 0.78em/1 var(--tori-ui-font-code);
+  padding: 0.22em 0.45em;
+  white-space: nowrap;
+}
+
+.tori-ui-code-block {
+  background: var(--tori-ui-panel);
+  border: var(--tori-ui-border-width) solid var(--tori-ui-line-strong);
+  border-radius: var(--tori-ui-radius-surface);
+  color: var(--tori-ui-ink);
+  margin: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.tori-ui-code-block__header {
+  align-items: center;
+  background: var(--tori-ui-panel-raised);
+  border-bottom: var(--tori-ui-border-width) solid var(--tori-ui-line);
+  display: flex;
+  gap: var(--tori-ui-space-sm);
+  justify-content: space-between;
+  min-height: 2.4rem;
+  padding: 0.2rem 0.4rem 0.2rem 0.9rem;
+}
+
+.tori-ui-code-block__language {
+  color: var(--tori-ui-muted);
+  font: 700 0.68rem/1 var(--tori-ui-font-code);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.tori-ui-code-block__header .tori-ui-copy-button {
+  margin-inline-start: auto;
+}
+
+.tori-ui-code-block__pre {
+  font: 500 0.86rem/1.6 var(--tori-ui-font-code);
+  margin: 0;
+  overflow-x: auto;
+  padding: 0.9rem 1rem;
+  tab-size: 4;
+}
+
+.tori-ui-code-block__pre > code {
+  font: inherit;
+}
+
+.tori-ui-code-block--wrap .tori-ui-code-block__pre {
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.tori-ui-blockquote {
+  border-inline-start: var(--tori-ui-accent-border-width) solid
+    var(--tori-ui-accent);
+  color: var(--tori-ui-ink);
+  margin: 0;
+  padding: 0.3rem 0 0.3rem 1.1rem;
+}
+
+.tori-ui-blockquote__quote {
+  font: italic 500 1.1rem/1.55 var(--tori-ui-font-display);
+  margin: 0;
+}
+
+.tori-ui-blockquote__cite {
+  color: var(--tori-ui-muted);
+  font: 600 0.8rem/1.4 var(--tori-ui-font-body);
+  margin-top: 0.55rem;
+}
+
+.tori-ui-list {
+  align-content: start;
+  color: var(--tori-ui-ink);
+  display: grid;
+  font: 500 0.97rem/1.6 var(--tori-ui-font-body);
+  gap: 0.3rem;
+  margin: 0;
+  padding-inline-start: 1.35rem;
+}
+
+.tori-ui-list--bullet {
+  list-style: square;
+}
+
+.tori-ui-list--none {
+  list-style: none;
+  padding-inline-start: 0;
+}
+
+.tori-ui-list > li::marker {
+  color: var(--tori-ui-accent);
+  font-weight: 700;
+}
+
+.tori-ui-description-list {
+  color: var(--tori-ui-ink);
+  display: grid;
+  font-family: var(--tori-ui-font-body);
+  margin: 0;
+}
+
+.tori-ui-description-list__item {
+  border-bottom: var(--tori-ui-border-width) solid var(--tori-ui-line);
+  display: grid;
+  gap: var(--tori-ui-space-xs) var(--tori-ui-space-md);
+  grid-template-columns: minmax(7rem, 14rem) minmax(0, 1fr);
+  padding-block: 0.6rem;
+}
+
+.tori-ui-description-list--stacked .tori-ui-description-list__item {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.tori-ui-description-list__item > dt {
+  color: var(--tori-ui-muted);
+  font-size: 0.78rem;
+  font-weight: var(--tori-ui-label-font-weight);
+  letter-spacing: var(--tori-ui-label-letter-spacing);
+  line-height: 1.5;
+  text-transform: var(--tori-ui-label-text-transform);
+}
+
+.tori-ui-description-list__item > dd {
+  font-size: 0.95rem;
+  line-height: 1.5;
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.tori-ui-image {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0;
+}
+
+.tori-ui-image__media {
+  border: var(--tori-ui-border-width) solid var(--tori-ui-line);
+  border-radius: var(--tori-ui-radius-surface);
+  display: block;
+  height: auto;
+  max-width: 100%;
+}
+
+.tori-ui-image--square .tori-ui-image__media {
+  aspect-ratio: 1;
+  width: 100%;
+}
+
+.tori-ui-image--video .tori-ui-image__media {
+  aspect-ratio: 16 / 9;
+  width: 100%;
+}
+
+.tori-ui-image--wide .tori-ui-image__media {
+  aspect-ratio: 21 / 9;
+  width: 100%;
+}
+
+.tori-ui-image__media--cover {
+  object-fit: cover;
+}
+
+.tori-ui-image__media--contain {
+  background: var(--tori-ui-panel-raised);
+  object-fit: contain;
+}
+
+.tori-ui-image__caption {
+  color: var(--tori-ui-muted);
+  font: 500 0.8rem/1.45 var(--tori-ui-font-body);
+}
+
+/* Prose styles plain elements. Every rule here has zero specificity beyond
+   the element, so a component class inside prose always wins. */
+.tori-ui-prose {
+  color: var(--tori-ui-ink);
+  font: 500 0.97rem/1.65 var(--tori-ui-font-body);
+  min-width: 0;
+  overflow-wrap: break-word;
+}
+
+:where(.tori-ui-prose) :where(p, ul, ol, pre, table, blockquote, figure, hr) {
+  margin-block: 0 0.9em;
+}
+
+:where(.tori-ui-prose) :where(h1, h2, h3, h4, h5, h6) {
+  font-family: var(--tori-ui-font-display);
+  font-weight: 700;
+  line-height: 1.2;
+  margin-block: 1.4em 0.5em;
+}
+
+:where(.tori-ui-prose) :where(h1) {
+  font-size: 1.6em;
+}
+
+:where(.tori-ui-prose) :where(h2) {
+  font-size: 1.35em;
+}
+
+:where(.tori-ui-prose) :where(h3) {
+  font-size: 1.15em;
+}
+
+:where(.tori-ui-prose) :where(h4, h5, h6) {
+  font-size: 1em;
+}
+
+:where(.tori-ui-prose) :where(ul, ol) {
+  padding-inline-start: 1.4em;
+}
+
+:where(.tori-ui-prose) :where(li + li) {
+  margin-top: 0.25em;
+}
+
+:where(.tori-ui-prose) :where(li)::marker {
+  color: var(--tori-ui-accent);
+}
+
+:where(.tori-ui-prose) :where(pre) {
+  background: var(--tori-ui-panel);
+  border: var(--tori-ui-border-width) solid var(--tori-ui-line);
+  border-radius: var(--tori-ui-radius-surface);
+  font: 500 0.86rem/1.6 var(--tori-ui-font-code);
+  overflow-x: auto;
+  padding: 0.9rem 1rem;
+}
+
+:where(.tori-ui-prose) :where(blockquote) {
+  border-inline-start: var(--tori-ui-accent-border-width) solid
+    var(--tori-ui-accent);
+  color: var(--tori-ui-muted);
+  margin-inline: 0;
+  padding-inline-start: 1em;
+}
+
+:where(.tori-ui-prose) :where(table) {
+  border-collapse: collapse;
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+:where(.tori-ui-prose) :where(th, td) {
+  border: var(--tori-ui-border-width) solid var(--tori-ui-line);
+  padding: 0.4em 0.7em;
+  text-align: start;
+}
+
+:where(.tori-ui-prose) :where(th) {
+  background: var(--tori-ui-panel-raised);
+  font-weight: 700;
+}
+
+:where(.tori-ui-prose) :where(hr) {
+  border: 0;
+  border-top: var(--tori-ui-border-width) solid var(--tori-ui-line);
+}
+
+:where(.tori-ui-prose) :where(img) {
+  height: auto;
+  max-width: 100%;
+}
+
+/* After the element rules, which have the same specificity. */
+:where(.tori-ui-prose) > :where(:first-child) {
+  margin-top: 0;
+}
+
+:where(.tori-ui-prose) > :where(:last-child) {
+  margin-bottom: 0;
+}
+
+@media (max-width: 56rem) {
+  .tori-ui-app-shell {
+    grid-template-areas:
+      "header"
+      "main"
+      "aside"
+      "footer";
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr) auto auto;
+  }
+
+  .tori-ui-app-shell__menu {
+    display: inline-flex;
+  }
+
+  .tori-ui-app-shell__sidebar {
+    border-inline-end: var(--tori-ui-border-width) solid
+      var(--tori-ui-line-strong);
+    inset-block: 0;
+    inset-inline-start: 0;
+    max-width: 85vw;
+    position: absolute;
+    transform: translateX(-100%);
+    transition:
+      transform 180ms ease,
+      visibility 180ms;
+    visibility: hidden;
+    z-index: var(--tori-ui-layer-drawer);
+  }
+
+  .tori-ui-app-shell--sidebar-open .tori-ui-app-shell__sidebar {
+    box-shadow: var(--tori-ui-shadow);
+    transform: none;
+    visibility: visible;
+  }
+
+  .tori-ui-app-shell--sidebar-open .tori-ui-app-shell__scrim {
+    background: var(--tori-ui-scrim);
+    display: block;
+    inset: 0;
+    position: absolute;
+    z-index: calc(var(--tori-ui-layer-drawer) - 1);
+  }
+
+  .tori-ui-app-shell__aside {
+    border-inline-start: 0;
+    border-top: var(--tori-ui-border-width) solid var(--tori-ui-line);
+    max-height: 40vh;
+    width: auto;
+  }
+}
+
+@media (max-width: 48rem) {
+  .tori-ui-split {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .tori-ui-description-list__item {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tori-ui-icon-button,
+  .tori-ui-app-shell__sidebar {
+    transition: none;
+  }
+
+  .tori-ui-spinner {
+    animation-duration: 2.4s;
   }
 }

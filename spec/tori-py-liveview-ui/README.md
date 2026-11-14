@@ -17,12 +17,21 @@ architecture is maintained in
 4. Helpers preserve LiveView Template escaping and Phoenix render-tree
    composition. Internally generated attributes use `attrs`; callers receive no
    arbitrary attributes or classes parameter.
-5. The families are actions (`button`), layout (`card`, `stack`, `grid`),
-   display (`badge`), feedback (`alert`), and forms (`form`, `field`,
-   `field_error`, `input`, `textarea`, `select`, `checkbox`).
+5. The families are actions (`button`, `icon_button`, `link_button`,
+   `button_group`, `copy_button`, `theme_toggle`), layout (`card`, `stack`,
+   `grid`, `row`, `container`, `center`, `divider`, `spacer`, `section`,
+   `page_header`, `toolbar`, `split`, `scroll_area`, `app_shell`), content
+   (`heading`, `text`, `link`, `code`, `code_block`, `kbd`, `blockquote`,
+   `prose`, `item_list`, `description_list`, `image`), icons (`icon`), display
+   (`badge`), feedback (`alert`), and forms (`form`, `field`, `field_error`,
+   `input`, `textarea`, `select`, `checkbox`).
 6. `button` maps an optional event and positive safe-integer component target to
    `phx-click` and `phx-target`. A target requires an event. The helper does not
-   own event routing or state.
+   own event routing or state. Event values map to `phx-value-*` attributes
+   with attribute-safe lowercase names and scalar values, and require an event.
+   `loading` disables the button and marks it busy, `disable_with` maps to
+   `phx-disable-with`, and `confirm` gates the click behind a native dialog
+   before the LiveView client sees it.
 7. `form` emits `method="post"` and maps optional events to `phx-change` and
    `phx-submit`; controls map optional events to `phx-change` and `phx-blur`.
    Control-level changes require a containing form. An optional positive
@@ -61,7 +70,24 @@ architecture is maintained in
     loads and again when the document has been parsed, and applies a stored
     visitor theme before the first paint. It holds no application state, opens
     no connections, loads no remote code, and evaluates no strings as code.
-15. The core package has no CDN, Node or Tailwind dependency, external font,
+15. Links are plain, live, or external. Live links carry `data-phx-link` and
+    `data-phx-link-state` and need a root-relative path; external links open a
+    new tab with `rel="noopener noreferrer"`; executable URL schemes fail.
+16. Icons are a closed set of static inline SVG drawings selected by name. An
+    unlabeled icon is hidden from assistive technology; an icon-only button
+    requires a label.
+17. `copy_button` and `code_block` copy in the browser through a `JS` dispatch
+    and one script listener, keep the button's accessible name, and announce
+    the result. `theme_toggle` applies and stores the visitor's theme in the
+    browser. Neither notifies the page.
+18. `app_shell` renders the main landmark in a viewport-filling grid. Below
+    56rem its sidebar opens over the content through `JS` commands; the open
+    state survives server renders and ends on Escape, a scrim click, or a live
+    navigation.
+19. Every class a helper emits has a rule or is listed as structural, every
+    rule belongs to an emitted class, and keyframes and custom properties are
+    prefixed.
+20. The core package has no CDN, Node or Tailwind dependency, external font,
     remote asset, global reset, domain validation/coercion system, arbitrary
     attributes/classes, client runtime, or application-state ownership.
     Optional features ship as extras. A future Tailwind skin adapter remains a

@@ -5,8 +5,22 @@ from __future__ import annotations
 from string.templatelib import Template
 from typing import ClassVar, Literal
 
-from tori_py_liveview import MountContext, fragment
-from tori_py_liveview_ui import UiLiveView, badge, stack
+from tori_py_liveview import MountContext
+from tori_py_liveview_ui import (
+    UiLiveView,
+    app_shell,
+    button_group,
+    card,
+    container,
+    item_list,
+    link,
+    link_button,
+    page_header,
+    row,
+    spacer,
+    stack,
+    theme_toggle,
+)
 
 type Theme = Literal["auto", "light", "dark"]
 
@@ -14,18 +28,41 @@ THEMES: tuple[Theme, ...] = ("auto", "light", "dark")
 SKINS = ("editorial", "minimal", "rounded")
 
 # The gallery's pages in navigation order: path and label.
-SECTIONS: list[tuple[str, str]] = [("/", "Overview")]
+SECTIONS: list[tuple[str, str]] = [
+    ("/", "Overview"),
+    ("/actions", "Actions"),
+    ("/layout", "Layout"),
+    ("/content", "Content"),
+]
+
+# An application hook, defined the documented way: the object is replaced
+# after the UI script has loaded, and the UI hooks still register.
+_HOOKS = """<script>
+globalThis.ToriLiveHooks = {
+  GalleryClock: {
+    mounted() {
+      this.el.textContent = new Date().toLocaleTimeString();
+    },
+  },
+};
+</script>"""
+
+
+def demo(title: str, content: object) -> Template:
+    """Frame one component's examples."""
+    return card(content, title=title)
 
 
 class GalleryPage(UiLiveView):
     """A gallery page whose theme and skin come from the query string."""
 
     heading: ClassVar[str]
+    summary: ClassVar[str]
+    path: ClassVar[str]
 
     def __init__(self) -> None:
         self.theme: Theme = "auto"
         self.skin = "editorial"
-        self.path = "/"
 
     async def mount(self, context: MountContext) -> None:
         theme = context.query_params.get("theme", "auto")
@@ -43,32 +80,59 @@ class GalleryPage(UiLiveView):
         return f"{self.heading} - Tori UI gallery"
 
     def render_document(self, live_root: str, client_script: str) -> str:
+        document = super().render_document(_HOOKS + live_root, client_script)
         # An empty icon keeps browsers from requesting /favicon.ico.
-        document = super().render_document(live_root, client_script)
         return document.replace("</head>", '<link rel="icon" href="data:,"></head>', 1)
 
-    def href(
-        self, path: str, *, theme: str | None = None, skin: str | None = None
-    ) -> str:
-        return f"{path}?theme={theme or self.theme}&skin={skin or self.skin}"
+    def href(self, path: str, *, skin: str | None = None) -> str:
+        return f"{path}?theme={self.theme}&skin={skin or self.skin}"
 
     def page(self, content: object) -> Template:
-        sections = fragment(
-            t'<a href="{self.href(path)}">{label}</a> ' for path, label in SECTIONS
+        pages = item_list(
+            (
+                link(label, href=self.href(path), live="navigate")
+                for path, label in SECTIONS
+            ),
+            marker="none",
         )
-        themes = fragment(
-            t'<a href="{self.href(self.path, theme=theme)}">{theme}</a> '
-            for theme in THEMES
+        # The skin is part of the document, so choosing one reloads the page.
+        skins = button_group(
+            (
+                link_button(
+                    skin,
+                    href=self.href(self.path, skin=skin),
+                    variant="primary" if skin == self.skin else "secondary",
+                    size="sm",
+                )
+                for skin in SKINS
+            ),
+            label="Skin",
         )
-        skins = fragment(
-            t'<a href="{self.href(self.path, skin=skin)}">{skin}</a> ' for skin in SKINS
-        )
-        chrome = stack(
+        header = row(
             [
-                t'<nav aria-label="Gallery">{sections}</nav>',
-                t"<p>Theme: {themes} {badge(self.theme)}</p>",
-                t"<p>Skin: {skins} {badge(self.skin)}</p>",
+                t"<strong>Tori UI</strong>",
+                spacer(),
+                skins,
+                theme_toggle(id="gallery-theme"),
             ],
-            gap="xs",
+            gap="sm",
+            wrap=False,
         )
-        return t"<main>{chrome}<h1>{self.heading}</h1>{content}</main>"
+        body = container(
+            stack(
+                [
+                    page_header(
+                        self.heading, eyebrow="Gallery", description=self.summary
+                    ),
+                    content,
+                ],
+                gap="lg",
+            )
+        )
+        return app_shell(
+            body,
+            id="gallery",
+            header=header,
+            sidebar=pages,
+            sidebar_label="Gallery pages",
+        )

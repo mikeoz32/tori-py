@@ -5,9 +5,10 @@ LiveView UI separates two choices:
 - the color theme: `auto`, `light`, or `dark` palette values;
 - the visual skin: geometry, density, typography, borders, and shadows.
 
-Both are attributes on the `<html>` element and are fixed for the lifetime of a
-loaded document. Connected renders patch the live root, not `<html>`, so a new
-theme or skin takes effect on the next full page load.
+Both are attributes on the `<html>` element. Connected renders patch the live
+root, not `<html>`, so a theme or skin the server chooses takes effect on the
+next full page load. The visitor can still switch the theme at any time with a
+[theme toggle](#letting-the-visitor-choose), which works in the browser.
 
 ## Choosing a Theme and Skin
 
@@ -59,6 +60,29 @@ class SettingsLive(UiLiveView):
 
 A WebSocket event cannot set a cookie. To change the preference, submit it to an
 HTTP endpoint of your own that stores it and redirects back to the page.
+
+## Letting the Visitor Choose
+
+`theme_toggle()` renders three buttons for the system, light, and dark themes:
+
+```python
+from tori_py_liveview_ui import theme_toggle
+
+toggle = theme_toggle(id="theme")
+```
+
+The choice never reaches your page:
+
+- The bundled script sets `data-tori-ui-theme` on `<html>` at once and stores
+  the choice in the browser's `localStorage` under `tori-ui-theme`.
+- On every later `UiLiveView` document it applies the stored choice before the
+  body is parsed, so the page does not flash in the other theme.
+- A stored choice wins over `ui_theme()`. Without one, the document keeps the
+  theme the server rendered.
+
+Use `ui_theme()` alone when the application decides, and add the toggle when the
+visitor should. A preference you need on the server, for example in an email,
+belongs in your own storage.
 
 ## Bundled Skins
 
@@ -144,12 +168,14 @@ of the skin selector, for example `[data-tori-ui-theme="dark"]`.
 
 ## Pages Without `UiLiveView`
 
-A page with its own document can use the stylesheet directly. Add
-`stylesheet_link()` to the head and set both attributes on `<html>`:
+A page with its own document can use the assets directly. Add
+`stylesheet_link()` and `script_tag()` to the head, set both attributes on
+`<html>`, and give `<body>` the `tori-ui-document` class for the theme's page
+background and text color:
 
 ```python
 from tori_py_liveview import LiveView
-from tori_py_liveview_ui import stylesheet_link
+from tori_py_liveview_ui import script_tag, stylesheet_link
 
 
 class PlainLive(LiveView):
@@ -157,14 +183,19 @@ class PlainLive(LiveView):
         return (
             '<!doctype html><html data-tori-ui-theme="auto" '
             'data-tori-ui-skin="editorial"><head><meta charset="utf-8">'
-            f"{stylesheet_link().value}</head>"
-            f"<body>{live_root}{client_script}</body></html>"
+            f"{stylesheet_link().value}{script_tag().value}</head>"
+            f'<body class="tori-ui-document">{live_root}{client_script}</body>'
+            "</html>"
         )
 ```
 
-`STYLESHEET_PATH` is the content-addressed URL of the bundled CSS if you need it
-elsewhere, for example in a `Link` preload header. `LiveViewUiModule` must still
-be imported so that the path is served.
+Keep `script_tag()` in the head and do not add `defer` or `async` to it. Leave
+it out only if the page uses no helper that needs a hook, a copy button, a
+confirmation, or the theme toggle.
+
+`STYLESHEET_PATH` and `SCRIPT_PATH` are the content-addressed URLs of the
+bundled files if you need them elsewhere, for example in a `Link` preload
+header. `LiveViewUiModule` must still be imported so that the paths are served.
 
 ## Token Reference
 
@@ -172,7 +203,7 @@ All public custom properties start with `--tori-ui-`.
 
 | Group | Tokens |
 | --- | --- |
-| Palette (theme) | `paper`, `panel`, `panel-raised`, `ink`, `muted`, `line`, `line-strong`, `accent`, `accent-ink`, `danger`, `info`, `success`, `warning`, `shadow-color` |
+| Palette (theme) | `paper`, `panel`, `panel-raised`, `ink`, `muted`, `line`, `line-strong`, `accent`, `accent-ink`, `danger`, `info`, `success`, `warning`, `shadow-color`, `scrim` |
 | Spacing | `space-xs`, `space-sm`, `space-md`, `space-lg`, `space-xl`, `form-gap`, `field-gap`, `checkbox-gap`, `grid-min` |
 | Radii | `radius-control`, `radius-surface`, `radius-surface-inner`, `radius-pill`, `field-control-radius` |
 | Controls | `control-height-sm`, `control-height-md`, `control-height-lg`, `field-control-height`, `control-padding-block`, `control-padding-inline`, `field-control-padding-block`, `field-control-padding-inline`, `button-padding-sm`, `button-padding-lg`, `checkbox-size` |
@@ -181,9 +212,13 @@ All public custom properties start with `--tori-ui-`.
 | Typography | `font-display`, `font-body`, `font-code`, `control-font-weight`, `control-letter-spacing`, `control-text-transform`, `label-font-weight`, `label-letter-spacing`, `label-text-transform` |
 | Shadows | `shadow-x`, `shadow-y`, `shadow-blur`, `shadow-spread`, `shadow` |
 | Focus and states | `focus-width`, `focus-offset`, `field-focus-offset`, `disabled-opacity`, `field-disabled-opacity`, `hover-translate` |
+| Application shell | `sidebar-width`, `aside-width` |
+| Stacking order | `layer-raised`, `layer-drawer`, `layer-overlay`, `layer-toast` |
 
 `shadow` is composed from the other shadow tokens, so override the parts.
 `radius-surface-inner` is derived from `radius-surface` and `border-width`.
+The application shell and stacking order tokens are the same in every skin;
+override them on `:root` or on your own skin selector.
 
 ## Accessibility and Motion
 

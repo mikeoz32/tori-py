@@ -3,9 +3,10 @@
 ## Status
 
 Foundation slice (LVUI0), initial family acceptance (LVUI1), forms slice
-(LVUI2), skinning slice (LVUI3), and the component library foundation (LVUI4)
-are complete. LVUI5 through LVUI11 grow the package into a full component
-library, one family group per slice.
+(LVUI2), skinning slice (LVUI3), the component library foundation (LVUI4), and
+the layout, content, icon, and action families (LVUI5) are complete. LVUI6
+through LVUI11 continue growing the package into a full component library, one
+family group per slice.
 
 Architecture:
 [`TORI_PY_LIVEVIEW_UI_ARCHITECTURE.md`](TORI_PY_LIVEVIEW_UI_ARCHITECTURE.md).
@@ -76,18 +77,20 @@ Architecture:
 - [x] Add the component gallery example that later slices extend and exercise
   through the official Phoenix browser client.
 
-## LVUI5: Layout, Content, Icons, and Actions
+## LVUI5: Layout, Content, Icons, and Actions - Complete
 
-- [ ] Layout: `row`, `container`, `center`, `divider`, `spacer`, `section`,
+- [x] Layout: `row`, `container`, `center`, `divider`, `spacer`, `section`,
   `page_header`, `toolbar`, `split`, `scroll_area`, and `app_shell`.
-- [ ] Content: `heading`, `text`, `link`, `code`, `code_block`, `kbd`,
+- [x] Content: `heading`, `text`, `link`, `code`, `code_block`, `kbd`,
   `blockquote`, `prose`, `item_list`, `description_list`, `image`, and `icon`
   with a closed set of bundled inline SVG icons.
-- [ ] Actions: `icon_button`, `link_button`, `button_group`, and `theme_toggle`;
-  `button` gains an icon, a loading state, `phx-disable-with`, and
-  `data-confirm`.
-- [ ] Copy text to the clipboard from `code_block` through a `JS` dispatch and
-  one listener in the script.
+- [x] Actions: `icon_button`, `link_button`, `button_group`, `copy_button`, and
+  `theme_toggle`; `button` gains icons, event values, a loading state,
+  `phx-disable-with`, a native confirmation, and full width.
+- [x] Copy text to the clipboard from `copy_button` and `code_block` through a
+  `JS` dispatch and one listener in the script.
+- [x] Keep the helpers and the stylesheet in agreement on class names through
+  the test suite.
 
 ## LVUI6: Data Display, Feedback, and Disclosure
 

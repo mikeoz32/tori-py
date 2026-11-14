@@ -61,10 +61,28 @@ remote code and holds no application state.
 
 ## Components
 
-Display and layout:
+The helpers are grouped in families:
+
+- Layout: `app_shell`, `card`, `center`, `container`, `divider`, `grid`,
+  `page_header`, `row`, `scroll_area`, `section`, `spacer`, `split`, `stack`,
+  and `toolbar`.
+- Content: `blockquote`, `code`, `code_block`, `description_list`, `heading`,
+  `image`, `item_list`, `kbd`, `link`, `prose`, `text`, and `icon` with a closed
+  set of bundled inline SVG icons.
+- Actions: `button`, `button_group`, `copy_button`, `icon_button`,
+  `link_button`, and `theme_toggle`.
+- Display and feedback: `badge` and `alert`.
+- Forms: `form`, `field`, `field_error`, `input`, `textarea`, `select`, and
+  `checkbox`.
+
+The gallery in `examples/tori_py/liveview_ui_gallery` shows every helper in each
+theme and skin.
+
+Foundation helpers:
 
 - `button`: primary, secondary, ghost, and danger variants; small, medium, and
-  large sizes; optional Phoenix `phx-click` event and component `phx-target`.
+  large sizes; optional Phoenix `phx-click` event and component `phx-target`;
+  icons, event values, loading state, and a native confirmation.
 - `badge`: neutral, info, success, warning, and danger tones.
 - `alert`: accessible status or danger alert with an optional title.
 - `card`: optional eyebrow, heading, and footer regions.

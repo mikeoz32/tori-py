@@ -1,4 +1,4 @@
-"""The gallery's first page: the foundation helpers."""
+"""The gallery's first page: the foundation helpers on one screen."""
 
 from __future__ import annotations
 
@@ -9,26 +9,28 @@ from tori_py_liveview_ui import (
     alert,
     badge,
     button,
-    card,
     checkbox,
     form,
     grid,
     input,
+    row,
     select,
     stack,
+    text,
     textarea,
 )
 
-from examples.tori_py.liveview_ui_gallery.shell import GalleryPage
+from examples.tori_py.liveview_ui_gallery.shell import GalleryPage, demo
 
 
 @live_view("/")
 class OverviewLive(GalleryPage):
     heading = "Overview"
+    summary = "Stateless helpers, one stylesheet, and a few Phoenix hooks."
+    path = "/"
 
     def __init__(self) -> None:
         super().__init__()
-        self.path = "/"
         self.clicks = 0
 
     async def handle_event(self, event: str, value: object) -> None:
@@ -39,17 +41,26 @@ class OverviewLive(GalleryPage):
     def render(self) -> Template:
         buttons = stack(
             [
-                button("Primary", event="click"),
-                button("Secondary", variant="secondary", event="click"),
-                button("Ghost", variant="ghost", event="click"),
-                button("Danger", variant="danger", event="click"),
-                button("Disabled", disabled=True),
-                t'<output id="clicks">{self.clicks}</output>',
-            ],
-            gap="sm",
-            align="start",
+                row(
+                    [
+                        button("Primary", event="click"),
+                        button("Secondary", variant="secondary", event="click"),
+                        button("Ghost", variant="ghost", event="click"),
+                        button("Danger", variant="danger", event="click"),
+                        button("Disabled", disabled=True),
+                    ],
+                    gap="sm",
+                ),
+                text(t'Clicks: <output id="clicks">{self.clicks}</output>'),
+                text(
+                    t'Mounted at <span id="clock" phx-hook="GalleryClock" '
+                    t'phx-update="ignore"></span> by an application hook.',
+                    size="sm",
+                    muted=True,
+                ),
+            ]
         )
-        badges = stack(
+        badges = row(
             [
                 badge("Neutral"),
                 badge("Info", tone="info"),
@@ -58,7 +69,6 @@ class OverviewLive(GalleryPage):
                 badge("Danger", tone="danger"),
             ],
             gap="xs",
-            align="start",
         )
         alerts = stack(
             [
@@ -80,7 +90,7 @@ class OverviewLive(GalleryPage):
                     ),
                     textarea("About", id="about", name="profile[about]", rows=3),
                     checkbox("Subscribe", id="subscribe", name="profile[subscribe]"),
-                    button("Save", button_type="submit"),
+                    row([button("Save", button_type="submit")]),
                 ]
             ),
             id="profile-form",
@@ -88,10 +98,10 @@ class OverviewLive(GalleryPage):
         return self.page(
             grid(
                 [
-                    card(buttons, eyebrow="Actions", title="Buttons"),
-                    card(badges, eyebrow="Display", title="Badges"),
-                    card(alerts, eyebrow="Feedback", title="Alerts"),
-                    card(fields, eyebrow="Forms", title="Form controls"),
+                    demo("Buttons", buttons),
+                    demo("Badges", badges),
+                    demo("Alerts", alerts),
+                    demo("Form controls", fields),
                 ],
                 columns="2",
                 gap="lg",
