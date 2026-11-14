@@ -9,8 +9,8 @@ display, feedback, and disclosure (LVUI6), chat and AI (LVUI7), extended forms
 (LVUI8), navigation (LVUI9), and overlays (LVUI10), and the acceptance of the
 whole library (LVUI11). The theme framework is in progress: its contract is
 recorded (LVUI12), the mode and theme vocabulary (LVUI13), the definitions
-(LVUI14), the bundled definitions (LVUI15), and application definitions
-(LVUI16) are complete, and LVUI17 to LVUI19 remain.
+(LVUI14), the bundled definitions (LVUI15), application definitions (LVUI16),
+and derivation (LVUI17) are complete, and LVUI18 and LVUI19 remain.
 
 Architecture:
 [`TORI_PY_LIVEVIEW_UI_ARCHITECTURE.md`](TORI_PY_LIVEVIEW_UI_ARCHITECTURE.md).
@@ -199,9 +199,9 @@ Architecture:
   content-addressed stylesheet per definition, and `UiLiveView` links those a
   page returns from `ui_theme()`, `ui_skin()`, and `ui_extra_definitions()`.
 
-## LVUI17: Derivation
+## LVUI17: Derivation - Complete
 
-- [ ] `Theme.from_seeds()` in OKLCH at a standard and a high contrast level,
+- [x] `Theme.from_seeds()` in OKLCH at a standard and a high contrast level,
   and the bundled slate and contrast themes derived with it.
 
 ## LVUI18: Scoped Looks and Acceptance

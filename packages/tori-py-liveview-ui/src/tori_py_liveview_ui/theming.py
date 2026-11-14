@@ -21,6 +21,7 @@ from tori_py_liveview_ui import _color
 
 type ColorMode = Literal["light", "dark"]
 type TextCase = Literal["none", "uppercase", "lowercase", "capitalize"]
+type ContrastLevel = Literal["standard", "high"]
 
 _ASSET_PREFIX = "/_tori/liveview-ui/"
 _NAME = re.compile(r"[a-z][a-z0-9-]{0,63}")
@@ -260,6 +261,8 @@ class Theme:
     allow_low_contrast: bool = False
 
     PAPER: ClassVar[Theme]
+    SLATE: ClassVar[Theme]
+    CONTRAST: ClassVar[Theme]
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "name", _definition_name("theme", self.name))
@@ -272,6 +275,52 @@ class Theme:
             failures = tuple(check for check in self.report() if not check.passes)
             if failures:
                 raise ThemeContrastError(self.name, failures)
+
+    @classmethod
+    def from_seeds(
+        cls,
+        name: str,
+        /,
+        *,
+        accent: str,
+        neutral: str | None = None,
+        contrast: ContrastLevel = "standard",
+        allow_low_contrast: bool = False,
+    ) -> Theme:
+        """Derive both palettes from an accent color and a neutral color.
+
+        The hue and chroma of ``accent`` color the accent; the hue of
+        ``neutral`` tints the surfaces, the text, and the lines, and defaults
+        to a faint tint of the accent. Lightness is chosen in OKLCH, and every
+        derived color is moved until it reaches the contrast the stylesheet
+        needs: WCAG AA for ``standard`` and AAA for ``high``.
+        """
+        accent_color = _color.rgb(_color.normalize("theme accent", accent, opaque=True))
+        accent_lightness, accent_chroma, accent_hue = _color.to_oklch(accent_color)
+        if neutral is None:
+            neutral_chroma, neutral_hue = 0.012, accent_hue
+        else:
+            neutral_color = _color.rgb(
+                _color.normalize("theme neutral", neutral, opaque=True)
+            )
+            _, neutral_chroma, neutral_hue = _color.to_oklch(neutral_color)
+            neutral_chroma = min(neutral_chroma, 0.03)
+        if contrast not in _SEED_LEVELS:
+            raise ValueError("theme contrast must be one of: standard, high")
+        seeds = _Seeds(
+            accent_lightness,
+            accent_chroma,
+            accent_hue,
+            neutral_chroma,
+            neutral_hue,
+            contrast,
+        )
+        return cls(
+            name,
+            light=_derived_palette("light", seeds),
+            dark=_derived_palette("dark", seeds),
+            allow_low_contrast=allow_low_contrast,
+        )
 
     def report(self) -> tuple[ContrastCheck, ...]:
         """Return every contrast requirement with the ratio this theme reaches."""
@@ -337,6 +386,172 @@ def _contrast_checks(mode: ColorMode, palette: Palette) -> list[ContrastCheck]:
             check(tone, surface, _AA_GRAPHICS)
             check(tone, surface, _AA_TEXT, color=text, label=f"{tone} text")
     return checks
+
+
+# ------------------------------------------------------------- Derivation
+
+
+@dataclass(frozen=True, slots=True)
+class _Seeds:
+    accent_lightness: float
+    accent_chroma: float
+    accent_hue: float
+    neutral_chroma: float
+    neutral_hue: float
+    level: ContrastLevel
+
+
+@dataclass(frozen=True, slots=True)
+class _Levels:
+    """OKLCH lightness of each derived color before it is moved for contrast."""
+
+    paper: float
+    panel: float
+    panel_raised: float
+    ink: float
+    muted: float
+    line: float
+    line_strong: float
+    tone: float
+    ink_light: float
+    ink_dark: float
+    shadow_alpha: float
+    scrim_alpha: float
+    surface_chroma: float
+
+
+_SEED_LEVELS: dict[str, dict[ColorMode, _Levels]] = {
+    "standard": {
+        "light": _Levels(
+            0.965, 0.995, 0.985, 0.22, 0.52, 0.86, 0.32, 0.6, 0.99, 0.18, 0.16, 0.5, 0.4
+        ),
+        "dark": _Levels(
+            0.2, 0.245, 0.29, 0.94, 0.74, 0.38, 0.88, 0.72, 0.99, 0.18, 0.42, 0.62, 0.7
+        ),
+    },
+    "high": {
+        "light": _Levels(
+            1.0, 1.0, 0.965, 0.0, 0.4, 0.5, 0.0, 0.5, 1.0, 0.0, 0.24, 0.6, 0.0
+        ),
+        "dark": _Levels(
+            0.0, 0.14, 0.2, 1.0, 0.84, 0.62, 1.0, 0.8, 1.0, 0.0, 0.6, 0.72, 0.0
+        ),
+    },
+}
+# The required ratios for text and for graphics at each contrast level.
+_SEED_RATIOS = {"standard": (_AA_TEXT, _AA_GRAPHICS), "high": (7.0, _AA_TEXT)}
+# OKLCH hue and chroma of the four tones.
+_TONE_SEEDS = {
+    "danger": (27.0, 0.17),
+    "info": (238.0, 0.12),
+    "success": (152.0, 0.13),
+    "warning": (75.0, 0.13),
+}
+
+
+def _snap(color: _color.Rgb) -> _color.Rgb:
+    """Return the color as its eight-bit hex value stores it."""
+    return _color.rgb(_color.to_hex(color))
+
+
+def _solve(
+    hue: float,
+    chroma: float,
+    start: float,
+    step: float,
+    accept: Callable[[_color.Rgb], bool],
+) -> _color.Rgb:
+    """Move the lightness from ``start`` by ``step`` until a color is accepted."""
+    lightness = start
+    color = _snap(_color.from_oklch(lightness, chroma, hue))
+    while not accept(color) and 0.0 < lightness < 1.0:
+        lightness = min(1.0, max(0.0, lightness + step))
+        color = _snap(_color.from_oklch(lightness, chroma, hue))
+    return color
+
+
+def _derived_palette(mode: ColorMode, seeds: _Seeds) -> Palette:
+    levels = _SEED_LEVELS[seeds.level][mode]
+    text_ratio, graphics_ratio = _SEED_RATIOS[seeds.level]
+    # More contrast with the surfaces: darker in the light mode, lighter in dark.
+    step = -0.01 if mode == "light" else 0.01
+    # The high level uses pure black, white, and grays.
+    tint = 0.0 if seeds.level == "high" else seeds.neutral_chroma
+
+    def neutral(lightness: float, share: float = 1.0) -> _color.Rgb:
+        return _snap(_color.from_oklch(lightness, tint * share, seeds.neutral_hue))
+
+    # Surfaces carry less of the tint than the text and the lines.
+    paper = neutral(levels.paper, levels.surface_chroma)
+    panel = neutral(levels.panel, levels.surface_chroma)
+    panel_raised = neutral(levels.panel_raised, levels.surface_chroma)
+    ink = neutral(levels.ink)
+    surfaces = (paper, panel, panel_raised)
+    label_inks = (neutral(levels.ink_light), neutral(levels.ink_dark))
+
+    def readable(color: _color.Rgb) -> bool:
+        return all(
+            _color.contrast(color, surface) >= text_ratio for surface in surfaces
+        )
+
+    def toned(color: _color.Rgb) -> bool:
+        text = _color.mix(color, ink, _TONE_TEXT_SHARE)
+        return all(
+            _color.contrast(color, surface) >= graphics_ratio
+            and _color.contrast(text, surface) >= text_ratio
+            for surface in (paper, panel)
+        )
+
+    def labelled(color: _color.Rgb) -> bool:
+        return any(_color.contrast(label, color) >= text_ratio for label in label_inks)
+
+    chroma_share = 1.0 if mode == "light" else 0.85
+    # The accent starts from the seed's own lightness where that is usable.
+    accent_start = (
+        min(seeds.accent_lightness, levels.tone + 0.02)
+        if mode == "light"
+        else max(seeds.accent_lightness, levels.tone)
+    )
+    accent = _solve(
+        seeds.accent_hue,
+        seeds.accent_chroma * chroma_share,
+        accent_start,
+        step,
+        lambda color: toned(color) and labelled(color),
+    )
+    accent_ink = max(label_inks, key=lambda label: _color.contrast(label, accent))
+    tones = {
+        tone: _solve(
+            hue,
+            chroma * chroma_share,
+            levels.tone,
+            step,
+            # The label of a danger button is the panel color.
+            (lambda color: toned(color) and _color.contrast(panel, color) >= text_ratio)
+            if tone == "danger"
+            else toned,
+        )
+        for tone, (hue, chroma) in _TONE_SEEDS.items()
+    }
+    return Palette(
+        paper=_color.to_hex(paper),
+        panel=_color.to_hex(panel),
+        panel_raised=_color.to_hex(panel_raised),
+        ink=_color.to_hex(ink),
+        muted=_color.to_hex(
+            _solve(seeds.neutral_hue, tint, levels.muted, step, readable)
+        ),
+        line=_color.to_hex(neutral(levels.line)),
+        line_strong=_color.to_hex(neutral(levels.line_strong)),
+        accent=_color.to_hex(accent),
+        accent_ink=_color.to_hex(accent_ink),
+        danger=_color.to_hex(tones["danger"]),
+        info=_color.to_hex(tones["info"]),
+        success=_color.to_hex(tones["success"]),
+        warning=_color.to_hex(tones["warning"]),
+        shadow_color=_color.with_alpha(neutral(levels.ink_dark), levels.shadow_alpha),
+        scrim=_color.with_alpha(neutral(levels.ink_dark * 0.8), levels.scrim_alpha),
+    )
 
 
 # ------------------------------------------------------------------- Skins
@@ -556,6 +771,9 @@ Theme.PAPER = Theme(
     ),
 )
 
+Theme.SLATE = Theme.from_seeds("slate", accent="#2563eb", neutral="#64748b")
+Theme.CONTRAST = Theme.from_seeds("contrast", accent="#0050d8", contrast="high")
+
 Skin.EDITORIAL = Skin(
     "editorial",
     space_xs="0.25rem",
@@ -721,7 +939,7 @@ Skin.ROUNDED = Skin.EDITORIAL.derive(
     hover_translate="-1px",
 )
 
-_BUNDLED_THEMES: tuple[Theme, ...] = (Theme.PAPER,)
+_BUNDLED_THEMES: tuple[Theme, ...] = (Theme.PAPER, Theme.SLATE, Theme.CONTRAST)
 _BUNDLED_SKINS: tuple[Skin, ...] = (Skin.EDITORIAL, Skin.MINIMAL, Skin.ROUNDED)
 _MODE_SCHEMES = (("light", "light"), ("dark", "dark"), ("auto", "light dark"))
 
