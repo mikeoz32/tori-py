@@ -349,3 +349,29 @@ def test_generated_css_is_one_rule_of_prefixed_declarations(css: str) -> None:
         assert line.count(";") == 1
     for forbidden in ("@", "url(", "/*", "<", "\\"):
         assert forbidden not in css
+
+
+# ----------------------------------------------------- Bundled definitions
+
+
+@pytest.mark.parametrize("theme", theming._BUNDLED_THEMES)
+def test_bundled_themes_meet_every_contrast_requirement(theme: Theme) -> None:
+    assert not theme.allow_low_contrast
+    assert all(check.passes for check in theme.report())
+
+
+def test_bundled_css_makes_the_first_theme_and_skin_the_defaults() -> None:
+    css = theming._bundled_css()
+
+    assert css.startswith("/* Tokens generated from the bundled theme and skin")
+    # A document without attributes gets the paper theme and editorial skin.
+    assert ':root,\n[data-tori-ui-theme="paper"] {\n' in css
+    assert ':root,\n[data-tori-ui-skin="editorial"] {\n' in css
+    for mode, scheme in (("light", "light"), ("dark", "dark"), ("auto", "light dark")):
+        rule = f'[data-tori-ui-mode="{mode}"] {{\n  color-scheme: {scheme};\n}}\n'
+        assert rule in css
+    # Every other bundled definition is its own complete rule.
+    assert Skin.MINIMAL.css() in css
+    assert Skin.ROUNDED.css() in css
+    assert "prefers-color-scheme" not in css
+    assert css.count("{") == css.count("}") == 1 + 3 + 3

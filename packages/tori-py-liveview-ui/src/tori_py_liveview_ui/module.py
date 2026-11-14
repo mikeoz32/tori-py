@@ -8,8 +8,14 @@ from typing import Literal
 from tori_py import DeferredModule, HttpResponse, ModuleSpec, controller, get
 from tori_py_liveview import LiveView, SafeHtml, raw
 
+from tori_py_liveview_ui.theming import _bundled_css
+
 _STATIC = files("tori_py_liveview_ui").joinpath("static")
-_STYLESHEET = _STATIC.joinpath("tori_liveview_ui.css").read_bytes()
+# The stylesheet is the generated token rules of the bundled definitions
+# followed by the component rules, with one line ending on every platform.
+_STYLESHEET = _bundled_css().encode("utf-8") + (
+    _STATIC.joinpath("tori_liveview_ui.css").read_bytes().replace(b"\r\n", b"\n")
+)
 _STYLESHEET_DIGEST = hashlib.sha256(_STYLESHEET).hexdigest()
 STYLESHEET_PATH = f"/_tori/liveview-ui/{_STYLESHEET_DIGEST[:12]}.css"
 _STYLESHEET_HEADERS = {

@@ -699,6 +699,36 @@ Skin.ROUNDED = Skin.EDITORIAL.derive(
     hover_translate="-1px",
 )
 
+_BUNDLED_THEMES: tuple[Theme, ...] = (Theme.PAPER,)
+_BUNDLED_SKINS: tuple[Skin, ...] = (Skin.EDITORIAL, Skin.MINIMAL, Skin.ROUNDED)
+_MODE_SCHEMES = (("light", "light"), ("dark", "dark"), ("auto", "light dark"))
+
+
+def _bundled_css() -> str:
+    """Return the token rules of the bundled definitions.
+
+    The first theme and the first skin are also the defaults of a document
+    that sets no attribute.
+    """
+    default_theme, *themes = _BUNDLED_THEMES
+    default_skin, *skins = _BUNDLED_SKINS
+    modes = "\n".join(
+        f'[data-tori-ui-mode="{mode}"] {{\n  color-scheme: {scheme};\n}}\n'
+        for mode, scheme in _MODE_SCHEMES
+    )
+    rules = [
+        "/* Tokens generated from the bundled theme and skin definitions. */\n",
+        _theme_rule(
+            f':root,\n[data-tori-ui-theme="{default_theme.name}"]', default_theme
+        ),
+        *(theme.css() for theme in themes),
+        "/* The mode picks the palette: light-dark() follows color-scheme. */\n"
+        + modes,
+        _skin_rule(f':root,\n[data-tori-ui-skin="{default_skin.name}"]', default_skin),
+        *(skin.css() for skin in skins),
+    ]
+    return "\n".join(rules) + "\n"
+
 
 __all__ = [
     "ContrastCheck",

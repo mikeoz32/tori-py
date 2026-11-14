@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import re
-from importlib.resources import files
 
 import pytest
+from tori_py_liveview_ui import module
 
 _AA_TEXT = 4.5
 _AA_GRAPHICS = 3.0
@@ -13,11 +13,7 @@ _TONES = ("info", "success", "warning", "danger")
 
 
 def _stylesheet() -> str:
-    return (
-        files("tori_py_liveview_ui")
-        .joinpath("static", "tori_liveview_ui.css")
-        .read_text(encoding="utf-8")
-    )
+    return module._STYLESHEET.decode("utf-8")
 
 
 def _palette(mode: str) -> dict[str, tuple[float, float, float]]:

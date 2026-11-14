@@ -8,7 +8,9 @@ Every slice is complete: the foundation (LVUI0), initial family acceptance
 display, feedback, and disclosure (LVUI6), chat and AI (LVUI7), extended forms
 (LVUI8), navigation (LVUI9), and overlays (LVUI10), and the acceptance of the
 whole library (LVUI11). The theme framework is in progress: its contract is
-recorded (LVUI12), and LVUI13 to LVUI19 implement it.
+recorded (LVUI12), the mode and theme vocabulary (LVUI13), the definitions
+(LVUI14), and the bundled definitions (LVUI15) are complete, and LVUI16 to
+LVUI19 remain.
 
 Architecture:
 [`TORI_PY_LIVEVIEW_UI_ARCHITECTURE.md`](TORI_PY_LIVEVIEW_UI_ARCHITECTURE.md).
@@ -173,21 +175,21 @@ Architecture:
   architecture, and change the repository rule that kept application skins
   CSS-only.
 
-## LVUI13: Mode and Theme Vocabulary
+## LVUI13: Mode and Theme Vocabulary - Complete
 
-- [ ] Move the color mode to `data-tori-ui-mode`, `ui_mode()`, and
+- [x] Move the color mode to `data-tori-ui-mode`, `ui_mode()`, and
   `mode_toggle`, so that `data-tori-ui-theme` and `ui_theme()` name a theme.
 
-## LVUI14: Definitions and Generated CSS
+## LVUI14: Definitions and Generated CSS - Complete
 
-- [ ] `Palette`, `Theme`, and `Skin` with a validated value kind for every
+- [x] `Palette`, `Theme`, and `Skin` with a validated value kind for every
   field, `derive()`, and `css()`.
-- [ ] Contrast checks when a theme is built, `ThemeContrastError`,
+- [x] Contrast checks when a theme is built, `ThemeContrastError`,
   `allow_low_contrast`, and `Theme.report()`.
 
-## LVUI15: Bundled Definitions
+## LVUI15: Bundled Definitions - Complete
 
-- [ ] Define the paper theme and the editorial, minimal, and rounded skins with
+- [x] Define the paper theme and the editorial, minimal, and rounded skins with
   the framework and assemble the package stylesheet from their generated rules
   and the component rules.
 
