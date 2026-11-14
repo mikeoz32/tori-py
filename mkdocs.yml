@@ -123,6 +123,15 @@ nav:
           - Testing: techniques/liveview/testing.md
       - LiveView UI:
           - Overview: techniques/liveview-ui/index.md
+          - Layout: techniques/liveview-ui/layout.md
+          - Content and Icons: techniques/liveview-ui/content.md
+          - Actions: techniques/liveview-ui/actions.md
+          - Data Display: techniques/liveview-ui/display.md
+          - Feedback: techniques/liveview-ui/feedback.md
+          - Disclosure and Tabs: techniques/liveview-ui/disclosure.md
+          - Navigation: techniques/liveview-ui/navigation.md
+          - Overlays: techniques/liveview-ui/overlays.md
+          - Chat and AI: techniques/liveview-ui/chat.md
           - Forms: techniques/liveview-ui/forms.md
           - Themes and Skins: techniques/liveview-ui/theming.md
       - CQRS:

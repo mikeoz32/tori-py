@@ -18,6 +18,7 @@ from tori_py_liveview_ui import (
     badge,
     button,
     card,
+    container,
     form,
     grid,
     input,
@@ -220,7 +221,8 @@ class CounterLive(UiLiveView):
             ],
             gap="lg",
         )
-        return t"<main><h1>ToriPy LiveView UI</h1>{layout}</main>"
+        page = container(t"<h1>ToriPy LiveView UI</h1>{layout}")
+        return t"<main>{page}</main>"
 
     def title(self) -> str | None:
         return f"Counter: {self.count}" if self.show_title else None
