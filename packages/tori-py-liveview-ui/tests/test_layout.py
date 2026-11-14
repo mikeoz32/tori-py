@@ -170,7 +170,8 @@ def test_split_and_scroll_area_render_their_closed_options() -> None:
 def test_app_shell_without_regions_renders_only_the_main_landmark() -> None:
     assert _render(app_shell("content", id="app")) == (
         '<div id="app" class="tori-ui-app-shell">'
-        '<main class="tori-ui-app-shell__main">content</main></div>'
+        '<main id="app-main" class="tori-ui-app-shell__main" tabindex="-1">'
+        "content</main></div>"
     )
 
 
@@ -218,7 +219,10 @@ def test_app_shell_sidebar_is_opened_and_closed_by_js_commands() -> None:
         'aria-label="Sections">links</aside>'
     ) in result
     assert '<div class="tori-ui-app-shell__header-content">brand</div>' in result
-    assert '<main class="tori-ui-app-shell__main">content</main>' in result
+    assert (
+        '<main id="app-main" class="tori-ui-app-shell__main" tabindex="-1">content'
+        "</main>"
+    ) in result
     assert '<aside class="tori-ui-app-shell__aside">details</aside>' in result
     assert '<footer class="tori-ui-app-shell__footer">legal</footer>' in result
     # The scrim follows the sidebar and precedes the main landmark.

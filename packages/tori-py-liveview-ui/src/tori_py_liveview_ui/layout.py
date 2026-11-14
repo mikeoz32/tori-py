@@ -343,7 +343,8 @@ def app_shell(
 ) -> Template:
     """Fill the viewport with a header, a sidebar, and a scrolling main area.
 
-    The shell renders the page's main landmark. On narrow screens the sidebar
+    The shell renders the page's main landmark with the ID ``<id>-main``, the
+    target for a ``skip_link()``. On narrow screens the sidebar
     leaves the layout and a menu button in the header opens it over the
     content; the browser keeps that open state.
     """
@@ -408,7 +409,8 @@ def app_shell(
     )
     return (
         t"<div{attributes}>{header_markup}{sidebar_markup}"
-        t'<main class="tori-ui-app-shell__main">{content}</main>'
+        t'<main id="{id}-main" class="tori-ui-app-shell__main" tabindex="-1">'
+        t"{content}</main>"
         t"{aside_markup}{footer_markup}</div>"
     )
 

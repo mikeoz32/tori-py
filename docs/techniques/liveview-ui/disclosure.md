@@ -114,4 +114,5 @@ Both forms follow the tabs pattern: Tab moves into the list and on to the
 panel, the left and right arrow keys move between tabs and select the one they
 land on, and Home and End jump to the first and last tab.
 
-For tabs that are links to different pages, use navigation links instead.
+For tabs that are links to different pages, use
+[`tab_links`](navigation.md#tab-links) instead.

@@ -84,6 +84,8 @@ The helpers are grouped in families:
 - Feedback: `alert`, `banner`, `busy`, `connection_status`, `flash_group`,
   `skeleton`, `spinner`, `toast`, and `toast_region`.
 - Disclosure: `accordion`, `collapsible`, and `tabs`.
+- Navigation: `navbar`, `nav`, `nav_item`, `breadcrumbs`, `pagination`, `steps`,
+  `tab_links`, and `skip_link`.
 - Chat and AI: `chat`, `chat_log`, `chat_message`, `message_actions`,
   `composer`, `suggestions`, `chat_empty`, `typing_indicator`,
   `conversation_list`, `response_branch`, `reasoning`, `tool_call`,

@@ -358,7 +358,39 @@ identifier. With `highlight`, Pygments colors known languages through
 `tori-ui-hl-`-prefixed token classes that the stylesheet maps to theme colors;
 the `highlight` extra is reported when Pygments is missing.
 
-### 4.10 Forms
+### 4.10 Navigation
+
+| Helper | Closed values | Other documented inputs |
+| --- | --- | --- |
+| `skip_link` | - | fragment `href`, `label` |
+| `navbar` | - | `brand`, optional `items` and `actions`, `label` |
+| `nav` | orientations: `vertical`, `horizontal` | finite `items` iterable, required `label` |
+| `nav_item` | live: `patch`, `navigate`; icon: the bundled set | `label`, `href`, `replace`, `external`, `current`, optional `badge` |
+| `breadcrumbs` | live: `patch`, `navigate` | finite iterable of `(label, href)` pairs, `label` |
+| `pagination` | live: `patch`, `navigate` | `page` within `pages`, either an `href` pattern or an `event`, optional `target`, `siblings` from 0 through 5, labels |
+| `steps` | - | finite iterable of titles or `(title, description)` pairs, `current`, labels |
+| `tab_links` | live: `patch`, `navigate` | finite iterable of `(label, href)` pairs, required `current` and `label` |
+
+Every link follows the link contract of section 4.1. `nav`, `navbar`,
+`breadcrumbs`, `pagination`, and `tab_links` render `nav` landmarks named by
+their label, and mark the current page with `aria-current="page"`; the page
+decides which link that is. The last breadcrumb is always the current page and
+never a link. `tab_links` are links, not ARIA tabs.
+
+`pagination` shows the first and last page and `siblings` pages around the
+current one, an ellipsis for a longer gap, and the skipped page itself for a
+gap of one. With an `href` pattern containing `{page}` it renders links, and a
+previous or next step that would leave the range is plain text with
+`aria-disabled`. With an `event` it renders buttons that push the event with
+`phx-value-page`, disabled at the ends. It takes exactly one of the two.
+
+`steps` marks stages before `current` complete, the current one with
+`aria-current="step"`, and names completed stages for screen readers.
+`skip_link` is positioned off screen until focused and targets a fragment;
+`app_shell` gives its main area the ID `<id>-main` and makes it programmatically
+focusable for that purpose.
+
+### 4.11 Forms
 
 | Helper | Closed values | Other documented inputs |
 | --- | --- | --- |

@@ -14,11 +14,12 @@ from tori_py_liveview_ui import (
     connection_status,
     container,
     flash_group,
-    item_list,
-    link,
     link_button,
+    nav,
+    nav_item,
     page_header,
     row,
+    skip_link,
     spacer,
     stack,
     theme_toggle,
@@ -39,6 +40,7 @@ SECTIONS: list[tuple[str, str]] = [
     ("/feedback", "Feedback"),
     ("/disclosure", "Disclosure"),
     ("/forms", "Forms"),
+    ("/navigation", "Navigation"),
     ("/ai", "AI"),
     ("/chat", "Chat"),
 ]
@@ -113,12 +115,17 @@ class GalleryPage(UiLiveView):
 
     def frame(self, body: object) -> Template:
         """Put a body in the gallery's application shell."""
-        pages = item_list(
+        pages = nav(
             (
-                link(label, href=self.href(path), live="navigate")
+                nav_item(
+                    label,
+                    href=self.href(path),
+                    live="navigate",
+                    current=path == self.path,
+                )
                 for path, label in SECTIONS
             ),
-            marker="none",
+            label="Components",
         )
         # The skin is part of the document, so choosing one reloads the page.
         skins = button_group(
@@ -144,10 +151,11 @@ class GalleryPage(UiLiveView):
             wrap=False,
         )
         notices = t"{flash_group(self.flash, id='gallery-flash')}{connection_status()}"
-        return app_shell(
+        shell = app_shell(
             t"{body}{notices}",
             id="gallery",
             header=header,
             sidebar=pages,
             sidebar_label="Gallery pages",
         )
+        return t"{skip_link(href='#gallery-main')}{shell}"

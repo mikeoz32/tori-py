@@ -809,3 +809,85 @@ def test_search_is_debounced_and_filters_on_the_server(
 
     expect(page.locator("#matches")).to_have_text("Compiler")
     expect(field).to_have_value("comp")
+
+
+# -------------------------------------------------------------- Navigation
+
+
+def test_skip_link_moves_focus_to_the_main_area(page: Page, gallery_url: str) -> None:
+    page.set_viewport_size({"width": 1200, "height": 800})
+    _open(page, f"{gallery_url}/navigation")
+    skip = page.get_by_role("link", name="Skip to content")
+    # It is off screen until the keyboard reaches it.
+    expect(skip).not_to_be_in_viewport()
+
+    page.keyboard.press("Tab")
+    expect(skip).to_be_focused()
+    expect(skip).to_be_in_viewport()
+    page.keyboard.press("Enter")
+    expect(page.locator("#gallery-main")).to_be_focused()
+
+
+def test_sidebar_marks_the_current_page_across_live_navigation(
+    page: Page, gallery_url: str
+) -> None:
+    page.set_viewport_size({"width": 1200, "height": 800})
+    _open(page, f"{gallery_url}/navigation")
+    sidebar = page.get_by_role("navigation", name="Components")
+    expect(sidebar.get_by_role("link", name="Navigation")).to_have_attribute(
+        "aria-current", "page"
+    )
+
+    sidebar.get_by_role("link", name="Layout").click()
+    expect(page.get_by_role("heading", level=1)).to_have_text("Layout")
+    expect(sidebar.get_by_role("link", name="Layout")).to_have_attribute(
+        "aria-current", "page"
+    )
+    expect(sidebar.get_by_role("link", name="Navigation")).not_to_have_attribute(
+        "aria-current", "page"
+    )
+
+
+def test_pagination_and_steps_follow_page_state(page: Page, gallery_url: str) -> None:
+    _open(page, f"{gallery_url}/navigation")
+    pager = page.get_by_role("navigation", name="Pagination").first
+    shown = page.locator("#result-page")
+    expect(pager.get_by_role("button", name="Previous page")).to_be_disabled()
+    expect(pager.get_by_role("button", name="1", exact=True)).to_have_attribute(
+        "aria-current", "page"
+    )
+
+    pager.get_by_role("button", name="Next page").click()
+    expect(shown).to_have_text("2")
+    pager.get_by_role("button", name="12", exact=True).click()
+    expect(shown).to_have_text("12")
+    expect(pager.get_by_role("button", name="12", exact=True)).to_have_attribute(
+        "aria-current", "page"
+    )
+    expect(pager.get_by_role("button", name="Next page")).to_be_disabled()
+    expect(pager.get_by_role("button", name="11", exact=True)).to_be_visible()
+    expect(pager.get_by_role("button", name="5", exact=True)).to_have_count(0)
+
+    stages = page.get_by_role("list", name="Progress").get_by_role("listitem")
+    expect(stages.nth(1)).to_have_attribute("aria-current", "step")
+    expect(stages.nth(0)).to_contain_text("Completed:")
+    page.get_by_role("button", name="Continue").click()
+    expect(stages.nth(2)).to_have_attribute("aria-current", "step")
+    expect(stages.nth(1)).not_to_have_attribute("aria-current", "step")
+
+
+def test_breadcrumbs_and_tab_links_navigate_live(page: Page, gallery_url: str) -> None:
+    _open(page, f"{gallery_url}/navigation")
+    page.evaluate("window.__sameDocument = true")
+    trail = page.get_by_role("navigation", name="Breadcrumb")
+    expect(trail.get_by_text("Breadcrumbs", exact=True)).to_have_attribute(
+        "aria-current", "page"
+    )
+    related = page.get_by_role("navigation", name="Related pages")
+    expect(related.get_by_role("link", name="Navigation")).to_have_attribute(
+        "aria-current", "page"
+    )
+
+    related.get_by_role("link", name="Content").click()
+    expect(page.get_by_role("heading", level=1)).to_have_text("Content")
+    assert page.evaluate("window.__sameDocument") is True

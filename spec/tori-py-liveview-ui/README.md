@@ -33,7 +33,9 @@ architecture is maintained in
    `chat_empty`, `typing_indicator`, `conversation_list`, `response_branch`,
    `reasoning`, `tool_call`, `agent_steps`, `agent_step`, `sources`,
    `citation`, `attachment`, `token_usage`, `artifact_panel`), rich text
-   (`markdown`), and forms (`form`, `fieldset`, `form_actions`, `field`,
+   (`markdown`), navigation (`navbar`, `nav`, `nav_item`, `breadcrumbs`,
+   `pagination`, `steps`, `tab_links`, `skip_link`), and forms (`form`,
+   `fieldset`, `form_actions`, `field`,
    `field_error`, `input`, `textarea`, `select`, `multi_select`, `combobox`,
    `search`, `slider`, `checkbox`, `checkbox_group`, `radio_group`,
    `segmented`, `switch`, `hidden`).
@@ -132,7 +134,11 @@ architecture is maintained in
     multiple select submit a list under a name ending in `[]`. Native bounds,
     read-only state, and `phx-debounce` or `phx-throttle` are closed, validated
     options, and the page remains the authority on validity.
-28. The core package has no CDN, Node or Tailwind dependency, external font,
+28. Navigation helpers render labeled `nav` landmarks, mark the current page
+    with `aria-current`, and accept plain or live links. `pagination` takes
+    either an `href` pattern with `{page}` or an event. `skip_link` targets the
+    main area, which `app_shell` exposes as `<id>-main`.
+29. The core package has no CDN, Node or Tailwind dependency, external font,
     remote asset, global reset, domain validation/coercion system, arbitrary
     attributes/classes, client runtime, or application-state ownership.
     Optional features ship as extras, and the package contains no model client

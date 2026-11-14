@@ -5,8 +5,8 @@
 Foundation slice (LVUI0), initial family acceptance (LVUI1), forms slice
 (LVUI2), skinning slice (LVUI3), the component library foundation (LVUI4), and
 the layout, content, icon, action, display, feedback, disclosure, chat, and
-extended form families (LVUI5 through LVUI8) are complete. LVUI9 through LVUI11
-finish growing the package into a full component library.
+extended form and navigation families (LVUI5 through LVUI9) are complete.
+LVUI10 and LVUI11 finish growing the package into a full component library.
 
 Architecture:
 [`TORI_PY_LIVEVIEW_UI_ARCHITECTURE.md`](TORI_PY_LIVEVIEW_UI_ARCHITECTURE.md).
@@ -131,10 +131,12 @@ Architecture:
   value and length bounds; `input` gains a prefix and a suffix, which replace
   the separate `input_group` helper that was planned.
 
-## LVUI9: Navigation
+## LVUI9: Navigation - Complete
 
-- [ ] `navbar`, `nav`, `nav_item`, `breadcrumbs`, `pagination`, `steps`,
+- [x] `navbar`, `nav`, `nav_item`, `breadcrumbs`, `pagination`, `steps`,
   `tab_links`, and `skip_link`, with live patch and navigate links.
+- [x] `app_shell` gives its main area an ID and makes it focusable, as the
+  target of the skip link.
 
 ## LVUI10: Overlays
 

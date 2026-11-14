@@ -14,6 +14,7 @@ from examples.tori_py.liveview_ui_gallery.display import DisplayLive
 from examples.tori_py.liveview_ui_gallery.feedback import FeedbackLive
 from examples.tori_py.liveview_ui_gallery.forms import FormsLive
 from examples.tori_py.liveview_ui_gallery.layout import LayoutLive
+from examples.tori_py.liveview_ui_gallery.navigation import NavigationLive
 from examples.tori_py.liveview_ui_gallery.overview import OverviewLive
 
 _SAMPLE_IMAGE = (
@@ -43,6 +44,7 @@ liveview_module = LiveViewModule.for_root(
         FeedbackLive,
         DisclosureLive,
         FormsLive,
+        NavigationLive,
         AiLive,
         ChatLive,
     ],

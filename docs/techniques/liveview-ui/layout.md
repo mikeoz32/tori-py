@@ -127,6 +127,8 @@ the sidebar and the menu button; translate them with the rest of your interface.
 
 `id` is required, must start with a letter, and may contain letters, digits,
 `-`, and `_`, because the open and close commands select the shell by it. The
+main area gets the ID `<id>-main`, the target for a
+[`skip_link`](navigation.md#skip-link). The
 sidebar's width and the aside's width are the CSS custom properties
 `--tori-ui-sidebar-width` and `--tori-ui-aside-width`.
 

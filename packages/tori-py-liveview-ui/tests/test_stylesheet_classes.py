@@ -19,6 +19,7 @@ _UNSTYLED = {
     "tori-ui-divider__label",
     "tori-ui-image--auto",
     "tori-ui-list--number",
+    "tori-ui-nav__item",
     "tori-ui-page-header__heading",
     "tori-ui-page-header__navigation",
     "tori-ui-section__heading",

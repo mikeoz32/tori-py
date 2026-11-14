@@ -15,6 +15,7 @@ from tori_py_liveview_ui import (
     icons,
     layout,
     module,
+    navigation,
     rich_text,
 )
 
@@ -30,6 +31,7 @@ _FAMILIES = (
     icons,
     layout,
     module,
+    navigation,
     rich_text,
 )
 

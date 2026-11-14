@@ -113,6 +113,7 @@ panel = ui.card(ui.stack([ui.badge("New"), ui.text("Ready.")]), title="Status")
 | Display | `avatar`, `avatar_group`, `badge`, `empty_state`, `list_group`, `list_item`, `meter`, `progress`, `sparkline`, `stat`, `status_dot`, `table`, `table_row`, `tag`, `timeline`, `timeline_item`, `tooltip` | [Data Display](display.md) |
 | Feedback | `alert`, `banner`, `busy`, `connection_status`, `flash_group`, `skeleton`, `spinner`, `toast`, `toast_region` | [Feedback](feedback.md) |
 | Disclosure | `accordion`, `collapsible`, `tabs` | [Disclosure and Tabs](disclosure.md) |
+| Navigation | `breadcrumbs`, `nav`, `nav_item`, `navbar`, `pagination`, `skip_link`, `steps`, `tab_links` | [Navigation](navigation.md) |
 | Chat and AI | `agent_step`, `agent_steps`, `artifact_panel`, `attachment`, `chat`, `chat_empty`, `chat_log`, `chat_message`, `citation`, `composer`, `conversation_list`, `markdown`, `message_actions`, `reasoning`, `response_branch`, `sources`, `suggestions`, `token_usage`, `tool_call`, `typing_indicator` | [Chat and AI](chat.md) |
 | Forms | `checkbox`, `checkbox_group`, `combobox`, `field`, `field_error`, `fieldset`, `form`, `form_actions`, `hidden`, `input`, `multi_select`, `radio_group`, `search`, `segmented`, `select`, `slider`, `switch`, `textarea` | [Forms](forms.md) |
 
@@ -177,6 +178,7 @@ reset, so the helpers can sit next to your own styles.
 | Tables, lists, figures, avatars, tags, and progress | [Data Display](display.md) |
 | Alerts, toasts, flash messages, and loading states | [Feedback](feedback.md) |
 | Collapsible sections and tabs | [Disclosure and Tabs](disclosure.md) |
+| Link lists, breadcrumbs, pagination, steps, and the skip link | [Navigation](navigation.md) |
 | Conversations, streaming replies, model output, and Markdown | [Chat and AI](chat.md) |
 | Form controls, names, validation feedback, accessibility | [Forms](forms.md) |
 | Light and dark themes, bundled skins, custom skins, CSS tokens | [Themes and Skins](theming.md) |
