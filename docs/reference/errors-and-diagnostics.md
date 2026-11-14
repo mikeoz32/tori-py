@@ -202,7 +202,8 @@ must not be trusted as identity or copied into emergency diagnostics.
 ## Settings, SQLAlchemy, OpenAPI, and LiveView
 
 These integration errors inherit `ToriPyError`, so they expose the same
-diagnostic contract.
+diagnostic contract. The one exception is `ThemeContrastError`: like the other
+LiveView UI argument errors it is a plain `ValueError` without a code.
 
 | Exception | Base | Code | Raised when |
 | --- | --- | --- | --- |
@@ -218,6 +219,7 @@ diagnostic contract.
 | `tori_py_liveview.UnknownEventError` | `LiveViewError` | `liveview.unknown_event` | A page or component does not handle an event; the event is acknowledged without a render |
 | `tori_py_liveview.UnknownInfoError` | `LiveViewError` | `liveview.unknown_info` | A page does not handle a `send_info()` message; the socket closes with `1011` |
 | `tori_py_liveview.UnknownAsyncError` | `LiveViewError` | `liveview.unknown_async` | A page or component does not handle the result of its `start_async()` work; the socket closes with `1011` |
+| `tori_py_liveview_ui.ThemeContrastError` | `ValueError` | none | A `Theme` is built with colors that do not reach the contrast the stylesheet needs; `failures` lists each pair |
 
 The SQLAlchemy, OpenAPI, and LiveView configuration errors generally fail
 compilation or startup. Do not convert them into a

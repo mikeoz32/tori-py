@@ -86,6 +86,30 @@ Use `ui_mode()` alone when the application decides, and add the toggle when the
 visitor should. A preference you need on the server, for example in an email,
 belongs in your own storage.
 
+## Defining Themes and Skins
+
+Themes and skins are typed definitions. A `Theme` is a name and two `Palette`
+objects, one for the light and one for the dark mode. A `Skin` is a name and
+the shape tokens. `Palette.derive()` and `Skin.derive()` copy a definition with
+some values changed:
+
+```python
+from tori_py_liveview_ui import Skin, Theme
+
+ocean = Theme(
+    "ocean",
+    light=Theme.PAPER.light.derive(accent="#0b5cad", accent_ink="#ffffff"),
+    dark=Theme.PAPER.dark.derive(accent="#7cc4ff", accent_ink="#0b1b2b"),
+)
+compact = Skin.MINIMAL.derive("compact", radius_control="0.5rem")
+```
+
+Every value is validated when the object is built: colors are hex colors,
+sizes are lengths, and font stacks are tuples of family names, so a definition
+cannot carry free CSS. A theme whose text would not reach WCAG AA contrast
+raises `ThemeContrastError`, which names each failing pair. `Theme.report()`
+returns every requirement as a `ContrastCheck`.
+
 ## Bundled Skins
 
 | Skin | Character |
