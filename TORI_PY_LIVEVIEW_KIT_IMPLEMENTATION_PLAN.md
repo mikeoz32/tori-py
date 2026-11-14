@@ -3,8 +3,8 @@
 ## Status
 
 The governing documents (LVK0), the package skeleton (LVK1), the event and
-message model (LVK2), and the streaming runtime (LVK3) are complete. Every
-later slice is open.
+message model (LVK2), the streaming runtime (LVK3), and the chat page (LVK4)
+are complete. Every later slice is open.
 
 Architecture:
 [`TORI_PY_LIVEVIEW_KIT_ARCHITECTURE.md`](TORI_PY_LIVEVIEW_KIT_ARCHITECTURE.md).
@@ -43,15 +43,15 @@ Architecture:
   depend on the info queue.
 - [x] Keep every added callback from raising.
 
-## LVK4: Chat Page
+## LVK4: Chat Page - Complete
 
-- [ ] Add `ChatLiveView` with lazily initialized state, the `chat:send`,
+- [x] Add `ChatLiveView` with lazily initialized state, the `chat:send`,
   `chat:suggest`, and `chat:stop` events, and `busy`.
-- [ ] Render the conversation as a stream with the UI helpers: reasoning, tool
+- [x] Render the conversation as a stream with the UI helpers: reasoning, tool
   calls, Markdown text, sources, usage, and the typing indicator.
-- [ ] Add `chat_panel`, `render_user_message`, `render_assistant_message`, and
+- [x] Add `chat_panel`, `render_user_message`, `render_assistant_message`, and
   the label attributes.
-- [ ] Add `initial_messages` and `reply_finished`, including the reply a
+- [x] Add `initial_messages` and `reply_finished`, including the reply a
   disconnect cuts off.
 
 ## LVK5: Errors and Retry

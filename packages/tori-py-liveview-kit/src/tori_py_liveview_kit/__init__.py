@@ -1,5 +1,6 @@
 """Stateful chat pages and a launcher for prototyping AI applications."""
 
+from tori_py_liveview_kit.chat import ChatLiveView
 from tori_py_liveview_kit.events import (
     ChatEvent,
     Citation,
@@ -24,6 +25,7 @@ from tori_py_liveview_kit.messages import (
 __all__ = [
     "AssistantMessage",
     "ChatEvent",
+    "ChatLiveView",
     "Citation",
     "Error",
     "Message",

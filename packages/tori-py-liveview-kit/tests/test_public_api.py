@@ -10,6 +10,7 @@ _PACKAGE = Path(__file__).resolve().parents[1]
 _EXPECTED = {
     "AssistantMessage",
     "ChatEvent",
+    "ChatLiveView",
     "Citation",
     "Error",
     "Message",

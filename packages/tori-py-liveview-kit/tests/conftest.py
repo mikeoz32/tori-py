@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import re
-from collections.abc import AsyncIterator, Awaitable, Callable, Iterable
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Iterator
 from typing import Any, cast
 
 import httpx
@@ -34,6 +34,17 @@ def _scope() -> Any:
         "server": ("testserver", 80),
         "subprotocols": [],
     }
+
+
+def _strings(value: object) -> Iterator[str]:
+    if isinstance(value, str):
+        yield value
+    elif isinstance(value, dict):
+        for item in value.values():
+            yield from _strings(item)
+    elif isinstance(value, list):
+        for item in value:
+            yield from _strings(item)
 
 
 class Channel:
@@ -117,6 +128,14 @@ class Channel:
     def pushes(self) -> list[dict[str, Any]]:
         """The diffs the server sent without a browser event asking for one."""
         return [frame[4] for frame in self.frames if frame[3] == "diff"]
+
+    def html(self, start: int = 0) -> str:
+        """Every string the server sent from frame ``start`` on, joined.
+
+        Rendered markup travels as string leaves of the frames, so this is
+        enough to look for an element or a text without merging diffs.
+        """
+        return "".join(_strings(self.frames[start:]))
 
     @property
     def close_code(self) -> int | None:
