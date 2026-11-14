@@ -30,7 +30,7 @@ The public facade is the flat `tori_py_liveview_ui` namespace:
 - `stylesheet_link()` and `script_tag()` return the trusted `<link>` and
   `<script>` markup for a custom document;
 - `UiLiveView` is a `LiveView` base class that installs both tags and
-  independent document theme and skin attributes.
+  independent document theme, mode, and skin attributes.
 
 The implementation modules behind the facade are private. Applications import
 names from `tori_py_liveview_ui` only.
@@ -72,7 +72,7 @@ Every helper follows the same contract:
 | `link_button` | the `button` variants and sizes; live: `patch`, `navigate` | `label`, `href`, `replace`, `external`, icons, `full_width` |
 | `button_group` | - | finite `children` iterable, required `label`, `attached` |
 | `copy_button` | the `button` variants and sizes | `to` target, `label`, `copied_label` |
-| `theme_toggle` | - | required selector-safe `id`, group and option labels |
+| `mode_toggle` | - | required selector-safe `id`, group and option labels |
 
 `button(event=..., target=...)` emits `phx-click` and `phx-target`. A page
 button normally omits `target`; a stateful LiveView component passes its
@@ -111,10 +111,10 @@ seconds while a `role="status"` element inside it announces `copied_label`. The
 button keeps `label` as its accessible name throughout. The page is not
 notified.
 
-`theme_toggle` renders three `aria-pressed` buttons for the `auto`, `light`,
-and `dark` themes in a `phx-update="ignore"` group with the `ToriUiTheme` hook.
-The hook applies the chosen theme to `<html>`, stores it in `localStorage`
-under `tori-ui-theme`, and keeps every toggle on the page in step.
+`mode_toggle` renders three `aria-pressed` buttons for the `auto`, `light`,
+and `dark` modes in a `phx-update="ignore"` group with the `ToriUiMode` hook.
+The hook applies the chosen mode to `<html>`, stores it in `localStorage`
+under `tori-ui-mode`, and keeps every toggle on the page in step.
 
 ### 4.2 Layout
 
@@ -508,7 +508,7 @@ validation, changeset modeling, or state management.
 
 Application state stays on the server, in pages and components. Presentation
 state that only the browser needs, such as whether a menu is open, where a log
-is scrolled, or which theme the visitor chose, stays in the browser. Helpers
+is scrolled, or which mode the visitor chose, stays in the browser. Helpers
 reach for browser behavior in this order:
 
 1. native elements and attributes, such as `<details>`, `<dialog>`, and
@@ -528,9 +528,9 @@ belongs to their element, such as a timer or a scroll position. They do not
 store application data, open their own connections, load remote code, or
 evaluate strings as code.
 
-The script also applies a theme the visitor stored earlier to
-`data-tori-ui-theme` on `<html>` before the body is parsed. Without a stored
-choice the document keeps the theme the server rendered.
+The script also applies a color mode the visitor stored earlier to
+`data-tori-ui-mode` on `<html>` before the body is parsed. Without a stored
+choice the document keeps the mode the server rendered.
 
 ## 6. Rendering and Safety
 

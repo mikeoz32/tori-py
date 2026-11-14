@@ -390,7 +390,7 @@ The public facade is flat and grouped in families:
 - Content and icons: `blockquote`, `code`, `code_block`, `description_list`,
   `heading`, `icon`, `image`, `item_list`, `kbd`, `link`, `prose`, `text`.
 - Actions: `button`, `button_group`, `copy_button`, `icon_button`,
-  `link_button`, `theme_toggle`.
+  `link_button`, `mode_toggle`.
 - Data display: `avatar`, `avatar_group`, `badge`, `empty_state`, `list_group`,
   `list_item`, `meter`, `progress`, `sparkline`, `stat`, `status_dot`, `table`,
   `table_row`, `TableColumn`, `tag`, `timeline`, `timeline_item`, `tooltip`.
@@ -419,7 +419,7 @@ command, hook, and component-target contracts. The package ships one local
 content-addressed stylesheet and one local content-addressed script of
 `ToriUi`-prefixed Phoenix hooks; it does not add a client runtime, validation
 engine, or state model. `markdown` needs the optional `markdown` extra.
-`UiLiveView.ui_theme()` selects `auto`, `light`, or `dark` color mode, while
+`UiLiveView.ui_mode()` selects `auto`, `light`, or `dark` color mode, while
 `ui_skin()` independently selects the default `editorial`, bundled `minimal` or
 `rounded`, or a validated application-owned CSS skin name. Guide:
 [LiveView UI](../techniques/liveview-ui/index.md); generated reference:

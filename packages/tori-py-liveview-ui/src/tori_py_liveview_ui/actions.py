@@ -263,7 +263,7 @@ def copy_button(
     )
 
 
-def theme_toggle(
+def mode_toggle(
     *,
     id: str,
     label: str = "Color theme",
@@ -276,10 +276,10 @@ def theme_toggle(
     The browser stores the choice and applies it to every ``UiLiveView``
     document before it paints. The page is not told about it.
     """
-    id = selector_id("theme toggle id", id)
-    label = required_text("theme toggle label", label)
+    id = selector_id("mode toggle id", id)
+    label = required_text("mode toggle label", label)
     options = fragment(
-        _theme_option(value, glyph, required_text("theme toggle option label", text))
+        _mode_option(value, glyph, required_text("mode toggle option label", text))
         for value, glyph, text in (
             ("auto", "monitor", auto_label),
             ("light", "sun", light_label),
@@ -287,18 +287,18 @@ def theme_toggle(
         )
     )
     return (
-        t'<div id="{id}" class="tori-ui-theme-toggle" role="group" '
-        t'aria-label="{label}" phx-hook="ToriUiTheme" phx-update="ignore">'
+        t'<div id="{id}" class="tori-ui-mode-toggle" role="group" '
+        t'aria-label="{label}" phx-hook="ToriUiMode" phx-update="ignore">'
         t"{options}</div>"
     )
 
 
-def _theme_option(value: str, glyph: IconName, label: str) -> Template:
+def _mode_option(value: str, glyph: IconName, label: str) -> Template:
     attributes = attrs(
         {
             "type": "button",
-            "class": "tori-ui-theme-toggle__option",
-            "data-tori-ui-theme-value": value,
+            "class": "tori-ui-mode-toggle__option",
+            "data-tori-ui-mode-value": value,
             "aria-label": label,
             "title": label,
             "aria-pressed": "false",
@@ -313,5 +313,5 @@ __all__ = [
     "copy_button",
     "icon_button",
     "link_button",
-    "theme_toggle",
+    "mode_toggle",
 ]

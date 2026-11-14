@@ -1,19 +1,20 @@
 # Themes and Skins
 
-LiveView UI separates two choices:
+LiveView UI separates three choices:
 
-- the color theme: `auto`, `light`, or `dark` palette values;
+- the color theme: a light and a dark palette;
+- the color mode: `auto`, `light`, or `dark`, which picks the palette;
 - the visual skin: geometry, density, typography, borders, and shadows.
 
-Both are attributes on the `<html>` element. Connected renders patch the live
-root, not `<html>`, so a theme or skin the server chooses takes effect on the
-next full page load. The visitor can still switch the theme at any time with a
-[theme toggle](#letting-the-visitor-choose), which works in the browser.
+All three are attributes on the `<html>` element. Connected renders patch the
+live root, not `<html>`, so what the server chooses takes effect on the next
+full page load. The visitor can still switch the mode at any time with a
+[mode toggle](#letting-the-visitor-choose), which works in the browser.
 
-## Choosing a Theme and Skin
+## Choosing a Mode and Skin
 
-`UiLiveView` calls `ui_theme()` and `ui_skin()` while building the HTTP
-document:
+`UiLiveView` calls `ui_theme()`, `ui_mode()`, and `ui_skin()` while building
+the HTTP document:
 
 ```python
 from typing import Literal
@@ -22,7 +23,7 @@ from tori_py_liveview_ui import UiLiveView
 
 
 class ReportsLive(UiLiveView):
-    def ui_theme(self) -> Literal["auto", "light", "dark"]:
+    def ui_mode(self) -> Literal["auto", "light", "dark"]:
         return "dark"
 
     def ui_skin(self) -> str:
@@ -31,13 +32,14 @@ class ReportsLive(UiLiveView):
 
 | Method | Default | Allowed values |
 | --- | --- | --- |
-| `ui_theme()` | `"auto"` | `"auto"`, `"light"`, `"dark"` |
+| `ui_theme()` | `"paper"` | Any name matching `[a-z][a-z0-9-]{0,63}` |
+| `ui_mode()` | `"auto"` | `"auto"`, `"light"`, `"dark"` |
 | `ui_skin()` | `"editorial"` | Any name matching `[a-z][a-z0-9-]{0,63}` |
 
 `auto` follows the visitor's `prefers-color-scheme` setting. Invalid values raise
 `ValueError` during the HTTP render.
 
-Both methods run after `mount()` and `handle_params()`, so they can return a
+The methods run after `mount()` and `handle_params()`, so they can return a
 per-visitor preference loaded during mount:
 
 ```python
@@ -50,11 +52,11 @@ class SettingsLive(UiLiveView):
     async def mount(self, context: MountContext) -> None:
         dark = (
             isinstance(context.request, HTTPConnection)
-            and context.request.cookies.get("theme") == "dark"
+            and context.request.cookies.get("mode") == "dark"
         )
         self.dark = dark
 
-    def ui_theme(self) -> Literal["auto", "light", "dark"]:
+    def ui_mode(self) -> Literal["auto", "light", "dark"]:
         return "dark" if self.dark else "auto"
 ```
 
@@ -63,24 +65,24 @@ HTTP endpoint of your own that stores it and redirects back to the page.
 
 ## Letting the Visitor Choose
 
-`theme_toggle()` renders three buttons for the system, light, and dark themes:
+`mode_toggle()` renders three buttons for the system, light, and dark modes:
 
 ```python
-from tori_py_liveview_ui import theme_toggle
+from tori_py_liveview_ui import mode_toggle
 
-toggle = theme_toggle(id="theme")
+toggle = mode_toggle(id="mode")
 ```
 
 The choice never reaches your page:
 
-- The bundled script sets `data-tori-ui-theme` on `<html>` at once and stores
-  the choice in the browser's `localStorage` under `tori-ui-theme`.
+- The bundled script sets `data-tori-ui-mode` on `<html>` at once and stores
+  the choice in the browser's `localStorage` under `tori-ui-mode`.
 - On every later `UiLiveView` document it applies the stored choice before the
-  body is parsed, so the page does not flash in the other theme.
-- A stored choice wins over `ui_theme()`. Without one, the document keeps the
-  theme the server rendered.
+  body is parsed, so the page does not flash in the other mode.
+- A stored choice wins over `ui_mode()`. Without one, the document keeps the
+  mode the server rendered.
 
-Use `ui_theme()` alone when the application decides, and add the toggle when the
+Use `ui_mode()` alone when the application decides, and add the toggle when the
 visitor should. A preference you need on the server, for example in an email,
 belongs in your own storage.
 
@@ -92,7 +94,7 @@ belongs in your own storage.
 | `minimal` | System fonts, slight radii, compact controls, no uppercase, subtle shadow |
 | `rounded` | Large radii, taller controls, soft diffuse shadow, no uppercase |
 
-Every skin works with every theme.
+Every skin works with every theme and mode.
 
 ## Custom Skins
 
@@ -163,14 +165,15 @@ class BrandLive(UiLiveView):
 Register the controller in one of your modules. Put the custom page logic in a
 shared base class when several pages use the same skin.
 
-To restyle colors, override the palette tokens under the theme selectors instead
-of the skin selector, for example `[data-tori-ui-theme="dark"]`.
+To restyle colors, override the palette tokens under the theme selector instead
+of the skin selector, for example `[data-tori-ui-theme="paper"]`, and give
+each one a `light-dark()` pair.
 
 ## Pages Without `UiLiveView`
 
 A page with its own document can use the assets directly. Add
-`stylesheet_link()` and `script_tag()` to the head, set both attributes on
-`<html>`, and give `<body>` the `tori-ui-document` class for the theme's page
+`stylesheet_link()` and `script_tag()` to the head, set the three attributes
+on `<html>`, and give `<body>` the `tori-ui-document` class for the theme's page
 background and text color:
 
 ```python
@@ -181,8 +184,9 @@ from tori_py_liveview_ui import script_tag, stylesheet_link
 class PlainLive(LiveView):
     def render_document(self, live_root: str, client_script: str) -> str:
         return (
-            '<!doctype html><html data-tori-ui-theme="auto" '
-            'data-tori-ui-skin="editorial"><head><meta charset="utf-8">'
+            '<!doctype html><html data-tori-ui-theme="paper" '
+            'data-tori-ui-mode="auto" data-tori-ui-skin="editorial">'
+            '<head><meta charset="utf-8">'
             f"{stylesheet_link().value}{script_tag().value}</head>"
             f'<body class="tori-ui-document">{live_root}{client_script}</body>'
             "</html>"
@@ -191,7 +195,7 @@ class PlainLive(LiveView):
 
 Keep `script_tag()` in the head and do not add `defer` or `async` to it. Leave
 it out only if the page uses no helper that needs a hook, a copy button, a
-confirmation, or the theme toggle.
+confirmation, or the mode toggle.
 
 `STYLESHEET_PATH` and `SCRIPT_PATH` are the content-addressed URLs of the
 bundled files if you need them elsewhere, for example in a `Link` preload

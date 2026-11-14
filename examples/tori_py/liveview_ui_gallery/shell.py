@@ -15,6 +15,7 @@ from tori_py_liveview_ui import (
     container,
     flash_group,
     link_button,
+    mode_toggle,
     nav,
     nav_item,
     page_header,
@@ -22,12 +23,11 @@ from tori_py_liveview_ui import (
     skip_link,
     spacer,
     stack,
-    theme_toggle,
 )
 
-type Theme = Literal["auto", "light", "dark"]
+type Mode = Literal["auto", "light", "dark"]
 
-THEMES: tuple[Theme, ...] = ("auto", "light", "dark")
+MODES: tuple[Mode, ...] = ("auto", "light", "dark")
 SKINS = ("editorial", "minimal", "rounded")
 
 # The gallery's pages in navigation order: path and label.
@@ -65,24 +65,24 @@ def demo(title: str, content: object) -> Template:
 
 
 class GalleryPage(UiLiveView):
-    """A gallery page whose theme and skin come from the query string."""
+    """A gallery page whose mode and skin come from the query string."""
 
     heading: ClassVar[str]
     summary: ClassVar[str]
     path: ClassVar[str]
 
     def __init__(self) -> None:
-        self.theme: Theme = "auto"
+        self.mode: Mode = "auto"
         self.skin = "editorial"
 
     async def mount(self, context: MountContext) -> None:
-        theme = context.query_params.get("theme", "auto")
+        mode = context.query_params.get("mode", "auto")
         skin = context.query_params.get("skin", "editorial")
-        self.theme = theme if theme in THEMES else "auto"
+        self.mode = mode if mode in MODES else "auto"
         self.skin = skin if skin in SKINS else "editorial"
 
-    def ui_theme(self) -> Theme:
-        return self.theme
+    def ui_mode(self) -> Mode:
+        return self.mode
 
     def ui_skin(self) -> str:
         return self.skin
@@ -96,7 +96,7 @@ class GalleryPage(UiLiveView):
         return document.replace("</head>", '<link rel="icon" href="data:,"></head>', 1)
 
     def href(self, path: str, *, skin: str | None = None) -> str:
-        return f"{path}?theme={self.theme}&skin={skin or self.skin}"
+        return f"{path}?mode={self.mode}&skin={skin or self.skin}"
 
     def page(self, content: object) -> Template:
         """Put a page's content under its header, in a scrolling column."""
@@ -146,7 +146,7 @@ class GalleryPage(UiLiveView):
                 t"<strong>Tori UI</strong>",
                 spacer(),
                 skins,
-                theme_toggle(id="gallery-theme"),
+                mode_toggle(id="gallery-mode"),
             ],
             gap="sm",
             wrap=False,

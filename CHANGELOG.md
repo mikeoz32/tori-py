@@ -88,7 +88,7 @@ one package does not require the same change in every package.
   - `UiLiveView` documents load that script, put the `tori-ui-document` surface
     class on `<body>`, which sets the theme's background, text color, and font
     and removes the body margin, and apply a theme the visitor chose with
-    `theme_toggle()` before the first paint.
+    `mode_toggle()` before the first paint.
   - `button` gains icons, event values, a loading state, `phx-disable-with`, a
     native confirmation, and full width; `alert` gains actions and dismissal;
     `input` and `textarea` gain bounds, read-only state, and debounce or

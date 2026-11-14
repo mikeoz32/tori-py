@@ -1,63 +1,34 @@
 /* Tori UI: a skinnable foundation for server-rendered interfaces. */
 :root,
-[data-tori-ui-theme="light"],
-[data-tori-ui-theme="auto"] {
+[data-tori-ui-theme="paper"] {
+  --tori-ui-paper: light-dark(#f2ecdf, #191816);
+  --tori-ui-panel: light-dark(#fffdf7, #26231f);
+  --tori-ui-panel-raised: light-dark(#fffaf0, #302b25);
+  --tori-ui-ink: light-dark(#20201d, #f4eddf);
+  --tori-ui-muted: light-dark(#6e675d, #c2b7a8);
+  --tori-ui-line: light-dark(#cfc4b3, #514a40);
+  --tori-ui-line-strong: light-dark(#393630, #e7dccb);
+  --tori-ui-accent: light-dark(#c43f27, #ff7458);
+  --tori-ui-accent-ink: light-dark(#fffaf2, #241713);
+  --tori-ui-danger: light-dark(#94291f, #ff8a74);
+  --tori-ui-info: light-dark(#176b87, #72cbe7);
+  --tori-ui-success: light-dark(#2f7450, #79d3a1);
+  --tori-ui-warning: light-dark(#9a640b, #efbd5c);
+  --tori-ui-shadow-color: light-dark(#2d241829, #0000006b);
+  --tori-ui-scrim: light-dark(#201c1680, #0000009e);
+}
+
+/* The mode picks the palette: light-dark() follows color-scheme. */
+[data-tori-ui-mode="light"] {
   color-scheme: light;
-  --tori-ui-paper: #f2ecdf;
-  --tori-ui-panel: #fffdf7;
-  --tori-ui-panel-raised: #fffaf0;
-  --tori-ui-ink: #20201d;
-  --tori-ui-muted: #6e675d;
-  --tori-ui-line: #cfc4b3;
-  --tori-ui-line-strong: #393630;
-  --tori-ui-accent: #c43f27;
-  --tori-ui-accent-ink: #fffaf2;
-  --tori-ui-danger: #94291f;
-  --tori-ui-info: #176b87;
-  --tori-ui-success: #2f7450;
-  --tori-ui-warning: #9a640b;
-  --tori-ui-shadow-color: rgb(45 36 24 / 0.16);
-  --tori-ui-scrim: rgb(32 28 22 / 0.5);
 }
 
-[data-tori-ui-theme="dark"] {
+[data-tori-ui-mode="dark"] {
   color-scheme: dark;
-  --tori-ui-paper: #191816;
-  --tori-ui-panel: #26231f;
-  --tori-ui-panel-raised: #302b25;
-  --tori-ui-ink: #f4eddf;
-  --tori-ui-muted: #c2b7a8;
-  --tori-ui-line: #514a40;
-  --tori-ui-line-strong: #e7dccb;
-  --tori-ui-accent: #ff7458;
-  --tori-ui-accent-ink: #241713;
-  --tori-ui-danger: #ff8a74;
-  --tori-ui-info: #72cbe7;
-  --tori-ui-success: #79d3a1;
-  --tori-ui-warning: #efbd5c;
-  --tori-ui-shadow-color: rgb(0 0 0 / 0.42);
-  --tori-ui-scrim: rgb(0 0 0 / 0.62);
 }
 
-@media (prefers-color-scheme: dark) {
-  [data-tori-ui-theme="auto"] {
-    color-scheme: dark;
-    --tori-ui-paper: #191816;
-    --tori-ui-panel: #26231f;
-    --tori-ui-panel-raised: #302b25;
-    --tori-ui-ink: #f4eddf;
-    --tori-ui-muted: #c2b7a8;
-    --tori-ui-line: #514a40;
-    --tori-ui-line-strong: #e7dccb;
-    --tori-ui-accent: #ff7458;
-    --tori-ui-accent-ink: #241713;
-    --tori-ui-danger: #ff8a74;
-    --tori-ui-info: #72cbe7;
-    --tori-ui-success: #79d3a1;
-    --tori-ui-warning: #efbd5c;
-    --tori-ui-shadow-color: rgb(0 0 0 / 0.42);
-    --tori-ui-scrim: rgb(0 0 0 / 0.62);
-  }
+[data-tori-ui-mode="auto"] {
+  color-scheme: light dark;
 }
 
 :root,
@@ -774,7 +745,7 @@
 }
 
 .tori-ui-icon-button:focus-visible,
-.tori-ui-theme-toggle__option:focus-visible,
+.tori-ui-mode-toggle__option:focus-visible,
 .tori-ui-app-shell__menu:focus-visible {
   outline: var(--tori-ui-focus-width) solid var(--tori-ui-accent);
   outline-offset: var(--tori-ui-focus-offset);
@@ -838,7 +809,7 @@
   display: inline-flex;
 }
 
-.tori-ui-theme-toggle {
+.tori-ui-mode-toggle {
   background: var(--tori-ui-panel);
   border: var(--tori-ui-border-width) solid var(--tori-ui-line);
   border-radius: var(--tori-ui-radius-pill);
@@ -847,7 +818,7 @@
   padding: 2px;
 }
 
-.tori-ui-theme-toggle__option {
+.tori-ui-mode-toggle__option {
   appearance: none;
   align-items: center;
   background: transparent;
@@ -863,11 +834,11 @@
   width: 1.8rem;
 }
 
-.tori-ui-theme-toggle__option:hover {
+.tori-ui-mode-toggle__option:hover {
   color: var(--tori-ui-ink);
 }
 
-.tori-ui-theme-toggle__option[aria-pressed="true"] {
+.tori-ui-mode-toggle__option[aria-pressed="true"] {
   background: var(--tori-ui-ink);
   color: var(--tori-ui-paper);
 }

@@ -18,7 +18,7 @@ architecture is maintained in
    composition. Internally generated attributes use `attrs`; callers receive no
    arbitrary attributes or classes parameter.
 5. The families are actions (`button`, `icon_button`, `link_button`,
-   `button_group`, `copy_button`, `theme_toggle`), layout (`card`, `stack`,
+   `button_group`, `copy_button`, `mode_toggle`), layout (`card`, `stack`,
    `grid`, `row`, `container`, `center`, `divider`, `spacer`, `section`,
    `page_header`, `toolbar`, `split`, `scroll_area`, `app_shell`), content
    (`heading`, `text`, `link`, `code`, `code_block`, `kbd`, `blockquote`,
@@ -94,7 +94,7 @@ architecture is maintained in
     requires a label.
 17. `copy_button` and `code_block` copy in the browser through a `JS` dispatch
     and one script listener, keep the button's accessible name, and announce
-    the result. `theme_toggle` applies and stores the visitor's theme in the
+    the result. `mode_toggle` applies and stores the visitor's theme in the
     browser. Neither notifies the page.
 18. `app_shell` renders the main landmark in a viewport-filling grid. Below
     56rem its sidebar opens over the content through `JS` commands; the open

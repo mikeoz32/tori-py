@@ -45,7 +45,7 @@ def _light_theme_color(stylesheet: str, property_name: str) -> str:
     theme = re.search(r":root,.*?\{(?P<body>.*?)\}", stylesheet, re.DOTALL)
     assert theme is not None
     color = re.search(
-        rf"--tori-ui-{re.escape(property_name)}:\s*(#[0-9a-fA-F]{{6}})",
+        rf"--tori-ui-{re.escape(property_name)}:\s*light-dark\((#[0-9a-fA-F]{{6}}),",
         theme.group("body"),
     )
     assert color is not None
@@ -203,7 +203,7 @@ def test_ui_liveview_injects_stylesheet_theme_and_skin_into_document() -> None:
     )
 
     assert document.startswith(
-        '<!doctype html><html data-tori-ui-theme="auto" '
+        '<!doctype html><html data-tori-ui-theme="paper" data-tori-ui-mode="auto" '
         'data-tori-ui-skin="editorial"><head>'
     )
     assert document.count(stylesheet_link().value) == 1
@@ -217,25 +217,46 @@ def test_ui_liveview_injects_stylesheet_theme_and_skin_into_document() -> None:
     assert '<script defer src="/_tori/live/client.js"></script>' in document
 
 
-def test_ui_liveview_supports_explicit_themes_and_rejects_unknown_values() -> None:
+def test_ui_liveview_supports_explicit_modes_and_rejects_unknown_values() -> None:
     class DarkPage(UiLiveView):
         def render(self) -> str:
             return ""
 
-        def ui_theme(self):
+        def ui_mode(self):
             return "dark"
 
-    assert 'data-tori-ui-theme="dark"' in DarkPage().render_document("", "")
+    assert 'data-tori-ui-mode="dark"' in DarkPage().render_document("", "")
 
     class InvalidPage(UiLiveView):
         def render(self) -> str:
             return ""
 
-        def ui_theme(self):
+        def ui_mode(self):
             return "sepia"
 
-    with pytest.raises(ValueError, match="theme must be one of"):
+    with pytest.raises(ValueError, match="mode must be one of: auto, dark, light"):
         InvalidPage().render_document("", "")
+
+
+def test_ui_liveview_names_the_theme_and_rejects_unsafe_names() -> None:
+    class BrandPage(UiLiveView):
+        def render(self) -> str:
+            return ""
+
+        def ui_theme(self) -> str:
+            return "brand-2026"
+
+    assert 'data-tori-ui-theme="brand-2026"' in BrandPage().render_document("", "")
+
+    class UnsafePage(UiLiveView):
+        def render(self) -> str:
+            return ""
+
+        def ui_theme(self) -> str:
+            return 'x" onload="alert(1)'
+
+    with pytest.raises(ValueError, match="theme must match"):
+        UnsafePage().render_document("", "")
 
 
 def test_ui_liveview_supports_bundled_and_application_owned_skins() -> None:
@@ -243,7 +264,7 @@ def test_ui_liveview_supports_bundled_and_application_owned_skins() -> None:
         def render(self) -> str:
             return ""
 
-        def ui_theme(self):
+        def ui_mode(self):
             return "dark"
 
         def ui_skin(self) -> str:
@@ -257,7 +278,7 @@ def test_ui_liveview_supports_bundled_and_application_owned_skins() -> None:
             return "brand-2026"
 
     minimal_document = MinimalPage().render_document("", "")
-    assert 'data-tori-ui-theme="dark"' in minimal_document
+    assert 'data-tori-ui-mode="dark"' in minimal_document
     assert 'data-tori-ui-skin="minimal"' in minimal_document
     assert 'data-tori-ui-skin="brand-2026"' in BrandPage().render_document("", "")
 
@@ -310,8 +331,10 @@ def test_stylesheet_contains_the_foundation_contract_without_remote_assets() -> 
         ".tori-ui-textarea",
         ".tori-ui-select",
         ".tori-ui-checkbox",
-        '[data-tori-ui-theme="dark"]',
-        '[data-tori-ui-theme="auto"]',
+        '[data-tori-ui-theme="paper"]',
+        '[data-tori-ui-mode="light"]',
+        '[data-tori-ui-mode="dark"]',
+        '[data-tori-ui-mode="auto"]',
         '[data-tori-ui-skin="editorial"]',
         '[data-tori-ui-skin="minimal"]',
         '[data-tori-ui-skin="rounded"]',

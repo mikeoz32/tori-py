@@ -40,7 +40,7 @@ Feature: LiveView UI layout in a real browser
     When I click the "Menu" button
     Then "#gallery-sidebar" is visible
     When I click the "Layout" link in "#gallery-sidebar"
-    Then the URL is "/layout?theme=auto&skin=editorial"
+    Then the URL is "/layout?mode=auto&skin=editorial"
     And "h1" shows "Layout"
     And the document was not reloaded
     And "#gallery-sidebar" is hidden

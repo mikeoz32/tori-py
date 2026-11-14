@@ -68,11 +68,12 @@ immutable caching headers and an ETag.
 `UiLiveView` is a `LiveView` whose `render_document()`:
 
 - adds the stylesheet link and the script tag to `<head>`;
-- sets the `data-tori-ui-theme` and `data-tori-ui-skin` attributes on `<html>`;
+- sets the `data-tori-ui-theme`, `data-tori-ui-mode`, and `data-tori-ui-skin`
+  attributes on `<html>`;
 - puts the `tori-ui-document` class on `<body>`, which gives the page the
   theme's background, text color, and body font, and removes the body margin.
 
-Override `ui_theme()` and `ui_skin()` to choose the theme and skin; see
+Override `ui_theme()`, `ui_mode()`, and `ui_skin()` to choose the look; see
 [Themes and Skins](theming.md). A page with its own `render_document()` can call
 `stylesheet_link()` and `script_tag()` and set the attributes and the body class
 itself. Keep the script tag in `<head>` without `defer` or `async`: it registers
@@ -109,7 +110,7 @@ panel = ui.card(ui.stack([ui.badge("New"), ui.text("Ready.")]), title="Status")
 | --- | --- | --- |
 | Layout | `app_shell`, `card`, `center`, `container`, `divider`, `grid`, `page_header`, `row`, `scroll_area`, `section`, `spacer`, `split`, `stack`, `toolbar` | [Layout](layout.md) |
 | Content | `blockquote`, `code`, `code_block`, `description_list`, `heading`, `icon`, `image`, `item_list`, `kbd`, `link`, `prose`, `text` | [Content and Icons](content.md) |
-| Actions | `button`, `button_group`, `copy_button`, `icon_button`, `link_button`, `theme_toggle` | [Actions](actions.md) |
+| Actions | `button`, `button_group`, `copy_button`, `icon_button`, `link_button`, `mode_toggle` | [Actions](actions.md) |
 | Display | `avatar`, `avatar_group`, `badge`, `empty_state`, `list_group`, `list_item`, `meter`, `progress`, `sparkline`, `stat`, `status_dot`, `table`, `table_row`, `tag`, `timeline`, `timeline_item`, `tooltip` | [Data Display](display.md) |
 | Feedback | `alert`, `banner`, `busy`, `connection_status`, `flash_group`, `skeleton`, `spinner`, `toast`, `toast_region` | [Feedback](feedback.md) |
 | Disclosure | `accordion`, `collapsible`, `tabs` | [Disclosure and Tabs](disclosure.md) |
@@ -175,7 +176,7 @@ reset, so the helpers can sit next to your own styles.
 | --- | --- |
 | Rows, grids, panes, regions, and the application shell | [Layout](layout.md) |
 | Headings, text, links, code, lists, images, and icons | [Content and Icons](content.md) |
-| Buttons, link buttons, copying, and the theme toggle | [Actions](actions.md) |
+| Buttons, link buttons, copying, and the mode toggle | [Actions](actions.md) |
 | Tables, lists, figures, avatars, tags, and progress | [Data Display](display.md) |
 | Alerts, toasts, flash messages, and loading states | [Feedback](feedback.md) |
 | Collapsible sections and tabs | [Disclosure and Tabs](disclosure.md) |

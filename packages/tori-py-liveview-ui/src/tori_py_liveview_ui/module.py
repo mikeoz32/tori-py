@@ -25,9 +25,9 @@ _SCRIPT_HEADERS = {
     "content-type": "text/javascript; charset=utf-8",
     "etag": f'"{_SCRIPT_DIGEST}"',
 }
-type UiTheme = Literal["auto", "light", "dark"]
-_THEMES = frozenset({"auto", "light", "dark"})
-_SKIN_NAME = re.compile(r"[a-z][a-z0-9-]{0,63}")
+type UiMode = Literal["auto", "light", "dark"]
+_MODES = frozenset({"auto", "light", "dark"})
+_NAME = re.compile(r"[a-z][a-z0-9-]{0,63}")
 
 
 @controller()
@@ -75,26 +75,27 @@ def script_tag() -> SafeHtml:
 
 
 class UiLiveView(LiveView):
-    def ui_theme(self) -> UiTheme:
+    def ui_theme(self) -> str:
+        return "paper"
+
+    def ui_mode(self) -> UiMode:
         return "auto"
 
     def ui_skin(self) -> str:
         return "editorial"
 
     def render_document(self, live_root: str, client_script: str) -> str:
-        theme = self.ui_theme()
-        if theme not in _THEMES:
-            choices = ", ".join(sorted(_THEMES))
-            raise ValueError(f"LiveView UI theme must be one of: {choices}")
-        skin = self.ui_skin()
-        if not isinstance(skin, str):
-            raise TypeError("LiveView UI skin must be a string")
-        if _SKIN_NAME.fullmatch(skin) is None:
-            raise ValueError("LiveView UI skin must match [a-z][a-z0-9-]{0,63}")
+        theme = _name("theme", self.ui_theme())
+        mode = self.ui_mode()
+        if mode not in _MODES:
+            choices = ", ".join(sorted(_MODES))
+            raise ValueError(f"LiveView UI mode must be one of: {choices}")
+        skin = _name("skin", self.ui_skin())
         document = super().render_document(live_root, client_script)
         document = document.replace(
             "<html>",
-            f'<html data-tori-ui-theme="{theme}" data-tori-ui-skin="{skin}">',
+            f'<html data-tori-ui-theme="{theme}" data-tori-ui-mode="{mode}" '
+            f'data-tori-ui-skin="{skin}">',
             1,
         )
         document = document.replace(
@@ -103,6 +104,14 @@ class UiLiveView(LiveView):
             1,
         )
         return document.replace("<body>", '<body class="tori-ui-document">', 1)
+
+
+def _name(kind: str, value: object) -> str:
+    if not isinstance(value, str):
+        raise TypeError(f"LiveView UI {kind} must be a string")
+    if _NAME.fullmatch(value) is None:
+        raise ValueError(f"LiveView UI {kind} must match [a-z][a-z0-9-]{{0,63}}")
+    return value
 
 
 __all__ = [

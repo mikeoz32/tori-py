@@ -6,7 +6,7 @@ from tori_py_liveview_ui.actions import (
     copy_button,
     icon_button,
     link_button,
-    theme_toggle,
+    mode_toggle,
 )
 from tori_py_liveview_ui.content import (
     blockquote,
@@ -220,6 +220,7 @@ __all__ = [
     "message_actions",
     "meter",
     "modal",
+    "mode_toggle",
     "multi_select",
     "nav",
     "nav_item",
@@ -262,7 +263,6 @@ __all__ = [
     "tag",
     "text",
     "textarea",
-    "theme_toggle",
     "timeline",
     "timeline_item",
     "toast",

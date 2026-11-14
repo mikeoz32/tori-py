@@ -39,7 +39,8 @@ class ApplicationModule:
 immutable content-addressed `STYLESHEET_PATH` and `SCRIPT_PATH`. `UiLiveView`
 inserts the corresponding stylesheet link and script tag, puts the
 `tori-ui-document` surface class on `<body>`, and sets
-`data-tori-ui-theme="auto"` plus `data-tori-ui-skin="editorial"` by default:
+`data-tori-ui-theme="paper"`, `data-tori-ui-mode="auto"`, and
+`data-tori-ui-skin="editorial"` by default:
 
 ```python
 from string.templatelib import Template
@@ -57,9 +58,9 @@ class DashboardLive(UiLiveView):
         return "minimal"
 ```
 
-Override `ui_theme()` with `"light"` or `"dark"` for a fixed theme. A custom
+Override `ui_mode()` with `"light"` or `"dark"` for a fixed color mode. A custom
 `LiveView.render_document()` can use `stylesheet_link()` and `script_tag()` and
-set the theme and skin data attributes directly instead.
+set the theme, mode, and skin data attributes directly instead.
 
 The script defines `ToriUi`-prefixed Phoenix hooks for the few behaviors that
 native elements and LiveView `JS` commands cannot express, and adds them to
@@ -77,7 +78,7 @@ The helpers are grouped in families:
   `image`, `item_list`, `kbd`, `link`, `prose`, `text`, and `icon` with a closed
   set of bundled inline SVG icons.
 - Actions: `button`, `button_group`, `copy_button`, `icon_button`,
-  `link_button`, and `theme_toggle`.
+  `link_button`, and `mode_toggle`.
 - Display: `avatar`, `avatar_group`, `badge`, `empty_state`, `list_group`,
   `list_item`, `meter`, `progress`, `sparkline`, `stat`, `status_dot`, `table`,
   `table_row`, `tag`, `timeline`, `timeline_item`, and `tooltip`.
@@ -183,9 +184,10 @@ as `control_id`, connect optional `<control-id>-help` and
 
 ## Skins
 
-Color theme and visual skin are separate:
+Color theme, color mode, and visual skin are separate:
 
-- `ui_theme()` selects `auto`, `light`, or `dark` palette values.
+- `ui_theme()` selects the palettes.
+- `ui_mode()` selects the `auto`, `light`, or `dark` palette.
 - `ui_skin()` selects geometry, density, typography, and shadows.
 
 Bundled skins are `editorial` (default), `minimal`, and `rounded`. Skin selection

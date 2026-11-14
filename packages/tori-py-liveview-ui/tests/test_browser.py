@@ -204,6 +204,11 @@ def viewport(page: Page, width: str, height: str) -> None:
     page.set_viewport_size({"width": int(width), "height": int(height)})
 
 
+@given(parsers.re(r"the browser prefers a (?P<scheme>light|dark) color scheme"))
+def prefers_color_scheme(page: Page, scheme: str) -> None:
+    page.emulate_media(color_scheme=cast(Any, scheme))
+
+
 @given("the clipboard is available")
 def clipboard_available(context: BrowserContext) -> None:
     context.grant_permissions(["clipboard-read", "clipboard-write"])
@@ -309,14 +314,14 @@ def reload(page: Page) -> None:
     page.reload()
 
 
-@when("I reload the page watching the theme the body starts with")
-def reload_watching_theme(page: Page) -> None:
+@when("I reload the page watching the mode the body starts with")
+def reload_watching_mode(page: Page) -> None:
     # The observer sees the attribute the body's first element is parsed with.
     page.add_init_script(
         """
         new MutationObserver((_, observer) => {
           if (document.body) {
-            window.__themeAtBody = document.documentElement.dataset.toriUiTheme;
+            window.__modeAtBody = document.documentElement.dataset.toriUiMode;
             observer.disconnect();
           }
         }).observe(document, {childList: true, subtree: true});
@@ -325,9 +330,9 @@ def reload_watching_theme(page: Page) -> None:
     page.reload()
 
 
-@when(parsers.re(r'the browser stores the theme "(?P<theme>[^"]*)"'))
-def store_theme(page: Page, theme: str) -> None:
-    page.evaluate("theme => localStorage.setItem('tori-ui-theme', theme)", theme)
+@when(parsers.re(r'the browser stores the mode "(?P<mode>[^"]*)"'))
+def store_mode(page: Page, mode: str) -> None:
+    page.evaluate("mode => localStorage.setItem('tori-ui-mode', mode)", mode)
 
 
 @when("the client disconnects")
@@ -527,14 +532,14 @@ def other_hooks_prefixed(page: Page, name: str, prefix: str) -> None:
     assert all(hook.startswith(prefix) for hook in registered if hook != name)
 
 
-@then(parsers.re(r'the stored theme is "(?P<theme>[^"]*)"'))
-def stored_theme(page: Page, theme: str) -> None:
-    assert page.evaluate("localStorage.getItem('tori-ui-theme')") == theme
+@then(parsers.re(r'the stored mode is "(?P<mode>[^"]*)"'))
+def stored_mode(page: Page, mode: str) -> None:
+    assert page.evaluate("localStorage.getItem('tori-ui-mode')") == mode
 
 
-@then(parsers.re(r'the body started with the theme "(?P<theme>[^"]*)"'))
-def body_started_with(page: Page, theme: str) -> None:
-    assert page.evaluate("window.__themeAtBody") == theme
+@then(parsers.re(r'the body started with the mode "(?P<mode>[^"]*)"'))
+def body_started_with(page: Page, mode: str) -> None:
+    assert page.evaluate("window.__modeAtBody") == mode
 
 
 @then(parsers.re(r'both confirmations asked "(?P<text>[^"]*)"'))
@@ -706,17 +711,17 @@ def markup_is_sound(page: Page) -> None:
 
 @then(
     parsers.re(
-        r'every gallery page fits the viewport with the "(?P<theme>[^"]*)" theme '
-        r'and the "(?P<skin>[^"]*)" skin'
+        r'every gallery page fits the viewport in the "(?P<mode>[^"]*)" mode '
+        r'with the "(?P<skin>[^"]*)" skin'
     )
 )
 def every_page_fits(
-    page: Page, gallery_url: str, browser_errors: list[str], theme: str, skin: str
+    page: Page, gallery_url: str, browser_errors: list[str], mode: str, skin: str
 ) -> None:
     del browser_errors
     for path in _PAGES:
-        _open(page, f"{gallery_url}{path}?theme={theme}&skin={skin}")
-        expect(page.locator("html")).to_have_attribute("data-tori-ui-theme", theme)
+        _open(page, f"{gallery_url}{path}?mode={mode}&skin={skin}")
+        expect(page.locator("html")).to_have_attribute("data-tori-ui-mode", mode)
         expect(page.locator("html")).to_have_attribute("data-tori-ui-skin", skin)
         # Nothing spills out of the viewport sideways.
         assert page.evaluate(

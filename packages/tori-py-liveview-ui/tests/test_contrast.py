@@ -1,4 +1,4 @@
-"""The bundled palettes keep text readable in both themes."""
+"""The bundled palettes keep text readable in both modes."""
 
 from __future__ import annotations
 
@@ -20,23 +20,26 @@ def _stylesheet() -> str:
     )
 
 
-def _palette(theme: str) -> dict[str, tuple[float, float, float]]:
-    pattern = {
-        "light": r':root,\s*\[data-tori-ui-theme="light"\].*?\{(?P<body>.*?)\}',
-        "dark": r'\n\[data-tori-ui-theme="dark"\]\s*\{(?P<body>.*?)\}',
-    }[theme]
-    match = re.search(pattern, _stylesheet(), re.DOTALL)
+def _palette(mode: str) -> dict[str, tuple[float, float, float]]:
+    match = re.search(
+        r':root,\s*\[data-tori-ui-theme="paper"\]\s*\{(?P<body>.*?)\}',
+        _stylesheet(),
+        re.DOTALL,
+    )
     assert match is not None
-    return {
-        name: (
+    index = {"light": 0, "dark": 1}[mode]
+    palette: dict[str, tuple[float, float, float]] = {}
+    for name, *pair in re.findall(
+        r"--tori-ui-([a-z-]+):\s*light-dark\((#[0-9a-fA-F]{6}), (#[0-9a-fA-F]{6})\)",
+        match.group("body"),
+    ):
+        value = pair[index]
+        palette[name] = (
             int(value[1:3], 16) / 255,
             int(value[3:5], 16) / 255,
             int(value[5:7], 16) / 255,
         )
-        for name, value in re.findall(
-            r"--tori-ui-([a-z-]+):\s*(#[0-9a-fA-F]{6})", match.group("body")
-        )
-    }
+    return palette
 
 
 def _luminance(color: tuple[float, float, float]) -> float:
@@ -65,9 +68,9 @@ def _mixed(
     )
 
 
-@pytest.mark.parametrize("theme", ["light", "dark"])
-def test_body_and_muted_text_meet_aa_on_every_surface(theme: str) -> None:
-    palette = _palette(theme)
+@pytest.mark.parametrize("mode", ["light", "dark"])
+def test_body_and_muted_text_meet_aa_on_every_surface(mode: str) -> None:
+    palette = _palette(mode)
 
     for surface in ("paper", "panel", "panel-raised"):
         assert _contrast(palette["ink"], palette[surface]) >= _AA_TEXT
@@ -79,18 +82,18 @@ def test_body_and_muted_text_meet_aa_on_every_surface(theme: str) -> None:
     assert _contrast(palette["panel"], palette["danger"]) >= _AA_TEXT
 
 
-@pytest.mark.parametrize("theme", ["light", "dark"])
-def test_tones_and_accent_are_visible_as_graphics_on_every_surface(theme: str) -> None:
-    palette = _palette(theme)
+@pytest.mark.parametrize("mode", ["light", "dark"])
+def test_tones_and_accent_are_visible_as_graphics_on_every_surface(mode: str) -> None:
+    palette = _palette(mode)
 
     for name in (*_TONES, "accent"):
         for surface in ("paper", "panel"):
             assert _contrast(palette[name], palette[surface]) >= _AA_GRAPHICS
 
 
-@pytest.mark.parametrize("theme", ["light", "dark"])
-def test_toned_text_mixed_with_ink_meets_aa_on_paper_and_panel(theme: str) -> None:
-    palette = _palette(theme)
+@pytest.mark.parametrize("mode", ["light", "dark"])
+def test_toned_text_mixed_with_ink_meets_aa_on_paper_and_panel(mode: str) -> None:
+    palette = _palette(mode)
 
     for name in (*_TONES, "accent"):
         text = _mixed(palette[name], palette["ink"], 0.8)
@@ -113,21 +116,15 @@ def test_text_in_a_tone_uses_the_ink_mix() -> None:
         assert mix in rule[: rule.index("}")], selector
 
 
-def test_the_auto_theme_repeats_the_dark_palette() -> None:
+def test_the_mode_selects_the_palette_through_color_scheme() -> None:
     stylesheet = _stylesheet()
-    automatic = re.search(
-        r'@media \(prefers-color-scheme: dark\) \{\s*\[data-tori-ui-theme="auto"\]'
-        r"\s*\{(?P<body>.*?)\}",
-        stylesheet,
-        re.DOTALL,
-    )
-    dark = re.search(
-        r'\n\[data-tori-ui-theme="dark"\]\s*\{(?P<body>.*?)\}', stylesheet, re.DOTALL
-    )
-    assert automatic is not None
-    assert dark is not None
 
-    def declarations(body: str) -> list[str]:
-        return [line.strip() for line in body.strip().splitlines()]
-
-    assert declarations(automatic.group("body")) == declarations(dark.group("body"))
+    for mode, scheme in (("light", "light"), ("dark", "dark"), ("auto", "light dark")):
+        rule = re.search(
+            rf'\[data-tori-ui-mode="{mode}"\]\s*\{{\s*'
+            r"color-scheme: (?P<scheme>[a-z ]+);",
+            stylesheet,
+        )
+        assert rule is not None, mode
+        assert rule.group("scheme") == scheme
+    assert "prefers-color-scheme" not in stylesheet

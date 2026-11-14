@@ -16,7 +16,7 @@ from tori_py_liveview_ui import (
     icon,
     icon_button,
     link_button,
-    theme_toggle,
+    mode_toggle,
 )
 
 # Calls that break a helper's contract go through an untyped alias.
@@ -38,7 +38,7 @@ def test_actions_family_is_explicit() -> None:
         "copy_button",
         "icon_button",
         "link_button",
-        "theme_toggle",
+        "mode_toggle",
     ]
 
 
@@ -177,21 +177,21 @@ def test_copy_button_dispatches_the_copy_event_to_its_target() -> None:
     assert "&quot;closest&quot;:&quot;.message&quot;" in relative
 
 
-def test_theme_toggle_is_a_browser_owned_group_of_three_options() -> None:
-    result = _render(theme_toggle(id="theme"))
+def test_mode_toggle_is_a_browser_owned_group_of_three_options() -> None:
+    result = _render(mode_toggle(id="theme"))
 
     assert result.startswith(
-        '<div id="theme" class="tori-ui-theme-toggle" role="group" '
-        'aria-label="Color theme" phx-hook="ToriUiTheme" phx-update="ignore">'
+        '<div id="theme" class="tori-ui-mode-toggle" role="group" '
+        'aria-label="Color theme" phx-hook="ToriUiMode" phx-update="ignore">'
     )
     for value, label in (("auto", "System"), ("light", "Light"), ("dark", "Dark")):
         assert (
-            '<button type="button" class="tori-ui-theme-toggle__option" '
-            f'data-tori-ui-theme-value="{value}" aria-label="{label}" '
+            '<button type="button" class="tori-ui-mode-toggle__option" '
+            f'data-tori-ui-mode-value="{value}" aria-label="{label}" '
             f'title="{label}" aria-pressed="false">'
         ) in result
     assert result.count("<button") == 3
-    assert 'aria-label="Hell"' in _render(theme_toggle(id="t", light_label="Hell"))
+    assert 'aria-label="Hell"' in _render(mode_toggle(id="t", light_label="Hell"))
 
 
 @pytest.mark.parametrize(
@@ -293,11 +293,11 @@ def test_theme_toggle_is_a_browser_owned_group_of_three_options() -> None:
             ValueError,
             "copy button variant must be one of",
         ),
-        (lambda: ui.theme_toggle(id="a b"), ValueError, "theme toggle id must match"),
+        (lambda: ui.mode_toggle(id="a b"), ValueError, "mode toggle id must match"),
         (
-            lambda: ui.theme_toggle(id="t", dark_label=""),
+            lambda: ui.mode_toggle(id="t", dark_label=""),
             ValueError,
-            "theme toggle option label cannot be empty",
+            "mode toggle option label cannot be empty",
         ),
     ],
 )
