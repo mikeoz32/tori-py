@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import tomllib
 from pathlib import Path
 
@@ -94,3 +95,19 @@ def test_distribution_metadata_preserves_package_boundaries() -> None:
     assert (package / "README.md").is_file()
     assert (package / "scripts" / "verify_artifacts.py").is_file()
     assert (package / "src" / "tori_py_liveview_ui" / "py.typed").is_file()
+
+
+def test_every_public_name_is_in_the_user_guide_and_the_architecture() -> None:
+    root = Path(__file__).resolve().parents[3]
+    guide = "\n".join(
+        page.read_text(encoding="utf-8")
+        for page in sorted((root / "docs" / "techniques" / "liveview-ui").glob("*.md"))
+    )
+    architecture = (root / "TORI_PY_LIVEVIEW_UI_ARCHITECTURE.md").read_text(
+        encoding="utf-8"
+    )
+
+    for name in tori_py_liveview_ui.__all__:
+        mention = re.compile(rf"`{re.escape(name)}[`(.]")
+        assert mention.search(guide), f"{name} is missing from the user guide"
+        assert mention.search(architecture), f"{name} is missing from the architecture"

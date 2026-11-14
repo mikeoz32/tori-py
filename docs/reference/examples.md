@@ -42,7 +42,7 @@ larger gateway on Task API Part 1; test it with
 | Example | Exact command | Demonstrates |
 | --- | --- | --- |
 | LiveView UI showcase | `uv run tori-py run examples.tori_py.liveview.app:create_application` | HTTP disconnected mount, signed WebSocket join, Phoenix page/component/stream/form events, stateless UI helpers with server-owned validation, rounded skin and application token override acceptance, and reconnect behavior |
-| LiveView UI gallery | `uv run tori-py run examples.tori_py.liveview_ui_gallery.app:create_application` | Every UI component by family, with the color theme and skin chosen in the query string |
+| LiveView UI gallery | `uv run tori-py run examples.tori_py.liveview_ui_gallery.app:create_application` | Every UI component by family in an application shell with live navigation, the bundled themes and skins, and a chat that streams from a scripted model without an API key |
 
 Read them with the [LiveView](../techniques/liveview/index.md) and
 [LiveView UI](../techniques/liveview-ui/index.md) guides. The showcase's browser

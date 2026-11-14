@@ -2,11 +2,12 @@
 
 ## Status
 
-Foundation slice (LVUI0), initial family acceptance (LVUI1), forms slice
-(LVUI2), skinning slice (LVUI3), the component library foundation (LVUI4), and
-the layout, content, icon, action, display, feedback, disclosure, chat, and
-extended form, navigation, and overlay families (LVUI5 through LVUI10) are
-complete. LVUI11 is the acceptance of the whole library.
+Every slice is complete: the foundation (LVUI0), initial family acceptance
+(LVUI1), forms (LVUI2), skinning (LVUI3), the component library foundation
+(LVUI4), the families for layout, content, icons, and actions (LVUI5), data
+display, feedback, and disclosure (LVUI6), chat and AI (LVUI7), extended forms
+(LVUI8), navigation (LVUI9), and overlays (LVUI10), and the acceptance of the
+whole library (LVUI11).
 
 Architecture:
 [`TORI_PY_LIVEVIEW_UI_ARCHITECTURE.md`](TORI_PY_LIVEVIEW_UI_ARCHITECTURE.md).
@@ -149,11 +150,17 @@ Architecture:
 - [x] Menus and popovers opened by `JS` commands, with a hook for focus on
   opening, arrow keys, Escape, and closing on a choice or on leaving.
 
-## LVUI11: Library Acceptance
+## LVUI11: Library Acceptance - Complete
 
-- [ ] Exercise every interactive family in the gallery through the official
-  Phoenix browser client, in the light and dark themes and the bundled skins.
-- [ ] Run the full-family test, Ruff, formatter, Ty, build, artifact, and strict
+- [x] Exercise every interactive family in the gallery through the official
+  Phoenix browser client, and render every gallery page in the light and dark
+  themes and the bundled skins without sideways overflow, also at phone width.
+- [x] Audit every gallery page for unique IDs, named controls and landmarks,
+  image alternatives, resolvable ARIA references, and one main landmark.
+- [x] Check the bundled palettes for text and graphics contrast in both
+  themes, and mix text in a tone with the ink where the tone alone falls short
+  on the paper.
+- [x] Run the full-family test, Ruff, formatter, Ty, build, artifact, and strict
   documentation gates.
 
 ## Deferred

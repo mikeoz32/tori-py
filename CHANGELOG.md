@@ -74,6 +74,28 @@ one package does not require the same change in every package.
   page, view id, parent mount, params, and session, and a child joins only
   under the mount of a joined parent that rendered it. Each child runs its
   callbacks in its own work scope.
+- LiveView UI component library. `tori-py-liveview-ui` grows from 13 helpers to
+  families for layout, content and icons, actions, data display, feedback,
+  disclosure, forms, navigation, overlays, and chat and AI, all stateless
+  Template helpers with closed options. A gallery example shows every helper in
+  each theme and skin.
+  - The package now also bundles one content-addressed script of
+    `ToriUi`-prefixed Phoenix hooks, served at `SCRIPT_PATH` and linked with
+    `script_tag()`. Helpers use native elements first, `JS` commands second,
+    and a hook only where neither can express a behavior; the browser owns
+    presentation state such as an open menu, a scroll position, or a stored
+    theme, and the page keeps application state.
+  - `UiLiveView` documents load that script, put the `tori-ui-document` surface
+    class on `<body>`, which sets the theme's background, text color, and font
+    and removes the body margin, and apply a theme the visitor chose with
+    `theme_toggle()` before the first paint.
+  - `button` gains icons, event values, a loading state, `phx-disable-with`, a
+    native confirmation, and full width; `alert` gains actions and dismissal;
+    `input` and `textarea` gain bounds, read-only state, and debounce or
+    throttle.
+  - The optional `markdown` extra adds `markdown()` on `markdown-it-py`, which
+    treats its source as untrusted, and the optional `highlight` extra colors
+    its code blocks with Pygments. The required dependencies are unchanged.
 
 ### Fixed
 

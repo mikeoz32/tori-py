@@ -349,7 +349,7 @@
 }
 
 .tori-ui-badge--warning {
-  color: var(--tori-ui-warning);
+  color: color-mix(in srgb, var(--tori-ui-warning) 80%, var(--tori-ui-ink));
 }
 
 .tori-ui-badge--danger {
@@ -1114,7 +1114,7 @@
 }
 
 .tori-ui-page-header__eyebrow {
-  color: var(--tori-ui-accent);
+  color: color-mix(in srgb, var(--tori-ui-accent) 80%, var(--tori-ui-ink));
   font: 700 0.7rem/1 var(--tori-ui-font-code);
   letter-spacing: 0.12em;
   margin: 0 0 0.55rem;
@@ -1479,7 +1479,7 @@
 }
 
 .tori-ui-list > li::marker {
-  color: var(--tori-ui-accent);
+  color: color-mix(in srgb, var(--tori-ui-accent) 80%, var(--tori-ui-ink));
   font-weight: 700;
 }
 
@@ -1607,7 +1607,7 @@
 }
 
 :where(.tori-ui-prose) :where(li)::marker {
-  color: var(--tori-ui-accent);
+  color: color-mix(in srgb, var(--tori-ui-accent) 80%, var(--tori-ui-ink));
 }
 
 :where(.tori-ui-prose) :where(pre) {
@@ -1653,6 +1653,15 @@
 :where(.tori-ui-prose) :where(img) {
   height: auto;
   max-width: 100%;
+}
+
+/* A code block from markdown() keeps the rhythm of the text around it. */
+.tori-ui-prose > .tori-ui-code-block {
+  margin-block: 0 0.9em;
+}
+
+.tori-ui-prose > .tori-ui-code-block:last-child {
+  margin-bottom: 0;
 }
 
 /* After the element rules, which have the same specificity. */
@@ -2039,7 +2048,7 @@
 
 .tori-ui-stat__delta {
   align-items: center;
-  color: var(--tori-ui-tone);
+  color: color-mix(in srgb, var(--tori-ui-tone) 80%, var(--tori-ui-ink));
   display: inline-flex;
   font: 700 0.82rem/1 var(--tori-ui-font-body);
   gap: 0.15em;
@@ -3670,6 +3679,7 @@ a.tori-ui-citation:hover {
 .tori-ui-fieldset__content {
   display: grid;
   gap: var(--tori-ui-form-gap);
+  margin-top: var(--tori-ui-space-xs);
 }
 
 .tori-ui-choice {

@@ -27,6 +27,9 @@ def gallery_url() -> Iterator[str]:
             port=port,
             log_level="warning",
             lifespan="on",
+            # A browser that drops a socket without a close frame must not
+            # keep the server waiting for that connection forever.
+            timeout_graceful_shutdown=3,
         )
     )
     thread = threading.Thread(target=server.run, daemon=True)
@@ -43,7 +46,9 @@ def gallery_url() -> Iterator[str]:
         yield f"http://127.0.0.1:{port}"
     finally:
         server.should_exit = True
-        thread.join(timeout=10)
+        # The application may still wait for a dropped page until its own
+        # shutdown timeout.
+        thread.join(timeout=45)
         if thread.is_alive():
             pytest.fail("gallery server did not stop")
 
@@ -1034,3 +1039,121 @@ def test_popover_opens_next_to_its_button(page: Page, gallery_url: str) -> None:
     page.keyboard.press("Escape")
     expect(panel).to_be_hidden()
     expect(trigger).to_be_focused()
+
+
+# ------------------------------------------------------------ Every page
+
+_PAGES = [
+    "/",
+    "/actions",
+    "/layout",
+    "/content",
+    "/display",
+    "/feedback",
+    "/disclosure",
+    "/forms",
+    "/navigation",
+    "/overlays",
+    "/ai",
+    "/chat",
+]
+
+# What an automatic check can say about a page's markup: IDs are unique,
+# every control has an accessible name, every image has alternative text, and
+# every reference to another element's ID resolves.
+_AUDIT = """
+() => {
+  const problems = [];
+  const ids = new Map();
+  for (const element of document.querySelectorAll("[id]")) {
+    ids.set(element.id, (ids.get(element.id) ?? 0) + 1);
+  }
+  for (const [id, count] of ids) {
+    if (count > 1) problems.push(`duplicate id ${id}`);
+  }
+  const label = (element) => {
+    const labelledby = (element.getAttribute("aria-labelledby") ?? "")
+      .split(/\\s+/)
+      .filter(Boolean)
+      .map((id) => document.getElementById(id)?.textContent ?? "")
+      .join(" ");
+    const forLabel = element.id
+      ? document.querySelector(`label[for="${CSS.escape(element.id)}"]`)?.textContent
+      : "";
+    return [
+      element.getAttribute("aria-label"),
+      labelledby,
+      forLabel,
+      element.closest("label")?.textContent,
+      element.textContent,
+      element.getAttribute("title"),
+    ].find((text) => text && text.trim() !== "");
+  };
+  const controls = "button, a[href], input:not([type=hidden]), select, textarea, " +
+    "[role=tab], [role=menuitem], [role=switch], summary, dialog, [role=dialog], " +
+    "[role=region], [role=group], [role=radiogroup], nav, [role=log], meter, progress";
+  for (const element of document.querySelectorAll(controls)) {
+    if (!label(element)) {
+      problems.push(`unnamed ${element.tagName.toLowerCase()}.${element.className}`);
+    }
+  }
+  for (const image of document.querySelectorAll("img:not([alt])")) {
+    problems.push(`image without alt ${image.src}`);
+  }
+  const references = [
+    "aria-labelledby", "aria-describedby", "aria-controls", "for", "list",
+  ];
+  for (const name of references) {
+    for (const element of document.querySelectorAll(`[${name}]`)) {
+      for (const id of element.getAttribute(name).split(/\\s+/).filter(Boolean)) {
+        if (document.getElementById(id) === null) {
+          problems.push(`${name} points at missing #${id}`);
+        }
+      }
+    }
+  }
+  const headings = [...document.querySelectorAll("h1")].length;
+  if (headings > 1) problems.push(`${headings} h1 elements`);
+  if (document.querySelectorAll("main").length !== 1) problems.push("not one main");
+  return problems;
+}
+"""
+
+
+@pytest.mark.parametrize("path", _PAGES)
+def test_every_gallery_page_has_sound_markup(
+    page: Page, gallery_url: str, path: str
+) -> None:
+    _open(page, f"{gallery_url}{path}")
+
+    assert page.evaluate(_AUDIT) == []
+
+
+@pytest.mark.parametrize("skin", ["editorial", "minimal", "rounded"])
+@pytest.mark.parametrize("theme", ["light", "dark"])
+def test_every_page_renders_in_each_theme_and_skin(
+    page: Page, gallery_url: str, theme: str, skin: str
+) -> None:
+    for path in _PAGES:
+        _open(page, f"{gallery_url}{path}?theme={theme}&skin={skin}")
+        expect(page.locator("html")).to_have_attribute("data-tori-ui-theme", theme)
+        expect(page.locator("html")).to_have_attribute("data-tori-ui-skin", skin)
+        # Nothing spills out of the viewport sideways.
+        assert page.evaluate(
+            "document.documentElement.scrollWidth <= window.innerWidth"
+        ), path
+
+
+def test_narrow_screens_do_not_scroll_sideways(page: Page, gallery_url: str) -> None:
+    page.set_viewport_size({"width": 390, "height": 800})
+    for path in _PAGES:
+        _open(page, f"{gallery_url}{path}")
+        overflowing = page.evaluate(
+            """
+            () => {
+              const main = document.querySelector("main");
+              return main.scrollWidth - main.clientWidth;
+            }
+            """
+        )
+        assert overflowing <= 1, path
