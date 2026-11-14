@@ -726,3 +726,86 @@ def test_suggestions_attachments_and_markdown(page: Page, gallery_url: str) -> N
     expect(
         page.get_by_role("list", name="Steps").get_by_role("listitem")
     ).to_have_count(4)
+
+
+# ------------------------------------------------------------------- Forms
+
+
+def test_text_fields_validate_through_the_page(page: Page, gallery_url: str) -> None:
+    _open(page, f"{gallery_url}/forms")
+    name = page.get_by_role("textbox", name="Name")
+
+    name.fill("A")
+    expect(page.locator("#name-error")).to_have_text("Enter at least two characters.")
+    expect(name).to_have_attribute("aria-invalid", "true")
+    expect(name).to_have_attribute("aria-describedby", "name-error")
+
+    name.fill("Ada")
+    expect(page.locator("#name-error")).to_have_count(0)
+    expect(page.locator("#state-name")).to_have_text("Ada")
+    expect(name).to_be_focused()
+    expect(name).to_have_value("Ada")
+
+    # Native bounds and suggestions come from the attributes.
+    seats = page.get_by_role("spinbutton", name="Seats")
+    expect(seats).to_have_attribute("min", "1")
+    expect(seats).to_have_attribute("max", "500")
+    assert page.locator("#city-options option").count() == 5
+    expect(page.get_by_role("combobox", name="City")).to_have_attribute(
+        "list", "city-options"
+    )
+
+    page.get_by_role("button", name="Save").click()
+    expect(page.locator("#state-saved")).to_have_text("1")
+
+
+def test_choice_controls_send_what_the_visitor_chose(
+    page: Page, gallery_url: str
+) -> None:
+    _open(page, f"{gallery_url}/forms")
+
+    plan = page.get_by_role("radiogroup", name="Plan")
+    expect(plan.get_by_role("radio", name="Team")).to_be_checked()
+    plan.get_by_role("radio", name="Business").check()
+    expect(page.locator("#state-plan")).to_have_text("business")
+
+    topics = page.get_by_role("group", name="Email topics")
+    topics.get_by_role("checkbox", name="Tips").check()
+    expect(page.locator("#state-topics")).to_have_text("product, tips")
+    topics.get_by_role("checkbox", name="Product news").uncheck()
+    expect(page.locator("#state-topics")).to_have_text("tips")
+
+    # A segmented control is a radio group: the arrow keys move the choice.
+    view = page.get_by_role("radiogroup", name="Default view")
+    view.get_by_role("radio", name="List").focus()
+    page.keyboard.press("ArrowRight")
+    expect(view.get_by_role("radio", name="Board")).to_be_checked()
+    expect(page.locator("#state-view")).to_have_text("board")
+
+    notify = page.get_by_role("switch", name="Notify me about replies")
+    expect(notify).to_be_checked()
+    notify.click()
+    expect(notify).not_to_be_checked()
+    expect(page.locator("#state-notify")).to_have_text("off")
+
+    page.get_by_role("listbox", name="Roles").select_option(["viewer", "admin"])
+    expect(page.locator("#state-roles")).to_have_text("viewer, admin")
+
+    volume = page.get_by_role("slider", name="Volume")
+    volume.focus()
+    page.keyboard.press("ArrowRight")
+    expect(page.locator("#state-volume")).to_have_text("41")
+    expect(page.locator(".tori-ui-slider__value")).to_have_text("41")
+
+
+def test_search_is_debounced_and_filters_on_the_server(
+    page: Page, gallery_url: str
+) -> None:
+    _open(page, f"{gallery_url}/forms")
+    field = page.get_by_role("searchbox", name="Search orders")
+    expect(field).to_have_attribute("phx-debounce", "150")
+
+    field.press_sequentially("comp")
+
+    expect(page.locator("#matches")).to_have_text("Compiler")
+    expect(field).to_have_value("comp")

@@ -12,6 +12,7 @@ from examples.tori_py.liveview_ui_gallery.content import SAMPLE_IMAGE, ContentLi
 from examples.tori_py.liveview_ui_gallery.disclosure import DisclosureLive
 from examples.tori_py.liveview_ui_gallery.display import DisplayLive
 from examples.tori_py.liveview_ui_gallery.feedback import FeedbackLive
+from examples.tori_py.liveview_ui_gallery.forms import FormsLive
 from examples.tori_py.liveview_ui_gallery.layout import LayoutLive
 from examples.tori_py.liveview_ui_gallery.overview import OverviewLive
 
@@ -41,6 +42,7 @@ liveview_module = LiveViewModule.for_root(
         DisplayLive,
         FeedbackLive,
         DisclosureLive,
+        FormsLive,
         AiLive,
         ChatLive,
     ],

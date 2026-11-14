@@ -114,7 +114,7 @@ panel = ui.card(ui.stack([ui.badge("New"), ui.text("Ready.")]), title="Status")
 | Feedback | `alert`, `banner`, `busy`, `connection_status`, `flash_group`, `skeleton`, `spinner`, `toast`, `toast_region` | [Feedback](feedback.md) |
 | Disclosure | `accordion`, `collapsible`, `tabs` | [Disclosure and Tabs](disclosure.md) |
 | Chat and AI | `agent_step`, `agent_steps`, `artifact_panel`, `attachment`, `chat`, `chat_empty`, `chat_log`, `chat_message`, `citation`, `composer`, `conversation_list`, `markdown`, `message_actions`, `reasoning`, `response_branch`, `sources`, `suggestions`, `token_usage`, `tool_call`, `typing_indicator` | [Chat and AI](chat.md) |
-| Forms | `checkbox`, `field`, `field_error`, `form`, `input`, `select`, `textarea` | [Forms](forms.md) |
+| Forms | `checkbox`, `checkbox_group`, `combobox`, `field`, `field_error`, `fieldset`, `form`, `form_actions`, `hidden`, `input`, `multi_select`, `radio_group`, `search`, `segmented`, `select`, `slider`, `switch`, `textarea` | [Forms](forms.md) |
 
 The gallery example shows every helper in each theme and skin:
 

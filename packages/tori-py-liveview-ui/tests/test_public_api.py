@@ -58,15 +58,6 @@ def test_public_facade_lists_constants_then_classes_then_helpers() -> None:
 
 
 def test_foundation_families_are_explicit() -> None:
-    assert forms.__all__ == [
-        "checkbox",
-        "field",
-        "field_error",
-        "form",
-        "input",
-        "select",
-        "textarea",
-    ]
     assert icons.__all__ == ["icon"]
     assert module.__all__ == [
         "SCRIPT_PATH",

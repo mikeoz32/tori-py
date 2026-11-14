@@ -3628,3 +3628,314 @@ a.tori-ui-citation:hover {
     transition: none;
   }
 }
+
+/* ------------------------------------------------------ Forms, extended */
+
+:where(.tori-ui-input, .tori-ui-textarea):read-only {
+  background: var(--tori-ui-panel-raised);
+}
+
+.tori-ui-fieldset {
+  border: 0;
+  margin: 0;
+  min-width: 0;
+  padding: 0;
+}
+
+.tori-ui-fieldset > .tori-ui-field__label {
+  margin-bottom: var(--tori-ui-field-gap);
+  padding: 0;
+}
+
+.tori-ui-fieldset--section {
+  border-top: var(--tori-ui-border-width) solid var(--tori-ui-line);
+  color: var(--tori-ui-ink);
+  display: grid;
+  font-family: var(--tori-ui-font-body);
+  gap: var(--tori-ui-space-sm);
+  padding-top: var(--tori-ui-space-sm);
+}
+
+.tori-ui-fieldset__legend {
+  font: 700 1.1rem/1.2 var(--tori-ui-font-display);
+  padding: 0 var(--tori-ui-space-sm) 0 0;
+}
+
+.tori-ui-fieldset__description {
+  color: var(--tori-ui-muted);
+  font: 500 0.86rem/1.5 var(--tori-ui-font-body);
+  margin: 0;
+}
+
+.tori-ui-fieldset__content {
+  display: grid;
+  gap: var(--tori-ui-form-gap);
+}
+
+.tori-ui-choice {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.tori-ui-choice--inline {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1.25rem;
+}
+
+.tori-ui-choice__option {
+  align-items: start;
+  color: var(--tori-ui-ink);
+  cursor: pointer;
+  display: inline-grid;
+  font: 500 0.95rem/1.35 var(--tori-ui-font-body);
+  gap: var(--tori-ui-checkbox-gap);
+  grid-template-columns: auto minmax(0, 1fr);
+}
+
+.tori-ui-choice__control {
+  accent-color: var(--tori-ui-accent);
+  height: var(--tori-ui-checkbox-size);
+  margin: 0.05rem 0 0;
+  width: var(--tori-ui-checkbox-size);
+}
+
+.tori-ui-choice__control:focus-visible,
+.tori-ui-switch__control:focus-visible,
+.tori-ui-slider__control:focus-visible {
+  outline: var(--tori-ui-focus-width) solid var(--tori-ui-accent);
+  outline-offset: var(--tori-ui-field-focus-offset);
+}
+
+.tori-ui-choice__option:has(:disabled),
+.tori-ui-segmented__option:has(:disabled) {
+  cursor: not-allowed;
+  opacity: var(--tori-ui-field-disabled-opacity);
+}
+
+.tori-ui-choice__label {
+  min-width: 0;
+}
+
+.tori-ui-segmented {
+  background: var(--tori-ui-panel);
+  border: var(--tori-ui-border-width) solid var(--tori-ui-line-strong);
+  border-radius: var(--tori-ui-radius-control);
+  display: inline-flex;
+  justify-self: start;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.tori-ui-segmented__option {
+  cursor: pointer;
+  display: flex;
+  position: relative;
+}
+
+.tori-ui-segmented__option + .tori-ui-segmented__option {
+  border-inline-start: var(--tori-ui-border-width) solid
+    var(--tori-ui-line-strong);
+}
+
+/* The radio button stays in the page for the keyboard and assistive
+   technology; only its drawing is replaced by the label. */
+.tori-ui-segmented__control {
+  appearance: none;
+  cursor: inherit;
+  inset: 0;
+  margin: 0;
+  opacity: 0;
+  position: absolute;
+}
+
+.tori-ui-segmented__label {
+  color: var(--tori-ui-ink);
+  font-family: var(--tori-ui-font-body);
+  font-size: 0.78rem;
+  font-weight: var(--tori-ui-control-font-weight);
+  letter-spacing: var(--tori-ui-control-letter-spacing);
+  padding: 0.55rem 0.9rem;
+  text-transform: var(--tori-ui-control-text-transform);
+  white-space: nowrap;
+}
+
+.tori-ui-segmented__control:checked + .tori-ui-segmented__label {
+  background: var(--tori-ui-ink);
+  color: var(--tori-ui-paper);
+}
+
+.tori-ui-segmented__control:focus-visible + .tori-ui-segmented__label {
+  outline: var(--tori-ui-focus-width) solid var(--tori-ui-accent);
+  outline-offset: calc(-1 * var(--tori-ui-focus-width));
+}
+
+.tori-ui-switch {
+  align-items: center;
+  display: grid;
+  gap: var(--tori-ui-checkbox-gap);
+  grid-template-columns: auto minmax(0, 1fr);
+}
+
+.tori-ui-switch__control {
+  appearance: none;
+  background: color-mix(in srgb, var(--tori-ui-ink) 22%, transparent);
+  border: var(--tori-ui-border-width) solid var(--tori-ui-line-strong);
+  border-radius: var(--tori-ui-radius-pill);
+  cursor: pointer;
+  height: 1.4rem;
+  margin: 0;
+  position: relative;
+  transition: background-color 140ms ease;
+  width: 2.5rem;
+}
+
+.tori-ui-switch__control::before {
+  aspect-ratio: 1;
+  background: var(--tori-ui-panel);
+  border-radius: 50%;
+  box-shadow: 0 0 0 var(--tori-ui-border-width) var(--tori-ui-line-strong);
+  content: "";
+  inset-block: 2px;
+  inset-inline-start: 2px;
+  position: absolute;
+  transition: transform 140ms ease;
+}
+
+.tori-ui-switch__control:checked {
+  background: var(--tori-ui-accent);
+}
+
+.tori-ui-switch__control:checked::before {
+  transform: translateX(1.1rem);
+}
+
+.tori-ui-switch__control:disabled {
+  cursor: not-allowed;
+  opacity: var(--tori-ui-field-disabled-opacity);
+}
+
+.tori-ui-switch__label {
+  color: var(--tori-ui-ink);
+  cursor: pointer;
+  font: 600 0.95rem/1.35 var(--tori-ui-font-body);
+}
+
+.tori-ui-select--multiple {
+  min-height: 0;
+  padding: 0.3rem;
+}
+
+.tori-ui-select--multiple > option {
+  border-radius: calc(var(--tori-ui-field-control-radius) * 0.6);
+  padding: 0.3rem 0.5rem;
+}
+
+.tori-ui-input-group {
+  align-items: stretch;
+  display: flex;
+  min-width: 0;
+}
+
+.tori-ui-input-group > .tori-ui-input {
+  border-radius: 0;
+  flex: 1;
+  min-width: 0;
+}
+
+.tori-ui-input-group__affix {
+  align-items: center;
+  background: var(--tori-ui-panel-raised);
+  border: var(--tori-ui-border-width) solid var(--tori-ui-line-strong);
+  color: var(--tori-ui-muted);
+  display: inline-flex;
+  font: 600 0.86rem/1 var(--tori-ui-font-body);
+  padding-inline: 0.7rem;
+  white-space: nowrap;
+}
+
+.tori-ui-input-group > :first-child {
+  border-end-start-radius: var(--tori-ui-field-control-radius);
+  border-start-start-radius: var(--tori-ui-field-control-radius);
+}
+
+.tori-ui-input-group > :last-child {
+  border-end-end-radius: var(--tori-ui-field-control-radius);
+  border-start-end-radius: var(--tori-ui-field-control-radius);
+}
+
+.tori-ui-input-group__affix:first-child {
+  border-inline-end: 0;
+}
+
+.tori-ui-input-group__affix:last-child {
+  border-inline-start: 0;
+}
+
+.tori-ui-search {
+  align-items: center;
+  display: flex;
+  min-width: 0;
+  position: relative;
+}
+
+.tori-ui-search > .tori-ui-icon {
+  color: var(--tori-ui-muted);
+  inset-inline-start: 0.75rem;
+  pointer-events: none;
+  position: absolute;
+}
+
+.tori-ui-search__input {
+  padding-inline-start: 2.3rem;
+}
+
+.tori-ui-slider {
+  align-items: center;
+  display: flex;
+  gap: 0.75rem;
+}
+
+.tori-ui-slider__control {
+  accent-color: var(--tori-ui-accent);
+  flex: 1;
+  height: 1.5rem;
+  margin: 0;
+  min-width: 0;
+}
+
+.tori-ui-slider__value {
+  color: var(--tori-ui-ink);
+  font: 600 0.82rem/1 var(--tori-ui-font-code);
+  font-variant-numeric: tabular-nums;
+  min-width: 2.5em;
+  text-align: end;
+}
+
+.tori-ui-form-actions {
+  align-items: center;
+  border-top: var(--tori-ui-border-width) solid var(--tori-ui-line);
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--tori-ui-space-sm);
+  padding-top: var(--tori-ui-space-md);
+}
+
+.tori-ui-form-actions--start {
+  justify-content: flex-start;
+}
+
+.tori-ui-form-actions--end {
+  justify-content: flex-end;
+}
+
+.tori-ui-form-actions--between {
+  justify-content: space-between;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tori-ui-switch__control,
+  .tori-ui-switch__control::before {
+    transition: none;
+  }
+}

@@ -4,9 +4,9 @@
 
 Foundation slice (LVUI0), initial family acceptance (LVUI1), forms slice
 (LVUI2), skinning slice (LVUI3), the component library foundation (LVUI4), and
-the layout, content, icon, action, display, feedback, disclosure, and chat
-families (LVUI5 through LVUI7) are complete. LVUI8 through LVUI11 continue
-growing the package into a full component library, one family group per slice.
+the layout, content, icon, action, display, feedback, disclosure, chat, and
+extended form families (LVUI5 through LVUI8) are complete. LVUI9 through LVUI11
+finish growing the package into a full component library.
 
 Architecture:
 [`TORI_PY_LIVEVIEW_UI_ARCHITECTURE.md`](TORI_PY_LIVEVIEW_UI_ARCHITECTURE.md).
@@ -123,13 +123,13 @@ Architecture:
 - [x] A chat demo in the gallery that streams from a scripted model without an
   API key and batches model output into one render per flush.
 
-## LVUI8: Forms
+## LVUI8: Forms - Complete
 
-- [ ] `radio_group`, `checkbox_group`, `switch`, `segmented`, `multi_select`,
-  `combobox`, `search`, `slider`, `hidden`, `fieldset`, `input_group`, and
-  `form_actions`.
-- [ ] Existing controls gain debounce and throttle, read-only state, and value
-  and length bounds.
+- [x] `radio_group`, `checkbox_group`, `switch`, `segmented`, `multi_select`,
+  `combobox`, `search`, `slider`, `hidden`, `fieldset`, and `form_actions`.
+- [x] `input` and `textarea` gain debounce and throttle, read-only state, and
+  value and length bounds; `input` gains a prefix and a suffix, which replace
+  the separate `input_group` helper that was planned.
 
 ## LVUI9: Navigation
 

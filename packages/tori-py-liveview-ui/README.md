@@ -89,8 +89,10 @@ The helpers are grouped in families:
   `conversation_list`, `response_branch`, `reasoning`, `tool_call`,
   `agent_steps`, `agent_step`, `sources`, `citation`, `attachment`,
   `token_usage`, `artifact_panel`, and `markdown`.
-- Forms: `form`, `field`, `field_error`, `input`, `textarea`, `select`, and
-  `checkbox`.
+- Forms: `form`, `fieldset`, `form_actions`, `field`, `field_error`, `input`,
+  `textarea`, `select`, `multi_select`, `combobox`, `search`, `slider`,
+  `checkbox`, `checkbox_group`, `radio_group`, `segmented`, `switch`, and
+  `hidden`.
 
 The gallery in `examples/tori_py/liveview_ui_gallery` shows every helper in each
 theme and skin.

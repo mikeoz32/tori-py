@@ -365,10 +365,21 @@ the `highlight` extra is reported when Pygments is missing.
 | `form` | method: `post` | `content`, required `id`, optional change/submit events, optional `target` |
 | `field` | - | non-empty string `label`, `control`, `control_id`, optional non-empty string help/error, required presentation |
 | `field_error` | - | non-empty string `message` and `id` |
-| `input` | types: `date`, `datetime-local`, `email`, `month`, `number`, `password`, `search`, `tel`, `text`, `time`, `url`, `week` | label, id, name, scalar string/number value, placeholder, autocomplete, help/error, required/disabled state, change/blur events, target |
-| `textarea` | rows: 1 through 100 | label, id, name, string value, placeholder, help/error, required/disabled state, change/blur events, target |
+| `input` | types: `date`, `datetime-local`, `email`, `month`, `number`, `password`, `search`, `tel`, `text`, `time`, `url`, `week` | label, id, name, scalar string/number value, placeholder, autocomplete, help/error, required/disabled/read-only state, autofocus, minimum/maximum/step, length bounds, debounce or throttle, prefix/suffix, change/blur events, target |
+| `textarea` | rows: 1 through 100 | label, id, name, string value, placeholder, help/error, required/disabled/read-only state, length bounds, debounce or throttle, change/blur events, target |
 | `select` | - | label, finite `(string value, label)` options, selected value, prompt, help/error, required/disabled state, change/blur events, target |
 | `checkbox` | - | label, id, name, string value, checked/required/disabled state, help/error, change/blur events, target |
+| `radio_group` | - | label, finite `(string value, label)` options, id, name, selected value, help/error, required/disabled state, `inline`, change event, target |
+| `segmented` | - | as `radio_group`, without `inline` |
+| `checkbox_group` | - | label, options, id, name, finite iterable of selected values, help/error, required marker, disabled state, `inline`, change event, target |
+| `switch` | - | label, id, name, string value, checked/disabled state, help/error, change event, target |
+| `multi_select` | size: 2 through 20 | label, options, id, name, selected values, help/error, required/disabled state, change/blur events, target |
+| `combobox` | - | label, finite iterable of values or `(value, label)` pairs, id, name, string value, placeholder, help/error, required/disabled state, debounce, change/blur events, target |
+| `search` | - | label, id, name, string value, placeholder, disabled state, debounce, change event, target |
+| `slider` | - | label, id, name, numeric value within `minimum` and `maximum`, positive `step`, `show_value`, help, disabled state, debounce or throttle, change event, target |
+| `hidden` | - | name, scalar string/number value, optional id |
+| `fieldset` | - | non-empty `legend`, `content`, optional `description`, `disabled` |
+| `form_actions` | alignment: `start`, `end`, `between` | finite `children` iterable |
 
 `form` emits `method="post"`, maps change and submit events to `phx-change` and
 `phx-submit`, and can route both to one component through `phx-target`. The POST
@@ -383,8 +394,26 @@ Each concrete form control renders a complete field with a native label. Help
 and error content receive deterministic `<control-id>-help` and
 `<control-id>-error` IDs and are referenced by `aria-describedby`; an error also
 sets `aria-invalid="true"` and renders through `field_error` with
-`role="alert"`. Native `required`, `disabled`, `checked`, and `selected`
-attributes retain browser semantics. The lower-level `field` helper supports a
+`role="alert"`. Native `required`, `disabled`, `readonly`, `checked`, and
+`selected` attributes retain browser semantics. `minimum`, `maximum`, `step`,
+and the length bounds map to the native `min`, `max`, `step`, `minlength`, and
+`maxlength` attributes; they help the visitor and do not replace the page's
+validation. `debounce` is 0 through 60000 milliseconds or `blur` and maps to
+`phx-debounce`; `throttle` maps to `phx-throttle`; a control takes one of them.
+`prefix` and `suffix` wrap the input in a group with attached affixes.
+
+`radio_group`, `segmented`, and `checkbox_group` render a `fieldset` whose
+`legend` is the label and which carries the help and error description. Radio
+groups use `role="radiogroup"` with native radio inputs, so the browser provides
+arrow-key selection and enforces `required`; `segmented` only changes the look
+and keeps the inputs in the accessibility tree. A checkbox group uses
+`role="group"`, and its `required` only marks the label, because the browser
+has no rule for a required set. Option controls receive the IDs `<id>-<n>`.
+`switch` is a checkbox with `role="switch"`. `multi_select` is a native
+`select multiple`, `combobox` a text input with a native `datalist`, `search` an
+`input type="search"` with a visually hidden label and a 300 millisecond
+default debounce, and `slider` a native range input beside an `output` of the
+value the page rendered. The lower-level `field` helper supports a
 custom control, but that control's author remains responsible for matching its
 ID and ARIA references to the generated help and error IDs and for applying
 native `required` and `aria-invalid` state to that control.

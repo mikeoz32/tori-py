@@ -176,6 +176,145 @@ All controls take `label`, `id`, and `name`, plus:
 Help and error IDs are joined into the control's `aria-describedby`, and an
 error also sets `aria-invalid="true"`. Keep control IDs unique on the page.
 
+### Bounds, Timing, and Affixes
+
+`input` and `textarea` take further options:
+
+| Option | Controls | Notes |
+| --- | --- | --- |
+| `minimum`, `maximum`, `step` | `input` | Native `min`, `max`, and `step` for numbers and dates; `step` may be `"any"` |
+| `min_length`, `max_length` | `input`, `textarea` | Native `minlength` and `maxlength` |
+| `readonly` | `input`, `textarea` | Shown and submitted, not editable |
+| `autofocus` | `input` | Focus on page load; use it for at most one control |
+| `debounce` | `input`, `textarea` | Milliseconds to wait after the last keystroke, or `"blur"` |
+| `throttle` | `input`, `textarea` | At most one change event per that many milliseconds |
+| `prefix`, `suffix` | `input` | Short content attached to the control, such as a unit |
+
+The browser enforces the bounds, which helps the visitor; the page still
+validates, because a request does not have to come from a browser.
+
+`debounce` and `throttle` slow down the form's change event for that control:
+
+```python
+from tori_py_liveview_ui import input
+
+price = input(
+    "Price",
+    id="price",
+    name="product[price]",
+    input_type="number",
+    minimum=0,
+    step=0.01,
+    prefix="$",
+    debounce=300,
+)
+```
+
+## Choices
+
+| Helper | Renders | Submits |
+| --- | --- | --- |
+| `radio_group(label, options, *, id, name, value, inline, ...)` | Radio buttons in a `<fieldset>` | One value |
+| `segmented(label, options, *, id, name, value, ...)` | Radio buttons as one segmented control | One value |
+| `checkbox_group(label, options, *, id, name, values, inline, ...)` | Checkboxes in a `<fieldset>` | A list |
+| `multi_select(label, options, *, id, name, values, size, ...)` | A native list box | A list |
+| `select(label, options, *, id, name, value, prompt, ...)` | A native drop-down | One value |
+| `switch(label, *, id, name, value, checked, ...)` | A checkbox with the switch role | Its value, or nothing when off |
+| `checkbox(label, *, id, name, value, checked, ...)` | One checkbox | Its value, or nothing when unchecked |
+
+Options are `(value, label)` pairs with string values, as for `select`.
+
+```python
+from tori_py_liveview_ui import checkbox_group, radio_group, segmented, switch
+
+plan = radio_group(
+    "Plan",
+    [("free", "Free"), ("team", "Team")],
+    id="plan",
+    name="account[plan]",
+    value="team",
+    inline=True,
+)
+topics = checkbox_group(
+    "Email topics",
+    [("product", "Product news"), ("tips", "Tips")],
+    id="topics",
+    name="account[topics][]",
+    values=["product"],
+)
+view = segmented(
+    "Default view",
+    [("list", "List"), ("board", "Board")],
+    id="view",
+    name="account[view]",
+    value="list",
+)
+replies = switch("Notify me about replies", id="notify", name="account[notify]")
+```
+
+- End the `name` of `checkbox_group` and `multi_select` in `[]`, so the form
+  event carries every chosen value as a list. With nothing chosen the key is
+  absent.
+- A radio group follows the native keyboard model: Tab enters the group and the
+  arrow keys move the choice. `segmented` is the same group with another look;
+  use it for two to five short options.
+- `required` on a `radio_group` is enforced by the browser. On a
+  `checkbox_group` it only marks the label, because the browser has no rule for
+  "at least one"; check it on the page.
+- Use `switch` for a setting that takes effect at once and `checkbox` for a
+  choice that is submitted with the rest of a form.
+
+## Other Controls
+
+| Helper | Renders |
+| --- | --- |
+| `combobox(label, options, *, id, name, value, ...)` | A text field with native suggestions |
+| `search(label, *, id, name, value, debounce, ...)` | A search field with an icon and a hidden label |
+| `slider(label, *, id, name, value, minimum, maximum, step, ...)` | A native range input |
+| `hidden(*, name, value, id)` | A hidden input |
+
+`combobox` accepts any text; the options are suggestions, each a value or a
+`(value, label)` pair, and the browser filters them as the visitor types. To
+load suggestions from the server, handle the change event and render new
+options.
+
+`search` debounces by 300 milliseconds by default, so a form's change event
+fires when the visitor pauses. Its label is read by screen readers and not
+shown; say what is searched, not only "Search".
+
+`slider` shows the value the page last rendered next to the track. Handle the
+form's change event to keep it current while the visitor drags, and pass
+`throttle` to limit how often that happens.
+
+## Grouping
+
+`fieldset(legend, content, *, description, disabled)` groups related fields
+under a legend, and `disabled=True` disables every control inside natively.
+`form_actions(children, *, align)` lines up the form's buttons under the
+fields; `align` is `start`, `end`, or `between`.
+
+```python
+from tori_py_liveview_ui import button, fieldset, form, form_actions, stack
+
+account_form = form(
+    stack(
+        [
+            fieldset("Plan and topics", stack([plan, topics, view, replies])),
+            form_actions(
+                [
+                    button("Cancel", variant="ghost", event="cancel"),
+                    button("Save", button_type="submit", disable_with="Saving"),
+                ]
+            ),
+        ],
+        gap="lg",
+    ),
+    id="account-form",
+    change_event="validate",
+    submit_event="save",
+)
+```
+
 ## Form-Level Events
 
 `form(content, *, id, change_event, submit_event, target)` renders

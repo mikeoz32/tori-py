@@ -33,8 +33,10 @@ architecture is maintained in
    `chat_empty`, `typing_indicator`, `conversation_list`, `response_branch`,
    `reasoning`, `tool_call`, `agent_steps`, `agent_step`, `sources`,
    `citation`, `attachment`, `token_usage`, `artifact_panel`), rich text
-   (`markdown`), and forms (`form`, `field`, `field_error`, `input`,
-   `textarea`, `select`, `checkbox`).
+   (`markdown`), and forms (`form`, `fieldset`, `form_actions`, `field`,
+   `field_error`, `input`, `textarea`, `select`, `multi_select`, `combobox`,
+   `search`, `slider`, `checkbox`, `checkbox_group`, `radio_group`,
+   `segmented`, `switch`, `hidden`).
 6. `button` maps an optional event and positive safe-integer component target to
    `phx-click` and `phx-target`. A target requires an event. The helper does not
    own event routing or state. Event values map to `phx-value-*` attributes
@@ -125,7 +127,12 @@ architecture is maintained in
     to other sites open without the opener, and images are off unless enabled.
     Code highlighting needs the `highlight` extra and uses prefixed classes
     colored from the theme.
-27. The core package has no CDN, Node or Tailwind dependency, external font,
+27. Choice groups are fieldsets named by a legend. Radio groups and segmented
+    controls are native radios in a `radiogroup`; a checkbox group and a
+    multiple select submit a list under a name ending in `[]`. Native bounds,
+    read-only state, and `phx-debounce` or `phx-throttle` are closed, validated
+    options, and the page remains the authority on validity.
+28. The core package has no CDN, Node or Tailwind dependency, external font,
     remote asset, global reset, domain validation/coercion system, arbitrary
     attributes/classes, client runtime, or application-state ownership.
     Optional features ship as extras, and the package contains no model client
