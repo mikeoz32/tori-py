@@ -10,7 +10,8 @@ display, feedback, and disclosure (LVUI6), chat and AI (LVUI7), extended forms
 whole library (LVUI11). The theme framework is in progress: its contract is
 recorded (LVUI12), the mode and theme vocabulary (LVUI13), the definitions
 (LVUI14), the bundled definitions (LVUI15), application definitions (LVUI16),
-and derivation (LVUI17) are complete, and LVUI18 and LVUI19 remain.
+derivation (LVUI17), and scoped looks with their browser acceptance (LVUI18)
+are complete, and LVUI19 remains.
 
 Architecture:
 [`TORI_PY_LIVEVIEW_UI_ARCHITECTURE.md`](TORI_PY_LIVEVIEW_UI_ARCHITECTURE.md).
@@ -204,10 +205,10 @@ Architecture:
 - [x] `Theme.from_seeds()` in OKLCH at a standard and a high contrast level,
   and the bundled slate and contrast themes derived with it.
 
-## LVUI18: Scoped Looks and Acceptance
+## LVUI18: Scoped Looks and Acceptance - Complete
 
-- [ ] `themed` for a look on part of a page.
-- [ ] A gallery page that shows every theme and skin with its contrast report,
+- [x] `themed` for a look on part of a page.
+- [x] A gallery page that shows every theme and skin with its contrast report,
   an application theme and skin registered by the gallery, and browser
   scenarios through the official Phoenix client.
 

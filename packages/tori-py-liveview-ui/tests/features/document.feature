@@ -72,6 +72,7 @@ Feature: LiveView UI documents in a real browser
       | /overlays   |
       | /ai         |
       | /chat       |
+      | /themes     |
 
   Scenario Outline: Every page renders in each mode and skin
     Then every gallery page fits the viewport in the "<mode>" mode with the "<skin>" skin

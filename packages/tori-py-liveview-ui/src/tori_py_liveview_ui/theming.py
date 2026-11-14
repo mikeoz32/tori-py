@@ -15,13 +15,20 @@ import re
 from collections.abc import Callable, Iterable
 from dataclasses import KW_ONLY, dataclass
 from functools import lru_cache
+from string.templatelib import Template
 from typing import Any, ClassVar, Literal
 
+from tori_py_liveview import attrs
+
 from tori_py_liveview_ui import _color
+from tori_py_liveview_ui._shared import html_id, one_of
 
 type ColorMode = Literal["light", "dark"]
 type TextCase = Literal["none", "uppercase", "lowercase", "capitalize"]
 type ContrastLevel = Literal["standard", "high"]
+type UiMode = Literal["auto", "light", "dark"]
+
+_MODES = frozenset({"auto", "light", "dark"})
 
 _ASSET_PREFIX = "/_tori/liveview-ui/"
 _NAME = re.compile(r"[a-z][a-z0-9-]{0,63}")
@@ -970,10 +977,62 @@ def _bundled_css() -> str:
     return "\n".join(rules) + "\n"
 
 
+# ------------------------------------------------------------ Scoped looks
+
+
+def _selected(kind: str, value: object, definition: type[Theme] | type[Skin]) -> str:
+    """Return the name of a definition, or a checked name of one styled in CSS."""
+    if isinstance(value, definition):
+        return value.name
+    if not isinstance(value, str):
+        raise TypeError(
+            f"LiveView UI {kind} must be a {definition.__name__} or a string"
+        )
+    if _NAME.fullmatch(value) is None:
+        raise ValueError(f"LiveView UI {kind} must match [a-z][a-z0-9-]{{0,63}}")
+    return value
+
+
+def themed(
+    content: object,
+    *,
+    theme: Theme | str | None = None,
+    mode: UiMode | None = None,
+    skin: Skin | str | None = None,
+    id: str | None = None,
+) -> Template:
+    """Give part of a page its own theme, mode, or skin.
+
+    What is left out is inherited from the document. The element is a surface:
+    it has the paper background, the ink color, and the body font of the look
+    in effect inside it. An application theme or skin also needs its
+    stylesheet, so return it from ``UiLiveView.ui_extra_definitions()``.
+    """
+    if theme is None and mode is None and skin is None:
+        raise ValueError("themed needs a theme, a mode, or a skin")
+    attributes = attrs(
+        {
+            "id": None if id is None else html_id("themed id", id),
+            "class": "tori-ui-themed",
+            "data-tori-ui-theme": (
+                None if theme is None else _selected("theme", theme, Theme)
+            ),
+            "data-tori-ui-mode": (
+                None if mode is None else one_of("themed mode", mode, _MODES)
+            ),
+            "data-tori-ui-skin": (
+                None if skin is None else _selected("skin", skin, Skin)
+            ),
+        }
+    )
+    return t"<div{attributes}>{content}</div>"
+
+
 __all__ = [
     "ContrastCheck",
     "Palette",
     "Skin",
     "Theme",
     "ThemeContrastError",
+    "themed",
 ]

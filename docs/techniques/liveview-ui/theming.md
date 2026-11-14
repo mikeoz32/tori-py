@@ -110,6 +110,18 @@ cannot carry free CSS. A theme whose text would not reach WCAG AA contrast
 raises `ThemeContrastError`, which names each failing pair. `Theme.report()`
 returns every requirement as a `ContrastCheck`.
 
+## Scoped Looks
+
+`themed()` gives part of a page its own theme, mode, or skin. What it leaves
+out is inherited from the document:
+
+```python
+from tori_py_liveview_ui import Skin, Theme, card, themed
+
+night = themed(card("Always dark", title="Night"), mode="dark")
+preview = themed(card("Slate, rounded"), theme=Theme.SLATE, skin=Skin.ROUNDED)
+```
+
 ## Bundled Skins
 
 | Skin | Character |

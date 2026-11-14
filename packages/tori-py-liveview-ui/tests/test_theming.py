@@ -6,12 +6,14 @@ import dataclasses
 
 import pytest
 import tori_py_liveview_ui as ui
+from tori_py_liveview import html
 from tori_py_liveview_ui import (
     ContrastCheck,
     Palette,
     Skin,
     Theme,
     ThemeContrastError,
+    themed,
     theming,
 )
 
@@ -26,6 +28,7 @@ def test_theming_names_are_explicit() -> None:
         "Skin",
         "Theme",
         "ThemeContrastError",
+        "themed",
     ]
     for name in theming.__all__:
         assert getattr(ui, name) is getattr(theming, name)
@@ -531,3 +534,58 @@ def test_from_seeds_rejects_invalid_seeds(
 def test_from_seeds_validates_the_name_like_any_theme() -> None:
     with pytest.raises(ValueError, match="theme name must match"):
         Theme.from_seeds("Seeded", accent="#2563eb")
+
+
+# ------------------------------------------------------------ Scoped looks
+
+
+def test_themed_wraps_content_in_a_surface_with_the_given_look() -> None:
+    result = html(
+        themed(t"<p>Preview</p>", theme=Theme.SLATE, mode="dark", skin=Skin.ROUNDED)
+    ).to_html()
+
+    assert result == (
+        '<div class="tori-ui-themed" data-tori-ui-theme="slate" '
+        'data-tori-ui-mode="dark" data-tori-ui-skin="rounded"><p>Preview</p></div>'
+    )
+
+
+def test_themed_leaves_out_what_the_document_decides() -> None:
+    dark = html(themed("x", mode="dark", id="night")).to_html()
+    brand = html(themed("x", theme="brand-2026", skin="acme")).to_html()
+
+    assert (
+        dark
+        == '<div id="night" class="tori-ui-themed" data-tori-ui-mode="dark">x</div>'
+    )
+    assert brand == (
+        '<div class="tori-ui-themed" data-tori-ui-theme="brand-2026" '
+        'data-tori-ui-skin="acme">x</div>'
+    )
+
+
+def test_themed_escapes_its_content() -> None:
+    assert "&lt;script&gt;" in html(themed("<script>", mode="light")).to_html()
+
+
+@pytest.mark.parametrize(
+    ("arguments", "error", "message"),
+    [
+        ({}, ValueError, "themed needs a theme, a mode, or a skin"),
+        (
+            {"mode": "night"},
+            ValueError,
+            "themed mode must be one of: auto, dark, light",
+        ),
+        ({"theme": Skin.ROUNDED}, TypeError, "theme must be a Theme or a string"),
+        ({"skin": Theme.PAPER}, TypeError, "skin must be a Skin or a string"),
+        ({"theme": 'x" onclick="y'}, ValueError, "theme must match"),
+        ({"skin": "Rounded"}, ValueError, "skin must match"),
+        ({"mode": "dark", "id": "two words"}, ValueError, "themed id cannot contain"),
+    ],
+)
+def test_themed_rejects_invalid_looks(
+    arguments: dict[str, object], error: type[Exception], message: str
+) -> None:
+    with pytest.raises(error, match=message):
+        themed("x", **arguments)  # ty: ignore[invalid-argument-type]

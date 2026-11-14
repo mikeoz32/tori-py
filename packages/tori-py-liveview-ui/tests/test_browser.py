@@ -15,6 +15,7 @@ from pytest_bdd import given, parsers, scenarios, then, when
 from tori_py_liveview_ui import SCRIPT_PATH, STYLESHEET_PATH
 
 from examples.tori_py.liveview_ui_gallery.app import application
+from examples.tori_py.liveview_ui_gallery.looks import SKINS, THEMES
 from examples.tori_py.liveview_ui_gallery.shell import SECTIONS
 
 _FEATURES = Path(__file__).parent / "features"
@@ -503,6 +504,41 @@ def document_height(page: Page, height: str) -> None:
 @then("the document links the package stylesheet once")
 def links_stylesheet(page: Page) -> None:
     expect(page.locator(f'head link[href="{STYLESHEET_PATH}"]')).to_have_count(1)
+
+
+@then(parsers.re(r"the document links (?P<count>\d+) stylesheets?"))
+def links_stylesheets(page: Page, count: str) -> None:
+    expect(page.locator('head link[rel="stylesheet"]')).to_have_count(int(count))
+
+
+@then(
+    parsers.re(
+        r'the document links the stylesheet of the "(?P<name>[a-z-]+)" '
+        r"(?P<kind>theme|skin)"
+    )
+)
+def links_definition(page: Page, name: str, kind: str) -> None:
+    definition = THEMES[name] if kind == "theme" else SKINS[name]
+    link = f'head link[rel="stylesheet"][href="{definition.stylesheet_path}"]'
+    expect(page.locator(link)).to_have_count(1)
+
+
+@then(
+    parsers.re(
+        rf'{_TARGET} has the "(?P<token>[a-z_]+)" of the "(?P<name>[a-z-]+)" theme '
+        r'in the "(?P<mode>light|dark)" mode as its (?P<part>background|color)'
+    )
+)
+def has_theme_color(
+    page: Page, target: str, token: str, name: str, mode: str, part: str
+) -> None:
+    theme = THEMES[name]
+    color = getattr(theme.light if mode == "light" else theme.dark, token)
+    red, green, blue = (int(color[index : index + 2], 16) for index in (1, 3, 5))
+    expect(_locate(page, target)).to_have_css(
+        "background-color" if part == "background" else "color",
+        f"rgb({red}, {green}, {blue})",
+    )
 
 
 @then("the document loads the package script once")

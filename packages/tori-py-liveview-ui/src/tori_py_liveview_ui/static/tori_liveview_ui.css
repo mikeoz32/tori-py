@@ -29,6 +29,14 @@
   margin: 0;
 }
 
+/* A part of the page with its own theme, mode, or skin. It is a surface,
+   so the colors and the font of the look inside it start here. */
+.tori-ui-themed {
+  background: var(--tori-ui-paper);
+  color: var(--tori-ui-ink);
+  font-family: var(--tori-ui-font-body);
+}
+
 /* Actions */
 .tori-ui-button {
   appearance: none;

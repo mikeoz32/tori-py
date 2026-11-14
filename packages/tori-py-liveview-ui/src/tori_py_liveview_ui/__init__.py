@@ -154,6 +154,7 @@ from tori_py_liveview_ui.theming import (
     Skin,
     Theme,
     ThemeContrastError,
+    themed,
 )
 
 __all__ = [
@@ -275,6 +276,7 @@ __all__ = [
     "tag",
     "text",
     "textarea",
+    "themed",
     "timeline",
     "timeline_item",
     "toast",

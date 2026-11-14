@@ -1,10 +1,8 @@
 from __future__ import annotations
 
 import hashlib
-import re
 from collections.abc import Iterable
 from importlib.resources import files
-from typing import Literal
 
 from tori_py import DeferredModule, HttpResponse, ModuleSpec, controller, get
 from tori_py_liveview import LiveView, SafeHtml, raw
@@ -15,7 +13,9 @@ from tori_py_liveview_ui.theming import (
     _BUNDLED_THEMES,
     Skin,
     Theme,
+    UiMode,
     _bundled_css,
+    _selected,
     _stylesheet,
 )
 
@@ -30,9 +30,7 @@ STYLESHEET_PATH = f"{_ASSET_PREFIX}{_STYLESHEET_DIGEST[:12]}.css"
 _SCRIPT = _STATIC.joinpath("tori_liveview_ui.js").read_bytes()
 _SCRIPT_DIGEST = hashlib.sha256(_SCRIPT).hexdigest()
 SCRIPT_PATH = f"{_ASSET_PREFIX}{_SCRIPT_DIGEST[:12]}.js"
-type UiMode = Literal["auto", "light", "dark"]
 _MODES = frozenset({"auto", "light", "dark"})
-_NAME = re.compile(r"[a-z][a-z0-9-]{0,63}")
 _BUNDLED: frozenset[Theme | Skin] = frozenset((*_BUNDLED_THEMES, *_BUNDLED_SKINS))
 
 
@@ -197,8 +195,8 @@ class UiLiveView(LiveView):
             choices = ", ".join(sorted(_MODES))
             raise ValueError(f"LiveView UI mode must be one of: {choices}")
         skin = self.ui_skin()
-        theme_name = _name("theme", theme, Theme)
-        skin_name = _name("skin", skin, Skin)
+        theme_name = _selected("theme", theme, Theme)
+        skin_name = _selected("skin", skin, Skin)
         # A name stands for a definition styled in CSS and has no stylesheet.
         definitions = [
             *(chosen for chosen in (theme, skin) if not isinstance(chosen, str)),
@@ -217,18 +215,6 @@ class UiLiveView(LiveView):
             1,
         )
         return document.replace("<body>", '<body class="tori-ui-document">', 1)
-
-
-def _name(kind: str, value: object, definition: type[Theme] | type[Skin]) -> str:
-    if isinstance(value, definition):
-        return value.name
-    if not isinstance(value, str):
-        raise TypeError(
-            f"LiveView UI {kind} must be a {definition.__name__} or a string"
-        )
-    if _NAME.fullmatch(value) is None:
-        raise ValueError(f"LiveView UI {kind} must match [a-z][a-z0-9-]{{0,63}}")
-    return value
 
 
 __all__ = [

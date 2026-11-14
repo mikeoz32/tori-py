@@ -14,9 +14,11 @@ from examples.tori_py.liveview_ui_gallery.display import DisplayLive
 from examples.tori_py.liveview_ui_gallery.feedback import FeedbackLive
 from examples.tori_py.liveview_ui_gallery.forms import FormsLive
 from examples.tori_py.liveview_ui_gallery.layout import LayoutLive
+from examples.tori_py.liveview_ui_gallery.looks import COMPACT, ORCHID
 from examples.tori_py.liveview_ui_gallery.navigation import NavigationLive
 from examples.tori_py.liveview_ui_gallery.overlays import OverlaysLive
 from examples.tori_py.liveview_ui_gallery.overview import OverviewLive
+from examples.tori_py.liveview_ui_gallery.themes import ThemesLive
 
 _SAMPLE_IMAGE = (
     b'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 180">'
@@ -49,12 +51,17 @@ liveview_module = LiveViewModule.for_root(
         OverlaysLive,
         AiLive,
         ChatLive,
+        ThemesLive,
     ],
 )
 
 
 @module(
-    imports=[liveview_module, LiveViewUiModule.for_root()],
+    imports=[
+        liveview_module,
+        # The gallery's own theme and skin are served next to the package assets.
+        LiveViewUiModule.for_root(themes=[ORCHID], skins=[COMPACT]),
+    ],
     controllers=[SampleController],
 )
 class AppModule:
