@@ -419,9 +419,10 @@ command, hook, and component-target contracts. The package ships one local
 content-addressed stylesheet and one local content-addressed script of
 `ToriUi`-prefixed Phoenix hooks; it does not add a client runtime, validation
 engine, or state model. `markdown` needs the optional `markdown` extra.
-`UiLiveView.ui_mode()` selects `auto`, `light`, or `dark` color mode, while
-`ui_skin()` independently selects the default `editorial`, bundled `minimal` or
-`rounded`, or a validated application-owned CSS skin name. Guide:
+`UiLiveView.ui_theme()` selects a `Theme`, `ui_mode()` its `auto`, `light`, or
+`dark` palette, and `ui_skin()` a `Skin`. `Theme`, `Palette`, and `Skin` are
+typed definitions whose CSS the package generates; `LiveViewUiModule.for_root()`
+registers the ones an application defines. Guide:
 [LiveView UI](../techniques/liveview-ui/index.md); generated reference:
 [LiveView UI API](generated/liveview-ui.md).
 

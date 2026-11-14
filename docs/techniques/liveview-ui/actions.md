@@ -164,7 +164,7 @@ browsers still honor.
 visitor choose the system, light, or dark color mode. The browser stores the choice
 and applies it to every `UiLiveView` document before it paints, so there is no
 flash of the other mode and nothing for the page to handle. See
-[Themes and Skins](theming.md#letting-the-visitor-choose).
+[Themes, Modes, and Skins](theming.md#letting-the-visitor-choose-the-mode).
 
 `id` is required and must be unique on the page; several toggles on one page
 stay in step.

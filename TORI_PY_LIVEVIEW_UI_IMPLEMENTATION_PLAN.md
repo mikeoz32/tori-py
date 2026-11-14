@@ -7,11 +7,11 @@ Every slice is complete: the foundation (LVUI0), initial family acceptance
 (LVUI4), the families for layout, content, icons, and actions (LVUI5), data
 display, feedback, and disclosure (LVUI6), chat and AI (LVUI7), extended forms
 (LVUI8), navigation (LVUI9), and overlays (LVUI10), and the acceptance of the
-whole library (LVUI11). The theme framework is in progress: its contract is
-recorded (LVUI12), the mode and theme vocabulary (LVUI13), the definitions
-(LVUI14), the bundled definitions (LVUI15), application definitions (LVUI16),
-derivation (LVUI17), and scoped looks with their browser acceptance (LVUI18)
-are complete, and LVUI19 remains.
+whole library (LVUI11), and the theme framework: its contract (LVUI12), the
+mode and theme vocabulary (LVUI13), the definitions (LVUI14), the bundled
+definitions (LVUI15), application definitions (LVUI16), derivation (LVUI17),
+scoped looks with their browser acceptance (LVUI18), and its acceptance
+(LVUI19).
 
 Architecture:
 [`TORI_PY_LIVEVIEW_UI_ARCHITECTURE.md`](TORI_PY_LIVEVIEW_UI_ARCHITECTURE.md).
@@ -212,9 +212,9 @@ Architecture:
   an application theme and skin registered by the gallery, and browser
   scenarios through the official Phoenix client.
 
-## LVUI19: Theme Framework Acceptance
+## LVUI19: Theme Framework Acceptance - Complete
 
-- [ ] Rewrite the theming guide, update the specification, and run the
+- [x] Rewrite the theming guide, update the specification, and run the
   full-family test, Ruff, formatter, Ty, build, artifact, and strict
   documentation gates.
 

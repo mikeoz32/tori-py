@@ -1,43 +1,53 @@
-# Themes and Skins
+# Themes, Modes, and Skins
 
-LiveView UI separates three choices:
+The look of a LiveView UI document is three independent choices:
 
-- the color theme: a light and a dark palette;
-- the color mode: `auto`, `light`, or `dark`, which picks the palette;
-- the visual skin: geometry, density, typography, borders, and shadows.
+| Choice | Decides | Values |
+| --- | --- | --- |
+| Theme | Colors: one palette for light and one for dark | A `Theme` |
+| Mode | Which of the theme's two palettes applies | `auto`, `light`, `dark` |
+| Skin | Shape: spacing, radii, control sizes, typography, shadows, focus | A `Skin` |
 
-All three are attributes on the `<html>` element. Connected renders patch the
-live root, not `<html>`, so what the server chooses takes effect on the next
-full page load. The visitor can still switch the mode at any time with a
-[mode toggle](#letting-the-visitor-choose), which works in the browser.
+Themes and skins are typed definitions. The package generates their CSS, so an
+application describes a look in Python and writes no stylesheet for it. The
+bundled themes and skins are made with the same API.
 
-## Choosing a Mode and Skin
+All three choices are attributes on the `<html>` element. Connected renders
+patch the live root, not `<html>`, so what the server chooses takes effect on
+the next full page load. The visitor can still switch the mode at any time with
+a [mode toggle](#letting-the-visitor-choose-the-mode), which works in the
+browser.
 
-`UiLiveView` calls `ui_theme()`, `ui_mode()`, and `ui_skin()` while building
-the HTTP document:
+## Choosing a Look
+
+`UiLiveView` calls `ui_theme()`, `ui_mode()`, and `ui_skin()` while building the
+HTTP document:
 
 ```python
 from typing import Literal
 
-from tori_py_liveview_ui import UiLiveView
+from tori_py_liveview_ui import Skin, Theme, UiLiveView
 
 
 class ReportsLive(UiLiveView):
+    def ui_theme(self) -> Theme:
+        return Theme.SLATE
+
     def ui_mode(self) -> Literal["auto", "light", "dark"]:
         return "dark"
 
-    def ui_skin(self) -> str:
-        return "minimal"
+    def ui_skin(self) -> Skin:
+        return Skin.MINIMAL
 ```
 
-| Method | Default | Allowed values |
+| Method | Default | Returns |
 | --- | --- | --- |
-| `ui_theme()` | `"paper"` | Any name matching `[a-z][a-z0-9-]{0,63}` |
-| `ui_mode()` | `"auto"` | `"auto"`, `"light"`, `"dark"` |
-| `ui_skin()` | `"editorial"` | Any name matching `[a-z][a-z0-9-]{0,63}` |
+| `ui_theme()` | `Theme.PAPER` | A `Theme`, or the name of a theme you style in CSS |
+| `ui_mode()` | `"auto"` | `"auto"`, `"light"`, or `"dark"` |
+| `ui_skin()` | `Skin.EDITORIAL` | A `Skin`, or the name of a skin you style in CSS |
 
-`auto` follows the visitor's `prefers-color-scheme` setting. Invalid values raise
-`ValueError` during the HTTP render.
+`auto` follows the visitor's `prefers-color-scheme` setting. Any other value
+raises `TypeError` or `ValueError` during the HTTP render.
 
 The methods run after `mount()` and `handle_params()`, so they can return a
 per-visitor preference loaded during mount:
@@ -63,7 +73,7 @@ class SettingsLive(UiLiveView):
 A WebSocket event cannot set a cookie. To change the preference, submit it to an
 HTTP endpoint of your own that stores it and redirects back to the page.
 
-## Letting the Visitor Choose
+## Letting the Visitor Choose the Mode
 
 `mode_toggle()` renders three buttons for the system, light, and dark modes:
 
@@ -84,133 +94,189 @@ The choice never reaches your page:
 
 Use `ui_mode()` alone when the application decides, and add the toggle when the
 visitor should. A preference you need on the server, for example in an email,
-belongs in your own storage.
+belongs in your own storage. The theme and the skin are the application's
+choice; there is no toggle for them.
 
-## Defining Themes and Skins
+## Bundled Themes and Skins
 
-Themes and skins are typed definitions. A `Theme` is a name and two `Palette`
-objects, one for the light and one for the dark mode. A `Skin` is a name and
-the shape tokens. `Palette.derive()` and `Skin.derive()` copy a definition with
-some values changed:
+| Theme | Character |
+| --- | --- |
+| `Theme.PAPER` | Default. Warm paper surfaces and a red-orange accent |
+| `Theme.SLATE` | Cool neutral surfaces and a blue accent |
+| `Theme.CONTRAST` | Black and white surfaces and text at WCAG AAA contrast |
+
+| Skin | Character |
+| --- | --- |
+| `Skin.EDITORIAL` | Default. Square surfaces, serif display type, uppercase controls and labels, hard offset shadow |
+| `Skin.MINIMAL` | System fonts, slight radii, compact controls, no uppercase, subtle shadow |
+| `Skin.ROUNDED` | Large radii, taller controls, soft diffuse shadow, no uppercase |
+
+Every theme works with every mode and every skin. Bundled definitions are part
+of the package stylesheet and need no registration.
+
+## Defining a Theme
+
+The quickest theme is derived from one or two colors:
 
 ```python
-from tori_py_liveview_ui import Skin, Theme
+ACME = Theme.from_seeds("acme", accent="#7c3aed", neutral="#6b7280")
+```
 
-ocean = Theme(
+`accent` colors buttons, links, and the current item. `neutral` tints the
+surfaces, the text, and the lines; leave it out for a faint tint of the accent.
+Both palettes are derived in the OKLCH color space, and each derived color is
+moved until it is readable on its surfaces. Pass `contrast="high"` for WCAG AAA
+text contrast on black and white surfaces.
+
+For full control, give both palettes. A `Palette` has fifteen colors, and
+`derive()` copies one with some colors changed:
+
+```python
+OCEAN = Theme(
     "ocean",
     light=Theme.PAPER.light.derive(accent="#0b5cad", accent_ink="#ffffff"),
     dark=Theme.PAPER.dark.derive(accent="#7cc4ff", accent_ink="#0b1b2b"),
 )
-compact = Skin.MINIMAL.derive("compact", radius_control="0.5rem")
 ```
 
-Every value is validated when the object is built: colors are hex colors,
-sizes are lengths, and font stacks are tuples of family names, so a definition
-cannot carry free CSS. A theme whose text would not reach WCAG AA contrast
-raises `ThemeContrastError`, which names each failing pair. `Theme.report()`
-returns every requirement as a `ContrastCheck`.
+Colors are `#rgb`, `#rrggbb`, or `#rrggbbaa`. Only `shadow_color` and `scrim`
+may be translucent.
 
-## Scoped Looks
+### Contrast
+
+A theme is checked when it is built. Body and muted text, the label of an
+accent or danger button, and text set in a tone must reach WCAG AA (4.5:1) on
+their surfaces, and the accent and the tones must reach 3:1 as graphics. A
+theme that does not raises `ThemeContrastError`, which names each failing pair:
+
+<!-- docs-test: raises ThemeContrastError -->
+
+```python
+Theme("faint", light=Theme.PAPER.light.derive(muted="#b5ada0"), dark=Theme.PAPER.dark)
+```
+
+Pass `allow_low_contrast=True` to build such a theme anyway. `Theme.report()`
+returns every requirement as a `ContrastCheck` with the ratio the theme
+reaches:
+
+```python
+closest = min(ACME.report(), key=lambda check: check.ratio / check.required)
+summary = f"{closest.mode} {closest.foreground} on {closest.background}"
+```
+
+## Defining a Skin
+
+A skin starts from a bundled one. `Skin.derive()` takes the new name and the
+tokens to change:
+
+```python
+COMPACT = Skin.MINIMAL.derive(
+    "compact",
+    radius_control="0.5rem",
+    control_height_md="2.1rem",
+    font_body=("Inter", "system-ui", "sans-serif"),
+)
+```
+
+Every value is validated against the kind of its token, so a typo fails when
+the module is imported instead of producing a broken stylesheet:
+
+| Kind | Tokens | Accepts |
+| --- | --- | --- |
+| Size | Spacing, radii, heights, gaps, widths, shadow blur | `0` or a number with `rem`, `em`, `px`, `%`, `ch`, `vw`, or `vh` |
+| Offset | Shadow x, y, and spread, focus offsets, letter spacing, hover translation | A size that may be negative |
+| Box | Button, alert, and card padding | One to four sizes |
+| Font stack | `font_display`, `font_body`, `font_code` | A tuple of family names; generic families such as `serif` are written bare and the others quoted |
+| Weight | `control_font_weight`, `label_font_weight` | An integer from 1 to 1000 |
+| Case | `control_text_transform`, `label_text_transform` | `none`, `uppercase`, `lowercase`, or `capitalize` |
+| Opacity | `disabled_opacity`, `field_disabled_opacity` | A number from 0 to 1 |
+
+No token accepts free CSS, so a definition cannot add a rule or a URL to a
+stylesheet. The package ships no fonts: a font stack names families the visitor
+has, or ones you load in your own stylesheet.
+
+## Registering Application Definitions
+
+Pass your themes and skins to the module, and return them from a page:
+
+```python
+from tori_py import module
+from tori_py_liveview_ui import LiveViewUiModule
+
+
+@module(imports=[LiveViewUiModule.for_root(themes=[ACME], skins=[COMPACT])])
+class AppModule:
+    pass
+
+
+class DashboardLive(UiLiveView):
+    def ui_theme(self) -> Theme:
+        return ACME
+
+    def ui_skin(self) -> Skin:
+        return COMPACT
+```
+
+The module serves each definition as its own stylesheet at a content-addressed
+path, `stylesheet_path`, with the same immutable caching as the package
+stylesheet, which stays unchanged. The document links the stylesheets of the
+definitions the page returns, after the package stylesheet.
+
+A definition a page returns must be registered. If it is not, its stylesheet
+answers 404 and the page falls back to the default look. A name may be
+registered once, and the names of the bundled definitions are reserved.
+
+## A Look for Part of a Page
 
 `themed()` gives part of a page its own theme, mode, or skin. What it leaves
 out is inherited from the document:
 
 ```python
-from tori_py_liveview_ui import Skin, Theme, card, themed
+from tori_py_liveview_ui import card, themed
 
 night = themed(card("Always dark", title="Night"), mode="dark")
 preview = themed(card("Slate, rounded"), theme=Theme.SLATE, skin=Skin.ROUNDED)
 ```
 
-## Bundled Skins
-
-| Skin | Character |
-| --- | --- |
-| `editorial` | Default. Square surfaces, serif display type, uppercase controls and labels, hard offset shadow |
-| `minimal` | System fonts, slight radii, compact controls, no uppercase, subtle shadow |
-| `rounded` | Large radii, taller controls, soft diffuse shadow, no uppercase |
-
-Every skin works with every theme and mode.
-
-## Custom Skins
-
-A custom skin is a name plus CSS. Return the name from `ui_skin()` and override
-public tokens in a stylesheet loaded after the package stylesheet:
+The element is a surface: it has the paper background, ink color, and body font
+of the look inside it. When it uses an application theme or skin that the page
+does not already return, name that definition in `ui_extra_definitions()` so
+that the document links its stylesheet:
 
 ```python
-class BrandLive(UiLiveView):
-    def ui_skin(self) -> str:
-        return "acme"
+class PreviewLive(UiLiveView):
+    def ui_extra_definitions(self) -> tuple[Theme | Skin, ...]:
+        return (ACME, COMPACT)
 ```
+
+## Themes and Skins in Your Own CSS
+
+`ui_theme()` and `ui_skin()` may return a name instead of a definition. The
+name must match `[a-z][a-z0-9-]{0,63}`; it becomes the attribute value, and
+your own stylesheet, loaded after the package one, defines the tokens:
 
 ```css
 [data-tori-ui-skin="acme"] {
   --tori-ui-radius-control: 0.5rem;
-  --tori-ui-radius-surface: 0.75rem;
-  --tori-ui-control-height-md: 2.75rem;
-  --tori-ui-field-control-height: 2.75rem;
   --tori-ui-border-width: 2px;
-  --tori-ui-font-body: system-ui, sans-serif;
-  --tori-ui-control-text-transform: none;
-  --tori-ui-label-text-transform: none;
-  --tori-ui-shadow-x: 0;
-  --tori-ui-shadow-y: 8px;
-  --tori-ui-shadow-blur: 24px;
-  --tori-ui-shadow-spread: -16px;
+}
+
+[data-tori-ui-theme="acme"] {
+  --tori-ui-accent: light-dark(#7c3aed, #a78bfa);
 }
 ```
 
-Tokens you do not override keep the `editorial` defaults. Your CSS is not merged
-into the package asset, so the package stylesheet URL and ETag do not change.
-
-Serve the application stylesheet yourself and link it after the package link.
-`UiLiveView.render_document()` inserts the package link before `</head>`, so
-insert yours in the same place afterwards:
-
-<!-- docs-test: skip -->
-
-```python
-from importlib.resources import files
-
-from tori_py import HttpResponse, controller, get
-from tori_py_liveview_ui import UiLiveView
-
-BRAND_CSS = files("my_app").joinpath("static", "brand.css").read_bytes()
-
-
-@controller()
-class BrandAssets:
-    @get("/assets/brand.css")
-    async def stylesheet(self) -> HttpResponse:
-        return HttpResponse(
-            BRAND_CSS,
-            headers={"content-type": "text/css; charset=utf-8"},
-        )
-
-
-class BrandLive(UiLiveView):
-    def ui_skin(self) -> str:
-        return "acme"
-
-    def render_document(self, live_root: str, client_script: str) -> str:
-        document = super().render_document(live_root, client_script)
-        link = '<link rel="stylesheet" href="/assets/brand.css">'
-        return document.replace("</head>", f"{link}</head>", 1)
-```
-
-Register the controller in one of your modules. Put the custom page logic in a
-shared base class when several pages use the same skin.
-
-To restyle colors, override the palette tokens under the theme selector instead
-of the skin selector, for example `[data-tori-ui-theme="paper"]`, and give
-each one a `light-dark()` pair.
+Give each palette token a `light-dark()` pair so that it follows the mode.
+Tokens you do not set keep the values of the default theme and skin. A name
+gets no validation and no contrast check, so prefer a definition unless the
+look already exists as CSS.
 
 ## Pages Without `UiLiveView`
 
-A page with its own document can use the assets directly. Add
-`stylesheet_link()` and `script_tag()` to the head, set the three attributes
-on `<html>`, and give `<body>` the `tori-ui-document` class for the theme's page
-background and text color:
+A page with its own document can use the assets directly. Pass the application
+definitions it uses to `stylesheet_link()`, add `script_tag()` to the head, set
+the three attributes on `<html>`, and give `<body>` the `tori-ui-document` class
+for the theme's page background and text color:
 
 ```python
 from tori_py_liveview import LiveView
@@ -220,10 +286,10 @@ from tori_py_liveview_ui import script_tag, stylesheet_link
 class PlainLive(LiveView):
     def render_document(self, live_root: str, client_script: str) -> str:
         return (
-            '<!doctype html><html data-tori-ui-theme="paper" '
-            'data-tori-ui-mode="auto" data-tori-ui-skin="editorial">'
+            f'<!doctype html><html data-tori-ui-theme="{ACME.name}" '
+            f'data-tori-ui-mode="auto" data-tori-ui-skin="{COMPACT.name}">'
             '<head><meta charset="utf-8">'
-            f"{stylesheet_link().value}{script_tag().value}</head>"
+            f"{stylesheet_link(ACME, COMPACT).value}{script_tag().value}</head>"
             f'<body class="tori-ui-document">{live_root}{client_script}</body>'
             "</html>"
         )
@@ -239,33 +305,41 @@ header. `LiveViewUiModule` must still be imported so that the paths are served.
 
 ## Token Reference
 
-All public custom properties start with `--tori-ui-`.
+All public custom properties start with `--tori-ui-`. A field of `Palette` or
+`Skin` is the token of the same name with hyphens: `radius_control` is
+`--tori-ui-radius-control`. `Palette.tokens()`, `Theme.tokens()`, and
+`Skin.tokens()` return the names with their values.
 
 | Group | Tokens |
 | --- | --- |
 | Palette (theme) | `paper`, `panel`, `panel-raised`, `ink`, `muted`, `line`, `line-strong`, `accent`, `accent-ink`, `danger`, `info`, `success`, `warning`, `shadow-color`, `scrim` |
 | Spacing | `space-xs`, `space-sm`, `space-md`, `space-lg`, `space-xl`, `form-gap`, `field-gap`, `checkbox-gap`, `grid-min` |
-| Radii | `radius-control`, `radius-surface`, `radius-surface-inner`, `radius-pill`, `field-control-radius` |
+| Radii | `radius-control`, `radius-surface`, `radius-pill`, `field-control-radius` |
 | Controls | `control-height-sm`, `control-height-md`, `control-height-lg`, `field-control-height`, `control-padding-block`, `control-padding-inline`, `field-control-padding-block`, `field-control-padding-inline`, `button-padding-sm`, `button-padding-lg`, `checkbox-size` |
 | Surfaces | `alert-padding`, `card-header-padding`, `card-body-padding`, `card-footer-padding` |
 | Borders | `border-width`, `accent-border-width` |
 | Typography | `font-display`, `font-body`, `font-code`, `control-font-weight`, `control-letter-spacing`, `control-text-transform`, `label-font-weight`, `label-letter-spacing`, `label-text-transform` |
-| Shadows | `shadow-x`, `shadow-y`, `shadow-blur`, `shadow-spread`, `shadow` |
+| Shadows | `shadow-x`, `shadow-y`, `shadow-blur`, `shadow-spread` |
 | Focus and states | `focus-width`, `focus-offset`, `field-focus-offset`, `disabled-opacity`, `field-disabled-opacity`, `hover-translate` |
+| Composed | `shadow`, `radius-surface-inner` |
 | Application shell | `sidebar-width`, `aside-width` |
 | Stacking order | `layer-raised`, `layer-drawer`, `layer-overlay`, `layer-toast` |
 
-`shadow` is composed from the other shadow tokens, so override the parts.
-`radius-surface-inner` is derived from `radius-surface` and `border-width`.
-The application shell and stacking order tokens are the same in every skin;
-override them on `:root` or on your own skin selector.
+The composed tokens are built from the others in every theme and skin rule:
+`shadow` from the shadow tokens and the theme's `shadow-color`, and
+`radius-surface-inner` from `radius-surface` and `border-width`. The
+application shell and stacking order tokens are the same in every skin;
+override them on `:root` in your own stylesheet.
+
+## Browser Support
+
+A theme sets each palette token to a `light-dark()` pair and the mode sets
+`color-scheme`. This needs Chrome 123, Firefox 120, or Safari 17.5, or a later
+version.
 
 ## Accessibility and Motion
 
 The stylesheet gives every interactive helper a visible keyboard focus ring
-sized by `focus-width` and `focus-offset`, dims disabled controls, and removes
-button transitions when the visitor prefers reduced motion. Keep enough contrast
-when you override palette tokens, and keep the focus tokens large enough to see.
-
-The package ships no fonts. Font tokens list local and system families; load
-web fonts in your own stylesheet if you want them.
+sized by `focus_width` and `focus_offset`, dims disabled controls, and removes
+button transitions when the visitor prefers reduced motion. A theme is checked
+for contrast when it is built; keep the focus tokens large enough to see.

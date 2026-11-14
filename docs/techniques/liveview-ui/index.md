@@ -2,7 +2,7 @@
 
 `tori-py-liveview-ui` is a component library for
 [LiveView](../liveview/index.md) pages: typed, stateless template helpers
-grouped in families, one local stylesheet with color themes and visual skins,
+grouped in families, one local stylesheet, typed themes and skins,
 and one local script of Phoenix hooks for the few behaviors that need the
 browser. It adds no client runtime, no state model, and no validation engine.
 Pages and components keep owning state.
@@ -74,7 +74,8 @@ immutable caching headers and an ETag.
   theme's background, text color, and body font, and removes the body margin.
 
 Override `ui_theme()`, `ui_mode()`, and `ui_skin()` to choose the look; see
-[Themes and Skins](theming.md). A page with its own `render_document()` can call
+[Themes, Modes, and Skins](theming.md). A page with its own `render_document()`
+can call
 `stylesheet_link()` and `script_tag()` and set the attributes and the body class
 itself. Keep the script tag in `<head>` without `defer` or `async`: it registers
 the hooks before the LiveView client starts.
@@ -117,6 +118,7 @@ panel = ui.card(ui.stack([ui.badge("New"), ui.text("Ready.")]), title="Status")
 | Navigation | `breadcrumbs`, `nav`, `nav_item`, `navbar`, `pagination`, `skip_link`, `steps`, `tab_links` | [Navigation](navigation.md) |
 | Overlays | `close_overlay`, `confirm_dialog`, `drawer`, `dropdown`, `menu_item`, `modal`, `open_overlay`, `popover` | [Overlays](overlays.md) |
 | Chat and AI | `agent_step`, `agent_steps`, `artifact_panel`, `attachment`, `chat`, `chat_empty`, `chat_log`, `chat_message`, `citation`, `composer`, `conversation_list`, `markdown`, `message_actions`, `reasoning`, `response_branch`, `sources`, `suggestions`, `token_usage`, `tool_call`, `typing_indicator` | [Chat and AI](chat.md) |
+| Themes | `themed`, with the `Theme`, `Palette`, and `Skin` definitions | [Themes, Modes, and Skins](theming.md) |
 | Forms | `checkbox`, `checkbox_group`, `combobox`, `field`, `field_error`, `fieldset`, `form`, `form_actions`, `hidden`, `input`, `multi_select`, `radio_group`, `search`, `segmented`, `select`, `slider`, `switch`, `textarea` | [Forms](forms.md) |
 
 The gallery example shows every helper in each theme and skin:
@@ -184,5 +186,5 @@ reset, so the helpers can sit next to your own styles.
 | Modals, drawers, confirmations, menus, and popovers | [Overlays](overlays.md) |
 | Conversations, streaming replies, model output, and Markdown | [Chat and AI](chat.md) |
 | Form controls, names, validation feedback, accessibility | [Forms](forms.md) |
-| Light and dark themes, bundled skins, custom skins, CSS tokens | [Themes and Skins](theming.md) |
+| Themes, the light and dark mode, skins, your own definitions, CSS tokens | [Themes, Modes, and Skins](theming.md) |
 | Page lifecycle, events, and escaping | [LiveView](../liveview/index.md) |

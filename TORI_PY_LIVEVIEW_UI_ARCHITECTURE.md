@@ -25,10 +25,14 @@ The public facade is the flat `tori_py_liveview_ui` namespace:
 
 - helper functions that return `string.templatelib.Template` values, listed by
   family in section 4;
-- `LiveViewUiModule.for_root(key="default")` exposes the asset routes;
+- `LiveViewUiModule.for_root(key="default", themes=(), skins=())` exposes the
+  asset routes and one stylesheet route for each application definition;
+- `Theme`, `Palette`, and `Skin` are the typed definitions of section 8, with
+  `ThemeContrastError` and `ContrastCheck` for their contrast checks;
 - `STYLESHEET_PATH` and `SCRIPT_PATH` are those routes' content-addressed paths;
 - `stylesheet_link()` and `script_tag()` return the trusted `<link>` and
-  `<script>` markup for a custom document;
+  `<script>` markup for a custom document; `stylesheet_link()` also links the
+  application definitions it is given;
 - `UiLiveView` is a `LiveView` base class that installs both tags and
   independent document theme, mode, and skin attributes.
 
@@ -634,8 +638,9 @@ of its field when the object is built:
 | Kind | Accepts |
 | --- | --- |
 | color | `#rgb`, `#rrggbb`, or `#rrggbbaa` |
-| length | `0` or a number with `rem`, `em`, `px`, `%`, `ch`, `vw`, or `vh` |
-| box | one to four lengths |
+| size | `0` or a number with `rem`, `em`, `px`, `%`, `ch`, `vw`, or `vh` |
+| offset | a size that may be negative: shadow offsets and spread, focus offsets, letter spacing, hover translation |
+| box | one to four sizes |
 | font stack | a tuple of family names; generic families are emitted bare and the others quoted |
 | weight | an integer from 1 to 1000 |
 | case | `none`, `uppercase`, `lowercase`, or `capitalize` |
@@ -645,7 +650,8 @@ No field accepts free CSS text, so a definition cannot add a declaration, a
 rule, or a URL to a stylesheet.
 
 `Palette.derive()` and `Skin.derive()` return a copy with some fields changed;
-`Skin.derive()` takes the new name first. `Theme.from_seeds()` derives both
+`Skin.derive()` takes the new name first. `tokens()` on a palette, a theme, or
+a skin returns each custom property name, without the prefix, with its value. `Theme.from_seeds()` derives both
 palettes from an accent color and an optional neutral color in the OKLCH color
 space, at a `standard` or `high` contrast level, and solves each derived
 lightness for the contrast rules below.
@@ -655,7 +661,8 @@ lightness for the contrast rules below.
 A theme is checked when it is built, for each of its two palettes:
 
 - `ink` and `muted` on `paper`, `panel`, and `panel_raised`, `accent_ink` on
-  `accent`, `paper` on `ink`, and `panel` on `danger` reach 4.5:1;
+  `accent`, and `panel` on `danger`, which is the label of a danger button,
+  reach 4.5:1;
 - `accent` and the four tones on `paper` and `panel` reach 3:1 as graphics;
 - `accent` and the four tones mixed 80% with `ink`, which is how the
   stylesheet sets text in a tone, reach 4.5:1 on `paper` and `panel`.
@@ -670,7 +677,8 @@ with its ratio. `allow_low_contrast=True` builds the theme anyway.
 `Theme.css()` and `Skin.css()` return the rule for a definition.
 
 A theme is one rule on `[data-tori-ui-theme="<name>"]` that sets each palette
-token to `light-dark(<light>, <dark>)`. The mode is `color-scheme` alone:
+token to `light-dark(<light>, <dark>)` and composes `--tori-ui-shadow` again,
+so that a theme on an inner element uses its own shadow color. The mode is `color-scheme` alone:
 `light`, `dark`, or `light dark` for `auto`. Because `color-scheme` is
 inherited and `light-dark()` is resolved where a token is used, a theme and a
 mode compose at any depth of the document. This needs a browser with
@@ -706,7 +714,9 @@ definitions. Each gets its own stylesheet at:
 ```
 
 with the same content type, ETag, and immutable cache policy as the package
-stylesheet, which they never change. A name may be registered once, and the
+stylesheet, which they never change. `stylesheet_path` on a definition is that
+path. A definition that is not registered has no route, so its link answers
+404 and the document keeps the default look. A name may be registered once, and the
 bundled names are reserved.
 
 `UiLiveView.ui_theme()` returns a `Theme` and defaults to `Theme.PAPER`;

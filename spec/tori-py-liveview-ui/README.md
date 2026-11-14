@@ -65,26 +65,28 @@ architecture is maintained in
     include the first 12 hexadecimal characters of each file's SHA-256 digest;
     each response has the full-digest ETag and one-year public immutable cache
     policy.
-11. `UiLiveView` defaults independently to the `auto` theme and `editorial`
-    skin, adds both data attributes to the document HTML element, inserts the
-    local `stylesheet_link()` and `script_tag()` into the normal LiveView
-    document head, and puts the `tori-ui-document` surface class on the body.
-    Theme is closed to `auto`/`light`/`dark`; skin accepts a bounded lowercase
-    CSS identifier.
-12. The stylesheet bundles `editorial`, `minimal`, and `rounded`. Color theme
-    owns palette values; visual skin owns spacing, shape, density, typography,
-    shadow/focus geometry, and layout values. The server does not change the
-    outer document selection from connected state.
+11. `UiLiveView` defaults independently to the paper theme, the `auto` mode,
+    and the editorial skin, adds `data-tori-ui-theme`, `data-tori-ui-mode`,
+    and `data-tori-ui-skin` to the document HTML element, inserts the local
+    `stylesheet_link()` and `script_tag()` into the normal LiveView document
+    head, and puts the `tori-ui-document` surface class on the body. Mode is
+    closed to `auto`/`light`/`dark`; a theme or skin is a definition or a
+    bounded lowercase CSS identifier.
+12. The stylesheet bundles the paper, slate, and contrast themes and the
+    editorial, minimal, and rounded skins. A theme owns palette values for
+    the light and the dark mode; a skin owns spacing, shape, density,
+    typography, shadow/focus geometry, and layout values. The server does not
+    change the outer document selection from connected state.
 13. CSS selectors are `tori-ui-` prefixed, public `--tori-ui-*` properties are
     application-overridable, component layout is responsive, focus/disabled and
     form-invalid behavior is explicit, and reduced motion disables transitions.
-    Application-owned skins remain separate CSS loaded after the immutable
-    package stylesheet.
+    Application definitions and application CSS stay separate from the
+    immutable package stylesheet and load after it.
 14. Browser behavior uses native elements first, LiveView `JS` commands second,
     and hooks from the bundled script last. The script defines only
     `ToriUi`-prefixed hooks, adds them to `globalThis.ToriLiveHooks` when it
     loads and again when the document has been parsed, and applies a stored
-    visitor theme before the first paint. It holds no application state, opens
+    visitor mode before the first paint. It holds no application state, opens
     no connections, loads no remote code, and evaluates no strings as code.
 15. Links are plain, live, or external. Live links carry `data-phx-link` and
     `data-phx-link-state` and need a root-relative path; external links open a
@@ -94,7 +96,7 @@ architecture is maintained in
     requires a label.
 17. `copy_button` and `code_block` copy in the browser through a `JS` dispatch
     and one script listener, keep the button's accessible name, and announce
-    the result. `mode_toggle` applies and stores the visitor's theme in the
+    the result. `mode_toggle` applies and stores the visitor's mode in the
     browser. Neither notifies the page.
 18. `app_shell` renders the main landmark in a viewport-filling grid. Below
     56rem its sidebar opens over the content through `JS` commands; the open
@@ -154,3 +156,31 @@ architecture is maintained in
     Optional features ship as extras, and the package contains no model client
     or provider adapter. A future Tailwind skin adapter remains a
     separate precompiled distribution.
+32. `Palette`, `Theme`, and `Skin` are frozen definitions whose fields are the
+    public token contract. Every value is validated against the kind of its
+    field when the object is built: a hex color, a size, a signed offset, one
+    to four sizes, a tuple of font family names, a weight, a text case, or an
+    opacity. No field accepts free CSS text.
+33. A theme is checked for contrast when it is built: body and muted text on
+    every surface, the accent and danger button labels, and text in the
+    accent or a tone reach 4.5:1, and the accent and the tones reach 3:1 as
+    graphics. A failing theme raises `ThemeContrastError` unless it is built
+    with `allow_low_contrast=True`; `Theme.report()` returns every check.
+34. `Theme.from_seeds()` derives both palettes from an accent and an optional
+    neutral color in OKLCH at the `standard` (AA) or `high` (AAA) level and
+    yields a theme that passes its own checks. `Palette.derive()` and
+    `Skin.derive()` copy a definition with some values changed.
+35. A theme rule sets each palette token to a `light-dark()` pair, and the
+    mode sets `color-scheme` alone, so a theme, a mode, and a skin compose at
+    any depth. Every theme and skin rule declares the composed shadow, and
+    every skin rule the composed inner surface radius. The package stylesheet
+    is the generated rules of the bundled definitions followed by the
+    component rules, with one line ending on every platform.
+36. `LiveViewUiModule.for_root(themes=..., skins=...)` serves each application
+    definition as its own content-addressed immutable stylesheet and rejects
+    values that are not definitions, a name registered twice, and a bundled
+    name. `UiLiveView` links the stylesheets of the definitions returned by
+    `ui_theme()`, `ui_skin()`, and `ui_extra_definitions()` after the package
+    stylesheet; bundled definitions add no link.
+37. `themed` renders a surface that carries a theme, a mode, or a skin for part
+    of a page and inherits what it leaves out.
