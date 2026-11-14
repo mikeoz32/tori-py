@@ -341,6 +341,135 @@
     },
   };
 
+  // --------------------------------------------------------------- Dialog
+
+  // modal(), drawer(), confirm_dialog(): a native modal dialog. The browser
+  // holds the focus inside, makes the rest of the page inert, and returns the
+  // focus to where it was when the dialog closes.
+  hooks.ToriUiDialog = {
+    mounted() {
+      const dialog = this.el;
+      const dismissible = () => dialog.dataset.toriUiDismissible !== "false";
+      // Closing by any route presses the dialog's own dismiss control, so the
+      // browser or the page closes it the way that control says.
+      const dismiss = () => {
+        dialog.querySelector("[data-tori-ui-dismiss]")?.click();
+      };
+      dialog.addEventListener("tori-ui:open", () => {
+        if (!dialog.open) dialog.showModal();
+      });
+      dialog.addEventListener("tori-ui:close", () => {
+        if (dialog.open) dialog.close();
+      });
+      // Escape.
+      dialog.addEventListener("cancel", (event) => {
+        event.preventDefault();
+        if (dismissible()) dismiss();
+      });
+      dialog.addEventListener("click", (event) => {
+        // A click on the dialog element itself is a click on its backdrop.
+        if (event.target === dialog) {
+          if (dismissible()) dismiss();
+          return;
+        }
+        // A dialog the browser owns closes once its action is confirmed; the
+        // LiveView client still sees this click first.
+        const confirmed =
+          event.target instanceof Element &&
+          event.target.closest("[data-tori-ui-confirm-action]") !== null;
+        if (confirmed && dialog.dataset.toriUiOpen === undefined) {
+          setTimeout(() => dialog.close());
+        }
+      });
+      // With data-tori-ui-open the page owns the state and this follows it.
+      this.sync = () => {
+        const wanted = dialog.dataset.toriUiOpen;
+        if (wanted === "true" && !dialog.open) dialog.showModal();
+        if (wanted === "false" && dialog.open) dialog.close();
+      };
+      this.sync();
+    },
+    updated() {
+      this.sync();
+    },
+    destroyed() {
+      if (this.el.open) this.el.close();
+    },
+  };
+
+  // ---------------------------------------------------------------- Popup
+
+  // dropdown(), popover(): JS commands open and close the panel; this adds
+  // what they cannot: focus on opening, arrow keys in a menu, Escape, and
+  // closing when a choice is made or the focus leaves.
+  hooks.ToriUiPopup = {
+    mounted() {
+      const root = this.el;
+      const trigger = root.querySelector("[aria-expanded]");
+      const panel = root.querySelector(".tori-ui-popup__panel");
+      if (trigger === null || panel === null) return;
+      const isOpen = () => root.classList.contains("tori-ui-popup--open");
+      const close = () => {
+        if (!isOpen()) return;
+        this.liveSocket.execJS(root, root.getAttribute("phx-click-away"));
+      };
+      const items = () => [
+        ...panel.querySelectorAll('[role="menuitem"]:not(:disabled)'),
+      ];
+      // The LiveView client opens the panel on a later animation frame, so
+      // the focus moves when the class arrives, not when the button is hit.
+      let wasOpen = isOpen();
+      this.opened = new MutationObserver(() => {
+        const open = isOpen();
+        if (open && !wasOpen) (items()[0] ?? panel).focus();
+        wasOpen = open;
+      });
+      this.opened.observe(root, {attributes: true, attributeFilter: ["class"]});
+      root.addEventListener("keydown", (event) => {
+        if (!isOpen()) return;
+        if (event.key === "Escape") {
+          event.stopPropagation();
+          close();
+          trigger.focus();
+          return;
+        }
+        const list = items();
+        if (list.length === 0) return;
+        const index = list.indexOf(document.activeElement);
+        const last = list.length - 1;
+        const moves = {
+          ArrowDown: index >= last ? 0 : index + 1,
+          ArrowUp: index <= 0 ? last : index - 1,
+          Home: 0,
+          End: last,
+        };
+        const next = moves[event.key];
+        if (next === undefined) return;
+        event.preventDefault();
+        list[next].focus();
+      });
+      panel.addEventListener("click", (event) => {
+        const chosen =
+          event.target instanceof Element &&
+          event.target.closest('[role="menuitem"]') !== null;
+        if (!chosen) return;
+        // After the LiveView client has handled the choice.
+        setTimeout(() => {
+          close();
+          trigger.focus();
+        });
+      });
+      root.addEventListener("focusout", (event) => {
+        if (event.relatedTarget instanceof Node && !root.contains(event.relatedTarget)) {
+          close();
+        }
+      });
+    },
+    destroyed() {
+      this.opened?.disconnect();
+    },
+  };
+
   // -------------------------------------------------------- Registration
 
   // The LiveView client reads globalThis.ToriLiveHooks from a deferred script.

@@ -5,8 +5,8 @@
 Foundation slice (LVUI0), initial family acceptance (LVUI1), forms slice
 (LVUI2), skinning slice (LVUI3), the component library foundation (LVUI4), and
 the layout, content, icon, action, display, feedback, disclosure, chat, and
-extended form and navigation families (LVUI5 through LVUI9) are complete.
-LVUI10 and LVUI11 finish growing the package into a full component library.
+extended form, navigation, and overlay families (LVUI5 through LVUI10) are
+complete. LVUI11 is the acceptance of the whole library.
 
 Architecture:
 [`TORI_PY_LIVEVIEW_UI_ARCHITECTURE.md`](TORI_PY_LIVEVIEW_UI_ARCHITECTURE.md).
@@ -138,12 +138,16 @@ Architecture:
 - [x] `app_shell` gives its main area an ID and makes it focusable, as the
   target of the skip link.
 
-## LVUI10: Overlays
+## LVUI10: Overlays - Complete
 
-- [ ] `modal`, `drawer`, `confirm_dialog`, `dropdown`, `menu_item`, and
-  `popover`, with helpers that return the `JS` commands to open and close
-  them.
-- [ ] Focus containment, Escape, click-away, and focus return.
+- [x] `modal`, `drawer`, `confirm_dialog`, `dropdown`, `menu_item`, and
+  `popover`, with `open_overlay` and `close_overlay` returning the `JS`
+  commands that open and close a dialog.
+- [x] Native modal dialogs for focus containment, inertness, Escape, and focus
+  return; a hook that follows page-owned state and routes every way of closing
+  through the dialog's own dismiss control.
+- [x] Menus and popovers opened by `JS` commands, with a hook for focus on
+  opening, arrow keys, Escape, and closing on a choice or on leaving.
 
 ## LVUI11: Library Acceptance
 

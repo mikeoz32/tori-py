@@ -86,6 +86,8 @@ The helpers are grouped in families:
 - Disclosure: `accordion`, `collapsible`, and `tabs`.
 - Navigation: `navbar`, `nav`, `nav_item`, `breadcrumbs`, `pagination`, `steps`,
   `tab_links`, and `skip_link`.
+- Overlays: `modal`, `drawer`, `confirm_dialog`, `dropdown`, `menu_item`,
+  `popover`, and the `open_overlay` and `close_overlay` commands.
 - Chat and AI: `chat`, `chat_log`, `chat_message`, `message_actions`,
   `composer`, `suggestions`, `chat_empty`, `typing_indicator`,
   `conversation_list`, `response_branch`, `reasoning`, `tool_call`,

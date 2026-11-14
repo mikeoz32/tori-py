@@ -41,6 +41,7 @@ SECTIONS: list[tuple[str, str]] = [
     ("/disclosure", "Disclosure"),
     ("/forms", "Forms"),
     ("/navigation", "Navigation"),
+    ("/overlays", "Overlays"),
     ("/ai", "AI"),
     ("/chat", "Chat"),
 ]

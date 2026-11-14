@@ -891,3 +891,146 @@ def test_breadcrumbs_and_tab_links_navigate_live(page: Page, gallery_url: str) -
     related.get_by_role("link", name="Content").click()
     expect(page.get_by_role("heading", level=1)).to_have_text("Content")
     assert page.evaluate("window.__sameDocument") is True
+
+
+# ---------------------------------------------------------------- Overlays
+
+
+def test_browser_owned_modal_traps_focus_and_returns_it(
+    page: Page, gallery_url: str
+) -> None:
+    _open(page, f"{gallery_url}/overlays")
+    opener = page.get_by_role("button", name="Open settings")
+    dialog = page.get_by_role("dialog", name="Settings")
+    expect(dialog).to_be_hidden()
+
+    opener.click()
+    expect(dialog).to_be_visible()
+    expect(dialog).to_have_attribute("aria-describedby", "settings-description")
+    # The rest of the page is inert while the dialog is open.
+    assert page.evaluate("document.querySelector('#settings').matches(':modal')")
+    # Focus starts inside, and Tab never reaches the page behind the dialog:
+    # it stays inside or leaves the document for the browser's own controls.
+    inside = (
+        "(() => { const dialog = document.querySelector('#settings');"
+        " const active = document.activeElement;"
+        " return dialog.contains(active) ? 'dialog'"
+        " : active === document.body ? 'browser' : 'page'; })()"
+    )
+    assert page.evaluate(inside) == "dialog"
+    for _ in range(6):
+        page.keyboard.press("Tab")
+        assert page.evaluate(inside) in ("dialog", "browser")
+
+    page.keyboard.press("Escape")
+    expect(dialog).to_be_hidden()
+    expect(opener).to_be_focused()
+
+    # The close button, the footer action, and a click outside close it too.
+    opener.click()
+    dialog.get_by_role("button", name="Close").click()
+    expect(dialog).to_be_hidden()
+    opener.click()
+    dialog.get_by_role("button", name="Done").click()
+    expect(dialog).to_be_hidden()
+    opener.click()
+    expect(dialog).to_be_visible()
+    page.mouse.click(5, 5)
+    expect(dialog).to_be_hidden()
+
+
+def test_page_owned_modal_follows_page_state(page: Page, gallery_url: str) -> None:
+    _open(page, f"{gallery_url}/overlays")
+    dialog = page.get_by_role("dialog", name="Edit profile")
+    state = page.locator("#editing")
+    expect(state).to_have_text("no")
+
+    page.get_by_role("button", name="Edit profile").click()
+    expect(dialog).to_be_visible()
+    expect(state).to_have_text("yes")
+
+    # Escape asks the page to close it; the page answers by rendering it closed.
+    page.keyboard.press("Escape")
+    expect(dialog).to_be_hidden()
+    expect(state).to_have_text("no")
+
+    page.get_by_role("button", name="Edit profile").click()
+    expect(dialog).to_be_visible()
+    dialog.get_by_role("button", name="Save").click()
+    expect(dialog).to_be_hidden()
+    expect(state).to_have_text("no")
+
+
+def test_drawer_and_confirm_dialog(page: Page, gallery_url: str) -> None:
+    _open(page, f"{gallery_url}/overlays")
+
+    page.get_by_role("button", name="Open filters").click()
+    filters = page.get_by_role("dialog", name="Filters")
+    expect(filters).to_be_visible()
+    filters.get_by_role("button", name="Apply").click()
+    expect(filters).to_be_hidden()
+
+    deleted = page.locator("#deleted-projects")
+    confirm = page.get_by_role("alertdialog", name="Delete the project?")
+    page.get_by_role("button", name="Delete project").click()
+    expect(confirm).to_be_visible()
+    confirm.get_by_role("button", name="Cancel").click()
+    expect(confirm).to_be_hidden()
+    expect(deleted).to_have_text("0")
+
+    page.get_by_role("button", name="Delete project").click()
+    confirm.get_by_role("button", name="Delete", exact=True).click()
+    expect(deleted).to_have_text("1")
+    expect(confirm).to_be_hidden()
+
+
+def test_dropdown_menu_follows_the_keyboard_and_closes_on_a_choice(
+    page: Page, gallery_url: str
+) -> None:
+    _open(page, f"{gallery_url}/overlays")
+    trigger = page.get_by_role("button", name="Actions")
+    menu = page.get_by_role("menu", name="Actions")
+    last = page.locator("#last-action")
+    expect(menu).to_be_hidden()
+
+    trigger.click()
+    expect(menu).to_be_visible()
+    expect(trigger).to_have_attribute("aria-expanded", "true")
+    expect(menu.get_by_role("menuitem", name="Rename")).to_be_focused()
+    page.keyboard.press("ArrowDown")
+    expect(menu.get_by_role("menuitem", name="Duplicate")).to_be_focused()
+    page.keyboard.press("End")
+    expect(menu.get_by_role("menuitem", name="Delete")).to_be_focused()
+    page.keyboard.press("ArrowDown")
+    expect(menu.get_by_role("menuitem", name="Rename")).to_be_focused()
+
+    page.keyboard.press("Escape")
+    expect(menu).to_be_hidden()
+    expect(trigger).to_have_attribute("aria-expanded", "false")
+    expect(trigger).to_be_focused()
+
+    trigger.click()
+    menu.get_by_role("menuitem", name="Duplicate").click()
+    expect(last).to_have_text("duplicate")
+    expect(menu).to_be_hidden()
+
+    # A click outside closes it, and so does moving the focus away.
+    trigger.click()
+    expect(menu).to_be_visible()
+    page.get_by_role("heading", level=1).click()
+    expect(menu).to_be_hidden()
+
+
+def test_popover_opens_next_to_its_button(page: Page, gallery_url: str) -> None:
+    _open(page, f"{gallery_url}/overlays")
+    trigger = page.get_by_role("button", name="Shortcuts")
+    panel = page.get_by_role("dialog", name="Keyboard shortcuts")
+    expect(panel).to_be_hidden()
+
+    trigger.click()
+    expect(panel).to_be_visible()
+    expect(panel).to_be_focused()
+    expect(panel).to_contain_text("Press ? anywhere")
+    page.keyboard.press("Escape")
+    expect(panel).to_be_hidden()
+    expect(trigger).to_be_focused()

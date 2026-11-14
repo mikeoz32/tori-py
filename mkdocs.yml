@@ -130,6 +130,7 @@ nav:
           - Feedback: techniques/liveview-ui/feedback.md
           - Disclosure and Tabs: techniques/liveview-ui/disclosure.md
           - Navigation: techniques/liveview-ui/navigation.md
+          - Overlays: techniques/liveview-ui/overlays.md
           - Chat and AI: techniques/liveview-ui/chat.md
           - Forms: techniques/liveview-ui/forms.md
           - Themes and Skins: techniques/liveview-ui/theming.md

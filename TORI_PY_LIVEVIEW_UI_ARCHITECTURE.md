@@ -390,7 +390,53 @@ previous or next step that would leave the range is plain text with
 `app_shell` gives its main area the ID `<id>-main` and makes it programmatically
 focusable for that purpose.
 
-### 4.11 Forms
+### 4.11 Overlays
+
+| Helper | Closed values | Other documented inputs |
+| --- | --- | --- |
+| `open_overlay`, `close_overlay` | - | selector-safe overlay `id`; return a `JS` chain |
+| `modal` | sizes: `sm`, `md`, `lg`, `xl` | `content`, required selector-safe `id` and `title`, optional `description`, `footer`, `open`, `dismissible`, `close_event`, `close_label`, `target` |
+| `drawer` | sides: `start`, `end` | as `modal`, without `size` |
+| `confirm_dialog` | tones: `primary`, `danger` | `message`, required `id`, `title`, and `confirm_event`, labels, optional `target`, `values`, `open`, `cancel_event` |
+| `dropdown` | the `button` variants and sizes; alignment: `start`, `end`; icon: the bundled set | trigger `label`, finite `items` iterable, required selector-safe `id` |
+| `menu_item` | tones: `neutral`, `danger`; live: `patch`, `navigate`; icon: the bundled set | `label`, either an `event` or an `href`, optional `target`, `values`, `disabled` |
+| `popover` | as `dropdown` | trigger `label`, `content`, required `id` and `panel_label` |
+
+`modal`, `drawer`, and `confirm_dialog` render a native `dialog` named by its
+title, with the `ToriUiDialog` hook and the `phx-mounted` command that makes the
+client keep the `open` attribute. The hook opens the element with `showModal()`,
+so the browser contains the focus, makes the rest of the document inert, draws
+the dialog in the top layer, and returns the focus when it closes.
+
+`open` is tri-state. Left out, the browser owns the state: `open_overlay(id)`
+and `close_overlay(id)` dispatch the `tori-ui:open` and `tori-ui:close` DOM
+events that the hook answers, and the dialog's dismiss control closes it with
+`close_overlay`. Given as a boolean, the page owns it: the helper renders
+`data-tori-ui-open`, the hook follows that attribute on mount and on every
+update, and the dismiss control pushes `close_event` so the page can render the
+dialog closed.
+
+Every way of closing goes through the dialog's own dismiss control, marked
+`data-tori-ui-dismiss`: the hook presses it on Escape and on a click on the
+backdrop, so the browser-owned and the page-owned forms need no second code
+path. `dismissible=False` renders no dismiss control and marks the dialog so
+the hook ignores both. `confirm_dialog` is an `alertdialog` whose cancel button
+is the dismiss control; its confirm button pushes `confirm_event` with
+`phx-value-*` values, and the hook then closes a browser-owned dialog.
+
+`dropdown` and `popover` render a button with `aria-haspopup`, `aria-expanded`,
+and `aria-controls` beside an absolutely positioned panel. `JS` commands toggle
+an open class on the wrapper and `aria-expanded` on the button, and
+`phx-click-away` closes the panel. The `ToriUiPopup` hook adds what commands
+cannot: it moves the focus into the panel when the open class arrives, moves
+between `menuitem` elements with the arrow keys, Home, and End, closes on
+Escape with the focus back on the button, and closes on a choice and when the
+focus leaves. A dropdown's panel has `role="menu"` and its items
+`role="menuitem"`; a popover's panel is a non-modal `role="dialog"` named by
+`panel_label`. Panels are placed below the button and are not repositioned at
+the viewport edge.
+
+### 4.12 Forms
 
 | Helper | Closed values | Other documented inputs |
 | --- | --- | --- |

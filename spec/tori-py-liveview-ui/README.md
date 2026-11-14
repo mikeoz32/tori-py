@@ -34,7 +34,9 @@ architecture is maintained in
    `reasoning`, `tool_call`, `agent_steps`, `agent_step`, `sources`,
    `citation`, `attachment`, `token_usage`, `artifact_panel`), rich text
    (`markdown`), navigation (`navbar`, `nav`, `nav_item`, `breadcrumbs`,
-   `pagination`, `steps`, `tab_links`, `skip_link`), and forms (`form`,
+   `pagination`, `steps`, `tab_links`, `skip_link`), overlays (`modal`,
+   `drawer`, `confirm_dialog`, `dropdown`, `menu_item`, `popover`,
+   `open_overlay`, `close_overlay`), and forms (`form`,
    `fieldset`, `form_actions`, `field`,
    `field_error`, `input`, `textarea`, `select`, `multi_select`, `combobox`,
    `search`, `slider`, `checkbox`, `checkbox_group`, `radio_group`,
@@ -138,7 +140,15 @@ architecture is maintained in
     with `aria-current`, and accept plain or live links. `pagination` takes
     either an `href` pattern with `{page}` or an event. `skip_link` targets the
     main area, which `app_shell` exposes as `<id>-main`.
-29. The core package has no CDN, Node or Tailwind dependency, external font,
+29. Modals, drawers, and confirmations are native modal dialogs. Without
+    `open` the browser owns their state and `open_overlay` and `close_overlay`
+    return the commands that change it; with `open` the page owns it and hears
+    dismissal through `close_event`. Every way of closing presses the dialog's
+    own dismiss control.
+30. Dropdowns and popovers open through `JS` commands and close on Escape, on
+    a click outside, and when the focus leaves; a dropdown is a `menu` with
+    arrow-key navigation that also closes on a choice.
+31. The core package has no CDN, Node or Tailwind dependency, external font,
     remote asset, global reset, domain validation/coercion system, arbitrary
     attributes/classes, client runtime, or application-state ownership.
     Optional features ship as extras, and the package contains no model client
