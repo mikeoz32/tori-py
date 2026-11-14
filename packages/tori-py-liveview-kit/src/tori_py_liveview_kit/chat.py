@@ -17,12 +17,14 @@ from tori_py_liveview_ui import (
     alert,
     app_shell,
     avatar,
+    button,
     chat,
     chat_empty,
     chat_log,
     chat_message,
     composer,
     connection_status,
+    icon_button,
     markdown,
     message_actions,
     reasoning,
@@ -112,6 +114,7 @@ class ChatLiveView(UiLiveView):
     empty_reply_text: str = "The reply is empty."
     stopped_text: str = "Stopped."
     error_text: str = "Something went wrong."
+    retry_label: str = "Try again"
 
     #: The least time between two renders of a reply that is being written.
     flush_interval: float = 0.05
@@ -142,6 +145,30 @@ class ChatLiveView(UiLiveView):
         raised here is logged and does not end the connection.
         """
         del message
+
+    def describe_error(self, error: BaseException) -> str:
+        """Return what a visitor reads when ``respond()`` raised ``error``.
+
+        The default says nothing about the error, because an exception's text
+        may hold a credential or an internal address. The exception itself is
+        logged.
+        """
+        del error
+        return self.error_text
+
+    def can_retry(self, message: Message) -> bool:
+        """Whether ``message`` is a stopped or failed reply that can be retried.
+
+        Only the last message of an idle conversation can.
+        """
+        state = self._chat()
+        return (
+            not state.runtime.active
+            and bool(state.messages)
+            and state.messages[-1].id == message.id
+            and isinstance(message, AssistantMessage)
+            and message.status in ("stopped", "error")
+        )
 
     @property
     def messages(self) -> tuple[Message, ...]:
@@ -186,6 +213,8 @@ class ChatLiveView(UiLiveView):
                 self._send(prompt)
             case "chat:stop", _:
                 await self._stop()
+            case "chat:retry", _:
+                self._retry()
             case _:
                 return await super().handle_event(event, value)
         return None
@@ -212,7 +241,7 @@ class ChatLiveView(UiLiveView):
                 return
             self._fold(completion.events, show=False)
             if completion.error is not None:
-                await self._finish("error", self.error_text)
+                await self._finish("error", self._describe(completion.error))
             elif completion.cancelled:
                 await self._finish("stopped")
             else:
@@ -324,7 +353,23 @@ class ChatLiveView(UiLiveView):
         elif message.status == "stopped":
             body.append(text(self.stopped_text, size="sm", muted=True))
         elif message.status == "error":
-            body.append(alert(message.error or self.error_text, tone="danger"))
+            body.append(
+                alert(
+                    message.error or self.error_text,
+                    tone="danger",
+                    actions=(
+                        button(
+                            self.retry_label,
+                            variant="secondary",
+                            size="sm",
+                            icon="refresh",
+                            event="chat:retry",
+                        )
+                        if self.can_retry(message)
+                        else None
+                    ),
+                )
+            )
         elif not message.parts:
             body.append(text(self.empty_reply_text, size="sm", muted=True))
         footer: list[object] = []
@@ -346,14 +391,25 @@ class ChatLiveView(UiLiveView):
                     output_label=self.output_tokens_label,
                 )
             )
+        # A failed reply offers retry in its alert; a stopped one, here.
+        retry = (
+            [
+                icon_button(
+                    "refresh", label=self.retry_label, size="sm", event="chat:retry"
+                )
+            ]
+            if message.status == "stopped" and self.can_retry(message)
+            else []
+        )
         actions = (
             message_actions(
-                [],
+                retry,
                 label=self.actions_label,
+                copy=bool(message.text),
                 copy_label=self.copy_label,
                 copied_label=self.copied_label,
             )
-            if not streaming and message.text
+            if not streaming and (message.text or retry)
             else None
         )
         return chat_message(
@@ -414,10 +470,21 @@ class ChatLiveView(UiLiveView):
             if user_id not in state.ids and reply_id not in state.ids:
                 break
         state.ids.update((user_id, reply_id))
+        previous = state.messages[-1] if state.messages else None
         user = UserMessage(user_id, prompt)
         state.messages.append(user)
         self._show(user)
+        if isinstance(previous, AssistantMessage) and previous.status != "done":
+            # It is no longer the last message, so it stops offering retry.
+            self._show(previous)
         self._begin(reply_id)
+
+    def _retry(self) -> None:
+        state = self._chat()
+        if not state.messages or not self.can_retry(state.messages[-1]):
+            return
+        # The new attempt takes the place of the reply, under the same ID.
+        self._begin(state.messages.pop().id)
 
     def _begin(self, reply_id: str) -> None:
         state = self._chat()
@@ -462,6 +529,18 @@ class ChatLiveView(UiLiveView):
                 "LiveView Kit reply_finished failed: page=%s",
                 type(self).__qualname__,
             )
+
+    def _describe(self, error: BaseException) -> str:
+        try:
+            described = self.describe_error(error)
+        except Exception:
+            _LOGGER.exception(
+                "LiveView Kit describe_error failed: page=%s", type(self).__qualname__
+            )
+            return self.error_text
+        if isinstance(described, str) and described.strip():
+            return described
+        return self.error_text
 
     def _show(self, message: Message) -> None:
         """Insert a message into the stream, or update it in place."""

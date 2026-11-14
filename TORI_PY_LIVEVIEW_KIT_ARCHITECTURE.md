@@ -135,7 +135,11 @@ a subclass that overrides `handle_event`, `handle_info`, `handle_async`,
   not end the connection.
 - `describe_error(error)` returns the text a visitor sees when `respond`
   raises. The default is a generic sentence; the exception itself goes to the
-  log only, because its text may hold a credential or an internal address.
+  log only, because its text may hold a credential or an internal address. A
+  hook that raises or returns no text falls back to that sentence.
+
+`can_retry(message)` tells a renderer whether a message is the last one of an
+idle conversation and a reply that was stopped or failed.
 
 ### 6.4 Rendering
 
@@ -151,8 +155,10 @@ The default reply renders its parts in order: `reasoning` for a reasoning part,
 `tool_call` for a tool part, and `markdown` for a text part, with code
 highlighting when Pygments is installed. A reply without parts shows
 `typing_indicator` while it streams. A finished reply shows `sources` and
-`token_usage` in its footer and a copy action. A stopped or failed reply that
-is still the last message offers retry.
+`token_usage` in its footer and a copy action. A stopped or failed reply offers
+retry while `can_retry` holds: a failed one in its alert, a stopped one among
+its actions. When a later turn starts, the page renders that reply once more,
+now without the control.
 
 Visible text and accessible names are class attributes, such as
 `assistant_name`, `placeholder`, `welcome`, `suggestions`, `stopped_text`,

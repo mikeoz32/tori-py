@@ -50,12 +50,14 @@ architecture is maintained in
 13. Stop renders what has arrived, marks the reply `stopped`, and cancels the
     task. Events of a stopped or replaced run never reach a later reply.
 14. `chat:retry` applies only when the page is idle and the last message is a
-    stopped or failed reply. It replaces that reply in place and calls
-    `respond` with the same conversation. A reply stops offering retry once a
-    later turn starts.
+    stopped or failed reply, which is what `can_retry(message)` reports. It
+    replaces that reply in place, under the same ID, and calls `respond` with
+    the same conversation. A reply stops offering retry once a later turn
+    starts.
 15. `describe_error(error)` supplies the visitor's text for a raised exception
     and defaults to a generic sentence; the exception text is logged, not
-    shown. An `Error` event's message is shown as given.
+    shown. A hook that raises or returns no text yields the generic sentence.
+    An `Error` event's message is shown as given.
 16. `initial_messages(context)` supplies the conversation of a mount.
     `reply_finished(message)` runs once per ended reply, including a reply cut
     off by a disconnect, which is `stopped`. Its exceptions are logged and do

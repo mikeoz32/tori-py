@@ -3,8 +3,8 @@
 ## Status
 
 The governing documents (LVK0), the package skeleton (LVK1), the event and
-message model (LVK2), the streaming runtime (LVK3), and the chat page (LVK4)
-are complete. Every later slice is open.
+message model (LVK2), the streaming runtime (LVK3), the chat page (LVK4), and
+errors and retry (LVK5) are complete. Every later slice is open.
 
 Architecture:
 [`TORI_PY_LIVEVIEW_KIT_ARCHITECTURE.md`](TORI_PY_LIVEVIEW_KIT_ARCHITECTURE.md).
@@ -54,12 +54,12 @@ Architecture:
 - [x] Add `initial_messages` and `reply_finished`, including the reply a
   disconnect cuts off.
 
-## LVK5: Errors and Retry
+## LVK5: Errors and Retry - Complete
 
-- [ ] Turn a raised exception, an invalid yielded value, and an `Error` event
+- [x] Turn a raised exception, an invalid yielded value, and an `Error` event
   into an error reply without closing the connection.
-- [ ] Add `describe_error` with a generic default.
-- [ ] Add `chat:retry` for the last stopped or failed reply, and withdraw the
+- [x] Add `describe_error` with a generic default.
+- [x] Add `chat:retry` for the last stopped or failed reply, and withdraw the
   retry control from a reply once a later turn starts.
 
 ## LVK6: Launcher
