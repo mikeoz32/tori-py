@@ -7,7 +7,8 @@ Every slice is complete: the foundation (LVUI0), initial family acceptance
 (LVUI4), the families for layout, content, icons, and actions (LVUI5), data
 display, feedback, and disclosure (LVUI6), chat and AI (LVUI7), extended forms
 (LVUI8), navigation (LVUI9), and overlays (LVUI10), and the acceptance of the
-whole library (LVUI11).
+whole library (LVUI11). The theme framework is in progress: its contract is
+recorded (LVUI12), and LVUI13 to LVUI19 implement it.
 
 Architecture:
 [`TORI_PY_LIVEVIEW_UI_ARCHITECTURE.md`](TORI_PY_LIVEVIEW_UI_ARCHITECTURE.md).
@@ -165,7 +166,58 @@ Architecture:
 - [x] Run the full-family test, Ruff, formatter, Ty, build, artifact, and strict
   documentation gates.
 
+## LVUI12: Theme Framework Contract - Complete
+
+- [x] Record the theme, mode, and skin contract, the typed definitions, the
+  contrast rules, the generated CSS, and application definitions in the
+  architecture, and change the repository rule that kept application skins
+  CSS-only.
+
+## LVUI13: Mode and Theme Vocabulary
+
+- [ ] Move the color mode to `data-tori-ui-mode`, `ui_mode()`, and
+  `mode_toggle`, so that `data-tori-ui-theme` and `ui_theme()` name a theme.
+
+## LVUI14: Definitions and Generated CSS
+
+- [ ] `Palette`, `Theme`, and `Skin` with a validated value kind for every
+  field, `derive()`, and `css()`.
+- [ ] Contrast checks when a theme is built, `ThemeContrastError`,
+  `allow_low_contrast`, and `Theme.report()`.
+
+## LVUI15: Bundled Definitions
+
+- [ ] Define the paper theme and the editorial, minimal, and rounded skins with
+  the framework and assemble the package stylesheet from their generated rules
+  and the component rules.
+
+## LVUI16: Application Definitions
+
+- [ ] `LiveViewUiModule.for_root(themes=..., skins=...)` serves one
+  content-addressed stylesheet per definition, and `UiLiveView` links those a
+  page returns from `ui_theme()`, `ui_skin()`, and `ui_extra_definitions()`.
+
+## LVUI17: Derivation
+
+- [ ] `Theme.from_seeds()` in OKLCH at a standard and a high contrast level,
+  and the bundled slate and contrast themes derived with it.
+
+## LVUI18: Scoped Looks and Acceptance
+
+- [ ] `themed` for a look on part of a page.
+- [ ] A gallery page that shows every theme and skin with its contrast report,
+  an application theme and skin registered by the gallery, and browser
+  scenarios through the official Phoenix client.
+
+## LVUI19: Theme Framework Acceptance
+
+- [ ] Rewrite the theming guide, update the specification, and run the
+  full-family test, Ruff, formatter, Ty, build, artifact, and strict
+  documentation gates.
+
 ## Deferred
+
+- A theme the visitor picks among registered themes, and a theme editor.
 
 - File inputs, drop zones, and upload integration, until LiveView implements
   the Phoenix upload contract.
