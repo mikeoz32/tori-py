@@ -67,7 +67,83 @@
   stream operations, and outbound writes; reject sends outside the connected
   lifecycle and emit successful updates as unreferenced Phoenix `diff` pushes.
 
+## LV9: Hooks, Pushed Events, Replies, and Component Updates
+
+- Pass the `globalThis.ToriLiveHooks` object to the official `LiveSocket`
+  `hooks` option so application hooks bind to `phx-hook` elements; route hook
+  `pushEvent` messages through the normal event path.
+- Add page and component `push_event` with JSON-object payloads and
+  before/after dispatch, delivered once under the top-level `e` key of the next
+  join, reply, or info render and discarded with rejected events, navigation
+  away, the disconnected render, and disconnect.
+- Let page and component `handle_event` return a JSON-object reply carried under
+  the top-level `r` key of the event reply diff.
+- Add page and component `send_update`, applied in order to rendered components
+  before the next render and before the parent's `live_component` assigns.
+- Exercise frames through package tests and a hook through the exact pinned
+  official browser clients.
+
+## LV10: Flash, Async Work, and Join Extras
+
+- Add page and component `put_flash`/`clear_flash` and a read-only `flash`
+  mapping, the built-in `lv:clear-flash` event, signed 60-second flash tokens
+  on `live_redirect` and `redirect` payloads, join `flash` seeding, the
+  `__phoenix_flash__` cookie on the HTTP render and disconnected redirects,
+  and first-mount flash from the mount token.
+- Add page and component `start_async`, `assign_async`, `cancel_async`, and
+  `handle_async` with `AsyncResult`, delivering finished work on the
+  connection task and cancelling it with its owner.
+- Pass `globalThis.ToriLiveParams` to the official client, expose join params
+  as `MountContext.connect_params` with `tracked_static` and
+  `static_changed`, and answer a 4xx `HttpException` during the connected
+  mount with a `reload` join error.
+- Exercise frames through package tests and the browser behavior through
+  pytest-bdd scenarios on the exact pinned official clients.
+
+## LV11: Changed-Only Diffs
+
+- Keep the render tree the client caches per join: the last page tree, the last
+  tree of every cached component CID, and the last title. A join starts afresh
+  and sends the complete tree.
+- Send later renders under Phoenix fingerprint rules: unchanged statics send
+  only changed dynamic keys, new statics send complete nodes, new page statics
+  resend every rendered component, streams travel only with operations, titles
+  only when they change, and info or async renders that change nothing push no
+  `diff`.
+- Compare components with the last tree sent for their CID, forget a tree in
+  the `cids_destroyed` reply that lets the client prune it, and send each
+  component template's statics once through positive (same diff) or negative
+  (cached and kept by the render) CID references.
+- Exercise the encoder against a port of the pinned client's merge over random
+  render sequences, and the browser behavior through pytest-bdd scenarios on
+  the exact pinned official clients.
+
+## LV12: Nested Components
+
+- Add `LiveComponent.live_component`, delegating to the owning page while it
+  renders, so components render nested components that share the page's
+  identity namespace, CIDs, targets, updates, async work, and destruction
+  handshake.
+- Exercise nested trees, targeted events, `send_update`, and removal with a
+  parent through package tests, random diff sequences, and pytest-bdd scenarios
+  on the exact pinned official clients.
+
+## LV13: Child LiveViews
+
+- Add `LiveView.live_render` and `LiveViewModule.for_root(embedded=...)`,
+  placing child containers with purpose-separated child tokens bound to the
+  child page, view id, parent view and its mount nonce, params, resource, and
+  live session, and rendering children into their containers over HTTP.
+- Join children on their own `lv:<view_id>` topics only under the parent mount
+  that rendered them, with
+  their own scope, render state, and info queue; serialize them with the main
+  view; close descendants first; answer unmatched topics as Phoenix does; and
+  keep `push_patch` to the main view.
+- Exercise child tokens, HTTP rendering, joins, events, info, leaves,
+  navigation, reload, and titles through package tests, and the browser
+  behavior through pytest-bdd scenarios on the exact pinned official clients.
+
 ## Deferred
 
-- Evaluate nested components, uploads, and application hook/reply APIs as
-  separate contracts.
+- Evaluate uploads, sticky child LiveViews, `stream_async`, and keyed list
+  comprehensions as separate contracts.

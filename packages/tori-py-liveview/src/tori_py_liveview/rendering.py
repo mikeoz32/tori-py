@@ -45,7 +45,7 @@ class Rendered:
         if not all(isinstance(value, str) for value in self.statics):
             raise TypeError("static fragments must be strings")
         if not all(
-            isinstance(value, (str, Rendered, _StreamRendered))
+            isinstance(value, (str, Rendered, _StreamRendered, _ChildRendered))
             for value in self.dynamics
         ):
             raise TypeError("dynamic fragments must be renderable values")
@@ -99,7 +99,23 @@ class _StreamRendered(SafeHtml):
     reset: bool
 
 
-type _RenderedDynamic = str | Rendered | _StreamRendered
+@dataclass(frozen=True, slots=True)
+class _ChildRendered(SafeHtml):
+    """A child LiveView container, which renders its own contents.
+
+    ``value`` is the empty container the connected tree carries; the HTTP
+    render places the child's disconnected render between ``open_tag`` and the
+    closing tag.
+    """
+
+    view_id: str
+    open_tag: str
+    page_type: type[object]
+    params: tuple[tuple[str, str], ...]
+    session: str
+
+
+type _RenderedDynamic = str | Rendered | _StreamRendered | _ChildRendered
 
 
 def _dynamic_html(value: _RenderedDynamic) -> str:
@@ -111,7 +127,7 @@ def _dynamic_html(value: _RenderedDynamic) -> str:
 
 
 def _dynamic(value: object) -> _RenderedDynamic:
-    if isinstance(value, _StreamRendered):
+    if isinstance(value, (_StreamRendered, _ChildRendered)):
         return value
     if isinstance(value, SafeHtml):
         return value.value

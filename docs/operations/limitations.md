@@ -139,7 +139,7 @@ remove their own documented limitations.
 | CQRS and event sourcing | Not a core dependency; use independently versioned packages when their contracts fit. |
 | Jobs and scheduling | No job queue, scheduler, retry engine, or distributed lock. |
 | OpenAPI and UI | Not built into core; the optional package is separate and does not enforce runtime security. |
-| Interactive server-rendered pages | Not built into core; the optional [LiveView](../techniques/liveview/index.md) and [LiveView UI](../techniques/liveview-ui/index.md) packages require the Starlette adapter and do not implement nested components, uploads, or client hook APIs. |
+| Interactive server-rendered pages | Not built into core; the optional [LiveView](../techniques/liveview/index.md) and [LiveView UI](../techniques/liveview-ui/index.md) packages require the Starlette adapter and do not implement uploads or sticky child LiveViews. |
 | FastAPI | No FastAPI driver or runtime dependency. |
 | Pydantic | No required integration; default conversion uses msgspec. |
 | External DI containers | No bridge in v1. |

@@ -39,6 +39,41 @@ one package does not require the same change in every package.
   `Phoenix.LiveView.JS` and the pinned 1.2.11 client. Chains render as trusted
   `phx-*` values through interpolation, `attrs()`, and `rendered()`, and
   LiveView UI event options accept them.
+- LiveView client hooks, pushed events, event replies, and component updates.
+  The client bootstrap passes `globalThis.ToriLiveHooks` to the official
+  `LiveSocket` as its `hooks` object; pages and components gain `push_event()`
+  (`phx:<event>` window events delivered under the render-tree `e` key) and
+  `send_update()`, and a mapping returned from `handle_event()` replies to the
+  browser event under the `r` key.
+- LiveView flash, async work, and join extras. Pages gain `put_flash()`,
+  `clear_flash()`, and a read-only `flash` mapping, and components forward
+  `put_flash()` and `clear_flash()` to their page; flash follows
+  `push_navigate()` as a signed token and `redirect()` through the Phoenix
+  `__phoenix_flash__` cookie, and the official `lv:clear-flash` event clears it.
+  `start_async()`, `assign_async()`, `cancel_async()`, `handle_async()`, and
+  `AsyncResult` run concurrent work and deliver it on the connection task;
+  `LiveViewOptions.async_cancel_timeout_seconds` bounds the wait for cancelled
+  work. The
+  bootstrap passes `globalThis.ToriLiveParams` to the client, connected mounts
+  receive `MountContext.connect_params` with `static_changed()`, and a 4xx
+  `HttpException` during the connected mount reloads the page.
+- LiveView changed-only diffs. After the join, renders send only what the
+  official client's cached tree lacks: changed values without their statics,
+  only the components that changed, each component template's statics once,
+  stream entries only with operations, and the title only when it changes.
+  Info and async renders that change nothing push no `diff`.
+- LiveView nested components. `LiveComponent.live_component()` renders a nested
+  component from a component's `render()`; nested components share the page's
+  identity namespace, CIDs, targets, `send_update()`, async work, and
+  destruction handshake. A component's root must be a tag in its own template,
+  not a nested component or another dynamic value.
+- LiveView child LiveViews. `LiveView.live_render()` places a registered page as
+  a child view, rendered into its container over HTTP and joined on its own
+  channel topic over the same socket, and `LiveViewModule.for_root(embedded=...)`
+  registers pages rendered only this way. Child tokens are signed for their
+  page, view id, parent mount, params, and session, and a child joins only
+  under the mount of a joined parent that rendered it. Each child runs its
+  callbacks in its own work scope.
 
 ### Fixed
 

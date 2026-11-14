@@ -125,12 +125,47 @@ are logged and do not affect other components.
 - A component's output must have exactly one root element with explicit,
   balanced end tags. Optional end tags, such as an unclosed `<li>` or `<p>`, are
   rejected.
+- Write the root tag in the component's own template. Returning a nested
+  component, or rendering one or any other interpolated value as the root,
+  raises `LiveViewError`; wrap it in an element of the component's own instead.
 - Treat `myself` as connection-local. Never store it or construct one; render it
   from the component.
-- Nested components are not supported: a component cannot render another
-  component.
+- A component renders nested components with its own `live_component()`, as
+  described below. Identities stay unique across the whole page.
 - Component events are as untrusted as page events. Validate values and
   authorize actions in `handle_event()`.
 
 The HTTP render also creates, mounts, and renders components, then disconnects
 them after the document is built. The connected page creates its own instances.
+
+## Nested Components
+
+A component's `render()` may call `self.live_component()` to render another
+component inside it:
+
+<!-- docs-test: skip -->
+
+```python
+class BoardComponent(LiveComponent):
+    def update(self, assigns: object) -> None:
+        self.columns = cast(dict[str, list[Task]], assigns)
+
+    def render(self) -> Template:
+        columns = fragment(
+            self.live_component(ColumnComponent, name, {"tasks": tasks})
+            for name, tasks in self.columns.items()
+        )
+        return t'<section class="board">{columns}</section>'
+```
+
+Nested components belong to the page, not to their parent component. Their
+identity is unique across the whole page render, they share the page's
+`myself` numbering, and `phx-target`, `send_update()`, and removal work exactly
+as for components the page renders. When a parent stops rendering a child, or
+the page stops rendering the parent, each removed component goes through the
+removal handshake above and is disconnected.
+
+Components also forward `push_event()`, `send_update()`, `put_flash()`, and
+`clear_flash()` to their page, and run their own `start_async()` and
+`assign_async()` work. See [Hooks and Server Events](client-events.md) and
+[Flash and Async Work](flash-and-async.md).

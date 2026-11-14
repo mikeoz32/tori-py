@@ -77,7 +77,7 @@ WebSocket connection and not per event.
 | 1 | Session `on_mount` hooks | Session `on_mount` hooks |
 | 2 | `mount(context)` with `connected=False` | `mount(context)` with `connected=True` |
 | 3 | `handle_params(params, uri)` | `handle_params(params, uri)` |
-| 4 | `render()` and `render_document()` | `render()`; full tree in the join reply |
+| 4 | `render()` and `render_document()` | `render()`; full tree in the join reply, then only changes |
 | 5 | Components disconnected, stream operations cleared | Events, patches, and info messages, one at a time |
 | 6 | — | `disconnect()` once when the page ends |
 
@@ -101,6 +101,7 @@ async def mount(self, context: MountContext) -> None:
 | `async handle_params(params, uri)` | After every `mount()` and on every patch | No-op |
 | `async handle_event(event, value)` | For each untargeted `phx-*` event | Raises `UnknownEventError` |
 | `async handle_info(name, value)` | For each accepted `send_info()` message | Raises `UnknownInfoError` |
+| `async handle_async(name, result)` | When work from `start_async()` finishes; see [Flash and Async Work](flash-and-async.md) | Raises `UnknownAsyncError` |
 | `render()` | After mount and after every state-changing callback | Required |
 | `title()` | With every render | `None`, an empty title |
 | `render_document(live_root, client_script)` | HTTP render only | Minimal HTML5 document |
@@ -116,9 +117,35 @@ async def mount(self, context: MountContext) -> None:
 | `resource` | Path plus raw query string | Same, from the token or navigation URL |
 | `connected` | `False` | `True` |
 | `query_params` | Parsed query of `resource` | Parsed query of `resource` |
+| `connect_params` | `None` | The join params the browser sent, read-only |
 
 Both request types are Starlette `HTTPConnection` objects, so headers, cookies,
 and the client address read the same way in both phases.
+
+### Connect Params
+
+`connect_params` mirrors Phoenix `get_connect_params`. Add your own params by
+setting `globalThis.ToriLiveParams` to an object, or to a function of the root
+element, before the client script runs; `render_document()` is a good place:
+
+<!-- docs-test: skip -->
+
+```python
+def render_document(self, live_root: str, client_script: str) -> str:
+    params = (
+        "<script>globalThis.ToriLiveParams = "
+        "{timezone: Intl.DateTimeFormat().resolvedOptions().timeZone};</script>"
+    )
+    return super().render_document(params + live_root, client_script)
+```
+
+The official client also sends `_mounts` (how many times this page has mounted),
+`_live_referer` after live navigation, and `_track_static` with the URLs of
+`phx-track-static` elements. `context.tracked_static` lists those URLs, and
+`context.static_changed(current_urls)` reports whether they differ from the
+application's current ones, for example to show a reload notice after a deploy.
+Connect params come from the browser, so treat them as untrusted. Your own
+params also appear in the WebSocket URL, so never put secrets in them.
 
 ## Events and Values
 
@@ -169,6 +196,7 @@ client can send any event name or value it likes over an accepted connection.
 | Any other exception in a connected callback or render | Logged, the socket closes with `1011`, the page is disconnected, and the client reconnects with a fresh page |
 | `handle_info` raises, including the default `UnknownInfoError` | Same as any other exception: close with `1011` |
 | An exception during the HTTP render | Propagates through the normal HTTP pipeline, filters, and problem responses |
+| A 4xx `HttpException` from a connected `mount()`, `handle_params()`, mount hook, or the first render | The browser reloads the page once, and that HTTP request answers with the same status |
 
 State changed before an exception stays on the page object. Validate first and
 mutate last, or raise `UnknownEventError` before touching state.
@@ -176,7 +204,8 @@ mutate last, or raise `UnknownEventError` before touching state.
 ## Titles and the Document
 
 Return a string from `title()` to set `document.title`, or `None` for an empty
-title. The title is part of every render, so it can follow page state:
+title. It is read on every render and sent to the browser when it changes, so it
+can follow page state:
 
 ```python
 def title(self) -> str | None:

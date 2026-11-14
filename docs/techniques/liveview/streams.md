@@ -117,3 +117,98 @@ example above, so every mount rebuilds the same list.
 Operations queued during an event that raises `UnknownEventError` are discarded.
 The server does not retry delivery: once a render with stream operations has
 been sent, they are gone from the page.
+
+## Loading Items Asynchronously
+
+A slow query should not hold up the first render or the page's events. Load the
+items with [async work](flash-and-async.md#async-work) and insert them when the
+result arrives. Phoenix's `stream_async()` does the same in one call.
+
+```python
+import asyncio
+from dataclasses import dataclass, replace
+from string.templatelib import Template
+from typing import cast
+
+from tori_py_liveview import (
+    AsyncResult,
+    LiveView,
+    MountContext,
+    UnknownEventError,
+    live_view,
+)
+
+
+@dataclass(frozen=True, slots=True)
+class Post:
+    id: int
+    title: str
+
+
+async def list_posts() -> list[Post]:
+    await asyncio.sleep(0)
+    return [Post(1, "Hello"), Post(2, "Streams")]
+
+
+@live_view("/posts")
+class PostsLive(LiveView):
+    def __init__(self) -> None:
+        self.posts: AsyncResult[int] = AsyncResult()
+
+    async def mount(self, context: MountContext) -> None:
+        self.load_posts()
+
+    def load_posts(self) -> None:
+        # Loading at once, keeping the previous count, as with assign_async().
+        self.posts = replace(self.posts, loading=True, failed=None)
+        self.start_async("posts", list_posts)
+
+    async def handle_event(self, event: str, value: object) -> None:
+        if event != "reload":
+            raise UnknownEventError(event)
+        self.load_posts()
+
+    async def handle_async(self, name: str, result: AsyncResult[object]) -> None:
+        if name != "posts":
+            await super().handle_async(name, result)
+            return
+        if not result.ok:
+            self.posts = replace(self.posts, loading=False, failed=result.failed)
+            return
+        posts = cast(list[Post], result.result)
+        self.stream_reset("posts")
+        for post in posts:
+            item_id = f"post-{post.id}"
+            self.stream_insert(
+                "posts", item_id, t'<li id="{item_id}">{post.title}</li>'
+            )
+        self.posts = AsyncResult(ok=True, result=len(posts))
+
+    def render(self) -> Template:
+        if self.posts.loading:
+            status = "Loading posts"
+        elif self.posts.failed is not None:
+            status = "Could not load posts"
+        elif self.posts.result == 0:
+            status = "No posts yet"
+        else:
+            status = ""
+        items = self.stream_contents("posts")
+        return (
+            t'<p id="posts-status">{status}</p>'
+            t'<button phx-click="reload">Reload</button>'
+            t'<ul id="posts" phx-update="stream">{items}</ul>'
+        )
+```
+
+- The loading function only fetches data. It runs as its own task, so it does
+  not touch the stream; `handle_async()` runs one message at a time with the
+  page's other callbacks and inserts the items.
+- `posts` tracks the loading like an `assign_async()` attribute. It is loading
+  from the start, also in the HTTP render, where the work does not run, and
+  keeps the previous count while it reloads. Its result is the number of items
+  loaded, enough for an empty state, while the items stay in the browser.
+- The reset goes out in the same render as the new items, so the browser keeps
+  showing the current list until they arrive, also after a reconnect. A failed
+  load leaves the stream as it was.
+- Keep the status and controls outside the container.

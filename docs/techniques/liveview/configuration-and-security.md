@@ -16,6 +16,7 @@ values raise `LiveViewConfigurationError` before the application starts.
 | `join_timeout_seconds` | `10.0` | Time allowed for the first join after the socket opens |
 | `idle_timeout_seconds` | `75.0` | Time allowed between inbound frames once joined |
 | `redirect_hosts` | `()` | Extra bare host names that `redirect()` may target |
+| `async_cancel_timeout_seconds` | `5.0` | How long a closing page waits for cancelled [async work](flash-and-async.md#async-work) |
 
 Paths must start with one `/`, must not be `/` or end with `/`, carry no query
 or fragment, and must differ from each other and from every page path. Integer

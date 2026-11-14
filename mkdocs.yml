@@ -114,6 +114,9 @@ nav:
           - Templates and Rendering: techniques/liveview/templates.md
           - JS Commands: techniques/liveview/js-commands.md
           - Stateful Components: techniques/liveview/components.md
+          - Hooks and Server Events: techniques/liveview/client-events.md
+          - Flash and Async Work: techniques/liveview/flash-and-async.md
+          - Child LiveViews: techniques/liveview/child-liveviews.md
           - Streams: techniques/liveview/streams.md
           - Routing and Navigation: techniques/liveview/navigation.md
           - Configuration and Security: techniques/liveview/configuration-and-security.md

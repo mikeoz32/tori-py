@@ -2,22 +2,32 @@ from __future__ import annotations
 
 import asyncio
 import html
+import inspect
+import json
 import logging
+import re
 from abc import ABC, abstractmethod
-from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from collections.abc import Awaitable, Callable, Iterable, Mapping
+from dataclasses import dataclass, replace
 from html.parser import HTMLParser
 from string.templatelib import Template
 from types import MappingProxyType
-from typing import TypeVar, cast
+from typing import Literal, TypeVar, cast
+from urllib.parse import urljoin, urlsplit
 
 from starlette.datastructures import QueryParams
 
 from tori_py_liveview.component import LiveComponent
-from tori_py_liveview.errors import LiveViewError, UnknownEventError, UnknownInfoError
+from tori_py_liveview.errors import (
+    LiveViewError,
+    UnknownAsyncError,
+    UnknownEventError,
+    UnknownInfoError,
+)
 from tori_py_liveview.rendering import (
     Rendered,
     SafeHtml,
+    _ChildRendered,
     _ComponentRendered,
     _StreamInsert,
     _StreamRendered,
@@ -33,6 +43,13 @@ _ComponentT = TypeVar("_ComponentT", bound=LiveComponent)
 _ComponentIdentity = tuple[type[LiveComponent], str]
 _MAX_SAFE_INTEGER = 2**53 - 1
 _INFO_QUEUE_CAPACITY = 32
+_ASYNC_CANCEL_TIMEOUT_SECONDS = 5.0
+# The main view's DOM id; child views use the ids passed to live_render.
+_ROOT_VIEW_ID = "tori-live-root"
+_ELEMENT_START = re.compile(r"<[A-Za-z]")
+# Child view ids become DOM ids and `lv:<id>` channel topics.
+_VIEW_ID = re.compile(r"[A-Za-z0-9_-]{1,128}\Z")
+type _ChildSigner = Callable[[type[LiveView], str, Mapping[str, str]], str]
 _VOID_ELEMENTS = frozenset(
     {
         "area",
@@ -57,6 +74,14 @@ class _UnknownComponentError(LiveViewError):
     pass
 
 
+def _static_resource(url: str) -> str:
+    try:
+        split = urlsplit(urljoin("/", url))
+    except ValueError:
+        return url
+    return f"{split.path}?{split.query}" if split.query else split.path
+
+
 @dataclass(frozen=True, slots=True)
 class MountContext:
     request: object
@@ -64,9 +89,69 @@ class MountContext:
     resource: str
     connected: bool
     query_params: QueryParams
+    connect_params: Mapping[str, object] | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "params", MappingProxyType(dict(self.params)))
+        if self.connect_params is not None:
+            object.__setattr__(
+                self, "connect_params", MappingProxyType(dict(self.connect_params))
+            )
+
+    @property
+    def tracked_static(self) -> tuple[str, ...]:
+        """URLs of the browser's ``phx-track-static`` elements at join."""
+        params = self.connect_params
+        tracked = None if params is None else params.get("_track_static")
+        if not isinstance(tracked, list):
+            return ()
+        return tuple(url for url in cast(list[object], tracked) if isinstance(url, str))
+
+    def static_changed(self, current: Iterable[str]) -> bool:
+        """Whether a tracked static URL is missing from the ``current`` URLs.
+
+        URLs compare by path and query, so a root-relative URL matches the
+        absolute URL the browser reports. Like Phoenix ``static_changed?``, it
+        is false for the disconnected mount and when the browser tracks nothing.
+        """
+        if isinstance(current, str):
+            raise TypeError("current static URLs must be an iterable of strings")
+        latest: set[str] = set()
+        for url in current:
+            if not isinstance(url, str):
+                raise TypeError("current static URLs must be an iterable of strings")
+            latest.add(_static_resource(url))
+        return any(_static_resource(url) not in latest for url in self.tracked_static)
+
+
+@dataclass(frozen=True, slots=True)
+class AsyncResult[T]:
+    """The state of async work, mirroring ``Phoenix.LiveView.AsyncResult``.
+
+    ``ok`` stays true once a result arrived, so reloading keeps ``result``
+    while ``loading`` is true. ``failed`` holds the latest failure, including
+    ``asyncio.CancelledError`` after ``cancel_async``.
+    """
+
+    loading: bool = False
+    ok: bool = False
+    result: T | None = None
+    failed: BaseException | None = None
+
+
+@dataclass(eq=False, slots=True)
+class _AsyncTask:
+    owner: LiveView | LiveComponent
+    name: str
+    task: asyncio.Task[object]
+    assign: bool
+
+
+async def _run_async(function: Callable[[], object]) -> object:
+    result = function()
+    if not inspect.isawaitable(result):
+        raise TypeError("LiveView async function must return an awaitable")
+    return await result
 
 
 @dataclass(frozen=True, slots=True)
@@ -145,6 +230,38 @@ def _fragment_root(value: str) -> tuple[bool, str | None]:
     return True, parser.root_id
 
 
+def _static_root(rendered: Rendered) -> bool:
+    """Whether the root element's start tag opens in the first static.
+
+    The official client marks a component's root element as the component's,
+    so the root must be the component's own tag, as Phoenix requires, not a
+    nested component or another dynamic value. Comments may precede it.
+    """
+    text = rendered.statics[0]
+    while True:
+        text = text.lstrip()
+        if not text.startswith("<!--"):
+            return _ELEMENT_START.match(text) is not None
+        end = text.find("-->", 4)
+        if end < 0:
+            return False
+        text = text[end + 3 :]
+
+
+def _json_object(name: str, value: object) -> dict[str, object]:
+    """Snapshot a mapping as the JSON object the Phoenix client receives."""
+    if not isinstance(value, Mapping):
+        raise TypeError(f"{name} must be a mapping")
+    mapping = cast(Mapping[object, object], value)
+    if not all(isinstance(key, str) for key in mapping):
+        raise TypeError(f"{name} keys must be strings")
+    try:
+        encoded = json.dumps(dict(mapping), allow_nan=False)
+    except (TypeError, ValueError, RecursionError) as error:
+        raise ValueError(f"{name} must encode as a JSON object") from error
+    return cast(dict[str, object], json.loads(encoded))
+
+
 @dataclass(frozen=True, slots=True)
 class _Info:
     name: str
@@ -154,6 +271,8 @@ class _Info:
 class LiveView(ABC):
     _liveview_action: str | None = None
     _liveview_pending_redirect: tuple[str, str, str] | None = None
+    _liveview_view_id: str = _ROOT_VIEW_ID
+    _liveview_child_signer: _ChildSigner | None = None
 
     async def mount(self, context: MountContext) -> None:
         del context
@@ -165,13 +284,21 @@ class LiveView(ABC):
     def live_action(self) -> str | None:
         return self._liveview_action
 
-    async def handle_event(self, event: str, value: object) -> None:
+    async def handle_event(
+        self, event: str, value: object
+    ) -> Mapping[str, object] | None:
+        """Handle a browser event; a returned mapping replies to the client."""
         del value
         raise UnknownEventError(event)
 
     async def handle_info(self, name: str, value: object) -> None:
         del value
         raise UnknownInfoError(name)
+
+    async def handle_async(self, name: str, result: AsyncResult[object]) -> None:
+        """Handle the outcome of ``start_async(name, ...)``."""
+        del result
+        raise UnknownAsyncError(name)
 
     async def disconnect(self) -> None:
         return None
@@ -209,7 +336,7 @@ class LiveView(ABC):
         )
         if rendered_components is None:
             raise LiveViewError(
-                "LiveView components can only be rendered from LiveView.render"
+                "LiveView components can only be rendered while their page renders"
             )
         if not isinstance(component_id, str):
             raise TypeError("LiveView component id must be a string")
@@ -241,6 +368,7 @@ class LiveView(ABC):
                     component_id,
                     self._liveview_next_component_cid,
                     self._liveview_connected,
+                    self,
                 )
                 component.mount()
             else:
@@ -257,10 +385,75 @@ class LiveView(ABC):
                 "LiveView components require exactly one explicitly balanced "
                 "root element"
             )
+        if isinstance(component_rendered, _ComponentRendered) or not _static_root(
+            component_rendered
+        ):
+            raise LiveViewError(
+                "LiveView components require a static root element tag; a nested "
+                "component or another dynamic value cannot be the root"
+            )
         return _ComponentRendered(
             component_rendered.statics,
             component_rendered.dynamics,
             component.myself,
+        )
+
+    def live_render(
+        self,
+        page_type: type[LiveView],
+        view_id: str,
+        params: Mapping[str, str] | None = None,
+    ) -> SafeHtml:
+        """Render a child LiveView from ``render``.
+
+        The child is a registered page that mounts with ``params`` as
+        ``MountContext.params``. The HTTP render includes its disconnected
+        render; once connected, the browser joins it as its own view, so it
+        renders, handles events, and updates on its own. ``view_id`` becomes the
+        container's DOM id and must be unique on the page.
+        """
+        children = getattr(self, "_liveview_rendered_children", None)
+        if children is None:
+            raise LiveViewError(
+                "child LiveViews can only be rendered while their page renders"
+            )
+        if not isinstance(page_type, type) or not issubclass(page_type, LiveView):
+            raise TypeError("page_type must be a LiveView subclass")
+        if not isinstance(view_id, str):
+            raise TypeError("child LiveView id must be a string")
+        if not _VIEW_ID.fullmatch(view_id) or view_id == _ROOT_VIEW_ID:
+            raise ValueError(
+                "child LiveView id must be 1 to 128 letters, digits, '_', or '-' "
+                f"and not {_ROOT_VIEW_ID!r}"
+            )
+        values = {} if params is None else params
+        if not isinstance(values, Mapping) or not all(
+            isinstance(key, str) and isinstance(value, str)
+            for key, value in values.items()
+        ):
+            raise TypeError("child LiveView params must map strings to strings")
+        if view_id in children:
+            raise LiveViewError(f"Duplicate child LiveView id {view_id!r}")
+        signer = self._liveview_child_signer
+        if signer is None:
+            raise LiveViewError("child LiveViews need a page served by LiveViewModule")
+        children.add(view_id)
+        frozen = tuple(sorted(values.items()))
+        tokens = self.__dict__.setdefault("_liveview_child_tokens", {})
+        cached = tokens.get(view_id)
+        if cached is not None and cached[0] is page_type and cached[1] == frozen:
+            token = cached[2]
+        else:
+            # A stable token keeps the container, and so the diff, unchanged.
+            token = signer(page_type, view_id, dict(frozen))
+            tokens[view_id] = (page_type, frozen, token)
+        open_tag = (
+            f'<div id="{view_id}" data-phx-session="{html.escape(token, quote=True)}" '
+            'data-phx-static="" '
+            f'data-phx-parent-id="{html.escape(self._liveview_view_id, quote=True)}">'
+        )
+        return _ChildRendered(
+            f"{open_tag}</div>", view_id, open_tag, page_type, frozen, token
         )
 
     def stream_insert(
@@ -415,13 +608,113 @@ class LiveView(ABC):
 
     def send_info(self, name: str, value: object = None) -> bool:
         queue = getattr(self, "_liveview_info_queue", None)
-        if queue is None:
+        if queue is None or self._liveview_info_pending >= _INFO_QUEUE_CAPACITY:
             return False
-        try:
-            queue.put_nowait(_Info(name, value))
-        except asyncio.QueueFull:
-            return False
+        self._liveview_info_pending += 1
+        queue.put_nowait(_Info(name, value))
         return True
+
+    @property
+    def flash(self) -> Mapping[str, str]:
+        """Current flash messages by kind, for ``render`` to display."""
+        self._initialize_liveview_flash()
+        return MappingProxyType(self._liveview_flash)
+
+    def put_flash(self, kind: str, message: str) -> None:
+        """Set a flash message; it follows ``push_navigate`` and ``redirect``."""
+        if not isinstance(kind, str) or not isinstance(message, str):
+            raise TypeError("LiveView flash kind and message must be strings")
+        if not kind:
+            raise ValueError("LiveView flash kind cannot be empty")
+        self._initialize_liveview_flash()
+        self._liveview_flash[kind] = message
+        self._liveview_flash_changes[kind] = message
+
+    def clear_flash(self, kind: str | None = None) -> None:
+        """Remove one flash kind, or every flash message when ``kind`` is None."""
+        if kind is not None and not isinstance(kind, str):
+            raise TypeError("LiveView flash kind must be a string")
+        self._initialize_liveview_flash()
+        if kind is None:
+            self._liveview_flash.clear()
+            self._liveview_flash_changes.clear()
+            return
+        self._liveview_flash.pop(kind, None)
+        self._liveview_flash_changes.pop(kind, None)
+
+    def start_async(self, name: str, function: Callable[[], Awaitable[object]]) -> None:
+        """Await ``function()`` concurrently and pass its result to ``handle_async``.
+
+        Only a connected page starts work; the disconnected render ignores the
+        call. Starting a name that is still running cancels the previous task
+        and drops its result. Disconnect cancels every task.
+        """
+        self._start_liveview_async(self, name, function, assign=False)
+
+    def assign_async(
+        self,
+        name: str,
+        function: Callable[[], Awaitable[object]],
+        *,
+        reset: bool = False,
+    ) -> None:
+        """Track ``function()`` in the ``AsyncResult`` attribute ``name``.
+
+        The attribute becomes loading now, keeping a previous result unless
+        ``reset`` is true, and settles to ok or failed when the work finishes.
+        """
+        self._assign_liveview_async(self, name, function, reset=reset)
+
+    def cancel_async(self, name: str) -> bool:
+        """Cancel async work by name; its outcome arrives as a cancellation."""
+        return self._cancel_liveview_async(self, name)
+
+    def push_event(
+        self,
+        event: str,
+        payload: Mapping[str, object] | None = None,
+        *,
+        dispatch: Literal["after", "before"] = "after",
+    ) -> None:
+        """Send a ``phx:<event>`` browser event with the next render.
+
+        ``dispatch="before"`` dispatches it before the client applies the diff.
+        """
+        if not isinstance(event, str):
+            raise TypeError("LiveView pushed event name must be a string")
+        if not event:
+            raise ValueError("LiveView pushed event name cannot be empty")
+        if dispatch not in ("after", "before"):
+            raise ValueError("LiveView push_event dispatch must be 'after' or 'before'")
+        entry: list[object] = [
+            event,
+            _json_object(
+                "LiveView pushed event payload", {} if payload is None else payload
+            ),
+        ]
+        if dispatch == "before":
+            entry.append(True)
+        self._initialize_liveview_handler_queues()
+        self._liveview_pushed_events.append(entry)
+
+    def send_update(
+        self,
+        component_type: type[LiveComponent],
+        component_id: str,
+        assigns: object = None,
+    ) -> None:
+        """Call ``update(assigns)`` on a rendered component before the next render."""
+        if not isinstance(component_type, type) or not issubclass(
+            component_type,
+            LiveComponent,
+        ):
+            raise TypeError("component_type must be a LiveComponent subclass")
+        if not isinstance(component_id, str):
+            raise TypeError("LiveView component id must be a string")
+        self._initialize_liveview_handler_queues()
+        self._liveview_component_updates.append(
+            ((component_type, component_id), assigns)
+        )
 
     def push_patch(self, to: str, *, kind: str = "push") -> None:
         """Navigate within the current page; applied after the handler renders."""
@@ -429,6 +722,11 @@ class LiveView(ABC):
             raise LiveViewError("push_patch target must be a non-empty string")
         if kind not in {"push", "replace"}:
             raise LiveViewError("push_patch kind must be 'push' or 'replace'")
+        if self._liveview_view_id != _ROOT_VIEW_ID:
+            raise LiveViewError(
+                "only the root LiveView can push_patch; child LiveViews "
+                "navigate with push_navigate"
+            )
         self._liveview_pending_redirect = ("patch", to, kind)
 
     def push_navigate(self, to: str, *, kind: str = "push") -> None:
@@ -454,16 +752,221 @@ class LiveView(ABC):
         self._liveview_pending_redirect = None
         return pending
 
-    def _connect_liveview(self) -> None:
-        self._liveview_info_queue: asyncio.Queue[_Info] | None = asyncio.Queue(
-            maxsize=_INFO_QUEUE_CAPACITY
-        )
+    def _take_liveview_events(self) -> list[list[object]]:
+        self._initialize_liveview_handler_queues()
+        events = self._liveview_pushed_events
+        self._liveview_pushed_events = []
+        return events
 
-    async def _receive_liveview_info(self) -> _Info:
+    def _discard_liveview_effects(self) -> None:
+        """Drop everything a rejected handler queued for the next render."""
+        self._liveview_pending_redirect = None
+        self._clear_liveview_stream_operations()
+        self._clear_liveview_handler_queues()
+        self._take_liveview_flash_changes()
+
+    def _set_liveview_flash(self, flash: Mapping[str, str]) -> None:
+        self._initialize_liveview_flash()
+        self._liveview_flash = dict(flash)
+        self._liveview_flash_changes = {}
+
+    def _take_liveview_flash_changes(self) -> dict[str, str]:
+        """Return and forget the flash put since the last render or navigation."""
+        self._initialize_liveview_flash()
+        changes = self._liveview_flash_changes
+        self._liveview_flash_changes = {}
+        return changes
+
+    def _initialize_liveview_flash(self) -> None:
+        if hasattr(self, "_liveview_flash"):
+            return
+        self._liveview_flash: dict[str, str] = {}
+        self._liveview_flash_changes: dict[str, str] = {}
+
+    def _start_liveview_async(
+        self,
+        owner: LiveView | LiveComponent,
+        name: str,
+        function: Callable[[], Awaitable[object]],
+        *,
+        assign: bool,
+    ) -> None:
+        if not isinstance(name, str):
+            raise TypeError("LiveView async name must be a string")
+        if not name:
+            raise ValueError("LiveView async name cannot be empty")
+        if not callable(function):
+            raise TypeError("LiveView async function must be callable")
+        if getattr(self, "_liveview_info_queue", None) is None:
+            return
+        self._initialize_liveview_async()
+        previous = self._liveview_async.pop((id(owner), name), None)
+        if previous is not None:
+            previous.task.cancel()
+        task = asyncio.get_running_loop().create_task(
+            _run_async(function), name=f"tori-py-liveview async {name}"
+        )
+        entry = _AsyncTask(owner, name, task, assign)
+        self._liveview_async[(id(owner), name)] = entry
+        self._liveview_async_running.add(task)
+        task.add_done_callback(lambda _: self._complete_liveview_async(entry))
+
+    def _assign_liveview_async(
+        self,
+        owner: LiveView | LiveComponent,
+        name: str,
+        function: Callable[[], Awaitable[object]],
+        *,
+        reset: bool,
+    ) -> None:
+        if not isinstance(name, str):
+            raise TypeError("LiveView async name must be a string")
+        if not name.isidentifier() or name.startswith("_"):
+            raise ValueError("LiveView assign_async name must be a public attribute")
+        # Assigning over a method, property, or class variable such as `title`
+        # would break the page or component the next time it is used.
+        declared = getattr(type(owner), name, None)
+        if declared is not None and not isinstance(declared, AsyncResult):
+            raise ValueError(
+                f"LiveView assign_async name {name!r} shadows a class attribute"
+            )
+        if not callable(function):
+            raise TypeError("LiveView async function must be callable")
+        current = getattr(owner, name, None)
+        previous = (
+            current if isinstance(current, AsyncResult) and not reset else AsyncResult()
+        )
+        setattr(owner, name, replace(previous, loading=True, failed=None))
+        self._start_liveview_async(owner, name, function, assign=True)
+
+    def _cancel_liveview_async(
+        self, owner: LiveView | LiveComponent, name: str
+    ) -> bool:
+        if not isinstance(name, str):
+            raise TypeError("LiveView async name must be a string")
+        self._initialize_liveview_async()
+        entry = self._liveview_async.get((id(owner), name))
+        if entry is None:
+            return False
+        entry.task.cancel()
+        return True
+
+    def _complete_liveview_async(self, entry: _AsyncTask) -> None:
+        self._liveview_async_running.discard(entry.task)
+        if not entry.task.cancelled():
+            entry.task.exception()
+        queue = getattr(self, "_liveview_info_queue", None)
+        current = self._liveview_async.get((id(entry.owner), entry.name))
+        if queue is not None and current is entry:
+            queue.put_nowait(entry)
+
+    async def _settle_liveview_async(self, entry: _AsyncTask) -> bool:
+        """Deliver a finished task unless it was replaced; True when delivered."""
+        self._initialize_liveview_async()
+        key = (id(entry.owner), entry.name)
+        if self._liveview_async.get(key) is not entry:
+            return False
+        del self._liveview_async[key]
+        task = entry.task
+        if task.cancelled():
+            outcome = AsyncResult[object](failed=asyncio.CancelledError())
+        elif (error := task.exception()) is not None:
+            _LOGGER.warning(
+                "LiveView async task failed: owner=%s name=%s",
+                type(entry.owner).__qualname__,
+                entry.name,
+                exc_info=error,
+            )
+            outcome = AsyncResult[object](failed=error)
+        else:
+            outcome = AsyncResult[object](ok=True, result=task.result())
+        if not entry.assign:
+            await entry.owner.handle_async(entry.name, outcome)
+            return True
+        current = getattr(entry.owner, entry.name, None)
+        state = current if isinstance(current, AsyncResult) else AsyncResult()
+        if outcome.ok:
+            state = replace(
+                state, loading=False, ok=True, result=outcome.result, failed=None
+            )
+        else:
+            state = replace(state, loading=False, failed=outcome.failed)
+        setattr(entry.owner, entry.name, state)
+        return True
+
+    async def _stop_liveview_owner_async(self, owner: LiveView | LiveComponent) -> None:
+        """Cancel one owner's work and wait for it within the cancel deadline."""
+        self._initialize_liveview_async()
+        registry = self._liveview_async
+        owned = [key for key, entry in registry.items() if entry.owner is owner]
+        tasks = [registry.pop(key).task for key in owned]
+        for task in tasks:
+            task.cancel()
+        await self._await_cancelled_liveview_async(tasks)
+
+    async def _stop_liveview_async(self) -> None:
+        self._initialize_liveview_async()
+        self._liveview_async.clear()
+        running = list(self._liveview_async_running)
+        for task in running:
+            task.cancel()
+        await self._await_cancelled_liveview_async(running)
+
+    async def _await_cancelled_liveview_async(
+        self, tasks: list[asyncio.Task[object]]
+    ) -> None:
+        # Python cancellation is cooperative, so a task that suppresses it would
+        # block disconnect, navigation, and shutdown without a deadline.
+        pending = [task for task in tasks if not task.done()]
+        if not pending:
+            return
+        timeout = getattr(
+            self, "_liveview_async_cancel_timeout", _ASYNC_CANCEL_TIMEOUT_SECONDS
+        )
+        _, stuck = await asyncio.wait(pending, timeout=timeout)
+        if stuck:
+            _LOGGER.warning(
+                "LiveView async work ignored cancellation for %ss: %s",
+                timeout,
+                ", ".join(sorted(task.get_name() for task in stuck)),
+            )
+
+    def _initialize_liveview_async(self) -> None:
+        if hasattr(self, "_liveview_async"):
+            return
+        self._liveview_async: dict[tuple[int, str], _AsyncTask] = {}
+        self._liveview_async_running: set[asyncio.Task[object]] = set()
+
+    def _clear_liveview_handler_queues(self) -> None:
+        self._initialize_liveview_handler_queues()
+        self._liveview_pushed_events.clear()
+        self._liveview_component_updates.clear()
+
+    def _initialize_liveview_handler_queues(self) -> None:
+        if hasattr(self, "_liveview_pushed_events"):
+            return
+        self._liveview_pushed_events: list[list[object]] = []
+        self._liveview_component_updates: list[tuple[_ComponentIdentity, object]] = []
+
+    def _connect_liveview(
+        self, *, async_cancel_timeout: float = _ASYNC_CANCEL_TIMEOUT_SECONDS
+    ) -> None:
+        # send_info is bounded by a pending count; each async task enqueues at
+        # most one completion, so the shared queue itself is unbounded.
+        self._liveview_info_queue: asyncio.Queue[_Info | _AsyncTask] | None = (
+            asyncio.Queue()
+        )
+        self._liveview_info_pending = 0
+        self._liveview_async_cancel_timeout = async_cancel_timeout
+
+    async def _receive_liveview_info(self) -> _Info | _AsyncTask:
         queue = getattr(self, "_liveview_info_queue", None)
         if queue is None:
             raise LiveViewError("LiveView is not connected")
-        return await queue.get()
+        message = await queue.get()
+        if isinstance(message, _Info):
+            self._liveview_info_pending -= 1
+        return message
 
     def _detach_liveview(self) -> None:
         self._liveview_info_queue = None
@@ -479,8 +982,18 @@ class LiveView(ABC):
         if self._liveview_rendered_components is not None:
             raise LiveViewError("LiveView render is already in progress")
 
+        self._initialize_liveview_handler_queues()
+        updates = self._liveview_component_updates
+        self._liveview_component_updates = []
+        for identity, assigns in updates:
+            component = self._liveview_components.get(identity)
+            if component is not None:
+                component.update(assigns)
+
         rendered_components: set[_ComponentIdentity] = set()
         self._liveview_rendered_components = rendered_components
+        rendered_children: set[str] = set()
+        self._liveview_rendered_children: set[str] | None = rendered_children
         try:
             result = self.render()
             if isinstance(result, Rendered):
@@ -495,6 +1008,17 @@ class LiveView(ABC):
                 )
         finally:
             self._liveview_rendered_components = None
+            self._liveview_rendered_children = None
+
+        # A child stays on its token only while every render includes it. One
+        # left out ends in the browser and mounts afresh when rendered again,
+        # so it gets a fresh token rather than one that may have expired.
+        tokens = self.__dict__.get("_liveview_child_tokens")
+        if tokens:
+            for view_id in [
+                view_id for view_id in tokens if view_id not in rendered_children
+            ]:
+                del tokens[view_id]
 
         stale = [
             identity
@@ -516,19 +1040,26 @@ class LiveView(ABC):
         target: int | None,
         event: str,
         value: object,
-    ) -> None:
-        if target is None:
-            await self.handle_event(event, value)
-            return
-        self._initialize_liveview_components()
-        component = self._liveview_components_by_cid.get(target)
+    ) -> Mapping[str, object] | None:
+        component: LiveComponent | None = None
+        if target is not None:
+            self._initialize_liveview_components()
+            component = self._liveview_components_by_cid.get(target)
+            if component is None:
+                raise _UnknownComponentError("Unknown LiveView component target")
+        if event == "lv:clear-flash":
+            # Phoenix's built-in flash dismissal, for pages and components alike.
+            key = value.get("key") if isinstance(value, Mapping) else None
+            self.clear_flash(key if isinstance(key, str) else None)
+            return None
         if component is None:
-            raise _UnknownComponentError("Unknown LiveView component target")
-        await component.handle_event(event, value)
+            return await self.handle_event(event, value)
+        return await component.handle_event(event, value)
 
     async def _disconnect_liveview_components(self) -> None:
         self._initialize_liveview_components()
         self._clear_liveview_stream_operations()
+        self._clear_liveview_handler_queues()
         components = [
             *self._liveview_components.values(),
             *self._liveview_pending_components.values(),
@@ -567,6 +1098,7 @@ class LiveView(ABC):
 
     async def _disconnect_liveview(self) -> None:
         self._detach_liveview()
+        await self._stop_liveview_async()
         await self._disconnect_liveview_components()
         await self.disconnect()
 
@@ -606,6 +1138,8 @@ class LiveView(ABC):
             )
 
     async def _disconnect_liveview_component(self, component: LiveComponent) -> None:
+        # Stop the component's work before its own disconnect hook runs.
+        await self._stop_liveview_owner_async(component)
         try:
             await component.disconnect()
         except Exception:
@@ -615,4 +1149,12 @@ class LiveView(ABC):
             )
 
 
-__all__ = ["LiveView", "MountContext", "_UnknownComponentError"]
+__all__ = [
+    "_ROOT_VIEW_ID",
+    "AsyncResult",
+    "LiveView",
+    "MountContext",
+    "_AsyncTask",
+    "_UnknownComponentError",
+    "_json_object",
+]
