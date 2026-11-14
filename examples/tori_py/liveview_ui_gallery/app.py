@@ -6,6 +6,8 @@ from tori_py_liveview import LiveViewModule, LiveViewOptions
 from tori_py_liveview_ui import LiveViewUiModule
 
 from examples.tori_py.liveview_ui_gallery.actions import ActionsLive
+from examples.tori_py.liveview_ui_gallery.ai import AiLive
+from examples.tori_py.liveview_ui_gallery.chat import ChatLive
 from examples.tori_py.liveview_ui_gallery.content import SAMPLE_IMAGE, ContentLive
 from examples.tori_py.liveview_ui_gallery.disclosure import DisclosureLive
 from examples.tori_py.liveview_ui_gallery.display import DisplayLive
@@ -39,6 +41,8 @@ liveview_module = LiveViewModule.for_root(
         DisplayLive,
         FeedbackLive,
         DisclosureLive,
+        AiLive,
+        ChatLive,
     ],
 )
 

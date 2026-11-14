@@ -28,8 +28,13 @@ architecture is maintained in
    `timeline_item`, `empty_state`, `progress`, `meter`, `tooltip`, and the
    `TableColumn` value), feedback (`alert`, `banner`, `spinner`, `skeleton`,
    `busy`, `toast`, `toast_region`, `flash_group`, `connection_status`),
-   disclosure (`collapsible`, `accordion`, `tabs`), and forms (`form`, `field`,
-   `field_error`, `input`, `textarea`, `select`, `checkbox`).
+   disclosure (`collapsible`, `accordion`, `tabs`), conversation (`chat`,
+   `chat_log`, `chat_message`, `message_actions`, `composer`, `suggestions`,
+   `chat_empty`, `typing_indicator`, `conversation_list`, `response_branch`,
+   `reasoning`, `tool_call`, `agent_steps`, `agent_step`, `sources`,
+   `citation`, `attachment`, `token_usage`, `artifact_panel`), rich text
+   (`markdown`), and forms (`form`, `field`, `field_error`, `input`,
+   `textarea`, `select`, `checkbox`).
 6. `button` maps an optional event and positive safe-integer component target to
    `phx-click` and `phx-target`. A target requires an event. The helper does not
    own event routing or state. Event values map to `phx-value-*` attributes
@@ -107,8 +112,22 @@ architecture is maintained in
     client leaves alone after the first render. `tabs` follows the tabs
     pattern with arrow-key navigation; the browser switches fully rendered
     panels, or the page switches through an event and renders one panel.
-24. The core package has no CDN, Node or Tailwind dependency, external font,
+24. `chat_log` follows growing content until the visitor scrolls away, and
+    only their scrolling releases it. `composer` submits on Enter, keeps
+    Shift+Enter and IME composition, grows to a row limit, refuses an empty or
+    busy submit, and empties itself after the client has read the form.
+25. A streaming `chat_message` sets `aria-busy`. `reasoning` and `tool_call`
+    are native `details` elements whose open state the browser keeps. Every
+    helper's output, including inline SVG, is explicitly balanced markup and
+    therefore a valid LiveView stream item.
+26. `markdown` needs the `markdown` extra and treats its source as untrusted:
+    raw HTML is text, executable and local link schemes are not linked, links
+    to other sites open without the opener, and images are off unless enabled.
+    Code highlighting needs the `highlight` extra and uses prefixed classes
+    colored from the theme.
+27. The core package has no CDN, Node or Tailwind dependency, external font,
     remote asset, global reset, domain validation/coercion system, arbitrary
     attributes/classes, client runtime, or application-state ownership.
-    Optional features ship as extras. A future Tailwind skin adapter remains a
+    Optional features ship as extras, and the package contains no model client
+    or provider adapter. A future Tailwind skin adapter remains a
     separate precompiled distribution.

@@ -238,6 +238,109 @@
     }
   });
 
+  // ------------------------------------------------------------- Chat log
+
+  // chat_log(): follows new content while the visitor is at the bottom, and
+  // lets go as soon as they scroll up to read.
+  hooks.ToriUiChatLog = {
+    mounted() {
+      const log = this.el;
+      // Only the visitor's scrolling changes this. A patch that makes the
+      // content taller does not, or the log would let go by itself.
+      let pinned = true;
+      const toBottom = () => {
+        log.scrollTop = log.scrollHeight;
+      };
+      const mark = () => {
+        log.toggleAttribute("data-tori-ui-unpinned", !pinned);
+      };
+      this.follow = () => {
+        if (pinned) toBottom();
+        mark();
+      };
+      log.addEventListener(
+        "scroll",
+        () => {
+          pinned = log.scrollHeight - log.scrollTop - log.clientHeight < 48;
+          mark();
+        },
+        {passive: true},
+      );
+      log.querySelector(".tori-ui-chat-log__jump")?.addEventListener("click", () => {
+        pinned = true;
+        this.follow();
+        log.focus();
+      });
+      // New messages and growing ones change the tree; late images and
+      // wrapping change only the size.
+      this.mutations = new MutationObserver(this.follow);
+      this.mutations.observe(log, {
+        childList: true,
+        subtree: true,
+        characterData: true,
+      });
+      this.sizes = new ResizeObserver(this.follow);
+      const messages = log.querySelector(".tori-ui-chat-log__messages");
+      if (messages !== null) this.sizes.observe(messages);
+      this.follow();
+    },
+    updated() {
+      this.follow();
+    },
+    destroyed() {
+      this.mutations.disconnect();
+      this.sizes.disconnect();
+    },
+  };
+
+  // ------------------------------------------------------------- Composer
+
+  // composer(): Enter sends, Shift+Enter breaks the line, and the field
+  // grows with its text. An empty or busy form does not submit.
+  hooks.ToriUiComposer = {
+    mounted() {
+      const form = this.el;
+      const field = form.querySelector(".tori-ui-composer__input");
+      if (field === null) return;
+      const blocked = () =>
+        form.dataset.toriUiBusy === "true" || field.value.trim() === "";
+      this.resize = () => {
+        const style = getComputedStyle(field);
+        const line = parseFloat(style.lineHeight) || 24;
+        const frame =
+          parseFloat(style.paddingTop) + parseFloat(style.paddingBottom);
+        const rows = Number(field.dataset.toriUiMaxRows) || 8;
+        field.style.height = "auto";
+        const height = Math.min(field.scrollHeight, line * rows + frame);
+        field.style.height = `${height}px`;
+      };
+      field.addEventListener("input", this.resize);
+      field.addEventListener("keydown", (event) => {
+        if (event.key !== "Enter" || event.shiftKey || event.isComposing) return;
+        event.preventDefault();
+        if (!blocked()) form.requestSubmit();
+      });
+      form.addEventListener("submit", (event) => {
+        if (blocked()) {
+          event.preventDefault();
+          event.stopPropagation();
+          return;
+        }
+        // The LiveView client reads the form during this same event, so the
+        // field is emptied right after it.
+        setTimeout(() => {
+          field.value = "";
+          this.resize();
+          field.focus();
+        });
+      });
+      this.resize();
+    },
+    updated() {
+      this.resize?.();
+    },
+  };
+
   // -------------------------------------------------------- Registration
 
   // The LiveView client reads globalThis.ToriLiveHooks from a deferred script.

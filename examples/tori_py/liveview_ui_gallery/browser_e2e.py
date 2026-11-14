@@ -556,3 +556,173 @@ def test_page_tabs_render_only_the_panel_the_page_chose(
     weekly.focus()
     page.keyboard.press("ArrowRight")
     expect(panels).to_have_text("Monthly: 1,280 orders.")
+
+
+# -------------------------------------------------------------------- Chat
+
+
+def _at_bottom(page: Page) -> bool:
+    return page.locator("#messages-scroller").evaluate(
+        "log => log.scrollHeight - log.scrollTop - log.clientHeight < 4"
+    )
+
+
+def test_chat_sends_on_enter_streams_the_reply_and_follows_it(
+    page: Page, gallery_url: str
+) -> None:
+    page.set_viewport_size({"width": 1100, "height": 640})
+    _open(page, f"{gallery_url}/chat")
+    field = page.get_by_role("textbox", name="Message")
+    expect(page.get_by_text("What do you want to build?")).to_be_visible()
+
+    # An empty message is not sent.
+    field.press("Enter")
+    expect(page.locator("#messages")).to_have_count(0)
+
+    # Shift+Enter breaks the line; Enter sends.
+    field.fill("First line")
+    field.press("Shift+Enter")
+    field.press_sequentially("second line")
+    expect(field).to_have_value("First line\nsecond line")
+    field.press("Enter")
+
+    user = page.locator("#turn-1-user .tori-ui-chat-message__body")
+    expect(user).to_have_text("First line\nsecond line")
+    expect(field).to_have_value("")
+    expect(field).to_be_focused()
+    # While the reply streams the form offers to stop instead of to send.
+    expect(page.get_by_role("button", name="Stop")).to_be_visible()
+
+    reply = page.locator("#turn-1-assistant")
+    expect(reply.locator(".tori-ui-reasoning")).to_be_visible()
+    expect(reply.locator(".tori-ui-tool-call--done")).to_be_visible(timeout=10000)
+    expect(reply.locator(".tori-ui-sources__item")).to_have_count(2, timeout=15000)
+    expect(reply).to_contain_text("The page owns the state")
+    expect(
+        reply.locator(".tori-ui-code-block [class^='tori-ui-hl-']").first
+    ).to_be_visible()
+    expect(reply).not_to_have_attribute("aria-busy", "true")
+    expect(page.get_by_role("button", name="Send")).to_be_enabled()
+    # The log followed the growing reply to its end.
+    assert _at_bottom(page)
+
+
+def test_chat_stop_ends_the_reply(page: Page, gallery_url: str) -> None:
+    _open(page, f"{gallery_url}/chat")
+
+    page.get_by_role("button", name="Show me code").click()
+    expect(page.locator("#turn-1-user")).to_contain_text("Show me a small LiveView")
+    page.get_by_role("button", name="Stop").click()
+
+    reply = page.locator("#turn-1-assistant")
+    expect(reply).to_contain_text("Stopped.")
+    expect(page.get_by_role("button", name="Send")).to_be_enabled()
+    expect(reply.locator(".tori-ui-sources")).to_have_count(0)
+    # The conversation continues after a stopped reply.
+    page.get_by_role("textbox", name="Message").fill("Again")
+    page.get_by_role("textbox", name="Message").press("Enter")
+    expect(page.locator("#turn-2-user")).to_contain_text("Again")
+
+
+def test_chat_log_lets_go_when_the_visitor_scrolls_up(
+    page: Page, gallery_url: str
+) -> None:
+    page.set_viewport_size({"width": 1100, "height": 520})
+    _open(page, f"{gallery_url}/chat")
+    log = page.locator("#messages-scroller")
+    jump = page.get_by_role("button", name="Jump to the latest message")
+    field = page.get_by_role("textbox", name="Message")
+
+    field.fill("One")
+    field.press("Enter")
+    expect(page.locator("#turn-1-assistant .tori-ui-sources__item")).to_have_count(
+        2, timeout=15000
+    )
+    expect(jump).to_be_hidden()
+
+    field.fill("Two")
+    field.press("Enter")
+    expect(page.locator("#turn-2-assistant")).to_be_visible()
+    log.evaluate("log => { log.scrollTop = 0; }")
+    expect(log).to_have_attribute("data-tori-ui-unpinned", "")
+    expect(jump).to_be_visible()
+
+    # The second reply keeps growing, and the log stays where the visitor is.
+    expect(page.locator("#turn-2-assistant .tori-ui-sources__item")).to_have_count(
+        2, timeout=15000
+    )
+    assert log.evaluate("log => log.scrollTop") == 0
+
+    jump.click()
+    expect(jump).to_be_hidden()
+    assert _at_bottom(page)
+
+
+# ---------------------------------------------------------------------- AI
+
+
+def test_model_output_parts_keep_their_browser_state(
+    page: Page, context: BrowserContext, gallery_url: str
+) -> None:
+    context.grant_permissions(["clipboard-read", "clipboard-write"])
+    _open(page, f"{gallery_url}/ai")
+    answer = page.locator("#message-assistant .tori-ui-chat-message__body")
+    previous = page.get_by_role("button", name="Previous response")
+    following = page.get_by_role("button", name="Next response")
+    done = page.locator("#reasoning-done")
+    expect(answer).to_contain_text("Streams keep rendered items in the browser.")
+    expect(previous).to_be_disabled()
+    expect(done).not_to_have_attribute("open", "")
+
+    # The visitor opens a reasoning block; the next render leaves it open.
+    done.locator("summary").click()
+    expect(done).to_have_attribute("open", "")
+    following.click()
+    expect(answer).to_contain_text("A stream sends inserts and deletes")
+    expect(page.locator(".tori-ui-response-branch__count")).to_have_text("2 / 3")
+    expect(previous).to_be_enabled()
+    expect(done).to_have_attribute("open", "")
+    following.click()
+    expect(following).to_be_disabled()
+
+    # The copy action takes the message body, not its footer or its actions.
+    page.locator("#message-assistant").get_by_role("button", name="Copy").click()
+    copied = page.evaluate("navigator.clipboard.readText()")
+    assert copied.startswith("Use a stream when the list is long")
+    assert "Streams guide" not in copied
+
+    # A streaming message tells assistive technology to wait.
+    expect(page.locator("#message-streaming")).to_have_attribute("aria-busy", "true")
+    expect(page.locator("#message-typing").get_by_role("status")).to_have_text(
+        "Writing a reply"
+    )
+
+
+def test_suggestions_attachments_and_markdown(page: Page, gallery_url: str) -> None:
+    _open(page, f"{gallery_url}/ai")
+
+    page.get_by_role("button", name="Summarize").click()
+    expect(page.locator("#picked")).to_have_text("Summarize this page.")
+
+    attachments = page.locator(".tori-ui-attachment__name")
+    expect(attachments).to_have_text(["report.pdf", "notes.md"])
+    page.get_by_role("button", name="Remove report.pdf").click()
+    expect(attachments).to_have_text(["notes.md"])
+
+    prose = page.locator(".tori-ui-prose")
+    # Raw HTML in the source is text, and the link leaves without the opener.
+    expect(prose).to_contain_text("Raw HTML such as <b>this</b> stays text.")
+    expect(prose.locator("b")).to_have_count(0)
+    link = prose.get_by_role("link", name="link")
+    expect(link).to_have_attribute("target", "_blank")
+    expect(link).to_have_attribute("rel", "noopener noreferrer nofollow")
+    expect(prose.get_by_role("table")).to_be_visible()
+
+    tool = page.locator("#tool-running")
+    expect(tool).to_contain_text("Running")
+    expect(tool.locator(".tori-ui-tool-call__data")).to_be_hidden()
+    tool.locator("summary").click()
+    expect(tool.locator(".tori-ui-tool-call__data")).to_have_text('{"path": "tests/"}')
+    expect(
+        page.get_by_role("list", name="Steps").get_by_role("listitem")
+    ).to_have_count(4)

@@ -182,7 +182,9 @@ through 16384.
 `icon(name, *, size, label)` renders one of the bundled icons as inline SVG:
 static shapes on a 24 by 24 grid with a round 2 unit stroke in the current text
 color. The set of names is closed and the markup is fixed package text; callers
-cannot supply paths. Sizes are `sm`, `md`, and `lg`, relative to the text size.
+cannot supply paths. Every shape has an explicit end tag, because LiveView
+accepts only explicitly balanced markup as a stream item and icons appear inside
+stream items such as chat messages. Sizes are `sm`, `md`, and `lg`, relative to the text size.
 An icon without a `label` has `aria-hidden="true"`; with a non-empty `label` it
 has `role="img"` and that accessible name. Helpers that take an icon take its
 name.
@@ -285,7 +287,78 @@ and keeps it across renders. With `event` a tab pushes the event with
 on the tab list moves focus with the arrow keys, Home, and End and selects the
 tab it lands on by clicking it.
 
-### 4.8 Forms
+### 4.8 Conversation
+
+| Helper | Closed values | Other documented inputs |
+| --- | --- | --- |
+| `chat` | - | `log`, `composer`, `label`, optional `header` |
+| `chat_log` | - | `content`, required selector-safe `id`, `label`, `stream`, `jump_label` |
+| `chat_message` | roles: `user`, `assistant`, `system`, `tool` | `content`, optional `id`, `name`, `avatar`, `time`, `footer`, `actions`, `streaming` |
+| `message_actions` | - | finite `children` iterable, `label`, `copy` and its labels |
+| `composer` | - | required selector-safe `id` and `submit_event`, `name`, string `value`, labels, optional `placeholder`, `change_event`, `target`, `stop_event`, `actions`, `hint`, `busy`, `disabled`, `max_rows` from 1 through 40 |
+| `suggestions` | - | finite iterable of prompts or `(label, prompt)` pairs, required `event`, optional `target`, `label` |
+| `chat_empty` | icon: the bundled set | required `title`, optional `description` and `suggestions` |
+| `typing_indicator` | - | `label` |
+| `conversation_list` | - | finite `items` iterable of `list_item` rows, `label`, optional `action` |
+| `response_branch` | - | `current` and `total` positions, required previous and next events, optional `target`, labels |
+| `reasoning` | - | `content`, `summary`, `streaming`, `open`, optional `id` |
+| `tool_call` | statuses: `pending`, `running`, `done`, `error` | required `name`, optional `status_label`, `arguments`, `result`, their labels, `open`, `id` |
+| `agent_steps` | - | finite `items` iterable, `label` |
+| `agent_step` | the statuses | `title`, optional `status_label`, `description`, `id` |
+| `sources` | - | finite iterable of `(title, href)` pairs, `label`, optional `id` |
+| `citation` | - | `number` from 1 through 9999, optional `href` and `title` |
+| `attachment` | icon: the bundled set | required `name`, optional `meta`, `href`, `remove_event`, `remove_label`, `target` |
+| `token_usage` | - | non-negative `input_tokens` and `output_tokens`, optional `cost`, labels |
+| `artifact_panel` | - | `content`, required `title` and selector-safe `id`, optional `subtitle`, `actions`, `copy` and its labels |
+
+The page owns the conversation and the model call. `chat` is a flex column that
+fills its container: an optional header, the log, and the composer.
+
+`chat_log` is a focusable `role="log"` scroller around the message container,
+which is a `phx-update="stream"` container when `stream` is set. Its
+`ToriUiChatLog` hook keeps the log at the bottom as content grows. Only the
+visitor's scrolling releases it; a patch that makes the content taller does not.
+While released the hook marks the log with `data-tori-ui-unpinned`, which shows
+a button that returns to the latest message.
+
+`chat_message` is an `article`. Its body is the copy source for
+`message_actions`, whose copy button targets the closest message. `streaming`
+sets `aria-busy` and appends a decorative caret.
+
+`composer` is a `method="post"` form with one labeled `textarea` and the
+`ToriUiComposer` hook. The hook submits on Enter, leaves Shift+Enter and IME
+composition alone, grows the field to `max_rows`, blocks an empty or busy
+submit before the LiveView client sees it, and empties the field after the
+client has read it. With `busy` and a `stop_event` the submit button is
+replaced by a button that pushes that event.
+
+`reasoning` and `tool_call` are native `details` elements with the same
+`phx-mounted` command as `collapsible`, so the browser keeps their open state
+while a streaming message is re-rendered around them. Statuses map to an icon,
+or a spinner for `running`, and to `status_label` in words. `agent_step` marks
+the running step with `aria-current="step"` and names every status for screen
+readers. `sources` renders numbered external links with
+`rel="noopener noreferrer"` and gives entry *n* the ID `<id>-<n>`; `citation`
+is a link to such an entry or plain text. `token_usage` abbreviates counts above
+999.
+
+### 4.9 Rich Text
+
+`markdown(source, *, highlight, images)` renders CommonMark with tables and
+strikethrough into a `prose` block. It imports `markdown-it-py` when called and
+reports the `markdown` extra when the import fails. The source is untrusted:
+the parser is created with raw HTML disabled, keeps its link validation that
+refuses `javascript:`, `vbscript:`, `file:`, and non-image `data:` targets, and
+has the image rule disabled unless `images` is set, so image syntax becomes a
+link and nothing is fetched from an address the text chose. Links to absolute
+or protocol-relative URLs get `target="_blank"` and
+`rel="noopener noreferrer nofollow"`. Fenced and indented code renders through
+`code_block`; a fence's language is kept only when it is a short plain
+identifier. With `highlight`, Pygments colors known languages through
+`tori-ui-hl-`-prefixed token classes that the stylesheet maps to theme colors;
+the `highlight` extra is reported when Pygments is missing.
+
+### 4.10 Forms
 
 | Helper | Closed values | Other documented inputs |
 | --- | --- | --- |
@@ -463,7 +536,9 @@ This package does not provide:
   changing this dependency boundary;
 - a global CSS reset or arbitrary caller-supplied attributes/classes;
 - required runtime dependencies beyond ToriPy and LiveView; optional features
-  ship as extras;
+  ship as extras, currently `markdown` and `highlight`;
+- a model client, a provider adapter, a conversation store, or a page that owns
+  a conversation;
 - LiveComponent state, page state, event dispatch ownership, or a replacement
   for Phoenix Channels and render-tree semantics.
 

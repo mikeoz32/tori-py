@@ -130,6 +130,13 @@ def event_binding(name: str, value: str | JS | None) -> str | JS | None:
     return value
 
 
+def required_event(name: str, value: str | JS) -> str | JS:
+    checked = event_binding(name, value)
+    if checked is None:
+        raise ValueError(f"{name} is required")
+    return checked
+
+
 def event_target(name: str, target: int | None, *events: str | JS | None) -> int | None:
     if target is not None:
         if type(target) is not int:

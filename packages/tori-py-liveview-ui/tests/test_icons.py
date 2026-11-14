@@ -54,6 +54,8 @@ def test_every_icon_is_static_geometry_without_scripts_or_references() -> None:
             assert set(shape.attrib) <= _SHAPE_ATTRIBUTES, name
             assert not list(shape), name
         assert "href" not in markup
+        # LiveView stream items need explicit end tags, also inside SVG.
+        assert "/>" not in markup
         assert "url(" not in markup
 
 
@@ -62,7 +64,7 @@ def test_decorative_icon_is_hidden_from_assistive_technology() -> None:
         '<svg class="tori-ui-icon tori-ui-icon--md" viewBox="0 0 24 24" fill="none" '
         'stroke="currentColor" stroke-width="2" stroke-linecap="round" '
         'stroke-linejoin="round" focusable="false" aria-hidden="true">'
-        '<path d="m5 12.5 4.5 4.5L19 7.5"/></svg>'
+        '<path d="m5 12.5 4.5 4.5L19 7.5"></path></svg>'
     )
 
 

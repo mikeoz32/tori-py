@@ -4,9 +4,9 @@
 
 Foundation slice (LVUI0), initial family acceptance (LVUI1), forms slice
 (LVUI2), skinning slice (LVUI3), the component library foundation (LVUI4), and
-the layout, content, icon, action, display, feedback, and disclosure families
-(LVUI5 and LVUI6) are complete. LVUI7 through LVUI11 continue growing the
-package into a full component library, one family group per slice.
+the layout, content, icon, action, display, feedback, disclosure, and chat
+families (LVUI5 through LVUI7) are complete. LVUI8 through LVUI11 continue
+growing the package into a full component library, one family group per slice.
 
 Architecture:
 [`TORI_PY_LIVEVIEW_UI_ARCHITECTURE.md`](TORI_PY_LIVEVIEW_UI_ARCHITECTURE.md).
@@ -106,20 +106,22 @@ Architecture:
 - [x] Hooks for self-closing toasts and for arrow-key navigation between tabs;
   Escape dismisses an open tooltip.
 
-## LVUI7: Chat and AI
+## LVUI7: Chat and AI - Complete
 
-- [ ] Conversation: `chat`, `chat_log`, `chat_message`, `message_actions`,
+- [x] Conversation: `chat`, `chat_log`, `chat_message`, `message_actions`,
   `composer`, `suggestions`, `chat_empty`, `typing_indicator`,
   `conversation_list`, and `response_branch`.
-- [ ] Model output: `reasoning`, `tool_call`, `agent_steps`, `sources`,
-  `citation`, `attachment`, `token_usage`, and `artifact_panel`.
-- [ ] `markdown` behind the optional `markdown` extra, with raw HTML disabled
-  and link schemes restricted, and code highlighting behind the optional
-  `highlight` extra.
-- [ ] Hooks for following a growing log and for a composer that submits on
+- [x] Model output: `reasoning`, `tool_call`, `agent_steps`, `agent_step`,
+  `sources`, `citation`, `attachment`, `token_usage`, and `artifact_panel`.
+- [x] `markdown` behind the optional `markdown` extra, with raw HTML shown as
+  text, link schemes restricted, and images off by default, and code
+  highlighting behind the optional `highlight` extra.
+- [x] Hooks for following a growing log and for a composer that submits on
   Enter and grows with its text.
-- [ ] A chat demo in the gallery that streams from a scripted model without an
-  API key.
+- [x] Inline SVG with explicit end tags, so every helper's output is a valid
+  LiveView stream item.
+- [x] A chat demo in the gallery that streams from a scripted model without an
+  API key and batches model output into one render per flush.
 
 ## LVUI8: Forms
 

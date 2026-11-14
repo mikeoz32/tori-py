@@ -6,6 +6,7 @@ current text color. The markup is fixed package text, never caller input.
 
 from __future__ import annotations
 
+import re
 from string.templatelib import Template
 from typing import Literal
 
@@ -312,6 +313,12 @@ _ICONS: dict[str, str] = {
 }
 
 ICON_NAMES = frozenset(_ICONS)
+# The drawings above use the short form for readability. In the page every
+# shape has an explicit end tag, as LiveView requires of stream items.
+_SHAPES = {
+    name: re.sub(r"<([a-z]+)([^>]*?)/>", r"<\1\2></\1>", shapes)
+    for name, shapes in _ICONS.items()
+}
 
 
 def icon_name(name: str, value: str) -> str:
@@ -348,7 +355,7 @@ def icon(
             "aria-hidden": "true" if label is None else None,
         }
     )
-    shapes = raw(_ICONS[name])
+    shapes = raw(_SHAPES[name])
     return t"<svg{attributes}>{shapes}</svg>"
 
 

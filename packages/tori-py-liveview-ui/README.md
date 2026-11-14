@@ -11,6 +11,13 @@ validation engine, or state model.
 uv add tori-py-liveview-ui
 ```
 
+The optional `markdown` extra adds the `markdown()` helper on `markdown-it-py`,
+and the optional `highlight` extra colors its code blocks with Pygments:
+
+```bash
+uv add "tori-py-liveview-ui[markdown,highlight]"
+```
+
 ## Setup
 
 Register the UI module beside the normal LiveView module:
@@ -77,6 +84,11 @@ The helpers are grouped in families:
 - Feedback: `alert`, `banner`, `busy`, `connection_status`, `flash_group`,
   `skeleton`, `spinner`, `toast`, and `toast_region`.
 - Disclosure: `accordion`, `collapsible`, and `tabs`.
+- Chat and AI: `chat`, `chat_log`, `chat_message`, `message_actions`,
+  `composer`, `suggestions`, `chat_empty`, `typing_indicator`,
+  `conversation_list`, `response_branch`, `reasoning`, `tool_call`,
+  `agent_steps`, `agent_step`, `sources`, `citation`, `attachment`,
+  `token_usage`, `artifact_panel`, and `markdown`.
 - Forms: `form`, `field`, `field_error`, `input`, `textarea`, `select`, and
   `checkbox`.
 

@@ -38,6 +38,8 @@ SECTIONS: list[tuple[str, str]] = [
     ("/display", "Display"),
     ("/feedback", "Feedback"),
     ("/disclosure", "Disclosure"),
+    ("/ai", "AI"),
+    ("/chat", "Chat"),
 ]
 
 # An application hook, defined the documented way: the object is replaced
@@ -93,6 +95,23 @@ class GalleryPage(UiLiveView):
         return f"{path}?theme={self.theme}&skin={skin or self.skin}"
 
     def page(self, content: object) -> Template:
+        """Put a page's content under its header, in a scrolling column."""
+        return self.frame(
+            container(
+                stack(
+                    [
+                        page_header(
+                            self.heading, eyebrow="Gallery", description=self.summary
+                        ),
+                        content,
+                    ],
+                    gap="lg",
+                )
+            )
+        )
+
+    def frame(self, body: object) -> Template:
+        """Put a body in the gallery's application shell."""
         pages = item_list(
             (
                 link(label, href=self.href(path), live="navigate")
@@ -123,21 +142,9 @@ class GalleryPage(UiLiveView):
             gap="sm",
             wrap=False,
         )
-        body = container(
-            stack(
-                [
-                    page_header(
-                        self.heading, eyebrow="Gallery", description=self.summary
-                    ),
-                    content,
-                    flash_group(self.flash, id="gallery-flash"),
-                    connection_status(),
-                ],
-                gap="lg",
-            )
-        )
+        notices = t"{flash_group(self.flash, id='gallery-flash')}{connection_status()}"
         return app_shell(
-            body,
+            t"{body}{notices}",
             id="gallery",
             header=header,
             sidebar=pages,

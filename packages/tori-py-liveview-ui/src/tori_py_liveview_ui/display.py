@@ -405,7 +405,8 @@ def sparkline(
         f"{index * step:.2f},{height:.2f}" for index, height in enumerate(heights)
     )
     area_markup = (
-        t'<polygon class="tori-ui-sparkline__area" points="0,30 {line} 100,30"/>'
+        t'<polygon class="tori-ui-sparkline__area" points="0,30 {line} 100,30">'
+        t"</polygon>"
         if area
         else raw("")
     )
@@ -413,7 +414,7 @@ def sparkline(
     return (
         t'<svg class="{class_name}" viewBox="0 0 100 30" preserveAspectRatio="none" '
         t'role="img" aria-label="{label}" focusable="false">{area_markup}'
-        t'<polyline class="tori-ui-sparkline__line" points="{line}"/></svg>'
+        t'<polyline class="tori-ui-sparkline__line" points="{line}"></polyline></svg>'
     )
 
 

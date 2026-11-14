@@ -7,6 +7,7 @@ import tori_py_liveview_ui
 from tori_py_liveview_ui import (
     actions,
     content,
+    conversation,
     disclosure,
     display,
     feedback,
@@ -14,12 +15,14 @@ from tori_py_liveview_ui import (
     icons,
     layout,
     module,
+    rich_text,
 )
 
 # Each family test pins its own module's names; the facade is their union.
 _FAMILIES = (
     actions,
     content,
+    conversation,
     disclosure,
     display,
     feedback,
@@ -27,6 +30,7 @@ _FAMILIES = (
     icons,
     layout,
     module,
+    rich_text,
 )
 
 
@@ -86,6 +90,11 @@ def test_distribution_metadata_preserves_package_boundaries() -> None:
         "tori-py-framework>=0.1.0,<0.2.0",
         "tori-py-liveview>=0.1.0,<0.2.0",
     ]
+    # Optional features keep their dependencies out of the required set.
+    assert project["optional-dependencies"] == {
+        "highlight": ["pygments>=2.17,<3"],
+        "markdown": ["markdown-it-py>=3,<5"],
+    }
     assert (package / "NOTICE").is_file()
     assert (package / "README.md").is_file()
     assert (package / "scripts" / "verify_artifacts.py").is_file()

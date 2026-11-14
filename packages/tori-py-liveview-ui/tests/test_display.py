@@ -205,13 +205,13 @@ def test_sparkline_scales_values_into_a_labeled_drawing() -> None:
         'viewBox="0 0 100 30" preserveAspectRatio="none" role="img" '
         'aria-label="Rising, then easing" focusable="false">'
         '<polyline class="tori-ui-sparkline__line" '
-        'points="0.00,28.00 50.00,2.00 100.00,15.00"/></svg>'
+        'points="0.00,28.00 50.00,2.00 100.00,15.00"></polyline></svg>'
     )
     filled = _render(sparkline([1, 2], label="Up", tone="info", area=True))
     assert "tori-ui-sparkline--info" in filled
     assert (
         '<polygon class="tori-ui-sparkline__area" '
-        'points="0,30 0.00,28.00 100.00,2.00 100,30"/>'
+        'points="0,30 0.00,28.00 100.00,2.00 100,30"></polygon>'
     ) in filled
     # A flat series is drawn through the middle.
     assert 'points="0.00,15.00 100.00,15.00"' in _render(
