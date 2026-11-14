@@ -48,6 +48,11 @@ Part 1. It keeps the same REST API, stores tasks in SQLite through async
 SQLAlchemy, adds an all-or-nothing batch route, and creates the schema with
 Alembic migrations.
 
+[Authenticate and Audit the Task API](pipeline-and-auth.md) branches from Part 1.
+It adds a maintenance-mode middleware, a guard that identifies the caller from a
+bearer token, role guards, and an audit interceptor, registered at the global,
+controller, and route levels. Reads stay public; creating a task needs a token.
+
 ## Choose A Learning Path
 
 | Path | Read in this order | You will learn |

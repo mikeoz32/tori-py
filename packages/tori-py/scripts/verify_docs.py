@@ -36,6 +36,7 @@ REQUIRED_FILES = (
     "tutorials/websocket-task-feed.md",
     "tutorials/stream-task-activity.md",
     "tutorials/sqlalchemy-task-api.md",
+    "tutorials/pipeline-and-auth.md",
     "fundamentals/index.md",
     "fundamentals/modules.md",
     "fundamentals/providers-and-di.md",

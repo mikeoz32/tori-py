@@ -69,6 +69,7 @@ nav:
       - Live Feed with WebSockets: tutorials/websocket-task-feed.md
       - Task Activity Stream: tutorials/stream-task-activity.md
       - Persist with SQLAlchemy: tutorials/sqlalchemy-task-api.md
+      - Authenticate and Audit: tutorials/pipeline-and-auth.md
   - Fundamentals:
       - Overview: fundamentals/index.md
       - Modules: fundamentals/modules.md

@@ -175,6 +175,10 @@ fluent method after startup raises `ApplicationStateError`.
 - [HTTP Request Binding](../http/binding.md)
 - [Responses and Errors](../http/responses-and-errors.md)
 
+[Authenticate and Audit the Task API](../tutorials/pipeline-and-auth.md) builds a
+middleware, guards, and an interceptor of its own step by step and registers each
+at the global, controller, or route level.
+
 ## Testing and Production Advice
 
 - Test observable order with event recording rather than relying on decorator
