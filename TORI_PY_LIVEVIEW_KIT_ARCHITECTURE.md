@@ -276,9 +276,11 @@ This package does not provide:
   exception, an `Error` event, retry, disconnect, and restoring a conversation.
 - Launcher tests serve a page and its assets from `create_app` and check the
   server arguments of `run_app`.
-- A browser test exercises the example application through the official
-  Phoenix client: sending, a streamed reply with reasoning, a tool call,
-  sources, and usage, stop, an error followed by a successful retry, and a
-  reload that restores the conversation, with no console errors.
+- The example application is exercised without a browser over Channel frames,
+  and through the official Phoenix client by pytest-bdd scenarios in the
+  package's tests: sending, a streamed reply with reasoning, a tool call,
+  sources, and usage, stop, an error followed by a successful retry, a reload
+  that restores the conversation, and a dropped connection, with no console
+  errors.
 - The package passes the family Ruff, formatter, Ty, test, build, artifact, and
   strict documentation gates.

@@ -1,12 +1,9 @@
 from __future__ import annotations
 
-import asyncio
 import secrets
-from collections.abc import AsyncIterator, Sequence
-from contextlib import asynccontextmanager
-from typing import Annotated, Any
+from collections.abc import Sequence
+from typing import Annotated
 
-import httpx
 import pytest
 import uvicorn
 from tori_py import ClassProvider, Inject, injectable, module
@@ -70,59 +67,36 @@ class GreetingLive(ChatLiveView):
         yield "unused"
 
 
-@asynccontextmanager
-async def _started(application: ASGIApplication) -> AsyncIterator[httpx.AsyncClient]:
-    """Run the application's lifespan, as an ASGI server does."""
-    incoming: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
-    outgoing: asyncio.Queue[Any] = asyncio.Queue()
-    scope: Any = {"type": "lifespan", "asgi": {"version": "3.0"}}
-    lifespan = asyncio.ensure_future(application(scope, incoming.get, outgoing.put))
-    await incoming.put({"type": "lifespan.startup"})
-    started = await asyncio.wait_for(outgoing.get(), timeout=5)
-    assert started == {"type": "lifespan.startup.complete"}, started
-    try:
-        async with httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=application),
-            base_url="http://testserver",
-        ) as client:
-            yield client
-    finally:
-        await incoming.put({"type": "lifespan.shutdown"})
-        await asyncio.wait_for(lifespan, timeout=10)
-
-
 @pytest.mark.asyncio
-async def test_create_app_serves_the_page_the_client_and_the_ui_assets() -> None:
+async def test_create_app_serves_the_page_the_client_and_the_ui_assets(serve) -> None:
     application = create_app(EchoLive)
 
     assert isinstance(application, ASGIApplication)
-    async with _started(application) as client:
-        page = await client.get("/")
-        assert page.status_code == 200
-        assert "Say something" in page.text
-        assert f'href="{STYLESHEET_PATH}"' in page.text
-        assert f'src="{SCRIPT_PATH}"' in page.text
-        for path in (STYLESHEET_PATH, SCRIPT_PATH, "/_tori/live.js"):
-            assert (await client.get(path)).status_code == 200
+    client = (await serve(application)).client
+    page = await client.get("/")
+    assert page.status_code == 200
+    assert "Say something" in page.text
+    assert f'href="{STYLESHEET_PATH}"' in page.text
+    assert f'src="{SCRIPT_PATH}"' in page.text
+    for path in (STYLESHEET_PATH, SCRIPT_PATH, "/_tori/live.js"):
+        assert (await client.get(path)).status_code == 200
 
 
 @pytest.mark.asyncio
-async def test_a_browser_can_chat_with_a_created_app(open_channel) -> None:
+async def test_a_browser_can_chat_with_a_created_app(serve) -> None:
     EchoLive.pages = []
-    application = create_app(EchoLive)
+    served = await serve(create_app(EchoLive))
 
-    async with _started(application):
-        channel = open_channel(application, "/")
-        await channel.join()
-        page = EchoLive.pages[-1]
-        await channel.event("chat:send", {"message": "hello"})
-        await channel.until(lambda: not page.busy)
+    channel = served.channel("/")
+    await channel.join()
+    page = EchoLive.pages[-1]
+    await channel.event("chat:send", {"message": "hello"})
+    await channel.until(lambda: not page.busy)
 
-        assert page.messages[-1] == AssistantMessage(
-            "turn-1-assistant", (TextPart("You said: hello"),)
-        )
-        assert "You said: hello" in channel.html(-1)
-        await channel.close()
+    assert page.messages[-1] == AssistantMessage(
+        "turn-1-assistant", (TextPart("You said: hello"),)
+    )
+    assert "You said: hello" in channel.html(-1)
 
 
 def test_create_app_generates_a_secret_unless_one_is_given(
@@ -153,24 +127,22 @@ def test_create_app_needs_a_page() -> None:
 
 
 @pytest.mark.asyncio
-async def test_create_app_gives_pages_their_constructor_dependencies() -> None:
+async def test_create_app_gives_pages_their_constructor_dependencies(serve) -> None:
     application = create_app(
         GreetingLive, providers=[ClassProvider(Clock)], imports=[GreeterModule]
     )
 
-    async with _started(application) as client:
-        page = await client.get("/greeting")
+    page = await (await serve(application)).client.get("/greeting")
 
     assert page.status_code == 200
     assert "Hello from a provider at noon" in page.text
 
 
 @pytest.mark.asyncio
-async def test_create_app_accepts_injectable_classes_as_providers() -> None:
+async def test_create_app_accepts_injectable_classes_as_providers(serve) -> None:
     application = create_app(GreetingLive, providers=[Greeter, ClassProvider(Clock)])
 
-    async with _started(application) as client:
-        page = await client.get("/greeting")
+    page = await (await serve(application)).client.get("/greeting")
 
     assert "Hello from a provider at noon" in page.text
 

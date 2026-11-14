@@ -4,8 +4,8 @@
 
 The governing documents (LVK0), the package skeleton (LVK1), the event and
 message model (LVK2), the streaming runtime (LVK3), the chat page (LVK4),
-errors and retry (LVK5), and the launcher (LVK6) are complete. Every later
-slice is open.
+errors and retry (LVK5), the launcher (LVK6), and the example with its browser
+scenarios (LVK7) are complete. Every later slice is open.
 
 Architecture:
 [`TORI_PY_LIVEVIEW_KIT_ARCHITECTURE.md`](TORI_PY_LIVEVIEW_KIT_ARCHITECTURE.md).
@@ -69,13 +69,16 @@ Architecture:
   registration for page constructors, and module imports.
 - [x] Add `run_app` on uvicorn, bound to the loopback interface by default.
 
-## LVK7: Example and Browser Acceptance
+## LVK7: Example and Browser Acceptance - Complete
 
-- [ ] Add an example application that streams from a scripted model, so it
-  needs no API key.
-- [ ] Exercise it through the official Phoenix client: sending, a streamed
-  reply with reasoning, a tool call, sources, and usage, stop, an error
-  followed by a successful retry, and a reload that restores the conversation.
+- [x] Add an example application that streams from a scripted model, so it
+  needs no API key, and keeps its conversations through `initial_messages` and
+  `reply_finished`.
+- [x] Exercise it over Channel frames without a browser.
+- [x] Exercise it through the official Phoenix client as pytest-bdd scenarios in
+  the package's tests: sending, a streamed reply with reasoning, a tool call,
+  sources, and usage, stop, an error followed by a successful retry, a reload
+  that restores the conversation, and a dropped connection.
 
 ## LVK8: Provider Adapter Example
 

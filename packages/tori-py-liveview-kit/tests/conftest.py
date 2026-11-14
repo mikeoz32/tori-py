@@ -228,16 +228,55 @@ async def open_page() -> AsyncIterator[OpenPage]:
         await application.shutdown()
 
 
-@pytest_asyncio.fixture
-async def open_channel() -> AsyncIterator[Callable[[ASGIApp, str], Channel]]:
-    """Return connections to a path of an ASGI application a test started."""
-    channels: list[Channel] = []
+class Served:
+    """An ASGI application whose lifespan a test runs, as a server does."""
 
-    def open(asgi: ASGIApp, path: str) -> Channel:
-        channel = Channel(asgi, path)
-        channels.append(channel)
+    def __init__(self, application: ASGIApp) -> None:
+        self._application = application
+        self._incoming: asyncio.Queue[Message] = asyncio.Queue()
+        self._outgoing: asyncio.Queue[Message] = asyncio.Queue()
+        self._lifespan: asyncio.Future[None] | None = None
+        self._channels: list[Channel] = []
+        self.client = httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=application),
+            base_url="http://testserver",
+        )
+
+    async def start(self) -> None:
+        scope: Any = {"type": "lifespan", "asgi": {"version": "3.0"}}
+        self._lifespan = asyncio.ensure_future(
+            self._application(scope, self._incoming.get, self._outgoing.put)
+        )
+        await self._incoming.put({"type": "lifespan.startup"})
+        started = await asyncio.wait_for(self._outgoing.get(), timeout=5)
+        assert started == {"type": "lifespan.startup.complete"}, started
+
+    def channel(self, path: str) -> Channel:
+        """Return a connection to a path; it is closed with the application."""
+        channel = Channel(self._application, path)
+        self._channels.append(channel)
         return channel
 
-    yield open
-    for channel in channels:
-        await channel.close()
+    async def stop(self) -> None:
+        for channel in self._channels:
+            await channel.close()
+        await self.client.aclose()
+        if self._lifespan is not None:
+            await self._incoming.put({"type": "lifespan.shutdown"})
+            await asyncio.wait_for(self._lifespan, timeout=10)
+
+
+@pytest_asyncio.fixture
+async def serve() -> AsyncIterator[Callable[[ASGIApp], Awaitable[Served]]]:
+    """Start an ASGI application, such as the one ``create_app`` returns."""
+    running: list[Served] = []
+
+    async def start(application: ASGIApp) -> Served:
+        served = Served(application)
+        running.append(served)
+        await served.start()
+        return served
+
+    yield start
+    for served in running:
+        await served.stop()
