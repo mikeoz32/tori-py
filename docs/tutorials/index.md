@@ -48,6 +48,12 @@ Part 1. It keeps the same REST API, stores tasks in SQLite through async
 SQLAlchemy, adds an all-or-nothing batch route, and creates the schema with
 Alembic migrations.
 
+[Event-Source Tasks in One Process](local-event-sourcing.md) branches from
+Part 2. It stores tasks as events in the in-memory event store, evolves a stored
+event with an upcaster, adds a rename route guarded by `ETag` and `If-Match`, and
+handles version conflicts and commits whose outcome is unknown, without a
+broker.
+
 ## Choose A Learning Path
 
 | Path | Read in this order | You will learn |

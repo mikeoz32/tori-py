@@ -196,3 +196,8 @@ often the smaller correct design.
 - [Event Sourcing with ToriPy](tori-py.md) covers keyed roots/features,
   repository injection, transactional command decorators, synchronization,
   scopes, finalization failures, and the outbox boundary.
+
+[Event-Source Tasks in One Process](../../tutorials/local-event-sourcing.md)
+applies these guides step by step to the Task API: an aggregate, stable schemas
+with an upcaster, a projection, `ETag` version checks, optimistic concurrency,
+and an indeterminate commit, all in one process without a broker.

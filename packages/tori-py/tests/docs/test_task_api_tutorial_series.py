@@ -15,6 +15,7 @@ LIVE_BOARD = TUTORIALS / "live_task_board" / "task_app"
 WEBSOCKET_FEED = TUTORIALS / "websocket_task_feed" / "task_app"
 STREAM_ACTIVITY = TUTORIALS / "stream_task_activity" / "task_app"
 SQLALCHEMY = TUTORIALS / "sqlalchemy_task_api"
+LOCAL_EVENT_SOURCING = TUTORIALS / "local_event_sourced_task_api" / "task_app"
 
 
 def test_task_tutorial_series_runs_as_an_isolated_project(tmp_path: Path) -> None:
@@ -353,6 +354,55 @@ def test_sqlalchemy_tutorial_continues_part_one_in_an_isolated_project(
 
     sqlalchemy = _run(uv, "run", "pytest", "task_app", "-q", cwd=project)
     assert "3 passed" in sqlalchemy.stdout
+
+
+def test_local_event_sourcing_continues_part_two_in_an_isolated_project(
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "task-api"
+    uv = shutil.which("uv")
+    assert uv is not None
+
+    _run(uv, "init", "--python", "3.14", "--bare", str(project), cwd=tmp_path)
+    _run(uv, "python", "pin", "3.14", cwd=project)
+    (project / "pyproject.toml").write_text(
+        _project_metadata(),
+        encoding="utf-8",
+    )
+    _run(
+        uv,
+        "add",
+        "--editable",
+        f"{ROOT / 'packages' / 'tori-py'}[cli,testing]",
+        cwd=project,
+    )
+    _run(uv, "add", "--dev", "pytest", "pytest-asyncio", cwd=project)
+    for package in ("tori-py-cqrs-core", "tori-py-cqrs"):
+        _run(
+            uv,
+            "add",
+            "--editable",
+            str(ROOT / "packages" / package),
+            cwd=project,
+        )
+    _replace_application(PART_TWO, project)
+    part_two = _run(uv, "run", "pytest", "task_app/test_app.py", "-q", cwd=project)
+    assert "3 passed" in part_two.stdout
+
+    for package in (
+        "tori-py-cqrs-event-sourcing-core",
+        "tori-py-cqrs-event-sourcing",
+    ):
+        _run(
+            uv,
+            "add",
+            "--editable",
+            str(ROOT / "packages" / package),
+            cwd=project,
+        )
+    _replace_application(LOCAL_EVENT_SOURCING, project)
+    event_sourced = _run(uv, "run", "pytest", "task_app", "-q", cwd=project)
+    assert "8 passed" in event_sourced.stdout
 
 
 def _project_metadata() -> str:
