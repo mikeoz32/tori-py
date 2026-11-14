@@ -26,6 +26,31 @@ of the server forgets them all.
 `run_app()` generates a secret for the process and listens on the loopback
 interface. Both are development defaults.
 
+## Provider adapters
+
+Two more files show how a real provider's stream becomes kit events. They are
+examples to copy, not part of the package, and each needs its provider's SDK:
+
+- `anthropic_adapter.py` maps the Anthropic Messages stream: text, summarized
+  thinking, tool calls, web search results and citations, and usage.
+- `openai_compatible_adapter.py` maps a Chat Completions stream, which is how
+  local model servers such as Ollama, vLLM, and LM Studio are usually reached.
+
+```python
+@live_view("/")
+class AssistantLive(ChatLiveView):
+    def __init__(self, client: Annotated[AsyncAnthropic, Inject(AsyncAnthropic)]) -> None:
+        self.client = client
+
+    async def respond(self, messages):
+        async for event in anthropic_events(self.client, messages):
+            yield event
+```
+
+Both adapters run your own tools through a `run_tool(name, arguments)` function
+you pass in. Their tests feed them stream events written in the wire format and
+checked by each SDK's own models; neither has been run against a live API here.
+
 ## Browser scenarios
 
 The example is the application under test for the `tori-py-liveview-kit`

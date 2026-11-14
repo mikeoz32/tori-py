@@ -4,8 +4,9 @@
 
 The governing documents (LVK0), the package skeleton (LVK1), the event and
 message model (LVK2), the streaming runtime (LVK3), the chat page (LVK4),
-errors and retry (LVK5), the launcher (LVK6), and the example with its browser
-scenarios (LVK7) are complete. Every later slice is open.
+errors and retry (LVK5), the launcher (LVK6), the example with its browser
+scenarios (LVK7), and the provider adapter examples (LVK8) are complete. The
+documentation and acceptance slice is open.
 
 Architecture:
 [`TORI_PY_LIVEVIEW_KIT_ARCHITECTURE.md`](TORI_PY_LIVEVIEW_KIT_ARCHITECTURE.md).
@@ -80,12 +81,18 @@ Architecture:
   sources, and usage, stop, an error followed by a successful retry, a reload
   that restores the conversation, and a dropped connection.
 
-## LVK8: Provider Adapter Example
+## LVK8: Provider Adapter Examples - Complete
 
-- [ ] Add an example adapter that maps the Anthropic Messages stream to the
-  events, with the SDK in the development dependency group only and tests that
-  use recorded stream events without a network.
-- [ ] Add an OpenAI-compatible adapter example for local models.
+- [x] Add an example adapter that maps the Anthropic Messages stream to the
+  events: text, summarized thinking, tool calls with the application's tool
+  loop, web search results and citations, usage, and declined or cut-off
+  replies.
+- [x] Add an example adapter for OpenAI-compatible Chat Completions servers,
+  which is how local models are usually reached.
+- [x] Keep both SDKs in the development dependency group only, and test the
+  adapters without a network on stream events written in the wire format and
+  validated by each SDK's own models. Neither adapter has run against a live
+  API.
 
 ## LVK9: Documentation and Acceptance
 

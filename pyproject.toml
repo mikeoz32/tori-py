@@ -62,6 +62,8 @@ dev = [
     "tzdata>=2026.3",
     "pytest-bdd>=8.1,<9",
     "alembic>=1.20,<2",
+    "anthropic>=1,<2",
+    "openai>=2,<3",
 ]
 docs = [
     "mkdocs>=1.6.1,<2",
