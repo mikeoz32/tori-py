@@ -9,8 +9,8 @@ display, feedback, and disclosure (LVUI6), chat and AI (LVUI7), extended forms
 (LVUI8), navigation (LVUI9), and overlays (LVUI10), and the acceptance of the
 whole library (LVUI11). The theme framework is in progress: its contract is
 recorded (LVUI12), the mode and theme vocabulary (LVUI13), the definitions
-(LVUI14), and the bundled definitions (LVUI15) are complete, and LVUI16 to
-LVUI19 remain.
+(LVUI14), the bundled definitions (LVUI15), and application definitions
+(LVUI16) are complete, and LVUI17 to LVUI19 remain.
 
 Architecture:
 [`TORI_PY_LIVEVIEW_UI_ARCHITECTURE.md`](TORI_PY_LIVEVIEW_UI_ARCHITECTURE.md).
@@ -193,9 +193,9 @@ Architecture:
   the framework and assemble the package stylesheet from their generated rules
   and the component rules.
 
-## LVUI16: Application Definitions
+## LVUI16: Application Definitions - Complete
 
-- [ ] `LiveViewUiModule.for_root(themes=..., skins=...)` serves one
+- [x] `LiveViewUiModule.for_root(themes=..., skins=...)` serves one
   content-addressed stylesheet per definition, and `UiLiveView` links those a
   page returns from `ui_theme()`, `ui_skin()`, and `ui_extra_definitions()`.
 

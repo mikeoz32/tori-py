@@ -10,9 +10,11 @@ public token contract: the field ``radius_control`` is the custom property
 from __future__ import annotations
 
 import dataclasses
+import hashlib
 import re
 from collections.abc import Callable, Iterable
 from dataclasses import KW_ONLY, dataclass
+from functools import lru_cache
 from typing import Any, ClassVar, Literal
 
 from tori_py_liveview_ui import _color
@@ -20,6 +22,7 @@ from tori_py_liveview_ui import _color
 type ColorMode = Literal["light", "dark"]
 type TextCase = Literal["none", "uppercase", "lowercase", "capitalize"]
 
+_ASSET_PREFIX = "/_tori/liveview-ui/"
 _NAME = re.compile(r"[a-z][a-z0-9-]{0,63}")
 _UNITS = "rem|em|px|%|ch|vw|vh"
 _SIZE = re.compile(rf"0|(?:\d+|\d*\.\d+)(?:{_UNITS})")
@@ -287,6 +290,11 @@ class Theme:
         """Return the rule that defines this theme's tokens."""
         return _theme_rule(f'[data-tori-ui-theme="{self.name}"]', self)
 
+    @property
+    def stylesheet_path(self) -> str:
+        """The content-addressed path that serves this theme once registered."""
+        return _stylesheet(self)[0]
+
 
 def _theme_rule(selector: str, theme: Theme) -> str:
     # The composed shadow is declared again so that a theme on an inner
@@ -421,6 +429,11 @@ class Skin:
         """Return the rule that defines this skin's tokens."""
         return _skin_rule(f'[data-tori-ui-skin="{self.name}"]', self)
 
+    @property
+    def stylesheet_path(self) -> str:
+        """The content-addressed path that serves this skin once registered."""
+        return _stylesheet(self)[0]
+
 
 def _skin_rule(selector: str, skin: Skin) -> str:
     # The composed tokens are declared in every skin so that a skin on an
@@ -486,6 +499,15 @@ _SKIN_KINDS: dict[str, Callable[[str, object], object]] = {
     "checkbox_gap": _size,
     "hover_translate": _offset,
 }
+
+
+@lru_cache(maxsize=256)
+def _stylesheet(definition: Theme | Skin) -> tuple[str, bytes]:
+    """Return the path and the bytes of a definition's own stylesheet."""
+    kind = "theme" if isinstance(definition, Theme) else "skin"
+    body = definition.css().encode("utf-8")
+    digest = hashlib.sha256(body).hexdigest()
+    return f"{_ASSET_PREFIX}{kind}-{definition.name}.{digest[:12]}.css", body
 
 
 def _reject_unknown(kind: str, changes: dict[str, Any], known: Iterable[str]) -> None:

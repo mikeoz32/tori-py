@@ -317,7 +317,7 @@ def test_ui_liveview_rejects_non_string_skin_names() -> None:
         def ui_skin(self):
             return 1
 
-    with pytest.raises(TypeError, match="skin must be a string"):
+    with pytest.raises(TypeError, match="skin must be a Skin or a string"):
         InvalidPage().render_document("", "")
 
 
