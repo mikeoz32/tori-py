@@ -1,28 +1,29 @@
-"""Styled LiveView UI foundation for ToriPy."""
+"""Styled LiveView UI components for ToriPy."""
 
-from tori_py_liveview_ui.components import (
-    alert,
-    badge,
-    button,
-    card,
+from tori_py_liveview_ui.actions import button
+from tori_py_liveview_ui.display import badge
+from tori_py_liveview_ui.feedback import alert
+from tori_py_liveview_ui.forms import (
     checkbox,
     field,
     field_error,
     form,
-    grid,
     input,
     select,
-    stack,
     textarea,
 )
+from tori_py_liveview_ui.layout import card, grid, stack
 from tori_py_liveview_ui.module import (
+    SCRIPT_PATH,
     STYLESHEET_PATH,
     LiveViewUiModule,
     UiLiveView,
+    script_tag,
     stylesheet_link,
 )
 
 __all__ = [
+    "SCRIPT_PATH",
     "STYLESHEET_PATH",
     "LiveViewUiModule",
     "UiLiveView",
@@ -36,6 +37,7 @@ __all__ = [
     "form",
     "grid",
     "input",
+    "script_tag",
     "select",
     "stack",
     "stylesheet_link",

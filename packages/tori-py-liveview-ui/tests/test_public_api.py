@@ -8,6 +8,7 @@ import tori_py_liveview_ui
 
 def test_public_facade_is_explicit() -> None:
     assert tori_py_liveview_ui.__all__ == [
+        "SCRIPT_PATH",
         "STYLESHEET_PATH",
         "LiveViewUiModule",
         "UiLiveView",
@@ -21,6 +22,7 @@ def test_public_facade_is_explicit() -> None:
         "form",
         "grid",
         "input",
+        "script_tag",
         "select",
         "stack",
         "stylesheet_link",

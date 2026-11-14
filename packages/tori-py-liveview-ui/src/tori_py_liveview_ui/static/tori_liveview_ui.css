@@ -218,49 +218,25 @@
   --tori-ui-hover-translate: -1px;
 }
 
-:where(
-    .tori-ui-button,
-    .tori-ui-badge,
-    .tori-ui-alert,
-    .tori-ui-card,
-    .tori-ui-stack,
-    .tori-ui-grid,
-    .tori-ui-form,
-    .tori-ui-field
-  ),
-:where(
-    .tori-ui-button,
-    .tori-ui-badge,
-    .tori-ui-alert,
-    .tori-ui-card,
-    .tori-ui-stack,
-    .tori-ui-grid,
-    .tori-ui-form,
-    .tori-ui-field
-  ) *,
-:where(
-    .tori-ui-button,
-    .tori-ui-badge,
-    .tori-ui-alert,
-    .tori-ui-card,
-    .tori-ui-stack,
-    .tori-ui-grid,
-    .tori-ui-form,
-    .tori-ui-field
-  ) *::before,
-:where(
-    .tori-ui-button,
-    .tori-ui-badge,
-    .tori-ui-alert,
-    .tori-ui-card,
-    .tori-ui-stack,
-    .tori-ui-grid,
-    .tori-ui-form,
-    .tori-ui-field
-  ) *::after {
+/* Border-box sizing is limited to component trees; there is no global
+   reset. */
+:where([class*="tori-ui-"]),
+:where([class*="tori-ui-"]) *,
+:where([class*="tori-ui-"]) *::before,
+:where([class*="tori-ui-"]) *::after {
   box-sizing: border-box;
 }
 
+/* Document surface. UiLiveView puts this class on <body>. */
+.tori-ui-document {
+  background: var(--tori-ui-paper);
+  color: var(--tori-ui-ink);
+  font-family: var(--tori-ui-font-body);
+  line-height: 1.5;
+  margin: 0;
+}
+
+/* Actions */
 .tori-ui-button {
   appearance: none;
   align-items: center;

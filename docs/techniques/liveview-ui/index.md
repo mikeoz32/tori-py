@@ -1,10 +1,11 @@
 # LiveView UI
 
-`tori-py-liveview-ui` is a small presentation layer for
-[LiveView](../liveview/index.md) pages: typed, stateless template helpers for
-layout, display, and forms, plus one local stylesheet with color themes and
-visual skins. It adds no JavaScript, no client runtime, no state model, and no
-validation engine. Pages and components keep owning state and behavior.
+`tori-py-liveview-ui` is a component library for
+[LiveView](../liveview/index.md) pages: typed, stateless template helpers
+grouped in families, one local stylesheet with color themes and visual skins,
+and one local script of Phoenix hooks for the few behaviors that need the
+browser. It adds no client runtime, no state model, and no validation engine.
+Pages and components keep owning state.
 
 ```text
 uv add tori-py-liveview tori-py-liveview-ui
@@ -55,15 +56,35 @@ class AppModule:
     pass
 ```
 
-`LiveViewUiModule.for_root(key="default")` registers one route that serves the
-bundled CSS at `STYLESHEET_PATH`, a content-addressed path such as
-`/_tori/liveview-ui/<hash>.css` with immutable caching headers and an ETag.
+`LiveViewUiModule.for_root(key="default")` registers the routes that serve the
+bundled CSS at `STYLESHEET_PATH` and the bundled script at `SCRIPT_PATH`. Both
+are content-addressed paths such as `/_tori/liveview-ui/<hash>.css`, served with
+immutable caching headers and an ETag.
 
-`UiLiveView` is a `LiveView` whose `render_document()` adds the stylesheet link
-and the `data-tori-ui-theme` and `data-tori-ui-skin` attributes to `<html>`.
-Override `ui_theme()` and `ui_skin()` to choose them; see
+`UiLiveView` is a `LiveView` whose `render_document()`:
+
+- adds the stylesheet link and the script tag to `<head>`;
+- sets the `data-tori-ui-theme` and `data-tori-ui-skin` attributes on `<html>`;
+- puts the `tori-ui-document` class on `<body>`, which gives the page the
+  theme's background, text color, and body font, and removes the body margin.
+
+Override `ui_theme()` and `ui_skin()` to choose the theme and skin; see
 [Themes and Skins](theming.md). A page with its own `render_document()` can call
-`stylesheet_link()` and set the attributes itself.
+`stylesheet_link()` and `script_tag()` and set the attributes and the body class
+itself. Keep the script tag in `<head>` without `defer` or `async`: it registers
+the hooks before the LiveView client starts.
+
+## Browser Behavior
+
+Your state stays on the server. What only the browser needs to know, such as
+whether a menu is open or where a log is scrolled, stays in the browser. The
+helpers use native elements such as `<details>` first, then
+[`JS` commands](../liveview/js-commands.md), and a hook from the bundled script
+only where neither is enough.
+
+The script's hooks all start with `ToriUi` and are added to
+`globalThis.ToriLiveHooks` next to [your own hooks](../liveview/client-events.md).
+The script loads no remote code and keeps none of your data.
 
 ## Helpers
 
@@ -132,8 +153,9 @@ The helpers are deliberately closed:
   count raises `ValueError` immediately.
 - There are no `class=` or `**attrs` escape hatches. Style through the theme and
   skin tokens, or write your own template for markup the helpers do not cover.
-- Helpers hold no state and emit no JavaScript. They only render native elements
-  and standard Phoenix bindings.
+- Helpers hold no state. They render native elements, standard Phoenix
+  bindings, and, where a behavior needs one, a `phx-hook` from the bundled
+  script.
 - IDs must be non-empty and contain no whitespace; boolean options must be real
   `bool` values.
 

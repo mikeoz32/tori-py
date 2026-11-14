@@ -17,9 +17,11 @@ from tori_py import (
 )
 from tori_py.starlette import StarletteAdapter
 from tori_py_liveview_ui import (
+    SCRIPT_PATH,
     STYLESHEET_PATH,
     LiveViewUiModule,
     UiLiveView,
+    script_tag,
     stylesheet_link,
 )
 
@@ -67,6 +69,10 @@ def test_ui_module_materializes_one_controller_without_providers() -> None:
     assert route is not None
     assert route.path == STYLESHEET_PATH
     assert route.method == "GET"
+    script_route = get_route_metadata(cast(Any, controller_type).script)
+    assert script_route is not None
+    assert script_route.path == SCRIPT_PATH
+    assert script_route.method == "GET"
 
 
 def test_ui_module_validates_its_instance_key() -> None:
@@ -100,6 +106,29 @@ async def test_stylesheet_controller_serves_the_exact_immutable_asset() -> None:
 
 
 @pytest.mark.asyncio
+async def test_script_controller_serves_the_exact_immutable_asset() -> None:
+    dynamic = LiveViewUiModule.for_root()
+    spec = cast(ModuleSpec, dynamic.factory())
+    controller_type = tuple(spec.controllers)[0]
+    response = await controller_type().script()
+    expected = (
+        files("tori_py_liveview_ui")
+        .joinpath("static", "tori_liveview_ui.js")
+        .read_bytes()
+    )
+    digest = hashlib.sha256(expected).hexdigest()
+
+    assert response.status_code == 200
+    assert response.content == expected
+    assert response.headers == {
+        "cache-control": "public, max-age=31536000, immutable",
+        "content-type": "text/javascript; charset=utf-8",
+        "etag": f'"{digest}"',
+    }
+    assert SCRIPT_PATH == f"/_tori/liveview-ui/{digest[:12]}.js"
+
+
+@pytest.mark.asyncio
 async def test_stylesheet_route_serves_the_bundled_asset() -> None:
     @module(imports=[LiveViewUiModule.for_root()])
     class Root:
@@ -113,17 +142,51 @@ async def test_stylesheet_route_serves_the_bundled_asset() -> None:
         base_url="http://testserver",
     ) as client:
         response = await client.get(STYLESHEET_PATH)
+        script = await client.get(SCRIPT_PATH)
     await application.shutdown()
 
     assert response.status_code == 200
     assert response.headers["content-type"] == "text/css; charset=utf-8"
     assert response.headers["cache-control"] == "public, max-age=31536000, immutable"
+    assert script.status_code == 200
+    assert script.headers["content-type"] == "text/javascript; charset=utf-8"
+    assert script.headers["cache-control"] == "public, max-age=31536000, immutable"
 
 
 def test_stylesheet_link_is_local_and_uses_the_public_path() -> None:
     assert stylesheet_link().value == (
         f'<link rel="stylesheet" href="{STYLESHEET_PATH}">'
     )
+
+
+def test_script_tag_is_local_blocking_and_uses_the_public_path() -> None:
+    assert script_tag().value == f'<script src="{SCRIPT_PATH}"></script>'
+
+
+def test_script_registers_hooks_without_remote_code_or_dynamic_evaluation() -> None:
+    script = (
+        files("tori_py_liveview_ui")
+        .joinpath("static", "tori_liveview_ui.js")
+        .read_text(encoding="utf-8")
+    )
+
+    assert "globalThis.ToriLiveHooks ??= {}" in script
+    assert '"readystatechange"' in script
+    for forbidden in (
+        "http://",
+        "https://",
+        "import(",
+        "eval(",
+        "new Function",
+        "innerHTML",
+        "document.write",
+        "fetch(",
+        "XMLHttpRequest",
+    ):
+        assert forbidden not in script
+    # Every hook the script defines carries the package prefix.
+    for name in re.findall(r"^  hooks\.(\w+) = ", script, re.MULTILINE):
+        assert name.startswith("ToriUi")
 
 
 def test_ui_liveview_injects_stylesheet_theme_and_skin_into_document() -> None:
@@ -145,7 +208,11 @@ def test_ui_liveview_injects_stylesheet_theme_and_skin_into_document() -> None:
     )
     assert document.count(stylesheet_link().value) == 1
     assert stylesheet_link().value in document.split("</head>", 1)[0]
+    assert document.count(script_tag().value) == 1
+    # The hooks script runs before the deferred LiveView client in the body.
+    assert script_tag().value in document.split("</head>", 1)[0]
     assert '<title data-default="">Dashboard</title>' in document
+    assert document.count('<body class="tori-ui-document">') == 1
     assert '<main data-phx-session="session"></main>' in document
     assert '<script defer src="/_tori/live/client.js"></script>' in document
 
@@ -248,6 +315,7 @@ def test_stylesheet_contains_the_foundation_contract_without_remote_assets() -> 
         '[data-tori-ui-skin="editorial"]',
         '[data-tori-ui-skin="minimal"]',
         '[data-tori-ui-skin="rounded"]',
+        ".tori-ui-document",
         ":focus-visible",
         "prefers-reduced-motion",
     ):

@@ -1,11 +1,11 @@
 # ToriPy LiveView UI
 
-`tori-py-liveview-ui` is a separately installable presentation foundation for
-`tori-py-liveview`. It provides stateless typed display, layout, and form
-template helpers, a local content-addressed stylesheet, and an optional
-`UiLiveView` document base with independent color themes and visual skins. It
-does not add another browser client, protocol, validation engine, state model,
-or JavaScript runtime.
+`tori-py-liveview-ui` is a separately installable component library for
+`tori-py-liveview`. It provides stateless typed template helpers grouped in
+families, a local content-addressed stylesheet, a local content-addressed script
+of Phoenix hooks, and an optional `UiLiveView` document base with independent
+color themes and visual skins. It does not add another browser client, protocol,
+validation engine, or state model.
 
 ```bash
 uv add tori-py-liveview-ui
@@ -28,10 +28,11 @@ class ApplicationModule:
     pass
 ```
 
-`LiveViewUiModule` serves the exact bundled CSS bytes at the immutable
-content-addressed `STYLESHEET_PATH`. `UiLiveView` inserts the corresponding
-stylesheet link and sets `data-tori-ui-theme="auto"` plus
-`data-tori-ui-skin="editorial"` by default:
+`LiveViewUiModule` serves the exact bundled CSS and JavaScript bytes at the
+immutable content-addressed `STYLESHEET_PATH` and `SCRIPT_PATH`. `UiLiveView`
+inserts the corresponding stylesheet link and script tag, puts the
+`tori-ui-document` surface class on `<body>`, and sets
+`data-tori-ui-theme="auto"` plus `data-tori-ui-skin="editorial"` by default:
 
 ```python
 from string.templatelib import Template
@@ -50,8 +51,13 @@ class DashboardLive(UiLiveView):
 ```
 
 Override `ui_theme()` with `"light"` or `"dark"` for a fixed theme. A custom
-`LiveView.render_document()` can use `stylesheet_link()` and set the theme and
-skin data attributes directly instead.
+`LiveView.render_document()` can use `stylesheet_link()` and `script_tag()` and
+set the theme and skin data attributes directly instead.
+
+The script defines `ToriUi`-prefixed Phoenix hooks for the few behaviors that
+native elements and LiveView `JS` commands cannot express, and adds them to
+`globalThis.ToriLiveHooks` beside the application's own hooks. It loads no
+remote code and holds no application state.
 
 ## Components
 
