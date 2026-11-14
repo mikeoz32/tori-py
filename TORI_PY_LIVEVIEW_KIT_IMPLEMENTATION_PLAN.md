@@ -2,7 +2,8 @@
 
 ## Status
 
-The governing documents are written (LVK0). Every later slice is open.
+The governing documents (LVK0) and the package skeleton (LVK1) are complete.
+Every later slice is open.
 
 Architecture:
 [`TORI_PY_LIVEVIEW_KIT_ARCHITECTURE.md`](TORI_PY_LIVEVIEW_KIT_ARCHITECTURE.md).
@@ -12,14 +13,15 @@ Architecture:
 - [x] Record the architecture, this plan, and the executable specification.
 - [x] Add the package's rules to `AGENTS.md`.
 
-## LVK1: Package Skeleton
+## LVK1: Package Skeleton - Complete
 
-- [ ] Add the independently installable typed `tori-py-liveview-kit`
+- [x] Add the independently installable typed `tori-py-liveview-kit`
   distribution with its dependencies on the framework `cli` extra, LiveView,
   and the UI `markdown` extra, and its optional `highlight` extra.
-- [ ] Register the package in the uv workspace, the development dependency
+- [x] Register the package in the uv workspace, the development dependency
   group, the Ty command, and the release manifest and its tests.
-- [ ] Freeze an empty `tori_py_liveview_kit` facade behind a public API test.
+- [x] Accept an extra on a family dependency in the release metadata check.
+- [x] Freeze an empty `tori_py_liveview_kit` facade behind a public API test.
 
 ## LVK2: Events and Messages
 

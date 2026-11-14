@@ -11,6 +11,7 @@ members = [
     "tori-py-cqrs-fastapi",
     "tori-py-framework",
     "tori-py-liveview",
+    "tori-py-liveview-kit",
     "tori-py-liveview-ui",
     "tori-py-microservices",
     "tori-py-openapi",
@@ -38,6 +39,7 @@ dev = [
     { name = "tori-py-cqrs-fastapi", editable = "packages/tori-py-cqrs-fastapi" },
     { name = "tori-py-framework", extras = ["testing"], editable = "packages/tori-py" },
     { name = "tori-py-liveview", editable = "packages/tori-py-liveview" },
+    { name = "tori-py-liveview-kit", extras = ["highlight"], editable = "packages/tori-py-liveview-kit" },
     { name = "tori-py-liveview-ui", extras = ["highlight", "markdown"], editable = "packages/tori-py-liveview-ui" },
     { name = "tori-py-microservices", editable = "packages/tori-py-microservices" },
     { name = "tori-py-openapi", editable = "packages/tori-py-openapi" },
@@ -1404,6 +1406,30 @@ requires-dist = [
     { name = "starlette", specifier = ">=0.47.0" },
     { name = "tori-py-framework", editable = "packages/tori-py" },
 ]
+
+[[package]]
+name = "tori-py-liveview-kit"
+version = "0.1.0"
+source = { editable = "packages/tori-py-liveview-kit" }
+dependencies = [
+    { name = "tori-py-framework", extra = ["cli"] },
+    { name = "tori-py-liveview" },
+    { name = "tori-py-liveview-ui", extra = ["markdown"] },
+]
+
+[package.optional-dependencies]
+highlight = [
+    { name = "tori-py-liveview-ui", extra = ["highlight"] },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "tori-py-framework", extras = ["cli"], editable = "packages/tori-py" },
+    { name = "tori-py-liveview", editable = "packages/tori-py-liveview" },
+    { name = "tori-py-liveview-ui", extras = ["highlight"], marker = "extra == 'highlight'", editable = "packages/tori-py-liveview-ui" },
+    { name = "tori-py-liveview-ui", extras = ["markdown"], editable = "packages/tori-py-liveview-ui" },
+]
+provides-extras = ["highlight"]
 
 [[package]]
 name = "tori-py-liveview-ui"

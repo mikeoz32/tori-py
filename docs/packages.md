@@ -145,7 +145,7 @@ The boundaries are intentionally one-way:
 
 ## Maturity and production decisions
 
-All 14 distributions are beta. Before `1.0.0`, compatible-looking APIs may still
+All 15 distributions are beta. Before `1.0.0`, compatible-looking APIs may still
 change in a minor release. Pin and test the complete resolved set in an
 application lockfile.
 

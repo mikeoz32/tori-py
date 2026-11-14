@@ -195,6 +195,8 @@ def _internal_bound(requirement: str, version: str) -> bool:
     if match is None:
         return False
     specifier = compact[len(match.group()) :]
+    # An extra such as `[cli]` selects optional dependencies, not a version.
+    specifier = re.sub(r"\A\[[A-Za-z0-9._,-]*\]", "", specifier)
     specifier = specifier.split(";", 1)[0]
     if specifier.startswith("=="):
         return specifier[2:] == version
