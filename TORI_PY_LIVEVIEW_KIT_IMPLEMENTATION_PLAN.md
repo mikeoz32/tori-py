@@ -2,8 +2,9 @@
 
 ## Status
 
-The governing documents (LVK0), the package skeleton (LVK1), and the event and
-message model (LVK2) are complete. Every later slice is open.
+The governing documents (LVK0), the package skeleton (LVK1), the event and
+message model (LVK2), and the streaming runtime (LVK3) are complete. Every
+later slice is open.
 
 Architecture:
 [`TORI_PY_LIVEVIEW_KIT_ARCHITECTURE.md`](TORI_PY_LIVEVIEW_KIT_ARCHITECTURE.md).
@@ -32,15 +33,15 @@ Architecture:
   ordered parts, tool parts replaced and completed by `id`, deduplicated
   citations, last-wins usage, and a terminal `Error`.
 
-## LVK3: Streaming Runtime
+## LVK3: Streaming Runtime - Complete
 
-- [ ] Run the generator through `start_async`, closing it on every exit, with
+- [x] Run the generator through `start_async`, closing it on every exit, with
   one buffer per run.
-- [ ] Coalesce flushes to one queued `send_info` at a time, at least
+- [x] Coalesce flushes to one queued `send_info` at a time, at least
   `flush_interval` apart, with a retry when the info queue is full.
-- [ ] Drain the buffer when the task completes, so the end of a reply does not
+- [x] Drain the buffer when the task completes, so the end of a reply does not
   depend on the info queue.
-- [ ] Keep every added callback from raising.
+- [x] Keep every added callback from raising.
 
 ## LVK4: Chat Page
 
