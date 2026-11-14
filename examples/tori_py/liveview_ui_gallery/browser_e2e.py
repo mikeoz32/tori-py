@@ -91,10 +91,12 @@ def test_application_and_package_hooks_both_register(
     # after the package script has run.
     _open(page, f"{gallery_url}/")
 
-    assert page.evaluate("Object.keys(globalThis.ToriLiveHooks).sort()") == [
-        "GalleryClock",
-        "ToriUiTheme",
-    ]
+    registered = page.evaluate("Object.keys(globalThis.ToriLiveHooks)")
+    assert "GalleryClock" in registered
+    assert "ToriUiTheme" in registered
+    assert all(
+        name.startswith("ToriUi") for name in registered if name != "GalleryClock"
+    )
     expect(page.locator("#clock")).not_to_be_empty()
     expect(
         page.locator('#gallery-theme [data-tori-ui-theme-value="auto"]')
@@ -311,3 +313,246 @@ def test_live_navigation_keeps_the_document_and_closes_the_open_sidebar(
     expect(page.get_by_role("button", name="Menu")).to_have_attribute(
         "aria-expanded", "false"
     )
+
+
+# ----------------------------------------------------------------- Display
+
+
+def test_table_sorting_is_owned_by_the_page(page: Page, gallery_url: str) -> None:
+    _open(page, f"{gallery_url}/display")
+    customers = page.locator(".tori-ui-table--striped tbody tr td:first-child")
+    customer_header = page.get_by_role("columnheader", name="Customer")
+    total_header = page.get_by_role("columnheader", name="Total")
+    expect(customers).to_have_text(["Ada Lovelace", "Edsger Dijkstra", "Grace Hopper"])
+    expect(customer_header).to_have_attribute("aria-sort", "ascending")
+    expect(total_header).to_have_attribute("aria-sort", "none")
+
+    customer_header.get_by_role("button").click()
+    expect(customers).to_have_text(["Grace Hopper", "Edsger Dijkstra", "Ada Lovelace"])
+    expect(customer_header).to_have_attribute("aria-sort", "descending")
+
+    total_header.get_by_role("button").click()
+    expect(customers).to_have_text(["Edsger Dijkstra", "Grace Hopper", "Ada Lovelace"])
+    expect(total_header).to_have_attribute("aria-sort", "ascending")
+    expect(customer_header).to_have_attribute("aria-sort", "none")
+
+
+def test_list_items_and_tags_push_their_values(page: Page, gallery_url: str) -> None:
+    _open(page, f"{gallery_url}/display")
+    starred = page.locator("#folder-starred")
+    expect(page.locator("#folder-inbox")).to_have_class(
+        "tori-ui-list-item tori-ui-list-item--selected"
+    )
+
+    starred.get_by_role("button").click()
+    expect(starred).to_have_class("tori-ui-list-item tori-ui-list-item--selected")
+    expect(starred.get_by_role("button")).to_have_attribute("aria-current", "true")
+    expect(page.locator("#folder-inbox")).to_have_class("tori-ui-list-item")
+
+    tags = page.locator(".tori-ui-tag--info .tori-ui-tag__label")
+    expect(tags).to_have_text(["python", "liveview", "phoenix"])
+    page.get_by_role("button", name="Remove liveview").click()
+    expect(tags).to_have_text(["python", "phoenix"])
+
+    page.get_by_role("button", name="Upload more").click()
+    expect(page.get_by_role("progressbar", name="Upload")).to_have_attribute(
+        "value", "50"
+    )
+
+
+def test_tooltip_opens_on_focus_and_escape_dismisses_it(
+    page: Page, gallery_url: str
+) -> None:
+    _open(page, f"{gallery_url}/display")
+    trigger = page.locator(".tori-ui-tooltip")
+    bubble = page.get_by_role("tooltip")
+    expect(bubble).to_be_hidden()
+
+    trigger.focus()
+    expect(bubble).to_be_visible()
+    expect(bubble).to_have_text("Application programming interface")
+
+    page.keyboard.press("Escape")
+    expect(bubble).to_be_hidden()
+    # It opens again once the focus has left and come back.
+    page.get_by_role("button", name="Upload more").focus()
+    trigger.focus()
+    expect(bubble).to_be_visible()
+
+
+# ---------------------------------------------------------------- Feedback
+
+
+def test_alerts_are_dismissed_by_the_browser_or_by_the_page(
+    page: Page, gallery_url: str
+) -> None:
+    _open(page, f"{gallery_url}/feedback")
+    browser_alert = page.locator(".tori-ui-alert", has_text="Dismissible")
+    page_alert = page.locator(".tori-ui-alert", has_text="Page-owned")
+
+    browser_alert.get_by_role("button", name="Dismiss").click()
+    expect(browser_alert).to_be_hidden()
+
+    page_alert.get_by_role("button", name="Dismiss").click()
+    expect(page_alert).to_have_count(0)
+    expect(page.get_by_text("The page-owned alert is gone.")).to_be_visible()
+    # The render that removed the second alert kept the first one hidden.
+    expect(browser_alert).to_be_hidden()
+
+
+def test_busy_region_is_inert_while_it_loads(page: Page, gallery_url: str) -> None:
+    _open(page, f"{gallery_url}/feedback")
+    region = page.locator(".tori-ui-busy")
+    expect(region).to_have_attribute("aria-busy", "false")
+
+    page.get_by_role("button", name="Toggle loading").click()
+    expect(region).to_have_attribute("aria-busy", "true")
+    expect(region.get_by_role("status")).to_have_text("Loading reports")
+    assert region.locator(".tori-ui-busy__content").evaluate("el => el.inert")
+
+    page.get_by_role("button", name="Toggle loading").click()
+    expect(region).to_have_attribute("aria-busy", "false")
+    assert not region.locator(".tori-ui-busy__content").evaluate("el => el.inert")
+
+
+def test_toast_closes_itself_and_tells_the_page(page: Page, gallery_url: str) -> None:
+    _open(page, f"{gallery_url}/feedback")
+    opened = page.locator("#open-toasts")
+
+    page.get_by_role("button", name="Notify").click()
+    toast = page.locator("#toast-1")
+    expect(toast).to_be_visible()
+    expect(toast).to_contain_text("Message 1 delivered.")
+    expect(opened).to_have_text("1")
+
+    # While the pointer rests on it the countdown is paused.
+    toast.hover()
+    page.wait_for_timeout(2200)
+    expect(toast).to_be_visible()
+
+    page.get_by_role("heading", level=1).hover()
+    expect(toast).to_have_count(0, timeout=4000)
+    expect(opened).to_have_text("0")
+
+
+def test_flash_group_shows_and_clears_flash(page: Page, gallery_url: str) -> None:
+    _open(page, f"{gallery_url}/feedback")
+
+    page.get_by_role("button", name="Flash error").click()
+    error = page.locator("#gallery-flash-error")
+    expect(error).to_have_text("A flash of kind error.")
+    expect(error).to_have_attribute("role", "alert")
+
+    error.get_by_role("button", name="Dismiss").click()
+    expect(error).to_be_hidden()
+    # The flash is cleared on the server, so the next render does not bring
+    # it back.
+    page.get_by_role("button", name="Toggle loading").click()
+    expect(page.locator(".tori-ui-busy")).to_have_attribute("aria-busy", "true")
+    expect(page.locator("#gallery-flash-error")).to_have_count(0)
+
+    page.get_by_role("button", name="Flash info").click()
+    info = page.locator("#gallery-flash-info")
+    expect(info).to_have_text("A flash of kind info.")
+    # Information closes itself.
+    expect(page.locator("#gallery-flash-info")).to_have_count(0, timeout=8000)
+
+
+def test_connection_status_shows_while_the_client_is_disconnected(
+    page: Page, gallery_url: str
+) -> None:
+    _open(page, f"{gallery_url}/feedback")
+    status = page.locator(".tori-ui-connection-status")
+    expect(status).to_be_hidden()
+
+    page.evaluate("globalThis.liveSocket.disconnect()")
+    expect(status).to_be_visible()
+    expect(status).to_have_text("Connection lost. Reconnecting.")
+
+    page.evaluate("globalThis.liveSocket.connect()")
+    expect(page.locator("[data-phx-session]")).to_have_class("phx-connected")
+    expect(status).to_be_hidden()
+
+
+# -------------------------------------------------------------- Disclosure
+
+
+def test_collapsible_state_belongs_to_the_browser(page: Page, gallery_url: str) -> None:
+    _open(page, f"{gallery_url}/disclosure")
+    shipping = page.locator("#shipping")
+    expect(shipping).not_to_have_attribute("open", "")
+
+    shipping.locator("summary").click()
+    expect(shipping).to_have_attribute("open", "")
+    page.get_by_role("button", name="Render again").click()
+    expect(page.locator("#renders")).to_have_text("1")
+    expect(shipping).to_have_attribute("open", "")
+
+    # Sections in one group close each other.
+    expect(page.locator("#track")).to_have_attribute("open", "")
+    page.locator("#pay summary").click()
+    expect(page.locator("#pay")).to_have_attribute("open", "")
+    expect(page.locator("#track")).not_to_have_attribute("open", "")
+    page.get_by_role("button", name="Render again").click()
+    expect(page.locator("#renders")).to_have_text("2")
+    expect(page.locator("#pay")).to_have_attribute("open", "")
+    expect(page.locator("#track")).not_to_have_attribute("open", "")
+
+
+def test_browser_tabs_switch_without_the_page_and_follow_the_keyboard(
+    page: Page, gallery_url: str
+) -> None:
+    _open(page, f"{gallery_url}/disclosure")
+    profile = page.get_by_role("tab", name="Profile")
+    security = page.get_by_role("tab", name="Security")
+    billing = page.get_by_role("tab", name="Billing")
+    expect(profile).to_have_attribute("aria-selected", "true")
+    expect(page.locator("#settings-panel-profile")).to_be_visible()
+    expect(page.locator("#settings-panel-security")).to_be_hidden()
+
+    security.click()
+    expect(security).to_have_attribute("aria-selected", "true")
+    expect(security).to_have_attribute("tabindex", "0")
+    expect(profile).to_have_attribute("aria-selected", "false")
+    expect(profile).to_have_attribute("tabindex", "-1")
+    expect(page.locator("#settings-panel-security")).to_be_visible()
+    expect(page.locator("#settings-panel-profile")).to_be_hidden()
+
+    page.keyboard.press("ArrowRight")
+    expect(billing).to_be_focused()
+    expect(billing).to_have_attribute("aria-selected", "true")
+    expect(page.locator("#settings-panel-billing")).to_be_visible()
+    page.keyboard.press("ArrowRight")
+    expect(profile).to_be_focused()
+    page.keyboard.press("End")
+    expect(billing).to_be_focused()
+    page.keyboard.press("Home")
+    expect(profile).to_have_attribute("aria-selected", "true")
+
+    # A server render keeps the tab the visitor chose.
+    billing.click()
+    page.get_by_role("button", name="Render again").click()
+    expect(page.locator("#renders")).to_have_text("1")
+    expect(billing).to_have_attribute("aria-selected", "true")
+    expect(page.locator("#settings-panel-billing")).to_be_visible()
+    expect(page.locator("#settings-panel-profile")).to_be_hidden()
+
+
+def test_page_tabs_render_only_the_panel_the_page_chose(
+    page: Page, gallery_url: str
+) -> None:
+    _open(page, f"{gallery_url}/disclosure")
+    weekly = page.get_by_role("tab", name="Weekly")
+    panels = page.locator("#reports [role=tabpanel]")
+    expect(panels).to_have_count(1)
+    expect(panels).to_have_text("Daily: 42 orders.")
+
+    weekly.click()
+    expect(weekly).to_have_attribute("aria-selected", "true")
+    expect(panels).to_have_count(1)
+    expect(panels).to_have_text("Weekly: 310 orders.")
+    expect(panels).to_have_attribute("aria-labelledby", "reports-tab-weekly")
+
+    weekly.focus()
+    page.keyboard.press("ArrowRight")
+    expect(panels).to_have_text("Monthly: 1,280 orders.")

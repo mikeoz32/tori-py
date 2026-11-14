@@ -7,6 +7,9 @@ from tori_py_liveview_ui import LiveViewUiModule
 
 from examples.tori_py.liveview_ui_gallery.actions import ActionsLive
 from examples.tori_py.liveview_ui_gallery.content import SAMPLE_IMAGE, ContentLive
+from examples.tori_py.liveview_ui_gallery.disclosure import DisclosureLive
+from examples.tori_py.liveview_ui_gallery.display import DisplayLive
+from examples.tori_py.liveview_ui_gallery.feedback import FeedbackLive
 from examples.tori_py.liveview_ui_gallery.layout import LayoutLive
 from examples.tori_py.liveview_ui_gallery.overview import OverviewLive
 
@@ -28,7 +31,15 @@ class SampleController:
 
 liveview_module = LiveViewModule.for_root(
     LiveViewOptions(secret="development-secret-change-me-0000"),
-    pages=[OverviewLive, ActionsLive, LayoutLive, ContentLive],
+    pages=[
+        OverviewLive,
+        ActionsLive,
+        LayoutLive,
+        ContentLive,
+        DisplayLive,
+        FeedbackLive,
+        DisclosureLive,
+    ],
 )
 
 

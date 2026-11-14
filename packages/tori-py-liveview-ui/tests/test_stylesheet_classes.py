@@ -13,6 +13,7 @@ _CLASS = re.compile(r"tori-ui-[a-z0-9_-]*")
 
 # Classes that only name a part of the markup and take no rule of their own.
 _UNSTYLED = {
+    "tori-ui-avatar--md",
     "tori-ui-center--content",
     "tori-ui-container--lg",
     "tori-ui-divider__label",

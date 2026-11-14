@@ -71,7 +71,12 @@ The helpers are grouped in families:
   set of bundled inline SVG icons.
 - Actions: `button`, `button_group`, `copy_button`, `icon_button`,
   `link_button`, and `theme_toggle`.
-- Display and feedback: `badge` and `alert`.
+- Display: `avatar`, `avatar_group`, `badge`, `empty_state`, `list_group`,
+  `list_item`, `meter`, `progress`, `sparkline`, `stat`, `status_dot`, `table`,
+  `table_row`, `tag`, `timeline`, `timeline_item`, and `tooltip`.
+- Feedback: `alert`, `banner`, `busy`, `connection_status`, `flash_group`,
+  `skeleton`, `spinner`, `toast`, and `toast_region`.
+- Disclosure: `accordion`, `collapsible`, and `tabs`.
 - Forms: `form`, `field`, `field_error`, `input`, `textarea`, `select`, and
   `checkbox`.
 

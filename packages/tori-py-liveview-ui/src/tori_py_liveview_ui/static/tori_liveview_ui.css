@@ -1736,3 +1736,1090 @@
     animation-duration: 2.4s;
   }
 }
+
+/* ---------------------------------------------------------------- Tones */
+
+/* A toned part reads its color from --tori-ui-tone. */
+:where(
+    .tori-ui-tag,
+    .tori-ui-stat__delta,
+    .tori-ui-sparkline,
+    .tori-ui-status-dot,
+    .tori-ui-timeline__item,
+    .tori-ui-progress,
+    .tori-ui-toast,
+    .tori-ui-banner
+  ) {
+  --tori-ui-tone: var(--tori-ui-muted);
+}
+
+:where(
+    .tori-ui-tag--info,
+    .tori-ui-stat__delta--info,
+    .tori-ui-sparkline--info,
+    .tori-ui-status-dot--info,
+    .tori-ui-timeline__item--info,
+    .tori-ui-progress--info,
+    .tori-ui-toast--info,
+    .tori-ui-banner--info
+  ) {
+  --tori-ui-tone: var(--tori-ui-info);
+}
+
+:where(
+    .tori-ui-tag--success,
+    .tori-ui-stat__delta--success,
+    .tori-ui-sparkline--success,
+    .tori-ui-status-dot--success,
+    .tori-ui-timeline__item--success,
+    .tori-ui-progress--success,
+    .tori-ui-toast--success,
+    .tori-ui-banner--success
+  ) {
+  --tori-ui-tone: var(--tori-ui-success);
+}
+
+:where(
+    .tori-ui-tag--warning,
+    .tori-ui-stat__delta--warning,
+    .tori-ui-sparkline--warning,
+    .tori-ui-status-dot--warning,
+    .tori-ui-timeline__item--warning,
+    .tori-ui-progress--warning,
+    .tori-ui-toast--warning,
+    .tori-ui-banner--warning
+  ) {
+  --tori-ui-tone: var(--tori-ui-warning);
+}
+
+:where(
+    .tori-ui-tag--danger,
+    .tori-ui-stat__delta--danger,
+    .tori-ui-sparkline--danger,
+    .tori-ui-status-dot--danger,
+    .tori-ui-timeline__item--danger,
+    .tori-ui-progress--danger,
+    .tori-ui-toast--danger,
+    .tori-ui-banner--danger
+  ) {
+  --tori-ui-tone: var(--tori-ui-danger);
+}
+
+/* A neutral progress bar and sparkline are drawn in the accent and the ink. */
+:where(.tori-ui-progress--neutral) {
+  --tori-ui-tone: var(--tori-ui-accent);
+}
+
+:where(.tori-ui-sparkline--neutral) {
+  --tori-ui-tone: var(--tori-ui-ink);
+}
+
+/* -------------------------------------------------------------- Display */
+
+.tori-ui-table {
+  background: var(--tori-ui-panel);
+  border: var(--tori-ui-border-width) solid var(--tori-ui-line-strong);
+  border-radius: var(--tori-ui-radius-surface);
+  color: var(--tori-ui-ink);
+  min-width: 0;
+  overflow-x: auto;
+}
+
+.tori-ui-table__table {
+  border-collapse: collapse;
+  font: 500 0.92rem/1.45 var(--tori-ui-font-body);
+  width: 100%;
+}
+
+.tori-ui-table__caption {
+  border-bottom: var(--tori-ui-border-width) solid var(--tori-ui-line);
+  caption-side: top;
+  font: 700 1.05rem/1.2 var(--tori-ui-font-display);
+  padding: 0.8rem 1rem;
+  text-align: start;
+}
+
+.tori-ui-table__header {
+  background: var(--tori-ui-panel-raised);
+  border-bottom: var(--tori-ui-border-width) solid var(--tori-ui-line-strong);
+  color: var(--tori-ui-muted);
+  font-size: 0.72rem;
+  font-weight: var(--tori-ui-label-font-weight);
+  letter-spacing: var(--tori-ui-label-letter-spacing);
+  padding: 0.7rem 1rem;
+  text-align: start;
+  text-transform: var(--tori-ui-label-text-transform);
+  white-space: nowrap;
+}
+
+.tori-ui-table__cell {
+  border-top: var(--tori-ui-border-width) solid var(--tori-ui-line);
+  padding: 0.7rem 1rem;
+  vertical-align: middle;
+}
+
+.tori-ui-table__row:first-child > .tori-ui-table__cell {
+  border-top: 0;
+}
+
+.tori-ui-table__header--center,
+.tori-ui-table__cell--center {
+  text-align: center;
+}
+
+.tori-ui-table__header--end,
+.tori-ui-table__cell--end {
+  font-variant-numeric: tabular-nums;
+  text-align: end;
+}
+
+.tori-ui-table--compact :where(.tori-ui-table__header, .tori-ui-table__cell) {
+  padding: 0.4rem 0.7rem;
+}
+
+.tori-ui-table--striped .tori-ui-table__row:nth-child(even) {
+  background: color-mix(in srgb, var(--tori-ui-ink) 4%, transparent);
+}
+
+.tori-ui-table__row:hover {
+  background: color-mix(in srgb, var(--tori-ui-ink) 7%, transparent);
+}
+
+.tori-ui-table__empty {
+  color: var(--tori-ui-muted);
+  padding: 2rem 1rem;
+  text-align: center;
+}
+
+.tori-ui-table__sort {
+  appearance: none;
+  align-items: center;
+  background: none;
+  border: 0;
+  color: inherit;
+  cursor: pointer;
+  display: inline-flex;
+  font: inherit;
+  gap: 0.3em;
+  letter-spacing: inherit;
+  padding: 0;
+  text-transform: inherit;
+}
+
+.tori-ui-table__sort:hover,
+[aria-sort]:not([aria-sort="none"]) > .tori-ui-table__sort {
+  color: var(--tori-ui-ink);
+}
+
+.tori-ui-table__sort:focus-visible,
+.tori-ui-tag__remove:focus-visible,
+.tori-ui-tooltip:focus-visible {
+  border-radius: 2px;
+  outline: var(--tori-ui-focus-width) solid var(--tori-ui-accent);
+  outline-offset: 2px;
+}
+
+.tori-ui-list-group {
+  background: var(--tori-ui-panel);
+  border: var(--tori-ui-border-width) solid var(--tori-ui-line-strong);
+  border-radius: var(--tori-ui-radius-surface);
+  color: var(--tori-ui-ink);
+  font-family: var(--tori-ui-font-body);
+  list-style: none;
+  margin: 0;
+  overflow: hidden;
+  padding: 0;
+}
+
+.tori-ui-list-item {
+  align-items: center;
+  display: flex;
+  gap: var(--tori-ui-space-sm);
+}
+
+.tori-ui-list-item + .tori-ui-list-item {
+  border-top: var(--tori-ui-border-width) solid var(--tori-ui-line);
+}
+
+.tori-ui-list-item--selected {
+  background: color-mix(in srgb, var(--tori-ui-accent) 10%, transparent);
+  box-shadow: inset var(--tori-ui-accent-border-width) 0 0 var(--tori-ui-accent);
+}
+
+.tori-ui-list-item__action {
+  appearance: none;
+  align-items: center;
+  background: none;
+  border: 0;
+  color: inherit;
+  display: flex;
+  flex: 1;
+  font: inherit;
+  gap: var(--tori-ui-space-sm);
+  min-width: 0;
+  padding: 0.75rem 1rem;
+  text-align: start;
+  text-decoration: none;
+}
+
+:where(a, button).tori-ui-list-item__action {
+  cursor: pointer;
+}
+
+:where(a, button).tori-ui-list-item__action:hover {
+  background: color-mix(in srgb, var(--tori-ui-ink) 6%, transparent);
+}
+
+.tori-ui-list-item__action:focus-visible {
+  outline: var(--tori-ui-focus-width) solid var(--tori-ui-accent);
+  outline-offset: calc(-1 * var(--tori-ui-focus-width));
+}
+
+.tori-ui-list-item__leading,
+.tori-ui-list-item__trailing {
+  align-items: center;
+  display: inline-flex;
+  flex: none;
+  gap: var(--tori-ui-space-xs);
+}
+
+.tori-ui-list-item__trailing {
+  color: var(--tori-ui-muted);
+  padding-inline-end: 1rem;
+}
+
+.tori-ui-list-item__text {
+  display: grid;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.tori-ui-list-item__title {
+  font-size: 0.95rem;
+  font-weight: 650;
+  line-height: 1.35;
+}
+
+.tori-ui-list-item__description {
+  color: var(--tori-ui-muted);
+  font-size: 0.82rem;
+  line-height: 1.4;
+}
+
+.tori-ui-stat {
+  align-content: start;
+  color: var(--tori-ui-ink);
+  display: grid;
+  font-family: var(--tori-ui-font-body);
+  gap: 0.3rem;
+  min-width: 0;
+}
+
+.tori-ui-stat__label {
+  color: var(--tori-ui-muted);
+  font-size: 0.74rem;
+  font-weight: var(--tori-ui-label-font-weight);
+  letter-spacing: var(--tori-ui-label-letter-spacing);
+  margin: 0;
+  text-transform: var(--tori-ui-label-text-transform);
+}
+
+.tori-ui-stat__figure {
+  align-items: baseline;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2rem 0.6rem;
+  margin: 0;
+}
+
+.tori-ui-stat__value {
+  font: 700 2rem/1.05 var(--tori-ui-font-display);
+  font-variant-numeric: tabular-nums;
+}
+
+.tori-ui-stat__delta {
+  align-items: center;
+  color: var(--tori-ui-tone);
+  display: inline-flex;
+  font: 700 0.82rem/1 var(--tori-ui-font-body);
+  gap: 0.15em;
+}
+
+.tori-ui-stat__help {
+  color: var(--tori-ui-muted);
+  font-size: 0.8rem;
+  line-height: 1.4;
+  margin: 0;
+}
+
+.tori-ui-stat__chart {
+  margin-top: 0.4rem;
+}
+
+.tori-ui-sparkline {
+  color: var(--tori-ui-tone);
+  display: block;
+  height: 2rem;
+  overflow: visible;
+  width: 100%;
+}
+
+.tori-ui-sparkline__line {
+  fill: none;
+  stroke: currentcolor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+
+.tori-ui-sparkline__area {
+  fill: currentcolor;
+  opacity: 0.14;
+}
+
+.tori-ui-avatar {
+  align-items: center;
+  background: color-mix(in srgb, var(--tori-ui-accent) 16%, var(--tori-ui-panel));
+  border: var(--tori-ui-border-width) solid var(--tori-ui-line-strong);
+  border-radius: 50%;
+  color: var(--tori-ui-ink);
+  display: inline-flex;
+  flex: none;
+  font: 700 0.8rem/1 var(--tori-ui-font-body);
+  height: 2.25rem;
+  justify-content: center;
+  letter-spacing: 0.02em;
+  overflow: hidden;
+  width: 2.25rem;
+}
+
+.tori-ui-avatar--sm {
+  font-size: 0.62rem;
+  height: 1.6rem;
+  width: 1.6rem;
+}
+
+.tori-ui-avatar--lg {
+  font-size: 1.05rem;
+  height: 3rem;
+  width: 3rem;
+}
+
+.tori-ui-avatar--more {
+  background: var(--tori-ui-panel-raised);
+  color: var(--tori-ui-muted);
+}
+
+.tori-ui-avatar__image {
+  height: 100%;
+  object-fit: cover;
+  width: 100%;
+}
+
+.tori-ui-avatar-group {
+  display: inline-flex;
+}
+
+.tori-ui-avatar-group > .tori-ui-avatar {
+  box-shadow: 0 0 0 2px var(--tori-ui-panel);
+}
+
+.tori-ui-avatar-group > .tori-ui-avatar + .tori-ui-avatar {
+  margin-inline-start: -0.5rem;
+}
+
+.tori-ui-tag {
+  align-items: center;
+  background: color-mix(in srgb, var(--tori-ui-tone) 12%, var(--tori-ui-panel));
+  border: var(--tori-ui-border-width) solid
+    color-mix(in srgb, var(--tori-ui-tone) 45%, transparent);
+  border-radius: var(--tori-ui-radius-pill);
+  color: var(--tori-ui-ink);
+  display: inline-flex;
+  font: 600 0.78rem/1.2 var(--tori-ui-font-body);
+  gap: 0.35em;
+  max-width: 100%;
+  padding: 0.28rem 0.6rem;
+}
+
+.tori-ui-tag > .tori-ui-icon {
+  color: var(--tori-ui-tone);
+}
+
+.tori-ui-tag__label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tori-ui-tag__remove {
+  appearance: none;
+  background: none;
+  border: 0;
+  border-radius: 50%;
+  color: var(--tori-ui-muted);
+  cursor: pointer;
+  display: inline-flex;
+  margin-inline-end: -0.25rem;
+  padding: 0.1rem;
+}
+
+.tori-ui-tag__remove:hover {
+  background: color-mix(in srgb, var(--tori-ui-ink) 12%, transparent);
+  color: var(--tori-ui-ink);
+}
+
+.tori-ui-status-dot {
+  align-items: center;
+  color: var(--tori-ui-ink);
+  display: inline-flex;
+  font: 600 0.86rem/1.3 var(--tori-ui-font-body);
+  gap: 0.5em;
+}
+
+.tori-ui-status-dot__dot {
+  background: var(--tori-ui-tone);
+  border-radius: 50%;
+  flex: none;
+  height: 0.6em;
+  width: 0.6em;
+}
+
+.tori-ui-status-dot--pulse > .tori-ui-status-dot__dot {
+  animation: tori-ui-pulse 1.6s ease-out infinite;
+}
+
+@keyframes tori-ui-pulse {
+  from {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--tori-ui-tone) 60%, transparent);
+  }
+
+  to {
+    box-shadow: 0 0 0 0.5em transparent;
+  }
+}
+
+.tori-ui-timeline {
+  color: var(--tori-ui-ink);
+  display: grid;
+  font-family: var(--tori-ui-font-body);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.tori-ui-timeline__item {
+  display: grid;
+  gap: 0 0.9rem;
+  grid-template-columns: auto minmax(0, 1fr);
+  padding-bottom: 1.1rem;
+  position: relative;
+}
+
+.tori-ui-timeline__item:last-child {
+  padding-bottom: 0;
+}
+
+.tori-ui-timeline__item:not(:last-child)::before {
+  background: var(--tori-ui-line);
+  content: "";
+  inset-block: 0.7rem 0;
+  inset-inline-start: calc(0.35rem - var(--tori-ui-border-width) / 2);
+  position: absolute;
+  width: var(--tori-ui-border-width);
+}
+
+.tori-ui-timeline__marker {
+  background: var(--tori-ui-tone);
+  border-radius: 50%;
+  height: 0.7rem;
+  margin-top: 0.35rem;
+  position: relative;
+  width: 0.7rem;
+}
+
+.tori-ui-timeline__content {
+  min-width: 0;
+}
+
+.tori-ui-timeline__title {
+  align-items: baseline;
+  display: flex;
+  flex-wrap: wrap;
+  font-size: 0.95rem;
+  font-weight: 650;
+  gap: 0.1rem 0.6rem;
+  justify-content: space-between;
+  line-height: 1.4;
+  margin: 0;
+}
+
+.tori-ui-timeline__time {
+  color: var(--tori-ui-muted);
+  font: 500 0.76rem/1.3 var(--tori-ui-font-code);
+}
+
+.tori-ui-timeline__description {
+  color: var(--tori-ui-muted);
+  font-size: 0.88rem;
+  line-height: 1.5;
+  margin-top: 0.2rem;
+}
+
+.tori-ui-empty-state {
+  border: var(--tori-ui-border-width) dashed var(--tori-ui-line-strong);
+  border-radius: var(--tori-ui-radius-surface);
+  color: var(--tori-ui-ink);
+  display: grid;
+  font-family: var(--tori-ui-font-body);
+  gap: 0.5rem;
+  justify-items: center;
+  padding: var(--tori-ui-space-xl) var(--tori-ui-space-lg);
+  text-align: center;
+}
+
+.tori-ui-empty-state__icon {
+  color: var(--tori-ui-muted);
+  font-size: 1.4rem;
+}
+
+.tori-ui-empty-state__title {
+  font: 700 1.15rem/1.2 var(--tori-ui-font-display);
+  margin: 0;
+}
+
+.tori-ui-empty-state__description {
+  color: var(--tori-ui-muted);
+  font-size: 0.92rem;
+  line-height: 1.5;
+  margin: 0;
+  max-width: 32rem;
+}
+
+.tori-ui-empty-state__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--tori-ui-space-sm);
+  justify-content: center;
+  margin-top: 0.5rem;
+}
+
+.tori-ui-progress {
+  align-items: center;
+  color: var(--tori-ui-ink);
+  display: flex;
+  font-family: var(--tori-ui-font-body);
+  gap: 0.6rem;
+}
+
+.tori-ui-progress__bar {
+  appearance: none;
+  background: color-mix(in srgb, var(--tori-ui-ink) 12%, transparent);
+  border: 0;
+  border-radius: var(--tori-ui-radius-pill);
+  flex: 1;
+  height: 0.55rem;
+  min-width: 4rem;
+  overflow: hidden;
+}
+
+.tori-ui-progress__bar::-webkit-progress-bar {
+  background: transparent;
+}
+
+.tori-ui-progress__bar::-webkit-progress-value {
+  background: var(--tori-ui-tone);
+  border-radius: var(--tori-ui-radius-pill);
+}
+
+.tori-ui-progress__bar::-moz-progress-bar {
+  background: var(--tori-ui-tone);
+  border-radius: var(--tori-ui-radius-pill);
+}
+
+.tori-ui-progress__bar:indeterminate {
+  animation: tori-ui-indeterminate 1.4s linear infinite;
+  background-image: linear-gradient(
+    90deg,
+    transparent 0 30%,
+    var(--tori-ui-tone) 30% 70%,
+    transparent 70%
+  );
+  background-size: 200% 100%;
+}
+
+.tori-ui-progress__bar:indeterminate::-moz-progress-bar {
+  background: transparent;
+}
+
+@keyframes tori-ui-indeterminate {
+  from {
+    background-position: 100% 0;
+  }
+
+  to {
+    background-position: -100% 0;
+  }
+}
+
+.tori-ui-progress__value {
+  font: 600 0.78rem/1 var(--tori-ui-font-code);
+  font-variant-numeric: tabular-nums;
+  min-width: 2.6em;
+  text-align: end;
+}
+
+.tori-ui-meter {
+  display: block;
+  height: 0.8rem;
+  width: 100%;
+}
+
+.tori-ui-tooltip {
+  cursor: help;
+  display: inline-flex;
+  position: relative;
+  text-decoration: underline dotted;
+  text-underline-offset: 0.2em;
+}
+
+.tori-ui-tooltip__bubble {
+  background: var(--tori-ui-ink);
+  border-radius: var(--tori-ui-radius-control);
+  color: var(--tori-ui-paper);
+  font: 500 0.78rem/1.35 var(--tori-ui-font-body);
+  inset-inline-start: 50%;
+  letter-spacing: normal;
+  max-width: 16rem;
+  opacity: 0;
+  padding: 0.35rem 0.55rem;
+  position: absolute;
+  text-transform: none;
+  transform: translateX(-50%);
+  transition: opacity 120ms ease;
+  visibility: hidden;
+  width: max-content;
+  z-index: var(--tori-ui-layer-overlay);
+}
+
+/* The gap between the content and the bubble stays under the pointer. */
+.tori-ui-tooltip__bubble::before {
+  content: "";
+  height: 0.4rem;
+  inset-inline: 0;
+  position: absolute;
+}
+
+.tori-ui-tooltip--top > .tori-ui-tooltip__bubble {
+  bottom: calc(100% + 0.4rem);
+}
+
+.tori-ui-tooltip--top > .tori-ui-tooltip__bubble::before {
+  top: 100%;
+}
+
+.tori-ui-tooltip--bottom > .tori-ui-tooltip__bubble {
+  top: calc(100% + 0.4rem);
+}
+
+.tori-ui-tooltip--bottom > .tori-ui-tooltip__bubble::before {
+  bottom: 100%;
+}
+
+.tori-ui-tooltip:where(:hover, :focus-within):not([data-tori-ui-dismissed])
+  > .tori-ui-tooltip__bubble {
+  opacity: 1;
+  visibility: visible;
+}
+
+/* ------------------------------------------------------------- Feedback */
+
+.tori-ui-alert {
+  align-items: flex-start;
+  display: flex;
+}
+
+.tori-ui-alert__content {
+  flex: 1;
+  min-width: 0;
+}
+
+.tori-ui-alert__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--tori-ui-space-sm);
+  margin-top: 0.75rem;
+}
+
+.tori-ui-alert__dismiss,
+.tori-ui-banner__dismiss,
+.tori-ui-toast__dismiss {
+  appearance: none;
+  background: none;
+  border: 0;
+  border-radius: var(--tori-ui-radius-control);
+  color: var(--tori-ui-muted);
+  cursor: pointer;
+  display: inline-flex;
+  flex: none;
+  margin: 0.45rem;
+  padding: 0.35rem;
+}
+
+:where(
+    .tori-ui-alert__dismiss,
+    .tori-ui-banner__dismiss,
+    .tori-ui-toast__dismiss
+  ):hover {
+  background: color-mix(in srgb, var(--tori-ui-ink) 9%, transparent);
+  color: var(--tori-ui-ink);
+}
+
+:where(
+    .tori-ui-alert__dismiss,
+    .tori-ui-banner__dismiss,
+    .tori-ui-toast__dismiss
+  ):focus-visible {
+  outline: var(--tori-ui-focus-width) solid var(--tori-ui-accent);
+  outline-offset: 1px;
+}
+
+.tori-ui-banner {
+  align-items: center;
+  background: color-mix(in srgb, var(--tori-ui-tone) 14%, var(--tori-ui-panel));
+  border-bottom: var(--tori-ui-border-width) solid
+    color-mix(in srgb, var(--tori-ui-tone) 50%, transparent);
+  color: var(--tori-ui-ink);
+  display: flex;
+  font: 500 0.9rem/1.45 var(--tori-ui-font-body);
+  gap: var(--tori-ui-space-md);
+  padding-inline-start: var(--tori-ui-space-md);
+}
+
+.tori-ui-banner__content {
+  flex: 1;
+  min-width: 0;
+  padding-block: 0.6rem;
+}
+
+.tori-ui-banner__actions {
+  display: flex;
+  flex: none;
+  gap: var(--tori-ui-space-sm);
+}
+
+.tori-ui-banner__actions:last-child {
+  padding-inline-end: var(--tori-ui-space-md);
+}
+
+.tori-ui-spinner-status {
+  display: inline-flex;
+}
+
+.tori-ui-spinner--lg {
+  border-width: 3px;
+  height: 2em;
+  width: 2em;
+}
+
+.tori-ui-skeleton {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.tori-ui-skeleton__line,
+.tori-ui-skeleton--block,
+.tori-ui-skeleton--circle {
+  animation: tori-ui-shimmer 1.6s ease-in-out infinite;
+  background: color-mix(in srgb, var(--tori-ui-ink) 11%, transparent);
+  border-radius: var(--tori-ui-radius-control);
+}
+
+.tori-ui-skeleton__line {
+  display: block;
+  height: 0.8rem;
+}
+
+.tori-ui-skeleton__line:last-child:not(:first-child) {
+  width: 62%;
+}
+
+.tori-ui-skeleton--block {
+  border-radius: var(--tori-ui-radius-surface);
+  flex: 1 1 8rem;
+  height: 6rem;
+  width: 100%;
+}
+
+.tori-ui-skeleton--circle {
+  border-radius: 50%;
+  height: 2.5rem;
+  width: 2.5rem;
+}
+
+@keyframes tori-ui-shimmer {
+  50% {
+    opacity: 0.45;
+  }
+}
+
+.tori-ui-busy {
+  position: relative;
+}
+
+.tori-ui-busy__content {
+  transition: opacity 160ms ease;
+}
+
+.tori-ui-busy--active > .tori-ui-busy__content {
+  opacity: 0.45;
+}
+
+.tori-ui-busy__overlay {
+  align-items: center;
+  color: var(--tori-ui-ink);
+  display: flex;
+  font-size: 1.4rem;
+  inset: 0;
+  justify-content: center;
+  position: absolute;
+}
+
+.tori-ui-toast-region {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tori-ui-space-sm);
+  max-width: min(24rem, 100vw);
+  padding: var(--tori-ui-space-md);
+  pointer-events: none;
+  position: fixed;
+  width: 100%;
+  z-index: var(--tori-ui-layer-toast);
+}
+
+.tori-ui-toast-region--top-start {
+  inset-block-start: 0;
+  inset-inline-start: 0;
+}
+
+.tori-ui-toast-region--top-end {
+  inset-block-start: 0;
+  inset-inline-end: 0;
+}
+
+.tori-ui-toast-region--bottom-start {
+  inset-block-end: 0;
+  inset-inline-start: 0;
+}
+
+.tori-ui-toast-region--bottom-end {
+  inset-block-end: 0;
+  inset-inline-end: 0;
+}
+
+.tori-ui-toast {
+  align-items: flex-start;
+  animation: tori-ui-toast-in 180ms ease-out;
+  background: var(--tori-ui-panel);
+  border: var(--tori-ui-border-width) solid var(--tori-ui-line-strong);
+  border-inline-start: var(--tori-ui-accent-border-width) solid
+    var(--tori-ui-tone);
+  border-radius: var(--tori-ui-radius-surface);
+  box-shadow: var(--tori-ui-shadow);
+  color: var(--tori-ui-ink);
+  display: flex;
+  font-family: var(--tori-ui-font-body);
+  pointer-events: auto;
+}
+
+@keyframes tori-ui-toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(0.5rem);
+  }
+}
+
+.tori-ui-toast__content {
+  flex: 1;
+  min-width: 0;
+  padding: 0.7rem 0.9rem;
+}
+
+.tori-ui-toast__title {
+  font-size: 0.92rem;
+  font-weight: 700;
+  line-height: 1.3;
+  margin: 0 0 0.15rem;
+}
+
+.tori-ui-toast__body {
+  font-size: 0.88rem;
+  line-height: 1.45;
+}
+
+.tori-ui-toast__title + .tori-ui-toast__body {
+  color: var(--tori-ui-muted);
+}
+
+/* Shown by the classes the LiveView client puts on a disconnected root. */
+.tori-ui-connection-status {
+  align-items: center;
+  background: var(--tori-ui-ink);
+  border-radius: var(--tori-ui-radius-pill);
+  color: var(--tori-ui-paper);
+  display: none;
+  font: 600 0.82rem/1.3 var(--tori-ui-font-body);
+  gap: 0.5rem;
+  inset-block-start: var(--tori-ui-space-md);
+  inset-inline-start: 50%;
+  padding: 0.5rem 0.9rem;
+  position: fixed;
+  transform: translateX(-50%);
+  z-index: var(--tori-ui-layer-toast);
+}
+
+:where(.phx-client-error, .phx-server-error) .tori-ui-connection-status {
+  display: inline-flex;
+}
+
+/* ----------------------------------------------------------- Disclosure */
+
+.tori-ui-collapsible {
+  background: var(--tori-ui-panel);
+  border: var(--tori-ui-border-width) solid var(--tori-ui-line-strong);
+  border-radius: var(--tori-ui-radius-surface);
+  color: var(--tori-ui-ink);
+  font-family: var(--tori-ui-font-body);
+}
+
+.tori-ui-collapsible__summary {
+  align-items: center;
+  cursor: pointer;
+  display: flex;
+  font-size: 0.95rem;
+  font-weight: 650;
+  gap: var(--tori-ui-space-sm);
+  justify-content: space-between;
+  list-style: none;
+  padding: 0.75rem 1rem;
+}
+
+.tori-ui-collapsible__summary::-webkit-details-marker {
+  display: none;
+}
+
+.tori-ui-collapsible__summary:focus-visible,
+.tori-ui-tabs__tab:focus-visible {
+  outline: var(--tori-ui-focus-width) solid var(--tori-ui-accent);
+  outline-offset: calc(-1 * var(--tori-ui-focus-width));
+}
+
+.tori-ui-collapsible__label {
+  min-width: 0;
+}
+
+.tori-ui-collapsible__summary > .tori-ui-icon {
+  color: var(--tori-ui-muted);
+  transition: transform 160ms ease;
+}
+
+.tori-ui-collapsible[open] > .tori-ui-collapsible__summary > .tori-ui-icon {
+  transform: rotate(180deg);
+}
+
+.tori-ui-collapsible__content {
+  border-top: var(--tori-ui-border-width) solid var(--tori-ui-line);
+  font-size: 0.95rem;
+  line-height: 1.55;
+  padding: 0.9rem 1rem;
+}
+
+.tori-ui-accordion {
+  background: var(--tori-ui-panel);
+  border: var(--tori-ui-border-width) solid var(--tori-ui-line-strong);
+  border-radius: var(--tori-ui-radius-surface);
+  overflow: hidden;
+}
+
+.tori-ui-accordion > .tori-ui-collapsible {
+  border: 0;
+  border-radius: 0;
+}
+
+.tori-ui-accordion > .tori-ui-collapsible + .tori-ui-collapsible {
+  border-top: var(--tori-ui-border-width) solid var(--tori-ui-line);
+}
+
+.tori-ui-tabs {
+  color: var(--tori-ui-ink);
+  display: grid;
+  font-family: var(--tori-ui-font-body);
+  gap: var(--tori-ui-space-md);
+  min-width: 0;
+}
+
+.tori-ui-tabs__list {
+  border-bottom: var(--tori-ui-border-width) solid var(--tori-ui-line-strong);
+  display: flex;
+  gap: 0.25rem;
+  overflow-x: auto;
+}
+
+.tori-ui-tabs__tab {
+  appearance: none;
+  background: none;
+  border: 0;
+  border-bottom: var(--tori-ui-accent-border-width) solid transparent;
+  color: var(--tori-ui-muted);
+  cursor: pointer;
+  font-family: var(--tori-ui-font-body);
+  font-size: 0.8rem;
+  font-weight: var(--tori-ui-control-font-weight);
+  letter-spacing: var(--tori-ui-control-letter-spacing);
+  padding: 0.65rem 0.9rem;
+  text-transform: var(--tori-ui-control-text-transform);
+  white-space: nowrap;
+}
+
+.tori-ui-tabs__tab:hover {
+  color: var(--tori-ui-ink);
+}
+
+.tori-ui-tabs__tab[aria-selected="true"] {
+  border-bottom-color: var(--tori-ui-accent);
+  color: var(--tori-ui-ink);
+}
+
+.tori-ui-tabs__panel {
+  min-width: 0;
+}
+
+.tori-ui-tabs__panel--hidden {
+  display: none;
+}
+
+.tori-ui-tabs__panel:focus-visible {
+  outline: var(--tori-ui-focus-width) solid var(--tori-ui-accent);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tori-ui-status-dot--pulse > .tori-ui-status-dot__dot,
+  .tori-ui-skeleton__line,
+  .tori-ui-skeleton--block,
+  .tori-ui-skeleton--circle,
+  .tori-ui-toast {
+    animation: none;
+  }
+
+  .tori-ui-progress__bar:indeterminate {
+    animation-duration: 4s;
+  }
+
+  .tori-ui-tooltip__bubble,
+  .tori-ui-busy__content,
+  .tori-ui-collapsible__summary > .tori-ui-icon {
+    transition: none;
+  }
+}

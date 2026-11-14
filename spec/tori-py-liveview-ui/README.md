@@ -23,8 +23,13 @@ architecture is maintained in
    `page_header`, `toolbar`, `split`, `scroll_area`, `app_shell`), content
    (`heading`, `text`, `link`, `code`, `code_block`, `kbd`, `blockquote`,
    `prose`, `item_list`, `description_list`, `image`), icons (`icon`), display
-   (`badge`), feedback (`alert`), and forms (`form`, `field`, `field_error`,
-   `input`, `textarea`, `select`, `checkbox`).
+   (`badge`, `table`, `table_row`, `list_group`, `list_item`, `stat`,
+   `sparkline`, `avatar`, `avatar_group`, `tag`, `status_dot`, `timeline`,
+   `timeline_item`, `empty_state`, `progress`, `meter`, `tooltip`, and the
+   `TableColumn` value), feedback (`alert`, `banner`, `spinner`, `skeleton`,
+   `busy`, `toast`, `toast_region`, `flash_group`, `connection_status`),
+   disclosure (`collapsible`, `accordion`, `tabs`), and forms (`form`, `field`,
+   `field_error`, `input`, `textarea`, `select`, `checkbox`).
 6. `button` maps an optional event and positive safe-integer component target to
    `phx-click` and `phx-target`. A target requires an event. The helper does not
    own event routing or state. Event values map to `phx-value-*` attributes
@@ -87,7 +92,22 @@ architecture is maintained in
 19. Every class a helper emits has a rule or is listed as structural, every
     rule belongs to an emitted class, and keyframes and custom properties are
     prefixed.
-20. The core package has no CDN, Node or Tailwind dependency, external font,
+20. Tables are sorted by the page: sortable headers push an event with the
+    column key and report the order through `aria-sort`. A table body may be a
+    LiveView stream container whose items are `table_row` results.
+21. Alerts, banners, and toasts are dismissed by the browser through a `JS`
+    hide command, or by the page through an event. A toast with a duration
+    closes itself by pressing its own dismiss button and pauses under the
+    pointer or the focus. `flash_group` clears a flash kind through
+    `lv:clear-flash`.
+22. `busy` marks a region `aria-busy` and makes it inert while loading.
+    `connection_status` appears from the classes the LiveView client puts on a
+    disconnected root, without script.
+23. `collapsible` is a native `details` element whose `open` attribute the
+    client leaves alone after the first render. `tabs` follows the tabs
+    pattern with arrow-key navigation; the browser switches fully rendered
+    panels, or the page switches through an event and renders one panel.
+24. The core package has no CDN, Node or Tailwind dependency, external font,
     remote asset, global reset, domain validation/coercion system, arbitrary
     attributes/classes, client runtime, or application-state ownership.
     Optional features ship as extras. A future Tailwind skin adapter remains a

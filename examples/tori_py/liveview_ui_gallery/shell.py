@@ -11,7 +11,9 @@ from tori_py_liveview_ui import (
     app_shell,
     button_group,
     card,
+    connection_status,
     container,
+    flash_group,
     item_list,
     link,
     link_button,
@@ -33,6 +35,9 @@ SECTIONS: list[tuple[str, str]] = [
     ("/actions", "Actions"),
     ("/layout", "Layout"),
     ("/content", "Content"),
+    ("/display", "Display"),
+    ("/feedback", "Feedback"),
+    ("/disclosure", "Disclosure"),
 ]
 
 # An application hook, defined the documented way: the object is replaced
@@ -125,6 +130,8 @@ class GalleryPage(UiLiveView):
                         self.heading, eyebrow="Gallery", description=self.summary
                     ),
                     content,
+                    flash_group(self.flash, id="gallery-flash"),
+                    connection_status(),
                 ],
                 gap="lg",
             )

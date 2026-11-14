@@ -192,17 +192,100 @@ name.
 | Helper | Closed values | Other documented inputs |
 | --- | --- | --- |
 | `badge` | tones: `neutral`, `info`, `success`, `warning`, `danger` | `content` |
+| `table` | densities: `comfortable`, `compact`; sort directions: `asc`, `desc` | `columns`, finite `rows`, optional `caption`, `striped`, `empty`, `sort`, `sort_event`, `target`, `stream` |
+| `table_row` | - | finite `cells`, the table's `columns`, optional `id` |
+| `list_group` | - | finite `items` iterable, optional `label` |
+| `list_item` | live: `patch`, `navigate` | `title`, optional `description`, `leading`, `trailing`, `href`, `event`, `target`, `values`, `selected`, `id` |
+| `stat` | trends: `up`, `down`, `flat`; the tones | required `label`, `value`, optional `delta`, `help_text`, `chart` |
+| `sparkline` | the tones | at least two finite numbers, required `label`, `area` |
+| `avatar` | sizes: `sm`, `md`, `lg` | required `name`, optional `src` |
+| `avatar_group` | - | finite `children` iterable, required `label`, `extra` from 0 through 9999 |
+| `tag` | the tones; icon: the bundled set | `content`, optional `remove_event`, `remove_label`, `target`, `values` |
+| `status_dot` | the tones | required `label`, `pulse` |
+| `timeline` | - | finite `items` iterable |
+| `timeline_item` | the tones | `title`, optional `time`, `description`, `id` |
+| `empty_state` | icon: the bundled set | required `title`, optional `description`, `actions` |
+| `progress` | the tones | required `label`, optional `value`, positive `maximum`, `show_value` |
+| `meter` | - | required `label`, `value`, `minimum`, `maximum`, optional `low`, `high`, `optimum` |
+| `tooltip` | placements: `top`, `bottom` | `content`, required `text` and `id` |
+
+A table column is a label or a frozen `TableColumn(label, key, align, sortable)`
+with `align` of `start`, `center`, or `end`. Every row has one cell per column.
+The page owns sorting: a sortable header is a button that pushes `sort_event`
+with `phx-value-key`, and `sort=(key, direction)` sets `aria-sort` on the
+matching header and `none` on the other sortable ones. With
+`stream=(container_id, contents)` the `tbody` is a `phx-update="stream"`
+container whose items are `table_row` results. The table sits in a wrapper that
+scrolls horizontally.
+
+A `list_item` is a link with `href`, a button with `event`, and otherwise plain
+content; it is not both, and `trailing` content stays outside the row's own
+action. `selected` sets `aria-current`. `avatar` names itself from `name` and
+derives initials from it without a picture. `sparkline` is static inline SVG
+with `role="img"` and its `label`. `progress` and `meter` are the native
+elements; a `progress` without a value is indeterminate. `status_dot` always
+shows its label. `tooltip` makes its content focusable, references a
+`role="tooltip"` element through `aria-describedby`, opens on hover and focus
+through CSS, stays open while the pointer is over its bubble, and is dismissed
+by Escape through one `document` listener in the script.
 
 ### 4.6 Feedback
 
 | Helper | Closed values | Other documented inputs |
 | --- | --- | --- |
-| `alert` | tones: `neutral`, `info`, `success`, `warning`, `danger` | `content`, optional string `title` |
+| `alert` | tones: `neutral`, `info`, `success`, `warning`, `danger` | `content`, optional string `title`, `actions`, `dismissible`, `dismiss_event`, `dismiss_label`, `target` |
+| `banner` | the tones | `content`, optional `actions`, `dismissible`, `dismiss_event`, `dismiss_label`, `target` |
+| `spinner` | sizes: `sm`, `md`, `lg` | `label` |
+| `skeleton` | shapes: `text`, `block`, `circle` | `lines` from 1 through 20, text shape only |
+| `busy` | - | `content`, required boolean `busy`, `label` |
+| `toast` | the tones | `content`, required selector-safe `id`, optional `title`, `duration` from 1000 through 600000 or none, `dismiss_event`, `dismiss_label`, `target` |
+| `toast_region` | placements: `top-start`, `top-end`, `bottom-start`, `bottom-end` | finite `children` iterable, `id`, `label` |
+| `flash_group` | the placements | the page's flash mapping, `id`, `label`, `duration` |
+| `connection_status` | - | `message` |
 
-`alert` uses `role="alert"` for the `danger` tone and `role="status"` otherwise.
-Its optional title is an `h2`.
+`alert`, `banner`, and `toast` use `role="alert"` for the `danger` tone and
+`role="status"` otherwise. An alert's optional title is an `h2`. Their dismiss
+button runs `JS().hide()` on the enclosing block when only `dismissible` is
+set, so the browser hides it and the page is not told; with `dismiss_event` it
+pushes that event and the page owns removal.
 
-### 4.7 Forms
+A `toast` with a duration carries the `ToriUiToast` hook, which presses the
+toast's own dismiss button when the time is up and pauses while the pointer or
+the focus is inside. `toast_region` is a fixed `role="region"` in a viewport
+corner. `flash_group` renders the `error`, `warning`, `success`, and `info`
+flash kinds as toasts in that order; each dismiss button pushes LiveView's
+built-in `lv:clear-flash` with its kind and hides the toast, and only `info`
+and `success` close themselves.
+
+`spinner` announces its label through `role="status"`. `skeleton` is hidden
+from assistive technology. `busy` sets `aria-busy`, and while busy makes its
+content `inert` and covers it with a spinner. `connection_status` is hidden
+until the LiveView client puts `phx-client-error` or `phx-server-error` on the
+page's root element; it uses no script.
+
+### 4.7 Disclosure
+
+| Helper | Closed values | Other documented inputs |
+| --- | --- | --- |
+| `collapsible` | - | `summary`, `content`, `open`, optional `id` and `group` |
+| `accordion` | - | finite `children` iterable |
+| `tabs` | - | finite `(key, label, content)` items, required selector-safe `id` and `label`, optional `active`, `event`, `target` |
+
+`collapsible` is a native `details` element with a `phx-mounted` command that
+makes the client ignore the `open` attribute when patching, so `open` is only
+the initial state. Sections sharing a `group` use the native `name` attribute
+and close each other.
+
+`tabs` renders a `role="tablist"` of `role="tab"` buttons with roving
+`tabindex` and `role="tabpanel"` regions. Keys match `[A-Za-z0-9_-]+` and are
+unique. Without `event` every panel is rendered and a tab's `JS` commands move
+`aria-selected`, `tabindex`, and a hidden class, so the browser owns the choice
+and keeps it across renders. With `event` a tab pushes the event with
+`phx-value-tab` and only the `active` panel is rendered. The `ToriUiTabs` hook
+on the tab list moves focus with the arrow keys, Home, and End and selects the
+tab it lands on by clicking it.
+
+### 4.8 Forms
 
 | Helper | Closed values | Other documented inputs |
 | --- | --- | --- |

@@ -4,9 +4,9 @@
 
 Foundation slice (LVUI0), initial family acceptance (LVUI1), forms slice
 (LVUI2), skinning slice (LVUI3), the component library foundation (LVUI4), and
-the layout, content, icon, and action families (LVUI5) are complete. LVUI6
-through LVUI11 continue growing the package into a full component library, one
-family group per slice.
+the layout, content, icon, action, display, feedback, and disclosure families
+(LVUI5 and LVUI6) are complete. LVUI7 through LVUI11 continue growing the
+package into a full component library, one family group per slice.
 
 Architecture:
 [`TORI_PY_LIVEVIEW_UI_ARCHITECTURE.md`](TORI_PY_LIVEVIEW_UI_ARCHITECTURE.md).
@@ -92,14 +92,19 @@ Architecture:
 - [x] Keep the helpers and the stylesheet in agreement on class names through
   the test suite.
 
-## LVUI6: Data Display, Feedback, and Disclosure
+## LVUI6: Data Display, Feedback, and Disclosure - Complete
 
-- [ ] Display: `table`, `list_group`, `stat`, `sparkline`, `avatar`,
-  `avatar_group`, `tag`, `status_dot`, `timeline`, `empty_state`, `progress`,
+- [x] Display: `table` with page-owned sorting and stream bodies, `table_row`,
+  `list_group`, `list_item`, `stat`, `sparkline`, `avatar`, `avatar_group`,
+  `tag`, `status_dot`, `timeline`, `timeline_item`, `empty_state`, `progress`,
   `meter`, and `tooltip`.
-- [ ] Feedback: `spinner`, `skeleton`, `toast`, `toast_region`, `flash_group`,
-  `banner`, `connection_status`, and `busy`; `alert` becomes dismissible.
-- [ ] Disclosure: `collapsible`, `accordion`, and `tabs`.
+- [x] Feedback: `spinner`, `skeleton`, `toast`, `toast_region`, `flash_group`,
+  `banner`, `connection_status`, and `busy`; `alert` gains actions and
+  dismissal by the browser or by the page.
+- [x] Disclosure: `collapsible`, `accordion`, and `tabs` that either the
+  browser or the page switches.
+- [x] Hooks for self-closing toasts and for arrow-key navigation between tabs;
+  Escape dismisses an open tooltip.
 
 ## LVUI7: Chat and AI
 

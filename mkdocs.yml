@@ -126,6 +126,9 @@ nav:
           - Layout: techniques/liveview-ui/layout.md
           - Content and Icons: techniques/liveview-ui/content.md
           - Actions: techniques/liveview-ui/actions.md
+          - Data Display: techniques/liveview-ui/display.md
+          - Feedback: techniques/liveview-ui/feedback.md
+          - Disclosure and Tabs: techniques/liveview-ui/disclosure.md
           - Forms: techniques/liveview-ui/forms.md
           - Themes and Skins: techniques/liveview-ui/theming.md
       - CQRS:

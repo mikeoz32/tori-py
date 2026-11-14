@@ -154,6 +154,90 @@
     }
   });
 
+  // ---------------------------------------------------------------- Toast
+
+  // toast(): presses its own dismiss button after the duration, so the page
+  // or the browser closes it the same way a visitor would. The countdown
+  // pauses while the visitor points at the toast or focuses inside it.
+  hooks.ToriUiToast = {
+    mounted() {
+      let remaining = Number(this.el.dataset.toriUiDuration);
+      if (!(remaining > 0)) return;
+      let started = 0;
+      let timer = null;
+      const close = () => {
+        this.el.querySelector(".tori-ui-toast__dismiss")?.click();
+      };
+      const resume = () => {
+        if (timer !== null) return;
+        started = Date.now();
+        timer = setTimeout(close, remaining);
+      };
+      const pause = () => {
+        if (timer === null) return;
+        clearTimeout(timer);
+        timer = null;
+        remaining = Math.max(remaining - (Date.now() - started), 1000);
+      };
+      this.el.addEventListener("pointerenter", pause);
+      this.el.addEventListener("pointerleave", resume);
+      this.el.addEventListener("focusin", pause);
+      this.el.addEventListener("focusout", resume);
+      this.stop = () => clearTimeout(timer);
+      resume();
+    },
+    destroyed() {
+      this.stop?.();
+    },
+  };
+
+  // ----------------------------------------------------------------- Tabs
+
+  // tabs(): arrow keys, Home, and End move between the tabs and select the
+  // one they land on, as a click does.
+  hooks.ToriUiTabs = {
+    mounted() {
+      this.el.addEventListener("keydown", (event) => {
+        const tabs = [...this.el.querySelectorAll('[role="tab"]')];
+        const index = tabs.indexOf(document.activeElement);
+        if (index === -1) return;
+        const last = tabs.length - 1;
+        const moves = {
+          ArrowRight: index === last ? 0 : index + 1,
+          ArrowLeft: index === 0 ? last : index - 1,
+          Home: 0,
+          End: last,
+        };
+        const next = moves[event.key];
+        if (next === undefined) return;
+        event.preventDefault();
+        tabs[next].focus();
+        tabs[next].click();
+      });
+    },
+  };
+
+  // -------------------------------------------------------------- Tooltip
+
+  // tooltip(): Escape hides an open bubble until the pointer or the focus
+  // leaves its content.
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") return;
+    const open = document.querySelectorAll(
+      ".tori-ui-tooltip:hover, .tori-ui-tooltip:focus-within",
+    );
+    for (const tip of open) {
+      const restore = () => {
+        tip.removeAttribute("data-tori-ui-dismissed");
+        tip.removeEventListener("pointerleave", restore);
+        tip.removeEventListener("focusout", restore);
+      };
+      tip.setAttribute("data-tori-ui-dismissed", "");
+      tip.addEventListener("pointerleave", restore);
+      tip.addEventListener("focusout", restore);
+    }
+  });
+
   // -------------------------------------------------------- Registration
 
   // The LiveView client reads globalThis.ToriLiveHooks from a deferred script.

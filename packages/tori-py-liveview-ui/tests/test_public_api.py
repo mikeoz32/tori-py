@@ -7,6 +7,7 @@ import tori_py_liveview_ui
 from tori_py_liveview_ui import (
     actions,
     content,
+    disclosure,
     display,
     feedback,
     forms,
@@ -16,7 +17,17 @@ from tori_py_liveview_ui import (
 )
 
 # Each family test pins its own module's names; the facade is their union.
-_FAMILIES = (actions, content, display, feedback, forms, icons, layout, module)
+_FAMILIES = (
+    actions,
+    content,
+    disclosure,
+    display,
+    feedback,
+    forms,
+    icons,
+    layout,
+    module,
+)
 
 
 def test_public_facade_is_the_union_of_the_family_modules() -> None:
@@ -39,12 +50,10 @@ def test_public_facade_lists_constants_then_classes_then_helpers() -> None:
 
     assert exported == sorted(constants) + sorted(classes) + sorted(helpers)
     assert constants == ["SCRIPT_PATH", "STYLESHEET_PATH"]
-    assert classes == ["LiveViewUiModule", "UiLiveView"]
+    assert classes == ["LiveViewUiModule", "TableColumn", "UiLiveView"]
 
 
 def test_foundation_families_are_explicit() -> None:
-    assert display.__all__ == ["badge"]
-    assert feedback.__all__ == ["alert"]
     assert forms.__all__ == [
         "checkbox",
         "field",

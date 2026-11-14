@@ -139,7 +139,7 @@ For a control that shows only an icon, use
 
 | Group | Names |
 | --- | --- |
-| Arrows | `arrow-down`, `arrow-left`, `arrow-right`, `arrow-up`, `chevron-down`, `chevron-left`, `chevron-right`, `chevron-up`, `external-link` |
+| Arrows | `arrow-down`, `arrow-left`, `arrow-right`, `arrow-up`, `chevron-down`, `chevron-left`, `chevron-right`, `chevron-up`, `chevrons-up-down`, `external-link` |
 | Actions | `check`, `copy`, `download`, `edit`, `filter`, `maximize`, `menu`, `minus`, `more-horizontal`, `more-vertical`, `paperclip`, `pause`, `play`, `plus`, `refresh`, `search`, `send`, `settings`, `stop`, `trash`, `upload`, `x` |
 | Status | `alert-circle`, `alert-triangle`, `check-circle`, `circle`, `circle-dot`, `clock`, `help-circle`, `info`, `x-circle` |
 | People and AI | `bot`, `lightbulb`, `message`, `mic`, `sparkles`, `thumbs-down`, `thumbs-up`, `user`, `users`, `zap` |
