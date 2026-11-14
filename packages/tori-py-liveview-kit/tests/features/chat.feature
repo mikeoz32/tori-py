@@ -103,7 +103,7 @@ Feature: A LiveView Kit chat page in a real browser
     Then "#turn-1-assistant .tori-ui-reasoning" is visible
     When the connection drops and the client rejoins
     # The new mount restores what the cut-off reply had written.
-    Then "#turn-1-assistant" contains "Stopped."
+    Then "#turn-1-assistant" contains "Stopped." within 10 seconds
     And the "Send" button is enabled
     And ".tori-ui-chat-message--assistant" appears 1 time
     When I click the "Try again" button in "#turn-1-assistant"

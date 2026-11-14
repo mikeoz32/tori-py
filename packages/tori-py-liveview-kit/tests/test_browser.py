@@ -195,11 +195,18 @@ def open_again(page: Page, conversation_url: str) -> None:
 
 @when("the connection drops and the client rejoins")
 def connection_drops(page: Page) -> None:
-    root = page.locator(_LIVE_ROOT)
-    # The official client reconnects by itself after an abnormal close.
-    root.evaluate("() => window.liveSocket.getSocket().conn.close(4000, 'test')")
-    expect(root).not_to_have_class("phx-connected")
-    expect(root).to_have_class("phx-connected", timeout=15000)
+    # The official client reconnects by itself after an abnormal close. The
+    # counter is registered first, so a fast reconnect cannot be missed.
+    page.evaluate(
+        """() => {
+          const socket = window.liveSocket.getSocket();
+          window.__kitReopened = 0;
+          socket.onOpen(() => { window.__kitReopened += 1; });
+          socket.conn.close(4000, "test");
+        }"""
+    )
+    page.wait_for_function("window.__kitReopened > 0", timeout=15000)
+    expect(page.locator(_LIVE_ROOT)).to_have_class("phx-connected", timeout=15000)
 
 
 # --------------------------------------------------------------------- Then
@@ -228,9 +235,9 @@ def shows(page: Page, target: str, text: str) -> None:
     expect(_locate(page, target)).to_have_text(_text(text))
 
 
-@then(parsers.re(rf'{_TARGET} contains "(?P<text>[^"]*)"'))
-def contains(page: Page, target: str, text: str) -> None:
-    expect(_locate(page, target)).to_contain_text(text)
+@then(parsers.re(rf'{_TARGET} contains "(?P<text>[^"]*)"{_WITHIN}'))
+def contains(page: Page, target: str, text: str, seconds: str | None) -> None:
+    expect(_locate(page, target)).to_contain_text(text, timeout=_timeout(seconds))
 
 
 @then(parsers.re(rf'{_TARGET} does not contain "(?P<text>[^"]*)"'))

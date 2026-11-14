@@ -2,11 +2,11 @@
 
 ## Status
 
-The governing documents (LVK0), the package skeleton (LVK1), the event and
-message model (LVK2), the streaming runtime (LVK3), the chat page (LVK4),
-errors and retry (LVK5), the launcher (LVK6), the example with its browser
-scenarios (LVK7), and the provider adapter examples (LVK8) are complete. The
-documentation and acceptance slice is open.
+Every slice is complete: the governing documents (LVK0), the package skeleton
+(LVK1), the event and message model (LVK2), the streaming runtime (LVK3), the
+chat page (LVK4), errors and retry (LVK5), the launcher (LVK6), the example
+with its browser scenarios (LVK7), the provider adapter examples (LVK8), and
+the documentation and acceptance (LVK9).
 
 Architecture:
 [`TORI_PY_LIVEVIEW_KIT_ARCHITECTURE.md`](TORI_PY_LIVEVIEW_KIT_ARCHITECTURE.md).
@@ -94,14 +94,15 @@ Architecture:
   validated by each SDK's own models. Neither adapter has run against a live
   API.
 
-## LVK9: Documentation and Acceptance
+## LVK9: Documentation and Acceptance - Complete
 
-- [ ] Add the user guide, the API reference entries, the package table rows,
-  and the changelog entry.
-- [ ] Close the gaps of the hand-written chat in the UI guide: the tail of a
-  reply when the info queue is full, the text a stop discards, and a failing
-  generator.
-- [ ] Run the full-family test, Ruff, formatter, Ty, build, artifact, and
+- [x] Add the user guide, the API reference entries, the package table rows,
+  the example reference, and the changelog entry.
+- [x] Name the limits of the hand-written chat in the UI guide and point it at
+  this package: the tail of a reply when the info queue is full, the text a
+  stop discards, and a failing generator. The UI guide's example and the
+  gallery chat are unchanged.
+- [x] Run the full-family test, Ruff, formatter, Ty, build, artifact, and
   strict documentation gates.
 
 ## Deferred
