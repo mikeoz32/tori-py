@@ -7,7 +7,24 @@ from pathlib import Path
 import tori_py_liveview_kit
 
 _PACKAGE = Path(__file__).resolve().parents[1]
-_EXPECTED: set[str] = set()
+_EXPECTED = {
+    "AssistantMessage",
+    "ChatEvent",
+    "Citation",
+    "Error",
+    "Message",
+    "MessagePart",
+    "ReasoningDelta",
+    "ReasoningPart",
+    "ReplyStatus",
+    "TextDelta",
+    "TextPart",
+    "ToolCall",
+    "ToolPart",
+    "ToolResult",
+    "Usage",
+    "UserMessage",
+}
 
 
 def test_facade_exports_exactly_the_documented_names() -> None:

@@ -2,8 +2,8 @@
 
 ## Status
 
-The governing documents (LVK0) and the package skeleton (LVK1) are complete.
-Every later slice is open.
+The governing documents (LVK0), the package skeleton (LVK1), and the event and
+message model (LVK2) are complete. Every later slice is open.
 
 Architecture:
 [`TORI_PY_LIVEVIEW_KIT_ARCHITECTURE.md`](TORI_PY_LIVEVIEW_KIT_ARCHITECTURE.md).
@@ -23,12 +23,12 @@ Architecture:
 - [x] Accept an extra on a family dependency in the release metadata check.
 - [x] Freeze an empty `tori_py_liveview_kit` facade behind a public API test.
 
-## LVK2: Events and Messages
+## LVK2: Events and Messages - Complete
 
-- [ ] Add the validated immutable events and the `ChatEvent` union.
-- [ ] Add `UserMessage`, `AssistantMessage`, the message parts, and
+- [x] Add the validated immutable events and the `ChatEvent` union.
+- [x] Add `UserMessage`, `AssistantMessage`, the message parts, and
   `ReplyStatus`.
-- [ ] Fold a batch of events into a reply as a pure function: merged deltas,
+- [x] Fold a batch of events into a reply as a pure function: merged deltas,
   ordered parts, tool parts replaced and completed by `id`, deduplicated
   citations, last-wins usage, and a terminal `Error`.
 
