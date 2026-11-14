@@ -15,14 +15,16 @@ string, for example `/?theme=dark&skin=rounded`.
 The hard-coded secret is for this local example only. Production deployments
 must supply a strong shared secret from configuration.
 
-## Browser E2E
+## Browser scenarios
 
-Install Chromium once and run the explicit browser test:
+The gallery is the application under test for the `tori-py-liveview-ui`
+pytest-bdd scenarios in `packages/tori-py-liveview-ui/tests/features/`, one
+feature file per component family. Install Chromium once and run them:
 
 ```text
 uv run playwright install chromium
-uv run pytest examples/tori_py/liveview_ui_gallery/browser_e2e.py
+uv run pytest packages/tori-py-liveview-ui/tests/test_browser.py
 ```
 
-The test drives the gallery through the real vendored official Phoenix and
-Phoenix LiveView clients and fails on any browser console error.
+The scenarios drive the gallery through the real vendored official Phoenix and
+Phoenix LiveView clients, and a scenario fails on any browser console error.

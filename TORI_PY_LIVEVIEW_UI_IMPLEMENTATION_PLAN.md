@@ -155,6 +155,8 @@ Architecture:
 - [x] Exercise every interactive family in the gallery through the official
   Phoenix browser client, and render every gallery page in the light and dark
   themes and the bundled skins without sideways overflow, also at phone width.
+  The package's pytest-bdd scenarios, one feature file per family, own this
+  acceptance and use the gallery as the application under test.
 - [x] Audit every gallery page for unique IDs, named controls and landmarks,
   image alternatives, resolvable ARIA references, and one main landmark.
 - [x] Check the bundled palettes for text and graphics contrast in both

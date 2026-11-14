@@ -48,7 +48,8 @@ Read them with the [LiveView](../techniques/liveview/index.md) and
 [LiveView UI](../techniques/liveview-ui/index.md) guides. The showcase's browser
 test is described in
 [Testing LiveView](../techniques/liveview/testing.md#browser-tests); the gallery
-has its own in `examples/tori_py/liveview_ui_gallery/browser_e2e.py`.
+is the application under test for the `tori-py-liveview-ui` browser scenarios
+in `packages/tori-py-liveview-ui/tests/features/`.
 
 ### Getting started
 
