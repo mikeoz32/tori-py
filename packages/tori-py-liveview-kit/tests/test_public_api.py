@@ -25,6 +25,8 @@ _EXPECTED = {
     "ToolResult",
     "Usage",
     "UserMessage",
+    "create_app",
+    "run_app",
 }
 
 

@@ -226,3 +226,18 @@ async def open_page() -> AsyncIterator[OpenPage]:
         await channel.close()
     for application in applications:
         await application.shutdown()
+
+
+@pytest_asyncio.fixture
+async def open_channel() -> AsyncIterator[Callable[[ASGIApp, str], Channel]]:
+    """Return connections to a path of an ASGI application a test started."""
+    channels: list[Channel] = []
+
+    def open(asgi: ASGIApp, path: str) -> Channel:
+        channel = Channel(asgi, path)
+        channels.append(channel)
+        return channel
+
+    yield open
+    for channel in channels:
+        await channel.close()

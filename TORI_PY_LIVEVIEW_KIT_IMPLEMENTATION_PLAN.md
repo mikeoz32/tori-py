@@ -3,8 +3,9 @@
 ## Status
 
 The governing documents (LVK0), the package skeleton (LVK1), the event and
-message model (LVK2), the streaming runtime (LVK3), the chat page (LVK4), and
-errors and retry (LVK5) are complete. Every later slice is open.
+message model (LVK2), the streaming runtime (LVK3), the chat page (LVK4),
+errors and retry (LVK5), and the launcher (LVK6) are complete. Every later
+slice is open.
 
 Architecture:
 [`TORI_PY_LIVEVIEW_KIT_ARCHITECTURE.md`](TORI_PY_LIVEVIEW_KIT_ARCHITECTURE.md).
@@ -62,11 +63,11 @@ Architecture:
 - [x] Add `chat:retry` for the last stopped or failed reply, and withdraw the
   retry control from a reply once a later turn starts.
 
-## LVK6: Launcher
+## LVK6: Launcher - Complete
 
-- [ ] Add `create_app` with a generated development secret, provider
+- [x] Add `create_app` with a generated development secret, provider
   registration for page constructors, and module imports.
-- [ ] Add `run_app` on uvicorn, bound to the loopback interface by default.
+- [x] Add `run_app` on uvicorn, bound to the loopback interface by default.
 
 ## LVK7: Example and Browser Acceptance
 
