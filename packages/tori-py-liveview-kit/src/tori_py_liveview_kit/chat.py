@@ -27,13 +27,13 @@ from tori_py_liveview_ui import (
     icon_button,
     markdown,
     message_actions,
+    mode_toggle,
     reasoning,
     row,
     sources,
     spacer,
     stack,
     text,
-    theme_toggle,
     token_usage,
     tool_call,
     typing_indicator,
@@ -109,7 +109,7 @@ class ChatLiveView(UiLiveView):
     actions_label: str = "Message actions"
     copy_label: str = "Copy"
     copied_label: str = "Copied"
-    theme_label: str = "Color theme"
+    mode_label: str = "Color theme"
     connection_lost_text: str = "Connection lost. Reconnecting."
     empty_reply_text: str = "The reply is empty."
     stopped_text: str = "Stopped."
@@ -265,7 +265,7 @@ class ChatLiveView(UiLiveView):
             [
                 t"<strong>{self.assistant_name}</strong>",
                 spacer(),
-                theme_toggle(id="chat-theme", label=self.theme_label),
+                mode_toggle(id="chat-theme", label=self.mode_label),
             ],
             gap="sm",
             wrap=False,
