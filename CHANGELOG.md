@@ -87,8 +87,8 @@ one package does not require the same change in every package.
     theme, and the page keeps application state.
   - `UiLiveView` documents load that script, put the `tori-ui-document` surface
     class on `<body>`, which sets the theme's background, text color, and font
-    and removes the body margin, and apply a theme the visitor chose with
-    `theme_toggle()` before the first paint.
+    and removes the body margin, and apply a color mode the visitor chose
+    with `mode_toggle()` before the first paint.
   - `button` gains icons, event values, a loading state, `phx-disable-with`, a
     native confirmation, and full width; `alert` gains actions and dismissal;
     `input` and `textarea` gain bounds, read-only state, and debounce or
@@ -96,6 +96,25 @@ one package does not require the same change in every package.
   - The optional `markdown` extra adds `markdown()` on `markdown-it-py`, which
     treats its source as untrusted, and the optional `highlight` extra colors
     its code blocks with Pygments. The required dependencies are unchanged.
+- LiveView UI theme framework. Themes and skins are typed definitions:
+  `Theme` holds a light and a dark `Palette`, and `Skin` holds the shape
+  tokens. The package generates their CSS, validates every value against the
+  kind of its token, and checks a theme for WCAG AA contrast when it is
+  built, raising `ThemeContrastError` unless `allow_low_contrast=True`.
+  - `Theme.from_seeds()` derives both palettes from an accent and an optional
+    neutral color; `Palette.derive()` and `Skin.derive()` change some values
+    of a definition. `Theme.SLATE` and `Theme.CONTRAST` join `Theme.PAPER`,
+    and the bundled skins are `Skin.EDITORIAL`, `Skin.MINIMAL`, and
+    `Skin.ROUNDED`.
+  - `LiveViewUiModule.for_root(themes=..., skins=...)` serves each application
+    definition as its own content-addressed stylesheet, `UiLiveView` links
+    those a page returns from `ui_theme()`, `ui_skin()`, and
+    `ui_extra_definitions()`, and `stylesheet_link()` accepts definitions.
+  - `themed()` gives part of a page its own theme, mode, or skin.
+  - The color mode is now separate from the theme: `ui_mode()` and
+    `data-tori-ui-mode` carry `auto`, `light`, or `dark`, while `ui_theme()`
+    and `data-tori-ui-theme` name a theme. A theme sets each color with
+    `light-dark()`, which needs Chrome 123, Firefox 120, or Safari 17.5.
 
 ### Fixed
 

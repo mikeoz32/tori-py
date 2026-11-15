@@ -77,7 +77,7 @@ def test_counter_updates_and_recovers_after_reconnect(
     activity_one.evaluate("element => { window.__toriActivityOne = element; }")
 
     expect(root).to_have_class("phx-connected")
-    expect(page.locator("html")).to_have_attribute("data-tori-ui-theme", "auto")
+    expect(page.locator("html")).to_have_attribute("data-tori-ui-mode", "auto")
     expect(page.locator("html")).to_have_attribute("data-tori-ui-skin", "rounded")
     expect(page.locator(f'link[href="{STYLESHEET_PATH}"]')).to_have_count(1)
     expect(increment).to_have_class(

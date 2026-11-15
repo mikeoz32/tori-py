@@ -133,7 +133,7 @@ nav:
           - Overlays: techniques/liveview-ui/overlays.md
           - Chat and AI: techniques/liveview-ui/chat.md
           - Forms: techniques/liveview-ui/forms.md
-          - Themes and Skins: techniques/liveview-ui/theming.md
+          - Themes, Modes, and Skins: techniques/liveview-ui/theming.md
       - CQRS:
           - Overview: techniques/cqrs/index.md
           - Framework-neutral Core: techniques/cqrs/core.md

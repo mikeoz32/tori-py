@@ -1,225 +1,5 @@
-/* Tori UI: a skinnable foundation for server-rendered interfaces. */
-:root,
-[data-tori-ui-theme="light"],
-[data-tori-ui-theme="auto"] {
-  color-scheme: light;
-  --tori-ui-paper: #f2ecdf;
-  --tori-ui-panel: #fffdf7;
-  --tori-ui-panel-raised: #fffaf0;
-  --tori-ui-ink: #20201d;
-  --tori-ui-muted: #6e675d;
-  --tori-ui-line: #cfc4b3;
-  --tori-ui-line-strong: #393630;
-  --tori-ui-accent: #c43f27;
-  --tori-ui-accent-ink: #fffaf2;
-  --tori-ui-danger: #94291f;
-  --tori-ui-info: #176b87;
-  --tori-ui-success: #2f7450;
-  --tori-ui-warning: #9a640b;
-  --tori-ui-shadow-color: rgb(45 36 24 / 0.16);
-  --tori-ui-scrim: rgb(32 28 22 / 0.5);
-}
-
-[data-tori-ui-theme="dark"] {
-  color-scheme: dark;
-  --tori-ui-paper: #191816;
-  --tori-ui-panel: #26231f;
-  --tori-ui-panel-raised: #302b25;
-  --tori-ui-ink: #f4eddf;
-  --tori-ui-muted: #c2b7a8;
-  --tori-ui-line: #514a40;
-  --tori-ui-line-strong: #e7dccb;
-  --tori-ui-accent: #ff7458;
-  --tori-ui-accent-ink: #241713;
-  --tori-ui-danger: #ff8a74;
-  --tori-ui-info: #72cbe7;
-  --tori-ui-success: #79d3a1;
-  --tori-ui-warning: #efbd5c;
-  --tori-ui-shadow-color: rgb(0 0 0 / 0.42);
-  --tori-ui-scrim: rgb(0 0 0 / 0.62);
-}
-
-@media (prefers-color-scheme: dark) {
-  [data-tori-ui-theme="auto"] {
-    color-scheme: dark;
-    --tori-ui-paper: #191816;
-    --tori-ui-panel: #26231f;
-    --tori-ui-panel-raised: #302b25;
-    --tori-ui-ink: #f4eddf;
-    --tori-ui-muted: #c2b7a8;
-    --tori-ui-line: #514a40;
-    --tori-ui-line-strong: #e7dccb;
-    --tori-ui-accent: #ff7458;
-    --tori-ui-accent-ink: #241713;
-    --tori-ui-danger: #ff8a74;
-    --tori-ui-info: #72cbe7;
-    --tori-ui-success: #79d3a1;
-    --tori-ui-warning: #efbd5c;
-    --tori-ui-shadow-color: rgb(0 0 0 / 0.42);
-    --tori-ui-scrim: rgb(0 0 0 / 0.62);
-  }
-}
-
-:root,
-[data-tori-ui-skin="editorial"] {
-  --tori-ui-space-xs: 0.25rem;
-  --tori-ui-space-sm: 0.5rem;
-  --tori-ui-space-md: 1rem;
-  --tori-ui-space-lg: 1.5rem;
-  --tori-ui-space-xl: 2.5rem;
-  --tori-ui-radius-control: 0.28rem;
-  --tori-ui-radius-surface: 0;
-  --tori-ui-radius-surface-inner: max(
-    0px,
-    calc(var(--tori-ui-radius-surface) - var(--tori-ui-border-width))
-  );
-  --tori-ui-radius-pill: 999px;
-  --tori-ui-control-height-sm: 2rem;
-  --tori-ui-control-height-md: 2.5rem;
-  --tori-ui-control-height-lg: 3rem;
-  --tori-ui-field-control-height: 2.75rem;
-  --tori-ui-control-padding-block: 0.7rem;
-  --tori-ui-control-padding-inline: 1rem;
-  --tori-ui-button-padding-sm: 0.5rem 0.72rem;
-  --tori-ui-button-padding-lg: 0.9rem 1.25rem;
-  --tori-ui-alert-padding: 1rem 1.1rem;
-  --tori-ui-card-header-padding: 1.15rem 1.2rem 0.95rem;
-  --tori-ui-card-body-padding: 1.2rem;
-  --tori-ui-card-footer-padding: 0.75rem 1.2rem;
-  --tori-ui-form-gap: 1.15rem;
-  --tori-ui-field-gap: 0.42rem;
-  --tori-ui-field-control-radius: 0.22rem;
-  --tori-ui-field-control-padding-block: 0.68rem;
-  --tori-ui-field-control-padding-inline: 0.75rem;
-  --tori-ui-border-width: 1px;
-  --tori-ui-accent-border-width: 5px;
-  --tori-ui-font-display: "Iowan Old Style", "Palatino Linotype",
-    "Book Antiqua", Georgia, serif;
-  --tori-ui-font-body: "Avenir Next", Avenir, "Century Gothic",
-    "Trebuchet MS", sans-serif;
-  --tori-ui-font-code: "Cascadia Code", "IBM Plex Mono", Consolas,
-    monospace;
-  --tori-ui-control-font-weight: 750;
-  --tori-ui-control-letter-spacing: 0.075em;
-  --tori-ui-control-text-transform: uppercase;
-  --tori-ui-label-font-weight: 700;
-  --tori-ui-label-letter-spacing: 0.055em;
-  --tori-ui-label-text-transform: uppercase;
-  --tori-ui-shadow-x: 4px;
-  --tori-ui-shadow-y: 4px;
-  --tori-ui-shadow-blur: 0;
-  --tori-ui-shadow-spread: 0;
-  --tori-ui-shadow: var(--tori-ui-shadow-x) var(--tori-ui-shadow-y)
-    var(--tori-ui-shadow-blur) var(--tori-ui-shadow-spread)
-    var(--tori-ui-shadow-color);
-  --tori-ui-focus-width: 3px;
-  --tori-ui-focus-offset: 3px;
-  --tori-ui-field-focus-offset: 2px;
-  --tori-ui-disabled-opacity: 0.46;
-  --tori-ui-field-disabled-opacity: 0.52;
-  --tori-ui-grid-min: 16rem;
-  --tori-ui-checkbox-size: 1.15rem;
-  --tori-ui-checkbox-gap: 0.65rem;
-  --tori-ui-hover-translate: -1px;
-}
-
-[data-tori-ui-skin="minimal"] {
-  --tori-ui-space-xs: 0.2rem;
-  --tori-ui-space-sm: 0.4rem;
-  --tori-ui-space-md: 0.8rem;
-  --tori-ui-space-lg: 1.2rem;
-  --tori-ui-space-xl: 2rem;
-  --tori-ui-radius-control: 0.15rem;
-  --tori-ui-radius-surface: 0.15rem;
-  --tori-ui-control-height-sm: 1.9rem;
-  --tori-ui-control-height-md: 2.35rem;
-  --tori-ui-control-height-lg: 2.75rem;
-  --tori-ui-field-control-height: 2.55rem;
-  --tori-ui-control-padding-block: 0.6rem;
-  --tori-ui-control-padding-inline: 0.85rem;
-  --tori-ui-button-padding-sm: 0.4rem 0.6rem;
-  --tori-ui-button-padding-lg: 0.75rem 1.1rem;
-  --tori-ui-alert-padding: 0.8rem;
-  --tori-ui-card-header-padding: 0.8rem;
-  --tori-ui-card-body-padding: 0.8rem;
-  --tori-ui-card-footer-padding: 0.4rem 0.8rem;
-  --tori-ui-form-gap: 0.8rem;
-  --tori-ui-field-gap: 0.4rem;
-  --tori-ui-field-control-radius: 0.15rem;
-  --tori-ui-field-control-padding-block: 0.6rem;
-  --tori-ui-field-control-padding-inline: 0.75rem;
-  --tori-ui-accent-border-width: 3px;
-  --tori-ui-font-display: ui-sans-serif, system-ui, sans-serif;
-  --tori-ui-font-body: ui-sans-serif, system-ui, sans-serif;
-  --tori-ui-font-code: ui-monospace, "Cascadia Code", Consolas, monospace;
-  --tori-ui-control-font-weight: 650;
-  --tori-ui-control-letter-spacing: 0.01em;
-  --tori-ui-control-text-transform: none;
-  --tori-ui-label-font-weight: 650;
-  --tori-ui-label-letter-spacing: 0.01em;
-  --tori-ui-label-text-transform: none;
-  --tori-ui-shadow-x: 0;
-  --tori-ui-shadow-y: 1px;
-  --tori-ui-shadow-blur: 2px;
-  --tori-ui-shadow-spread: 0;
-  --tori-ui-focus-offset: 2px;
-  --tori-ui-field-focus-offset: 2px;
-  --tori-ui-disabled-opacity: 0.5;
-  --tori-ui-field-disabled-opacity: 0.5;
-  --tori-ui-grid-min: 15rem;
-  --tori-ui-checkbox-size: 1.05rem;
-  --tori-ui-checkbox-gap: 0.4rem;
-  --tori-ui-hover-translate: 0;
-}
-
-[data-tori-ui-skin="rounded"] {
-  --tori-ui-space-xs: 0.3rem;
-  --tori-ui-space-sm: 0.65rem;
-  --tori-ui-space-md: 1.1rem;
-  --tori-ui-space-lg: 1.75rem;
-  --tori-ui-space-xl: 2.75rem;
-  --tori-ui-radius-control: 0.75rem;
-  --tori-ui-radius-surface: 1rem;
-  --tori-ui-control-height-sm: 2.25rem;
-  --tori-ui-control-height-md: 2.75rem;
-  --tori-ui-control-height-lg: 3.25rem;
-  --tori-ui-field-control-height: 3rem;
-  --tori-ui-control-padding-block: 0.72rem;
-  --tori-ui-control-padding-inline: 1.05rem;
-  --tori-ui-button-padding-sm: 0.6rem 0.85rem;
-  --tori-ui-button-padding-lg: 0.95rem 1.35rem;
-  --tori-ui-alert-padding: 1.1rem 1.25rem;
-  --tori-ui-card-header-padding: 1.2rem 1.35rem;
-  --tori-ui-card-body-padding: 1.25rem 1.35rem;
-  --tori-ui-card-footer-padding: 0.65rem 1.35rem;
-  --tori-ui-form-gap: 1.1rem;
-  --tori-ui-field-gap: 0.65rem;
-  --tori-ui-field-control-radius: 0.75rem;
-  --tori-ui-field-control-padding-block: 0.72rem;
-  --tori-ui-field-control-padding-inline: 0.9rem;
-  --tori-ui-accent-border-width: 4px;
-  --tori-ui-font-display: ui-rounded, "Avenir Next", system-ui, sans-serif;
-  --tori-ui-font-body: "Avenir Next", system-ui, sans-serif;
-  --tori-ui-font-code: ui-monospace, "Cascadia Code", Consolas, monospace;
-  --tori-ui-control-font-weight: 700;
-  --tori-ui-control-letter-spacing: 0.015em;
-  --tori-ui-control-text-transform: none;
-  --tori-ui-label-font-weight: 700;
-  --tori-ui-label-letter-spacing: 0.025em;
-  --tori-ui-label-text-transform: none;
-  --tori-ui-shadow-x: 0;
-  --tori-ui-shadow-y: 12px;
-  --tori-ui-shadow-blur: 32px;
-  --tori-ui-shadow-spread: -20px;
-  --tori-ui-focus-offset: 3px;
-  --tori-ui-field-focus-offset: 3px;
-  --tori-ui-disabled-opacity: 0.48;
-  --tori-ui-field-disabled-opacity: 0.48;
-  --tori-ui-grid-min: 17rem;
-  --tori-ui-checkbox-size: 1.2rem;
-  --tori-ui-checkbox-gap: 0.65rem;
-  --tori-ui-hover-translate: -1px;
-}
+/* Tori UI: component rules. The package prepends the token rules it
+   generates from the bundled theme and skin definitions. */
 
 /* Values that do not change with the skin. */
 :root {
@@ -247,6 +27,14 @@
   font-family: var(--tori-ui-font-body);
   line-height: 1.5;
   margin: 0;
+}
+
+/* A part of the page with its own theme, mode, or skin. It is a surface,
+   so the colors and the font of the look inside it start here. */
+.tori-ui-themed {
+  background: var(--tori-ui-paper);
+  color: var(--tori-ui-ink);
+  font-family: var(--tori-ui-font-body);
 }
 
 /* Actions */
@@ -774,7 +562,7 @@
 }
 
 .tori-ui-icon-button:focus-visible,
-.tori-ui-theme-toggle__option:focus-visible,
+.tori-ui-mode-toggle__option:focus-visible,
 .tori-ui-app-shell__menu:focus-visible {
   outline: var(--tori-ui-focus-width) solid var(--tori-ui-accent);
   outline-offset: var(--tori-ui-focus-offset);
@@ -838,7 +626,7 @@
   display: inline-flex;
 }
 
-.tori-ui-theme-toggle {
+.tori-ui-mode-toggle {
   background: var(--tori-ui-panel);
   border: var(--tori-ui-border-width) solid var(--tori-ui-line);
   border-radius: var(--tori-ui-radius-pill);
@@ -847,7 +635,7 @@
   padding: 2px;
 }
 
-.tori-ui-theme-toggle__option {
+.tori-ui-mode-toggle__option {
   appearance: none;
   align-items: center;
   background: transparent;
@@ -863,11 +651,11 @@
   width: 1.8rem;
 }
 
-.tori-ui-theme-toggle__option:hover {
+.tori-ui-mode-toggle__option:hover {
   color: var(--tori-ui-ink);
 }
 
-.tori-ui-theme-toggle__option[aria-pressed="true"] {
+.tori-ui-mode-toggle__option[aria-pressed="true"] {
   background: var(--tori-ui-ink);
   color: var(--tori-ui-paper);
 }

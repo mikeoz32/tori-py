@@ -2,65 +2,66 @@
 ;(() => {
   "use strict";
 
-  const THEME_KEY = "tori-ui-theme";
-  const THEMES = ["auto", "light", "dark"];
+  const MODE_KEY = "tori-ui-mode";
+  const MODES = ["auto", "light", "dark"];
   const root = document.documentElement;
 
-  // ---------------------------------------------------------------- Theme
+  // ----------------------------------------------------------------- Mode
 
-  // A theme the visitor chose earlier wins over the document's default. It is
-  // applied here, before the body is parsed, so the page never paints twice.
-  const storedTheme = () => {
+  // A color mode the visitor chose earlier wins over the document's default.
+  // It is applied here, before the body is parsed, so the page never paints
+  // twice.
+  const storedMode = () => {
     try {
-      const theme = localStorage.getItem(THEME_KEY);
-      return THEMES.includes(theme) ? theme : null;
+      const mode = localStorage.getItem(MODE_KEY);
+      return MODES.includes(mode) ? mode : null;
     } catch {
       return null;
     }
   };
-  const applyTheme = (theme) => {
-    root.dataset.toriUiTheme = theme;
+  const applyMode = (mode) => {
+    root.dataset.toriUiMode = mode;
   };
-  const initialTheme = storedTheme();
-  if (initialTheme !== null) applyTheme(initialTheme);
+  const initialMode = storedMode();
+  if (initialMode !== null) applyMode(initialMode);
 
   const hooks = {};
 
-  // theme_toggle(): marks the current theme and stores the visitor's choice.
-  hooks.ToriUiTheme = {
+  // mode_toggle(): marks the current mode and stores the visitor's choice.
+  hooks.ToriUiMode = {
     mounted() {
       this.sync = () => {
-        const current = root.dataset.toriUiTheme ?? "auto";
-        for (const option of this.el.querySelectorAll("[data-tori-ui-theme-value]")) {
-          const pressed = option.dataset.toriUiThemeValue === current;
+        const current = root.dataset.toriUiMode ?? "auto";
+        for (const option of this.el.querySelectorAll("[data-tori-ui-mode-value]")) {
+          const pressed = option.dataset.toriUiModeValue === current;
           option.setAttribute("aria-pressed", String(pressed));
         }
       };
       this.el.addEventListener("click", (event) => {
         const option =
           event.target instanceof Element
-            ? event.target.closest("[data-tori-ui-theme-value]")
+            ? event.target.closest("[data-tori-ui-mode-value]")
             : null;
         if (option === null || !this.el.contains(option)) return;
-        const theme = option.dataset.toriUiThemeValue;
-        if (!THEMES.includes(theme)) return;
-        applyTheme(theme);
+        const mode = option.dataset.toriUiModeValue;
+        if (!MODES.includes(mode)) return;
+        applyMode(mode);
         try {
-          localStorage.setItem(THEME_KEY, theme);
+          localStorage.setItem(MODE_KEY, mode);
         } catch {
           // Storage can be unavailable; the choice then lasts for this page.
         }
         // Every toggle on the page follows the one that was used.
-        window.dispatchEvent(new CustomEvent("tori-ui:theme"));
+        window.dispatchEvent(new CustomEvent("tori-ui:mode"));
       });
-      window.addEventListener("tori-ui:theme", this.sync);
+      window.addEventListener("tori-ui:mode", this.sync);
       this.sync();
     },
     updated() {
       this.sync();
     },
     destroyed() {
-      window.removeEventListener("tori-ui:theme", this.sync);
+      window.removeEventListener("tori-ui:mode", this.sync);
     },
   };
 

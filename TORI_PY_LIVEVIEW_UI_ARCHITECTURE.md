@@ -25,12 +25,16 @@ The public facade is the flat `tori_py_liveview_ui` namespace:
 
 - helper functions that return `string.templatelib.Template` values, listed by
   family in section 4;
-- `LiveViewUiModule.for_root(key="default")` exposes the asset routes;
+- `LiveViewUiModule.for_root(key="default", themes=(), skins=())` exposes the
+  asset routes and one stylesheet route for each application definition;
+- `Theme`, `Palette`, and `Skin` are the typed definitions of section 8, with
+  `ThemeContrastError` and `ContrastCheck` for their contrast checks;
 - `STYLESHEET_PATH` and `SCRIPT_PATH` are those routes' content-addressed paths;
 - `stylesheet_link()` and `script_tag()` return the trusted `<link>` and
-  `<script>` markup for a custom document;
+  `<script>` markup for a custom document; `stylesheet_link()` also links the
+  application definitions it is given;
 - `UiLiveView` is a `LiveView` base class that installs both tags and
-  independent document theme and skin attributes.
+  independent document theme, mode, and skin attributes.
 
 The implementation modules behind the facade are private. Applications import
 names from `tori_py_liveview_ui` only.
@@ -72,7 +76,7 @@ Every helper follows the same contract:
 | `link_button` | the `button` variants and sizes; live: `patch`, `navigate` | `label`, `href`, `replace`, `external`, icons, `full_width` |
 | `button_group` | - | finite `children` iterable, required `label`, `attached` |
 | `copy_button` | the `button` variants and sizes | `to` target, `label`, `copied_label` |
-| `theme_toggle` | - | required selector-safe `id`, group and option labels |
+| `mode_toggle` | - | required selector-safe `id`, group and option labels |
 
 `button(event=..., target=...)` emits `phx-click` and `phx-target`. A page
 button normally omits `target`; a stateful LiveView component passes its
@@ -111,10 +115,10 @@ seconds while a `role="status"` element inside it announces `copied_label`. The
 button keeps `label` as its accessible name throughout. The page is not
 notified.
 
-`theme_toggle` renders three `aria-pressed` buttons for the `auto`, `light`,
-and `dark` themes in a `phx-update="ignore"` group with the `ToriUiTheme` hook.
-The hook applies the chosen theme to `<html>`, stores it in `localStorage`
-under `tori-ui-theme`, and keeps every toggle on the page in step.
+`mode_toggle` renders three `aria-pressed` buttons for the `auto`, `light`,
+and `dark` modes in a `phx-update="ignore"` group with the `ToriUiMode` hook.
+The hook applies the chosen mode to `<html>`, stores it in `localStorage`
+under `tori-ui-mode`, and keeps every toggle on the page in step.
 
 ### 4.2 Layout
 
@@ -508,7 +512,7 @@ validation, changeset modeling, or state management.
 
 Application state stays on the server, in pages and components. Presentation
 state that only the browser needs, such as whether a menu is open, where a log
-is scrolled, or which theme the visitor chose, stays in the browser. Helpers
+is scrolled, or which mode the visitor chose, stays in the browser. Helpers
 reach for browser behavior in this order:
 
 1. native elements and attributes, such as `<details>`, `<dialog>`, and
@@ -528,9 +532,9 @@ belongs to their element, such as a timer or a scroll position. They do not
 store application data, open their own connections, load remote code, or
 evaluate strings as code.
 
-The script also applies a theme the visitor stored earlier to
-`data-tori-ui-theme` on `<html>` before the body is parsed. Without a stored
-choice the document keeps the theme the server rendered.
+The script also applies a color mode the visitor stored earlier to
+`data-tori-ui-mode` on `<html>` before the body is parsed. Without a stored
+choice the document keeps the mode the server rendered.
 
 ## 6. Rendering and Safety
 
@@ -551,8 +555,10 @@ boundaries and must not receive untrusted input.
 
 ## 7. Assets and Documents
 
-The wheel contains `tori_liveview_ui.css` and `tori_liveview_ui.js`. At import
-time the package computes each file's SHA-256 digest and publishes the files at:
+The wheel contains the component rules in `tori_liveview_ui.css` and the script
+`tori_liveview_ui.js`. At import time the package assembles its stylesheet
+(section 8.3), computes the SHA-256 digest of the stylesheet and of the script,
+and publishes them at:
 
 ```text
 /_tori/liveview-ui/<first-12-hex-digest>.css
@@ -565,71 +571,182 @@ The controller returns those bytes with `text/css; charset=utf-8` or
 `Cache-Control: public, max-age=31536000, immutable`. Changing a file changes
 its path, so long-lived browser and intermediary caching is safe.
 
-`UiLiveView.render_document()` adds independent `data-tori-ui-theme` and
-`data-tori-ui-skin` attributes to `<html>`, inserts `stylesheet_link()` and
-`script_tag()` into `<head>`, and puts the `tori-ui-document` class on `<body>`
-while retaining the normal LiveView document, root, and official Phoenix browser
-client. The body class gives the document the theme's paper background, ink
-color, and body font and removes the body margin; it is an explicit class, not
-an element selector. The script tag has no `defer` or `async`
-attribute: it must run before the deferred client reads the hooks, and before
-the first paint to apply a stored theme. `ui_theme()` defaults to `"auto"` and
-may return only `"auto"`, `"light"`, or `"dark"`; any other value fails
-rendering. `ui_skin()` defaults to `"editorial"`. It accepts lowercase CSS
-identifiers starting with a letter, followed by at most 63 lowercase letters,
-digits, or hyphens. This admits the bundled `editorial`, `minimal`, and
-`rounded` skins and application-owned names such as `brand-2026` without
-permitting document attribute injection.
+`UiLiveView.render_document()` adds independent `data-tori-ui-theme`,
+`data-tori-ui-mode`, and `data-tori-ui-skin` attributes to `<html>`, inserts
+`stylesheet_link()`, the stylesheets of the application definitions the page
+uses, and `script_tag()` into `<head>`, and puts the `tori-ui-document` class on
+`<body>` while retaining the normal LiveView document, root, and official
+Phoenix browser client. The body class gives the document the theme's paper
+background, ink color, and body font and removes the body margin; it is an
+explicit class, not an element selector. The script tag has no `defer` or
+`async` attribute: it must run before the deferred client reads the hooks, and
+before the first paint to apply a stored mode.
 
-Theme selects only color mode and palette. Skin independently selects spacing,
-shape, density, typography, shadow geometry, focus geometry, and component
-layout. Both are selected during initial document rendering; the outer `<html>`
+All three are selected during initial document rendering; the outer `<html>`
 element is outside the normal LiveView diff root, so the server does not change
-either from connected page state. A custom `LiveView.render_document()` can call
-`stylesheet_link()` and `script_tag()` and set the two data attributes itself
+them from connected page state. A custom `LiveView.render_document()` can call
+`stylesheet_link()` and `script_tag()` and set the data attributes itself
 instead.
 
 All component selectors use the `tori-ui-` prefix. The stylesheet has no global
 element reset; its box-sizing rule is limited to component trees. Root defaults
-provide the light theme and editorial skin for custom documents that include
-only the stylesheet.
+provide the paper theme in its light palette and the editorial skin for custom
+documents that include only the stylesheet. Font stacks use locally available
+system fonts only: the package downloads no fonts or other assets, and the
+stylesheet contains no `@import` or asset URL.
 
-Public theme tokens cover paper, panel surfaces, ink, muted text, lines, accent,
-tone colors, shadow color, and the scrim behind content an overlay covers.
-Tokens that no skin changes cover the application shell's sidebar and aside
-widths and the stacking order of raised, drawer, overlay, and toast layers.
-Public skin tokens include:
+The stylesheet also provides responsive grid collapse at narrow widths,
+`:focus-visible` for every interactive helper, disabled and invalid form
+affordances, and `prefers-reduced-motion` transition removal. Every class a
+helper emits either has a rule or is listed by the test suite as a structural
+name, every rule belongs to a class a helper emits, and keyframe names and
+custom properties carry the package prefix.
 
-- `--tori-ui-space-{xs,sm,md,lg,xl}`;
-- `--tori-ui-radius-{control,surface,pill}`;
-- `--tori-ui-control-height-{sm,md,lg}` and
-  `--tori-ui-field-control-height`;
-- general control padding, button size padding, alert/card region padding,
-  form/field gaps, field-control radius/padding, border width, and accent border
-  width;
-- display, body, and code font stacks plus control/label weight, tracking, and
-  text transform;
-- shadow x/y/blur/spread and the composed shadow;
-- button/field focus offsets, disabled opacities, grid minimum, checkbox
-  size/gap, and hover translation.
+## 8. Themes, Modes, and Skins
 
-Applications create a skin by returning its validated name from `ui_skin()` and
-defining the corresponding `[data-tori-ui-skin="..."]` token overrides in an
-application stylesheet loaded after `stylesheet_link()`. They may also override
-tokens for a bundled skin. Application CSS remains separate from the immutable
-package bytes and therefore does not change `STYLESHEET_PATH` or its ETag. Font
-stacks use locally available system fonts only: the package downloads no fonts
-or other assets, and the stylesheet contains no `@import` or asset URL.
+A document's look is three independent selections:
 
-The stylesheet supports explicit light/dark themes and automatic system-color
-selection, responsive grid collapse at narrow widths, `:focus-visible` for
-every interactive helper, disabled and invalid form affordances, and
-`prefers-reduced-motion` transition removal. Every class a helper emits either
-has a rule or is listed by the test suite as a structural name, every rule
-belongs to a class a helper emits, and keyframe names and custom properties
-carry the package prefix.
+| Attribute | Selects | Values |
+| --- | --- | --- |
+| `data-tori-ui-theme` | colors: one palette for light and one for dark | the name of a `Theme` |
+| `data-tori-ui-mode` | which of the theme's palettes applies | `auto`, `light`, `dark` |
+| `data-tori-ui-skin` | spacing, shape, density, typography, shadow and focus geometry | the name of a `Skin` |
 
-## 8. Non-Goals
+The theme framework is how every theme and skin is made, the bundled ones
+included. It has no CSS preprocessor, build step, or dependency.
+
+### 8.1 Definitions
+
+`Palette`, `Theme`, and `Skin` are frozen value objects. The fields of
+`Palette` and `Skin` are the public token contract: the field `radius_control`
+is the custom property `--tori-ui-radius-control`.
+
+- `Palette` holds one palette: `paper`, `panel`, `panel_raised`, `ink`,
+  `muted`, `line`, `line_strong`, `accent`, `accent_ink`, `danger`, `info`,
+  `success`, `warning`, `shadow_color`, and `scrim`.
+- `Theme` holds a name, a `light` and a `dark` palette, and
+  `allow_low_contrast`.
+- `Skin` holds a name and the spacing scale, radii, control and field
+  geometry, region padding, gaps, border widths, the display, body, and code
+  font stacks, control and label weight, tracking, and case, shadow geometry,
+  focus geometry, disabled opacities, grid minimum, checkbox geometry, and
+  hover translation.
+
+Names match `[a-z][a-z0-9-]{0,63}`. Every value is validated against the kind
+of its field when the object is built:
+
+| Kind | Accepts |
+| --- | --- |
+| color | `#rgb`, `#rrggbb`, or `#rrggbbaa` |
+| size | `0` or a number with `rem`, `em`, `px`, `%`, `ch`, `vw`, or `vh` |
+| offset | a size that may be negative: shadow offsets and spread, focus offsets, letter spacing, hover translation |
+| box | one to four sizes |
+| font stack | a tuple of family names; generic families are emitted bare and the others quoted |
+| weight | an integer from 1 to 1000 |
+| case | `none`, `uppercase`, `lowercase`, or `capitalize` |
+| opacity | a number from 0 to 1 |
+
+No field accepts free CSS text, so a definition cannot add a declaration, a
+rule, or a URL to a stylesheet.
+
+`Palette.derive()` and `Skin.derive()` return a copy with some fields changed;
+`Skin.derive()` takes the new name first. `tokens()` on a palette, a theme, or
+a skin returns each custom property name, without the prefix, with its value. `Theme.from_seeds()` derives both
+palettes from an accent color and an optional neutral color in the OKLCH color
+space, at a `standard` or `high` contrast level, and solves each derived
+lightness for the contrast rules below.
+
+### 8.2 Contrast
+
+A theme is checked when it is built, for each of its two palettes:
+
+- `ink` and `muted` on `paper`, `panel`, and `panel_raised`, `accent_ink` on
+  `accent`, and `panel` on `danger`, which is the label of a danger button,
+  reach 4.5:1;
+- `accent` and the four tones on `paper` and `panel` reach 3:1 as graphics;
+- `accent` and the four tones mixed 80% with `ink`, which is how the
+  stylesheet sets text in a tone, reach 4.5:1 on `paper` and `panel`.
+
+A theme that fails raises `ThemeContrastError`, which lists each failing pair
+with its ratio. `allow_low_contrast=True` builds the theme anyway.
+`Theme.report()` returns every check as a `ContrastCheck`. The translucent
+`shadow_color` and `scrim` are not checked.
+
+### 8.3 Generated CSS
+
+`Theme.css()` and `Skin.css()` return the rule for a definition.
+
+A theme is one rule on `[data-tori-ui-theme="<name>"]` that sets each palette
+token to `light-dark(<light>, <dark>)` and composes `--tori-ui-shadow` again,
+so that a theme on an inner element uses its own shadow color. The mode is `color-scheme` alone:
+`light`, `dark`, or `light dark` for `auto`. Because `color-scheme` is
+inherited and `light-dark()` is resolved where a token is used, a theme and a
+mode compose at any depth of the document. This needs a browser with
+`light-dark()`: Chrome 123, Firefox 120, or Safari 17.5.
+
+A skin is one rule on `[data-tori-ui-skin="<name>"]` that sets every skin
+token, followed by the two composed tokens, `--tori-ui-radius-surface-inner`
+and `--tori-ui-shadow`, so that a skin on an inner element composes them from
+its own parts.
+
+The package stylesheet is the generated rules of the bundled definitions
+followed by the component rules in `tori_liveview_ui.css`, assembled at import
+time. `STYLESHEET_PATH` is the digest of the assembled bytes. Tokens that no
+skin changes stay in the component rules: the application shell's sidebar and
+aside widths and the stacking order of raised, drawer, overlay, and toast
+layers.
+
+### 8.4 Bundled Definitions
+
+`Theme.PAPER` is the default theme; `Theme.SLATE` and `Theme.CONTRAST` are
+derived with `Theme.from_seeds()`. `Skin.EDITORIAL` is the default skin, and
+`Skin.MINIMAL` and `Skin.ROUNDED` are derived from it. All are in the package
+stylesheet and need no registration.
+
+### 8.5 Application Definitions
+
+`LiveViewUiModule.for_root(themes=..., skins=...)` registers application
+definitions. Each gets its own stylesheet at:
+
+```text
+/_tori/liveview-ui/theme-<name>.<first-12-hex-digest>.css
+/_tori/liveview-ui/skin-<name>.<first-12-hex-digest>.css
+```
+
+with the same content type, ETag, and immutable cache policy as the package
+stylesheet, which they never change. `stylesheet_path` on a definition is that
+path. A definition that is not registered has no route, so its link answers
+404 and the document keeps the default look. A name may be registered once, and the
+bundled names are reserved.
+
+`UiLiveView.ui_theme()` returns a `Theme` and defaults to `Theme.PAPER`;
+`ui_skin()` returns a `Skin` and defaults to `Skin.EDITORIAL`; `ui_mode()`
+returns `"auto"`, `"light"`, or `"dark"` and defaults to `"auto"`. The document
+links the stylesheet of a returned application definition after the package
+stylesheet. `ui_extra_definitions()` names further definitions the page uses
+through `themed`, so that their stylesheets are linked as well.
+
+`ui_theme()` and `ui_skin()` may instead return a name. A name selects a
+bundled definition or one the application styles itself, by defining
+`[data-tori-ui-theme="..."]` or `[data-tori-ui-skin="..."]` token overrides in
+its own stylesheet loaded after `stylesheet_link()`. Any other value fails
+rendering, so a document attribute cannot be injected.
+
+### 8.6 Scoped Looks
+
+`themed` wraps content in an element that carries any of the three attributes
+and the `tori-ui-themed` surface class, which applies the paper background, ink
+color, and body font of the look in effect inside it. An attribute that is left
+out is inherited from the document.
+
+### 8.7 The Visitor's Mode
+
+The bundled script applies a mode the visitor stored earlier to
+`data-tori-ui-mode` on `<html>` before the body is parsed, and `mode_toggle`
+stores one. Without a stored choice the document keeps the mode the server
+rendered. The theme and the skin are the application's choice.
+
+## 9. Non-Goals
 
 This package does not provide:
 
@@ -641,6 +758,8 @@ This package does not provide:
 - Tailwind, Bootstrap, Node tooling, a CDN, external fonts, or remote script
   code; a separately distributed precompiled skin adapter may be added without
   changing this dependency boundary;
+- a CSS preprocessor, free CSS text in a theme or skin definition, a theme
+  the visitor picks, or a theme editor;
 - a global CSS reset or arbitrary caller-supplied attributes/classes;
 - required runtime dependencies beyond ToriPy and LiveView; optional features
   ship as extras, currently `markdown` and `highlight`;

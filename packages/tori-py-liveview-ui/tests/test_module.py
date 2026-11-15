@@ -20,10 +20,16 @@ from tori_py_liveview_ui import (
     SCRIPT_PATH,
     STYLESHEET_PATH,
     LiveViewUiModule,
+    Theme,
     UiLiveView,
     script_tag,
     stylesheet_link,
 )
+from tori_py_liveview_ui import module as ui_module
+
+
+def _stylesheet() -> str:
+    return ui_module._STYLESHEET.decode("utf-8")
 
 
 def _contrast_ratio(first: str, second: str) -> float:
@@ -42,14 +48,10 @@ def _contrast_ratio(first: str, second: str) -> float:
 
 
 def _light_theme_color(stylesheet: str, property_name: str) -> str:
-    theme = re.search(r":root,.*?\{(?P<body>.*?)\}", stylesheet, re.DOTALL)
-    assert theme is not None
-    color = re.search(
-        rf"--tori-ui-{re.escape(property_name)}:\s*(#[0-9a-fA-F]{{6}})",
-        theme.group("body"),
-    )
-    assert color is not None
-    return color.group(1)
+    color = Theme.PAPER.light.tokens()[property_name]
+    # The stylesheet carries the color of the bundled definition.
+    assert f"--tori-ui-{property_name}: light-dark({color}," in stylesheet
+    return color
 
 
 def test_ui_module_materializes_one_controller_without_providers() -> None:
@@ -88,15 +90,23 @@ async def test_stylesheet_controller_serves_the_exact_immutable_asset() -> None:
     spec = cast(ModuleSpec, dynamic.factory())
     controller_type = tuple(spec.controllers)[0]
     response = await controller_type().stylesheet()
-    expected = (
+    component_rules = (
         files("tori_py_liveview_ui")
         .joinpath("static", "tori_liveview_ui.css")
         .read_bytes()
+        .replace(b"\r\n", b"\n")
     )
+    expected = ui_module._STYLESHEET
     digest = hashlib.sha256(expected).hexdigest()
 
     assert response.status_code == 200
     assert response.content == expected
+    # The generated tokens of the bundled definitions come first, then the
+    # component rules, with one line ending on every platform.
+    assert expected.startswith(b"/* Tokens generated from the bundled theme")
+    assert expected.endswith(component_rules)
+    assert b"--tori-ui-" not in component_rules.split(b"*/", 1)[0]
+    assert b"\r" not in expected
     assert response.headers == {
         "cache-control": "public, max-age=31536000, immutable",
         "content-type": "text/css; charset=utf-8",
@@ -203,7 +213,7 @@ def test_ui_liveview_injects_stylesheet_theme_and_skin_into_document() -> None:
     )
 
     assert document.startswith(
-        '<!doctype html><html data-tori-ui-theme="auto" '
+        '<!doctype html><html data-tori-ui-theme="paper" data-tori-ui-mode="auto" '
         'data-tori-ui-skin="editorial"><head>'
     )
     assert document.count(stylesheet_link().value) == 1
@@ -217,25 +227,46 @@ def test_ui_liveview_injects_stylesheet_theme_and_skin_into_document() -> None:
     assert '<script defer src="/_tori/live/client.js"></script>' in document
 
 
-def test_ui_liveview_supports_explicit_themes_and_rejects_unknown_values() -> None:
+def test_ui_liveview_supports_explicit_modes_and_rejects_unknown_values() -> None:
     class DarkPage(UiLiveView):
         def render(self) -> str:
             return ""
 
-        def ui_theme(self):
+        def ui_mode(self):
             return "dark"
 
-    assert 'data-tori-ui-theme="dark"' in DarkPage().render_document("", "")
+    assert 'data-tori-ui-mode="dark"' in DarkPage().render_document("", "")
 
     class InvalidPage(UiLiveView):
         def render(self) -> str:
             return ""
 
-        def ui_theme(self):
+        def ui_mode(self):
             return "sepia"
 
-    with pytest.raises(ValueError, match="theme must be one of"):
+    with pytest.raises(ValueError, match="mode must be one of: auto, dark, light"):
         InvalidPage().render_document("", "")
+
+
+def test_ui_liveview_names_the_theme_and_rejects_unsafe_names() -> None:
+    class BrandPage(UiLiveView):
+        def render(self) -> str:
+            return ""
+
+        def ui_theme(self) -> str:
+            return "brand-2026"
+
+    assert 'data-tori-ui-theme="brand-2026"' in BrandPage().render_document("", "")
+
+    class UnsafePage(UiLiveView):
+        def render(self) -> str:
+            return ""
+
+        def ui_theme(self) -> str:
+            return 'x" onload="alert(1)'
+
+    with pytest.raises(ValueError, match="theme must match"):
+        UnsafePage().render_document("", "")
 
 
 def test_ui_liveview_supports_bundled_and_application_owned_skins() -> None:
@@ -243,7 +274,7 @@ def test_ui_liveview_supports_bundled_and_application_owned_skins() -> None:
         def render(self) -> str:
             return ""
 
-        def ui_theme(self):
+        def ui_mode(self):
             return "dark"
 
         def ui_skin(self) -> str:
@@ -257,7 +288,7 @@ def test_ui_liveview_supports_bundled_and_application_owned_skins() -> None:
             return "brand-2026"
 
     minimal_document = MinimalPage().render_document("", "")
-    assert 'data-tori-ui-theme="dark"' in minimal_document
+    assert 'data-tori-ui-mode="dark"' in minimal_document
     assert 'data-tori-ui-skin="minimal"' in minimal_document
     assert 'data-tori-ui-skin="brand-2026"' in BrandPage().render_document("", "")
 
@@ -286,16 +317,12 @@ def test_ui_liveview_rejects_non_string_skin_names() -> None:
         def ui_skin(self):
             return 1
 
-    with pytest.raises(TypeError, match="skin must be a string"):
+    with pytest.raises(TypeError, match="skin must be a Skin or a string"):
         InvalidPage().render_document("", "")
 
 
 def test_stylesheet_contains_the_foundation_contract_without_remote_assets() -> None:
-    stylesheet = (
-        files("tori_py_liveview_ui")
-        .joinpath("static", "tori_liveview_ui.css")
-        .read_text(encoding="utf-8")
-    )
+    stylesheet = _stylesheet()
 
     for selector in (
         ".tori-ui-button",
@@ -310,8 +337,10 @@ def test_stylesheet_contains_the_foundation_contract_without_remote_assets() -> 
         ".tori-ui-textarea",
         ".tori-ui-select",
         ".tori-ui-checkbox",
-        '[data-tori-ui-theme="dark"]',
-        '[data-tori-ui-theme="auto"]',
+        '[data-tori-ui-theme="paper"]',
+        '[data-tori-ui-mode="light"]',
+        '[data-tori-ui-mode="dark"]',
+        '[data-tori-ui-mode="auto"]',
         '[data-tori-ui-skin="editorial"]',
         '[data-tori-ui-skin="minimal"]',
         '[data-tori-ui-skin="rounded"]',
@@ -325,11 +354,7 @@ def test_stylesheet_contains_the_foundation_contract_without_remote_assets() -> 
 
 
 def test_stylesheet_exposes_the_public_skin_token_contract() -> None:
-    stylesheet = (
-        files("tori_py_liveview_ui")
-        .joinpath("static", "tori_liveview_ui.css")
-        .read_text(encoding="utf-8")
-    )
+    stylesheet = _stylesheet()
     editorial = re.search(
         r':root,\s*\[data-tori-ui-skin="editorial"\]\s*\{(?P<body>.*?)\}',
         stylesheet,
@@ -394,11 +419,7 @@ def test_stylesheet_exposes_the_public_skin_token_contract() -> None:
 
 
 def test_bundled_skins_define_distinct_geometry_and_typography() -> None:
-    stylesheet = (
-        files("tori_py_liveview_ui")
-        .joinpath("static", "tori_liveview_ui.css")
-        .read_text(encoding="utf-8")
-    )
+    stylesheet = _stylesheet()
 
     editorial = re.search(
         r':root,\s*\[data-tori-ui-skin="editorial"\]\s*\{(?P<body>.*?)\}',
@@ -437,22 +458,14 @@ def test_bundled_skins_define_distinct_geometry_and_typography() -> None:
 
 
 def test_stylesheet_preserves_invalid_native_checkbox_affordance() -> None:
-    stylesheet = (
-        files("tori_py_liveview_ui")
-        .joinpath("static", "tori_liveview_ui.css")
-        .read_text(encoding="utf-8")
-    )
+    stylesheet = _stylesheet()
 
     assert ".tori-ui-field--invalid .tori-ui-checkbox__control" in stylesheet
     assert "box-shadow: 0 0 0 2px var(--tori-ui-danger)" in stylesheet
 
 
 def test_light_primary_button_meets_wcag_aa_contrast() -> None:
-    stylesheet = (
-        files("tori_py_liveview_ui")
-        .joinpath("static", "tori_liveview_ui.css")
-        .read_text(encoding="utf-8")
-    )
+    stylesheet = _stylesheet()
 
     accent = _light_theme_color(stylesheet, "accent")
     accent_ink = _light_theme_color(stylesheet, "accent-ink")
@@ -461,11 +474,7 @@ def test_light_primary_button_meets_wcag_aa_contrast() -> None:
 
 
 def test_light_form_placeholder_meets_wcag_aa_contrast() -> None:
-    stylesheet = (
-        files("tori_py_liveview_ui")
-        .joinpath("static", "tori_liveview_ui.css")
-        .read_text(encoding="utf-8")
-    )
+    stylesheet = _stylesheet()
 
     muted = _light_theme_color(stylesheet, "muted")
     panel = _light_theme_color(stylesheet, "panel")

@@ -19,6 +19,7 @@ from tori_py_liveview_ui import (
     navigation,
     overlays,
     rich_text,
+    theming,
 )
 
 # Each family test pins its own module's names; the facade is their union.
@@ -36,6 +37,7 @@ _FAMILIES = (
     navigation,
     overlays,
     rich_text,
+    theming,
 )
 
 
@@ -59,7 +61,16 @@ def test_public_facade_lists_constants_then_classes_then_helpers() -> None:
 
     assert exported == sorted(constants) + sorted(classes) + sorted(helpers)
     assert constants == ["SCRIPT_PATH", "STYLESHEET_PATH"]
-    assert classes == ["LiveViewUiModule", "TableColumn", "UiLiveView"]
+    assert classes == [
+        "ContrastCheck",
+        "LiveViewUiModule",
+        "Palette",
+        "Skin",
+        "TableColumn",
+        "Theme",
+        "ThemeContrastError",
+        "UiLiveView",
+    ]
 
 
 def test_foundation_families_are_explicit() -> None:
