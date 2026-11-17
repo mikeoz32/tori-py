@@ -92,7 +92,8 @@ The `href` keeps the links working without JavaScript.
 - `push_patch()` must resolve to a route of the current page class in the same
   session. Use `push_navigate()` to reach another page.
 - `push_navigate()` works between pages of the same live session. A target in a
-  different session falls back to a full page load.
+  different session falls back to a full page load, and so does a target
+  whose [document key](#documents-and-document-keys) differs.
 - Patch and navigate targets must be same-origin paths or URLs.
 - `handle_params` may patch again; a chain longer than 20 patches fails.
 - Calling `redirect()` or `push_navigate()` from `mount()` or `handle_params()`
@@ -154,6 +155,54 @@ unique.
 `mount()`, on the HTTP render and on every connected join: first connect,
 reconnect, and live navigation. A hook may be a plain function or return an
 awaitable.
+
+## Documents and Document Keys
+
+Live navigation replaces the live root and keeps the document around it: the
+`<html>` element, the `<head>`, and everything `render_document()` wrote outside
+the live root. A page whose document differs from the one the browser holds, for
+example because it links other stylesheets or sets another `lang`, would show
+inside the wrong document.
+
+`document_key()` names the document a page renders into. Pages whose keys are
+equal share a document. The default is `None` for every page, so pages that do
+not return a key all share one:
+
+<!-- docs-test: skip -->
+
+```python
+@live_view("/reports")
+class ReportsLive(LiveView):
+    def document_key(self) -> str | None:
+        return "wide"
+
+    def render_document(self, live_root: str, client_script: str) -> str:
+        return wide_document(live_root, client_script)
+```
+
+When live navigation reaches a page whose key differs from the key of the page
+that rendered the document, the join is answered with a full page load of the
+target, as when `redirect()` is called. The target page mounts again in its own
+document, and any flash it put travels with the load. Whatever navigation the
+page queued is dropped, because the new document runs the page again.
+
+- The key is read after `mount()` and `handle_params()`, so it may depend on
+  what they set, for example a preference loaded in `mount()`. It must return the
+  same value that `render_document()` was built from.
+- Only live navigation compares keys. The first join of a document and a
+  reconnect never do, so a key that changes between the HTTP render and the join
+  cannot reload in a loop.
+- A key is a string or `None`; `None` and a string never match. Any other value
+  raises `LiveViewError`.
+- The browser holds the key of the page that rendered the document, as a digest
+  in the signed mount token. Like the live session, it cannot be changed from
+  the browser.
+
+A [live session](#live-sessions-and-mount-hooks) is the static counterpart:
+navigating across sessions also falls back to a full page load, but a session is
+chosen when the routes are registered, while a key is computed by the page. Use a
+session to share `on_mount` hooks, and a key when the document depends on the
+page.
 
 ## Authorization
 
