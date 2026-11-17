@@ -74,6 +74,21 @@ one package does not require the same change in every package.
   page, view id, parent mount, params, and session, and a child joins only
   under the mount of a joined parent that rendered it. Each child runs its
   callbacks in its own work scope.
+- Separately installable `tori-py-liveview-kit` for prototyping AI
+  applications on LiveView and LiveView UI. `ChatLiveView` turns one async
+  generator, `respond(messages)`, into a chat page with history, a streamed
+  reply, a stop button, error display, and retry. The provider-neutral events
+  are `TextDelta`, `ReasoningDelta`, `ToolCall`, `ToolResult`, `Citation`,
+  `Usage`, and `Error`. The model generator runs in a task its connection owns,
+  its output is rendered in batches, and a stop or a disconnect cancels it and
+  closes it. `initial_messages`, `reply_finished`, and `describe_error` are the
+  hooks for storing conversations and wording failures. `create_app` and
+  `run_app` assemble an application with development defaults. The package has
+  no model client, provider SDK, tool loop, or conversation store; adapters for
+  the Anthropic Messages API and for OpenAI-compatible servers are repository
+  examples.
+- The release metadata check accepts an extra on a family dependency, such as
+  `tori-py-framework[cli]`.
 - LiveView UI component library. `tori-py-liveview-ui` grows from 13 helpers to
   families for layout, content and icons, actions, data display, feedback,
   disclosure, forms, navigation, overlays, and chat and AI, all stateless

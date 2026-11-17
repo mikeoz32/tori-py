@@ -130,6 +130,20 @@ Three things in it matter for every chat:
 The gallery's chat adds reasoning, a tool call, sources, and token usage to the
 same structure: `examples/tori_py/liveview_ui_gallery/chat.py`.
 
+This page keeps the example short, and three cases are left to you:
+
+- `send_info()` returns `False` when the page's queue is full. If that happens
+  on the last chunk, nothing asks for a flush again and the end of the reply is
+  not rendered.
+- Stop clears the buffer, so chunks that arrived but were not rendered yet are
+  dropped.
+- If `reply_to()` raises, the page stays busy until the visitor presses stop.
+
+[`tori-py-liveview-kit`](../liveview-kit/index.md) packages this pattern with
+those cases handled: it runs the model through `start_async()`, whose
+completion does not depend on the queue, keeps what arrived before a stop, and
+turns a failure into an error on the reply with a retry.
+
 ## Conversation Layout
 
 | Helper | Output |

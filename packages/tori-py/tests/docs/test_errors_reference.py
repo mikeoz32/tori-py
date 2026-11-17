@@ -28,6 +28,7 @@ FACADES = (
     "tori_py_persistent_streams_rabbitmq",
     "tori_py_liveview",
     "tori_py_liveview_ui",
+    "tori_py_liveview_kit",
 )
 RAISED_CODE = re.compile(r'\bcode="([a-z_]+\.[a-z_]+)"')
 MICROSERVICES_PREFIX = "microservices."
