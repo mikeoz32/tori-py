@@ -29,6 +29,7 @@ from tori_py_liveview.routing import (
     redirect_host_allowed,
     same_origin,
 )
+from tori_py_liveview.tokens import MountTokenCodec
 
 
 @live_view("/articles/{article_id}/edit", action="edit")
@@ -1387,3 +1388,354 @@ async def test_push_navigate_from_info_rejoins_new_page() -> None:
         assert TeamSettingsLive.joined_params == [{}]
     finally:
         await application.shutdown()
+
+
+# ------------------------------------------------------- Document keys
+
+
+async def _document_application(
+    *pages: type[LiveView],
+) -> NestApplication:
+    liveview_module = LiveViewModule.for_root(
+        LiveViewOptions(secret="s" * 32),
+        pages=list(pages),
+        key="documents",
+    )
+
+    @module(imports=[liveview_module])
+    class Root:
+        pass
+
+    application = await NestApplication.create(Root, adapter=StarletteAdapter())
+    await application.start()
+    return application
+
+
+def _document_pages(
+    disconnects: list[str] | None = None,
+) -> tuple[type[LiveView], ...]:
+    @live_view("/plain-a")
+    class PlainALive(LiveView):
+        def render(self):
+            return "<div>plain a</div>"
+
+    @live_view("/plain-b")
+    class PlainBLive(LiveView):
+        def render(self):
+            return "<div>plain b</div>"
+
+    @live_view("/blue-a")
+    class BlueALive(LiveView):
+        def document_key(self) -> str | None:
+            return "blue"
+
+        def render(self):
+            return "<div>blue a</div>"
+
+    @live_view("/blue-b")
+    class BlueBLive(LiveView):
+        def document_key(self) -> str | None:
+            return "blue"
+
+        def render(self):
+            return "<div>blue b</div>"
+
+    @live_view("/green")
+    class GreenLive(LiveView):
+        def document_key(self) -> str | None:
+            return "green"
+
+        async def disconnect(self) -> None:
+            if disconnects is not None:
+                disconnects.append("green")
+
+        def render(self):
+            return "<div>green</div>"
+
+    return PlainALive, PlainBLive, BlueALive, BlueBLive, GreenLive
+
+
+async def _navigate(
+    application: NestApplication, start: str, target: str
+) -> dict[str, object]:
+    """Join ``start``, leave it, and join ``target`` as live navigation does.
+
+    Returns the reply to the join of ``target``.
+    """
+    page = await _request(application, start)
+    token = _token(page.text)
+    sent = await _call_websocket(
+        application,
+        "/_tori/live/websocket",
+        _join_pages(token, f"http://testserver{start}"),
+        _receive_text(["1", "2", "lv:tori-live-root", "phx_leave", {}]),
+        _join_redirect(token, f"http://testserver{target}", ref="3"),
+        {"type": "websocket.disconnect", "code": 1000, "reason": ""},
+    )
+    return cast(dict[str, object], _replies(sent)[-1][4])
+
+
+@pytest.mark.asyncio
+async def test_the_mount_token_carries_the_digest_of_the_document_key() -> None:
+    application = await _document_application(*_document_pages())
+    try:
+        blue = _token((await _request(application, "/blue-a")).text)
+        plain = _token((await _request(application, "/plain-a")).text)
+        codec = MountTokenCodec("s" * 32)
+
+        assert codec.verify(plain).document is None
+        digest = codec.verify(blue).document
+        assert digest is not None
+        assert len(digest) == 32
+        assert (
+            digest
+            == codec.verify(
+                _token((await _request(application, "/blue-b")).text)
+            ).document
+        )
+        assert (
+            digest
+            != codec.verify(
+                _token((await _request(application, "/green")).text)
+            ).document
+        )
+    finally:
+        await application.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_pages_without_a_document_key_navigate_as_before() -> None:
+    application = await _document_application(*_document_pages())
+    try:
+        reply = await _navigate(application, "/plain-a", "/plain-b")
+
+        assert reply["status"] == "ok"
+        assert "rendered" in cast(dict[str, object], reply["response"])
+    finally:
+        await application.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_pages_with_the_same_document_key_share_a_document() -> None:
+    application = await _document_application(*_document_pages())
+    try:
+        reply = await _navigate(application, "/blue-a", "/blue-b?x=1")
+
+        assert reply["status"] == "ok"
+        assert "rendered" in cast(dict[str, object], reply["response"])
+    finally:
+        await application.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_a_page_with_another_document_key_loads_a_new_document() -> None:
+    disconnects: list[str] = []
+    application = await _document_application(*_document_pages(disconnects))
+    try:
+        reply = await _navigate(application, "/blue-a", "/green?tab=two")
+
+        assert reply == {
+            "status": "error",
+            "response": {"redirect": {"to": "/green?tab=two"}},
+        }
+        # The page mounted, so it is disconnected once, and it never rendered.
+        assert disconnects == ["green"]
+    finally:
+        await application.shutdown()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("start", "target"), [("/plain-a", "/blue-a"), ("/blue-a", "/plain-a")]
+)
+async def test_a_keyed_and_an_unkeyed_page_do_not_share_a_document(
+    start: str, target: str
+) -> None:
+    application = await _document_application(*_document_pages())
+    try:
+        reply = await _navigate(application, start, target)
+
+        assert reply == {
+            "status": "error",
+            "response": {"redirect": {"to": target}},
+        }
+    finally:
+        await application.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_the_key_is_read_after_mount_and_handle_params() -> None:
+    @live_view("/start")
+    class StartLive(LiveView):
+        def document_key(self) -> str | None:
+            return "mine"
+
+        def render(self):
+            return "<div>start</div>"
+
+    @live_view("/look")
+    class LookLive(LiveView):
+        def __init__(self) -> None:
+            self.look = "unset"
+
+        async def mount(self, context: MountContext) -> None:
+            if context.connected:
+                self.look = context.query_params.get("look", "unset")
+
+        async def handle_params(self, params: dict[str, str], uri: str) -> None:
+            del params
+            if "tab=" in uri:
+                self.look = "mine"
+
+        def document_key(self) -> str | None:
+            return "mine" if self.look == "mine" else "other"
+
+        def render(self):
+            return "<div>look</div>"
+
+    application = await _document_application(StartLive, LookLive)
+    try:
+        same = await _navigate(application, "/start", "/look?look=mine")
+        other = await _navigate(application, "/start", "/look?look=other")
+        params = await _navigate(application, "/start", "/look?tab=1")
+
+        assert same["status"] == "ok"
+        assert other == {
+            "status": "error",
+            "response": {"redirect": {"to": "/look?look=other"}},
+        }
+        assert params["status"] == "ok"
+    finally:
+        await application.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_a_navigation_the_page_queued_gives_way_to_its_own_document() -> None:
+    @live_view("/start")
+    class StartLive(LiveView):
+        def render(self):
+            return "<div>start</div>"
+
+    @live_view("/moving")
+    class MovingLive(LiveView):
+        async def mount(self, context: MountContext) -> None:
+            if context.connected:
+                self.push_navigate("/start")
+
+        def document_key(self) -> str | None:
+            return "moving"
+
+        def render(self):
+            return "<div>moving</div>"
+
+    application = await _document_application(StartLive, MovingLive)
+    try:
+        reply = await _navigate(application, "/start", "/moving")
+
+        # The page is not displayed in this document, so its own navigation
+        # runs in the new one.
+        assert reply == {
+            "status": "error",
+            "response": {"redirect": {"to": "/moving"}},
+        }
+    finally:
+        await application.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_a_first_join_and_a_reconnect_never_compare_keys() -> None:
+    @live_view("/drifting")
+    class DriftingLive(LiveView):
+        calls = 0
+
+        def document_key(self) -> str | None:
+            type(self).calls += 1
+            return str(type(self).calls)
+
+        def render(self):
+            return "<div>drifting</div>"
+
+    application = await _document_application(DriftingLive)
+    try:
+        page = await _request(application, "/drifting")
+        token = _token(page.text)
+        sent = await _call_websocket(
+            application,
+            "/_tori/live/websocket",
+            _join_pages(token, "http://testserver/drifting"),
+            {"type": "websocket.disconnect", "code": 1000, "reason": ""},
+        )
+        again = await _call_websocket(
+            application,
+            "/_tori/live/websocket",
+            _join_pages(token, "http://testserver/drifting"),
+            {"type": "websocket.disconnect", "code": 1000, "reason": ""},
+        )
+
+        # The key changed after the HTTP render, so a comparison would have
+        # reloaded, and the reloaded page would have reloaded again.
+        assert cast(dict[str, object], _replies(sent)[0][4])["status"] == "ok"
+        assert cast(dict[str, object], _replies(again)[0][4])["status"] == "ok"
+    finally:
+        await application.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_the_flash_follows_a_navigation_to_another_document() -> None:
+    @live_view("/start")
+    class StartLive(LiveView):
+        def render(self):
+            return "<div>start</div>"
+
+    @live_view("/other-document")
+    class OtherDocumentLive(LiveView):
+        async def mount(self, context: MountContext) -> None:
+            if context.connected:
+                self.put_flash("info", "Moved")
+
+        def document_key(self) -> str | None:
+            return "other"
+
+        def render(self):
+            return "<div>other</div>"
+
+    application = await _document_application(StartLive, OtherDocumentLive)
+    try:
+        reply = await _navigate(application, "/start", "/other-document")
+
+        response = cast(dict[str, object], reply["response"])
+        redirect = cast(dict[str, object], response["redirect"])
+        assert redirect["to"] == "/other-document"
+        # The flash the page put travels with the full page load.
+        assert "flash" in redirect
+    finally:
+        await application.shutdown()
+
+
+def test_a_document_key_must_be_a_string_or_none() -> None:
+    class Numbered(LiveView):
+        def document_key(self) -> str | None:
+            return 5  # ty: ignore[invalid-return-type]
+
+        def render(self):
+            return ""
+
+    class Named(LiveView):
+        def document_key(self) -> str | None:
+            return ""
+
+        def render(self):
+            return ""
+
+    with pytest.raises(
+        LiveViewError, match="document_key must return a string or None"
+    ):
+        Numbered()._document_digest()
+    # An empty key is a key, not the absence of one.
+    assert Named()._document_digest() is not None
+    assert Named()._document_digest() != _Plain()._document_digest()
+
+
+class _Plain(LiveView):
+    def render(self):
+        return ""

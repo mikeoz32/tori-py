@@ -393,6 +393,7 @@ async def initial_response(
             route.action,
             route.session,
             flash=page.flash,
+            document=page._document_digest(),
         )
         root = (
             f'<div id="{_ROOT_ID}" data-phx-main '
@@ -1461,6 +1462,11 @@ def gateway_type(options: LiveViewOptions, registry: _Registry) -> type[object]:
                         )
                         await root_page._mount_liveview(mount_context)
                         await root_page.handle_params(join_params, uri)
+                        if redirect_url is not None:
+                            # The browser keeps the document of the page it
+                            # first loaded; a page of another document loads
+                            # it afresh instead of joining this one.
+                            root_page._load_in_own_document(mounted.document, resource)
                         drained = await _drain_navigation(
                             root_page,
                             registry.compiled,

@@ -76,6 +76,39 @@ class BrowserNavigationLive(LiveView):
         self.push_navigate("/browser-nav/edit")
 
 
+@live_view("/browser-document/one")
+class BrowserDocumentOneLive(LiveView):
+    def document_key(self) -> str | None:
+        return "first"
+
+    def render(self) -> str:
+        return (
+            '<output id="which">one</output>'
+            '<a id="to-two" data-phx-link="redirect" data-phx-link-state="push" '
+            'href="/browser-document/two">Two</a>'
+            '<a id="to-other" data-phx-link="redirect" data-phx-link-state="push" '
+            'href="/browser-document/other">Other</a>'
+        )
+
+
+@live_view("/browser-document/two")
+class BrowserDocumentTwoLive(LiveView):
+    def document_key(self) -> str | None:
+        return "first"
+
+    def render(self) -> str:
+        return '<output id="which">two</output>'
+
+
+@live_view("/browser-document/other")
+class BrowserDocumentOtherLive(LiveView):
+    def document_key(self) -> str | None:
+        return "second"
+
+    def render(self) -> str:
+        return '<output id="which">other</output>'
+
+
 _ECHO_HOOK = """<script>
 globalThis.ToriLiveHooks = {
   Echo: {
@@ -427,6 +460,9 @@ async def _create_application() -> NestApplication:
         pages=[
             BrowserCounterLive,
             BrowserNavigationLive,
+            BrowserDocumentOneLive,
+            BrowserDocumentTwoLive,
+            BrowserDocumentOtherLive,
             BrowserHooksLive,
             BrowserFlashLive,
             BrowserAsyncLive,
