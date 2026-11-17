@@ -11,6 +11,7 @@ from typing import Any, cast
 import pytest
 import uvicorn
 from playwright.sync_api import BrowserContext, Dialog, Locator, Page, expect
+from playwright.sync_api import Error as PlaywrightError
 from pytest_bdd import given, parsers, scenarios, then, when
 from tori_py_liveview_ui import SCRIPT_PATH, STYLESHEET_PATH
 
@@ -493,7 +494,27 @@ def url_is(page: Page, gallery_url: str, path: str) -> None:
 
 @then("the document was not reloaded")
 def document_not_reloaded(page: Page) -> None:
+    # A reload that the server asks for arrives shortly after the page renders.
+    page.wait_for_timeout(300)
     assert page.evaluate("window.__toriUiSameDocument") is True
+
+
+@then("the document was reloaded")
+def document_reloaded(page: Page) -> None:
+    def reloaded() -> bool:
+        try:
+            # A new document has not been marked by the step that opened the page.
+            return bool(
+                page.evaluate(
+                    "window.__toriUiSameDocument === undefined"
+                    " && document.readyState === 'complete'"
+                )
+            )
+        except PlaywrightError:
+            # The page is navigating.
+            return False
+
+    _eventually(page, reloaded, lambda: "the document was not loaded again")
 
 
 @then(parsers.re(r"the document is (?P<height>\d+) pixels tall"))

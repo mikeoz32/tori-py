@@ -111,6 +111,10 @@ one package does not require the same change in every package.
     those a page returns from `ui_theme()`, `ui_skin()`, and
     `ui_extra_definitions()`, and `stylesheet_link()` accepts definitions.
   - `themed()` gives part of a page its own theme, mode, or skin.
+  - `UiLiveView` implements `document_key()` with its look, so a live
+    navigation to a page with another theme, mode, skin, or application
+    stylesheet loads that page in a new document instead of keeping the old
+    look.
   - The color mode is now separate from the theme: `ui_mode()` and
     `data-tori-ui-mode` carry `auto`, `light`, or `dark`, while `ui_theme()`
     and `data-tori-ui-theme` name a theme. A theme sets each color with

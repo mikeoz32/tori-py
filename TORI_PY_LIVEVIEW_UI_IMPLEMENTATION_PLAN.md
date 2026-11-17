@@ -10,8 +10,8 @@ display, feedback, and disclosure (LVUI6), chat and AI (LVUI7), extended forms
 whole library (LVUI11), and the theme framework: its contract (LVUI12), the
 mode and theme vocabulary (LVUI13), the definitions (LVUI14), the bundled
 definitions (LVUI15), application definitions (LVUI16), derivation (LVUI17),
-scoped looks with their browser acceptance (LVUI18), and its acceptance
-(LVUI19).
+scoped looks with their browser acceptance (LVUI18), its acceptance (LVUI19),
+and live navigation between looks (LVUI20).
 
 Architecture:
 [`TORI_PY_LIVEVIEW_UI_ARCHITECTURE.md`](TORI_PY_LIVEVIEW_UI_ARCHITECTURE.md).
@@ -217,6 +217,15 @@ Architecture:
 - [x] Rewrite the theming guide, update the specification, and run the
   full-family test, Ruff, formatter, Ty, build, artifact, and strict
   documentation gates.
+
+## LVUI20: Live Navigation Between Looks - Complete
+
+- [x] Implement `UiLiveView.document_key()` on LiveView document keys, so a
+  live navigation to a page with another theme, mode, skin, or application
+  stylesheet loads a new document.
+- [x] Show it in the gallery's Themes page and cover it with browser scenarios
+  for a changed theme, a changed skin, a needed stylesheet, an unchanged look,
+  and a mode the visitor stored.
 
 ## Deferred
 
