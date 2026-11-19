@@ -297,7 +297,7 @@ tab it lands on by clicking it.
 | --- | --- | --- |
 | `chat` | - | `log`, `composer`, `label`, optional `header` |
 | `chat_log` | - | `content`, required selector-safe `id`, `label`, `stream`, `jump_label` |
-| `chat_message` | roles: `user`, `assistant`, `system`, `tool` | `content`, optional `id`, `name`, `avatar`, `time`, `footer`, `actions`, `streaming` |
+| `chat_message` | roles: `user`, `assistant`, `system`, `tool` | `content`, optional `id`, `name`, `avatar`, `time`, `footer`, `actions`, `streaming`, exact `copy_text` |
 | `message_actions` | - | finite `children` iterable, `label`, `copy` and its labels |
 | `composer` | - | required selector-safe `id` and `submit_event`, `name`, string `value`, labels, optional `placeholder`, `change_event`, `target`, `stop_event`, `actions`, `hint`, `busy`, `disabled`, `max_rows` from 1 through 40 |
 | `suggestions` | - | finite iterable of prompts or `(label, prompt)` pairs, required `event`, optional `target`, `label` |
@@ -326,7 +326,10 @@ While released the hook marks the log with `data-tori-ui-unpinned`, which shows
 a button that returns to the latest message.
 
 `chat_message` is an `article`. Its body is the copy source for
-`message_actions`, whose copy button targets the closest message. `streaming`
+`message_actions`, whose copy button targets the closest message. Optional
+`copy_text` supplies an exact source string; otherwise copy omits controls and
+code-block headers. Artifact content explicitly owns its copy source, so nested
+code sources do not replace the whole artifact. `streaming`
 sets `aria-busy` and appends a decorative caret.
 
 `composer` is a `method="post"` form with one labeled `textarea` and the
@@ -645,6 +648,10 @@ of its field when the object is built:
 | weight | an integer from 1 to 1000 |
 | case | `none`, `uppercase`, `lowercase`, or `capitalize` |
 | opacity | a number from 0 to 1 |
+
+Border widths, focus widths and offsets, and shadow geometry reject `%` because
+their CSS properties require lengths. Radii and other percentage-compatible
+sizes retain support for `%`.
 
 No field accepts free CSS text, so a definition cannot add a declaration, a
 rule, or a URL to a stylesheet.

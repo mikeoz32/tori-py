@@ -6,6 +6,19 @@ one package does not require the same change in every package.
 
 ## [Unreleased]
 
+### Fixed
+
+- LiveView UI nested dialog dismissal, toast hover/focus pause coordination,
+  and copying complete messages and artifacts without presentation controls.
+  Messages can supply exact copy text independently of their rendered content.
+- LiveView UI skin validation rejects percentage lengths for borders, outlines,
+  and shadows; text in theme tones consistently uses the validated ink mix.
+- LiveView Kit restores retry eligibility from the complete conversation,
+  ignores retry controls for older replies, and reports callback failures
+  through the same reply finalization path as normal completion.
+- The example Anthropic adapter counts each response's final usage snapshot
+  once, including updated input usage after a fallback.
+
 ### Added
 
 - Public package metadata, legal files, security policy, contribution guidance,

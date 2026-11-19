@@ -118,7 +118,7 @@ messages and the server sends only the message that changes. Message IDs are
 | `chat:send` | `{"message": str}` | Starts a turn; ignored while busy or when the text is blank |
 | `chat:suggest` | `{"prompt": str}` | Starts a turn with a suggested prompt |
 | `chat:stop` | - | Stops the reply being written |
-| `chat:retry` | - | Replaces the last reply when it was stopped or failed |
+| `chat:retry` | optional `{"message_id": str}` | Replaces the last stopped or failed reply; an ID from an older reply is ignored |
 
 The page also reserves the info name `tori-kit:flush` and the async name
 `tori-kit:reply`. Every other event, info, and async name goes to `super()`, so
@@ -176,8 +176,8 @@ runs and bounds the wait with `LiveViewOptions.async_cancel_timeout_seconds`.
 The runtime closes the generator with `aclose()` on every exit, so a provider
 stream opened inside it is released.
 
-Each run has its own buffer. Events from a run that was stopped or replaced
-land in a buffer nobody reads, so they cannot reach a later reply.
+Each run has its own buffer. A stop drains its pending events and discards
+later events, so they cannot reach a later reply.
 
 ### 7.2 Flushing
 
@@ -192,9 +192,11 @@ then retries after the interval and on the next event. The completion of the
 task reaches `handle_async` on a path that is not subject to that bound, and
 `handle_async` drains whatever is left, so the end of a reply is never lost.
 
-Every callback the package adds catches its own failures. An exception from
-`handle_info` or `handle_async` would close the connection, so a reply that
-cannot be folded or rendered becomes an error reply instead.
+Every callback the package adds catches its own failures. A batch that cannot
+be folded ends the reply as an error through the same finalization path as a
+normal completion, including `reply_finished`. A failed application renderer
+falls back to a generic message view while preserving the model's result.
+Neither failure closes the connection.
 
 ### 7.3 Outcomes
 

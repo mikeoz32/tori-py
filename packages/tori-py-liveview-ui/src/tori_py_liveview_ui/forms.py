@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+from dataclasses import dataclass
 from string.templatelib import Template
 from typing import Literal
 
@@ -29,18 +30,27 @@ type Debounce = int | Literal["blur"]
 type FormActionsAlignment = Literal["start", "end", "between"]
 
 _FORM_ACTIONS_ALIGNMENTS = frozenset({"start", "end", "between"})
-# The block, option, control, and label classes of a group of choices.
-_CHOICE = (
-    "tori-ui-choice",
-    "tori-ui-choice__option",
-    "tori-ui-choice__control",
-    "tori-ui-choice__label",
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class _ChoiceClasses:
+    block: str
+    option: str
+    control: str
+    label: str
+
+
+_CHOICE = _ChoiceClasses(
+    block="tori-ui-choice",
+    option="tori-ui-choice__option",
+    control="tori-ui-choice__control",
+    label="tori-ui-choice__label",
 )
-_SEGMENTED = (
-    "tori-ui-segmented",
-    "tori-ui-segmented__option",
-    "tori-ui-segmented__control",
-    "tori-ui-segmented__label",
+_SEGMENTED = _ChoiceClasses(
+    block="tori-ui-segmented",
+    option="tori-ui-segmented__option",
+    control="tori-ui-segmented__control",
+    label="tori-ui-segmented__label",
 )
 
 
@@ -521,7 +531,7 @@ def _choices(
     *,
     id: str,
     field_name: str,
-    names: tuple[str, str, str, str],
+    names: _ChoiceClasses,
     help_text: str | None,
     error: str | None,
     required: bool,
@@ -541,7 +551,6 @@ def _choices(
     boolean(f"{name} inline", inline)
     change_event = event_binding(f"{name} change event", change_event)
     target = event_target(f"{name} target", target, change_event)
-    block, option_class, control_class, label_class = names
     choices: list[Template] = []
     for index, (value, option_label) in enumerate(_options(name, options), start=1):
         control = attrs(
@@ -549,7 +558,7 @@ def _choices(
                 "type": kind,
                 "id": f"{id}-{index}",
                 "name": field_name,
-                "class": control_class,
+                "class": names.control,
                 "value": value,
                 "checked": value in chosen,
                 # A group of checkboxes is required as a whole, by the page.
@@ -560,8 +569,8 @@ def _choices(
             }
         )
         choices.append(
-            t'<label class="{option_class}"><input{control}>'
-            t'<span class="{label_class}">{option_label}</span></label>'
+            t'<label class="{names.option}"><input{control}>'
+            t'<span class="{names.label}">{option_label}</span></label>'
         )
     help_markup, error_markup = _messages(id, help_text, error)
     group = attrs(
@@ -578,7 +587,7 @@ def _choices(
             "aria-describedby": control_description(id, help_text, error),
         }
     )
-    options_class = classes(block, **{"tori-ui-choice--inline": inline})
+    options_class = classes(names.block, **{"tori-ui-choice--inline": inline})
     return (
         t'<fieldset{group}><legend class="tori-ui-field__label">{label}'
         t"{_required_marker(required)}</legend>"

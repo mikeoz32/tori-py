@@ -165,7 +165,8 @@ def code_block(
         else raw("")
     )
     header_markup = (
-        t'<figcaption class="tori-ui-code-block__header">{language_markup}'
+        t'<figcaption class="tori-ui-code-block__header" data-tori-ui-copy-exclude>'
+        t"{language_markup}"
         t"{copy_markup}</figcaption>"
         if language is not None or copy
         else raw("")

@@ -27,7 +27,7 @@ async def _serve(serve):
 
 async def _idle(channel) -> None:
     """Wait for the frame that offers to send again."""
-    await channel.until(lambda: 'aria-label="Send"' in channel.html(-1))
+    await channel.until(lambda: 'aria-label="Send"' in channel.sent_text(-1))
 
 
 @pytest.mark.asyncio
@@ -38,7 +38,7 @@ async def test_the_example_streams_a_full_reply(serve) -> None:
     assert "What do you want to build?" in channel.document
     await channel.event("chat:send", {"message": "What is this?"})
     await _idle(channel)
-    reply = channel.html(-1)
+    reply = channel.sent_text(-1)
 
     assert "The visitor asked: &#x27;What is this?&#x27;." in reply
     assert "tori-ui-tool-call--done" in reply
@@ -57,14 +57,14 @@ async def test_the_example_fails_once_and_answers_on_retry(serve) -> None:
 
     await channel.event("chat:suggest", {"prompt": "Fail once, then answer on retry."})
     await _idle(channel)
-    failed = channel.html(-1)
+    failed = channel.sent_text(-1)
     assert "Something went wrong." in failed
-    assert "failed on purpose" not in channel.html(0)
+    assert "failed on purpose" not in channel.sent_text(0)
     assert _RETRY in failed
 
     await channel.event("chat:retry")
     await _idle(channel)
-    retried = channel.html(-1)
+    retried = channel.sent_text(-1)
     assert "turns one generator into a chat" in retried
     assert "Something went wrong." not in retried
     assert _RETRY not in retried

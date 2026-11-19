@@ -96,7 +96,7 @@ async def test_a_browser_can_chat_with_a_created_app(serve) -> None:
     assert page.messages[-1] == AssistantMessage(
         "turn-1-assistant", (TextPart("You said: hello"),)
     )
-    assert "You said: hello" in channel.html(-1)
+    assert "You said: hello" in channel.sent_text(-1)
 
 
 def test_create_app_generates_a_secret_unless_one_is_given(

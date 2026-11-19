@@ -129,11 +129,11 @@
 }
 
 .tori-ui-badge--info {
-  color: var(--tori-ui-info);
+  color: color-mix(in srgb, var(--tori-ui-info) 80%, var(--tori-ui-ink));
 }
 
 .tori-ui-badge--success {
-  color: var(--tori-ui-success);
+  color: color-mix(in srgb, var(--tori-ui-success) 80%, var(--tori-ui-ink));
 }
 
 .tori-ui-badge--warning {
@@ -141,7 +141,7 @@
 }
 
 .tori-ui-badge--danger {
-  color: var(--tori-ui-danger);
+  color: color-mix(in srgb, var(--tori-ui-danger) 80%, var(--tori-ui-ink));
 }
 
 .tori-ui-alert {
@@ -201,7 +201,7 @@
 }
 
 .tori-ui-card__eyebrow {
-  color: var(--tori-ui-accent);
+  color: color-mix(in srgb, var(--tori-ui-accent) 80%, var(--tori-ui-ink));
   font: 700 0.67rem/1 var(--tori-ui-font-code);
   letter-spacing: 0.12em;
   margin: 0 0 0.45rem;
@@ -322,7 +322,7 @@
 }
 
 .tori-ui-field__required {
-  color: var(--tori-ui-danger);
+  color: color-mix(in srgb, var(--tori-ui-danger) 80%, var(--tori-ui-ink));
 }
 
 .tori-ui-field__help,
@@ -336,7 +336,7 @@
 }
 
 .tori-ui-field__error {
-  color: var(--tori-ui-danger);
+  color: color-mix(in srgb, var(--tori-ui-danger) 80%, var(--tori-ui-ink));
   font-weight: 700;
 }
 
@@ -541,7 +541,7 @@
 }
 
 .tori-ui-icon-button--danger {
-  color: var(--tori-ui-danger);
+  color: color-mix(in srgb, var(--tori-ui-danger) 80%, var(--tori-ui-ink));
 }
 
 :where(.tori-ui-icon-button--ghost, .tori-ui-icon-button--danger):hover:not(
@@ -2924,7 +2924,7 @@
 }
 
 .tori-ui-chat-empty__icon {
-  color: var(--tori-ui-accent);
+  color: color-mix(in srgb, var(--tori-ui-accent) 80%, var(--tori-ui-ink));
   font-size: 1.6rem;
 }
 
@@ -3101,17 +3101,17 @@
 
 .tori-ui-tool-call--running .tori-ui-tool-call__status,
 .tori-ui-agent-steps__step--running > .tori-ui-agent-steps__status {
-  color: var(--tori-ui-info);
+  color: color-mix(in srgb, var(--tori-ui-info) 80%, var(--tori-ui-ink));
 }
 
 .tori-ui-tool-call--done .tori-ui-tool-call__status,
 .tori-ui-agent-steps__step--done > .tori-ui-agent-steps__status {
-  color: var(--tori-ui-success);
+  color: color-mix(in srgb, var(--tori-ui-success) 80%, var(--tori-ui-ink));
 }
 
 .tori-ui-tool-call--error .tori-ui-tool-call__status,
 .tori-ui-agent-steps__step--error > .tori-ui-agent-steps__status {
-  color: var(--tori-ui-danger);
+  color: color-mix(in srgb, var(--tori-ui-danger) 80%, var(--tori-ui-ink));
 }
 
 .tori-ui-tool-call__content {
@@ -3388,17 +3388,17 @@ a.tori-ui-citation:hover {
 
 [class^="tori-ui-hl-k"],
 .tori-ui-hl-ow {
-  color: var(--tori-ui-accent);
+  color: color-mix(in srgb, var(--tori-ui-accent) 80%, var(--tori-ui-ink));
   font-weight: 600;
 }
 
 [class^="tori-ui-hl-s"] {
-  color: var(--tori-ui-success);
+  color: color-mix(in srgb, var(--tori-ui-success) 80%, var(--tori-ui-ink));
 }
 
 [class^="tori-ui-hl-m"],
 .tori-ui-hl-il {
-  color: var(--tori-ui-info);
+  color: color-mix(in srgb, var(--tori-ui-info) 80%, var(--tori-ui-ink));
 }
 
 .tori-ui-hl-nf,
@@ -3411,7 +3411,7 @@ a.tori-ui-citation:hover {
 .tori-ui-hl-nb,
 .tori-ui-hl-bp,
 .tori-ui-hl-nt {
-  color: var(--tori-ui-warning);
+  color: color-mix(in srgb, var(--tori-ui-warning) 80%, var(--tori-ui-ink));
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -3834,7 +3834,7 @@ a.tori-ui-citation:hover {
 }
 
 .tori-ui-nav__link[aria-current="page"] > .tori-ui-icon {
-  color: var(--tori-ui-accent);
+  color: color-mix(in srgb, var(--tori-ui-accent) 80%, var(--tori-ui-ink));
 }
 
 .tori-ui-nav__label {
@@ -4288,7 +4288,7 @@ a.tori-ui-citation:hover {
 }
 
 .tori-ui-menu-item--danger {
-  color: var(--tori-ui-danger);
+  color: color-mix(in srgb, var(--tori-ui-danger) 80%, var(--tori-ui-ink));
 }
 
 .tori-ui-menu-item:disabled {

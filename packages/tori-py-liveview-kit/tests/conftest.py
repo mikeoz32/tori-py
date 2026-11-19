@@ -129,11 +129,12 @@ class Channel:
         """The diffs the server sent without a browser event asking for one."""
         return [frame[4] for frame in self.frames if frame[3] == "diff"]
 
-    def html(self, start: int = 0) -> str:
+    def sent_text(self, start: int = 0) -> str:
         """Every string the server sent from frame ``start`` on, joined.
 
         Rendered markup travels as string leaves of the frames, so this is
-        enough to look for an element or a text without merging diffs.
+        a transcript for protocol assertions, not the current browser DOM.
+        Use browser tests for element order, removal, and interactive state.
         """
         return "".join(_strings(self.frames[start:]))
 

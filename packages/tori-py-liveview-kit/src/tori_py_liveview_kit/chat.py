@@ -45,6 +45,7 @@ from tori_py_liveview_kit.events import ChatEvent
 from tori_py_liveview_kit.messages import (
     AssistantMessage,
     Message,
+    MessagePart,
     ReasoningPart,
     ReplyStatus,
     TextPart,
@@ -68,6 +69,20 @@ class _Chat:
     reply: AssistantMessage | None = None
     ids: set[str] = field(default_factory=set)
     turn: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class _ReplyView:
+    message: AssistantMessage
+    can_retry: bool
+
+    @property
+    def streaming(self) -> bool:
+        return self.message.status == "streaming"
+
+    @property
+    def last(self) -> MessagePart | None:
+        return self.message.parts[-1] if self.message.parts else None
 
 
 class ChatLiveView(UiLiveView):
@@ -201,7 +216,9 @@ class ChatLiveView(UiLiveView):
                 message = replace(message, status="stopped")
             state.ids.add(message.id)
             state.messages.append(message)
-            self._show(message)
+        # Retry eligibility depends on the complete restored conversation.
+        for message in state.messages:
+            self._upsert_message(message)
 
     async def handle_event(
         self, event: str, value: object
@@ -213,6 +230,8 @@ class ChatLiveView(UiLiveView):
                 self._send(prompt)
             case "chat:stop", _:
                 await self._stop()
+            case "chat:retry", {"message_id": message_id}:
+                self._retry(message_id)
             case "chat:retry", _:
                 self._retry()
             case _:
@@ -227,9 +246,9 @@ class ChatLiveView(UiLiveView):
         try:
             events = self._chat().runtime.take(value)
             if events:
-                self._fold(events)
+                self._apply_reply_events(events)
         except Exception:
-            self._abort()
+            await self._abort_reply()
 
     async def handle_async(self, name: str, result: AsyncResult[object]) -> None:
         if name != REPLY:
@@ -239,25 +258,24 @@ class ChatLiveView(UiLiveView):
             completion = self._chat().runtime.complete(result)
             if completion is None:
                 return
-            self._fold(completion.events, show=False)
+            self._apply_reply_events(completion.events, show=False)
             if completion.error is not None:
-                await self._finish("error", self._describe(completion.error))
+                await self._finish_reply("error", self._describe(completion.error))
             elif completion.cancelled:
-                await self._finish("stopped")
+                await self._finish_reply("stopped")
             else:
-                await self._finish("done")
+                await self._finish_reply("done")
         except Exception:
-            self._abort()
+            await self._abort_reply()
 
     async def disconnect(self) -> None:
         # LiveView has cancelled the model task before it calls this.
         try:
-            self._fold(self._chat().runtime.abandon(), show=False)
-            await self._finish("stopped", show=False)
+            self._apply_reply_events(self._chat().runtime.abandon(), show=False)
         except Exception:
-            _LOGGER.exception(
-                "LiveView Kit cleanup failed: page=%s", type(self).__qualname__
-            )
+            await self._abort_reply(show=False)
+        else:
+            await self._finish_reply("stopped", show=False)
         await super().disconnect()
 
     def render(self) -> Rendered | Template | str:
@@ -320,13 +338,28 @@ class ChatLiveView(UiLiveView):
         self, message: AssistantMessage
     ) -> Rendered | Template | str:
         """Render a reply as one element whose ID is ``message.id``."""
-        streaming = message.status == "streaming"
-        last = message.parts[-1] if message.parts else None
+        view = _ReplyView(message, can_retry=self.can_retry(message))
+        return chat_message(
+            stack(
+                [*self._render_reply_parts(view), *self._render_reply_status(view)],
+                gap="sm",
+            ),
+            id=message.id,
+            name=self.assistant_name,
+            avatar=avatar(self.assistant_name, size="sm"),
+            streaming=view.streaming and isinstance(view.last, TextPart),
+            footer=self._render_reply_footer(message),
+            actions=self._render_reply_actions(view),
+            copy_text=message.text if not view.streaming else None,
+        )
+
+    def _render_reply_parts(self, view: _ReplyView) -> list[object]:
+        message = view.message
         body: list[object] = []
         for index, part in enumerate(message.parts):
             match part:
                 case ReasoningPart(text=content):
-                    thinking = streaming and part is last
+                    thinking = view.streaming and part is view.last
                     body.append(
                         reasoning(
                             text(content, size="sm", muted=True),
@@ -341,19 +374,23 @@ class ChatLiveView(UiLiveView):
                     )
                 case ToolPart():
                     body.append(
-                        self._tool(part, f"{message.id}-tool-{index}", streaming)
+                        self._tool(part, f"{message.id}-tool-{index}", view.streaming)
                     )
                 case TextPart(text=content):
                     body.append(markdown(content, highlight=_HIGHLIGHT))
+        return body
+
+    def _render_reply_status(self, view: _ReplyView) -> list[object]:
+        message, last = view.message, view.last
         waiting = last is None or (
             isinstance(last, ToolPart) and last.result is not None
         )
-        if streaming and waiting:
-            body.append(typing_indicator(label=self.typing_label))
-        elif message.status == "stopped":
-            body.append(text(self.stopped_text, size="sm", muted=True))
-        elif message.status == "error":
-            body.append(
+        if view.streaming and waiting:
+            return [typing_indicator(label=self.typing_label)]
+        if message.status == "stopped":
+            return [text(self.stopped_text, size="sm", muted=True)]
+        if message.status == "error":
+            return [
                 alert(
                     message.error or self.error_text,
                     tone="danger",
@@ -364,16 +401,22 @@ class ChatLiveView(UiLiveView):
                             size="sm",
                             icon="refresh",
                             event="chat:retry",
+                            values={"message_id": message.id},
                         )
-                        if self.can_retry(message)
+                        if view.can_retry
                         else None
                     ),
                 )
-            )
-        elif not message.parts:
-            body.append(text(self.empty_reply_text, size="sm", muted=True))
+            ]
+        if not message.parts and not view.streaming:
+            return [text(self.empty_reply_text, size="sm", muted=True)]
+        return []
+
+    def _render_reply_footer(self, message: AssistantMessage) -> Template | None:
+        if message.status == "streaming":
+            return None
         footer: list[object] = []
-        if not streaming and message.citations:
+        if message.citations:
             footer.append(
                 sources(
                     [(citation.title, citation.url) for citation in message.citations],
@@ -381,7 +424,7 @@ class ChatLiveView(UiLiveView):
                     id=f"{message.id}-sources",
                 )
             )
-        if not streaming and message.usage is not None:
+        if message.usage is not None:
             footer.append(
                 token_usage(
                     input_tokens=message.usage.input_tokens,
@@ -391,17 +434,25 @@ class ChatLiveView(UiLiveView):
                     output_label=self.output_tokens_label,
                 )
             )
+        return stack(footer, gap="sm", align="start") if footer else None
+
+    def _render_reply_actions(self, view: _ReplyView) -> Template | None:
+        message = view.message
         # A failed reply offers retry in its alert; a stopped one, here.
         retry = (
             [
                 icon_button(
-                    "refresh", label=self.retry_label, size="sm", event="chat:retry"
+                    "refresh",
+                    label=self.retry_label,
+                    size="sm",
+                    event="chat:retry",
+                    values={"message_id": message.id},
                 )
             ]
-            if message.status == "stopped" and self.can_retry(message)
+            if message.status == "stopped" and view.can_retry
             else []
         )
-        actions = (
+        return (
             message_actions(
                 retry,
                 label=self.actions_label,
@@ -409,17 +460,8 @@ class ChatLiveView(UiLiveView):
                 copy_label=self.copy_label,
                 copied_label=self.copied_label,
             )
-            if not streaming and (message.text or retry)
+            if not view.streaming and (message.text or retry)
             else None
-        )
-        return chat_message(
-            stack(body, gap="sm"),
-            id=message.id,
-            name=self.assistant_name,
-            avatar=avatar(self.assistant_name, size="sm"),
-            streaming=streaming and isinstance(last, TextPart),
-            footer=stack(footer, gap="sm", align="start") if footer else None,
-            actions=actions,
         )
 
     def _tool(self, part: ToolPart, element_id: str, streaming: bool) -> Template:
@@ -473,15 +515,17 @@ class ChatLiveView(UiLiveView):
         previous = state.messages[-1] if state.messages else None
         user = UserMessage(user_id, prompt)
         state.messages.append(user)
-        self._show(user)
+        self._upsert_message(user)
         if isinstance(previous, AssistantMessage) and previous.status != "done":
             # It is no longer the last message, so it stops offering retry.
-            self._show(previous)
+            self._upsert_message(previous)
         self._begin(reply_id)
 
-    def _retry(self) -> None:
+    def _retry(self, message_id: object = None) -> None:
         state = self._chat()
         if not state.messages or not self.can_retry(state.messages[-1]):
+            return
+        if message_id is not None and message_id != state.messages[-1].id:
             return
         # The new attempt takes the place of the reply, under the same ID.
         self._begin(state.messages.pop().id)
@@ -490,7 +534,7 @@ class ChatLiveView(UiLiveView):
         state = self._chat()
         history = tuple(state.messages)
         state.reply = AssistantMessage(reply_id, status="streaming")
-        self._show(state.reply)
+        self._upsert_message(state.reply)
         state.runtime.start(partial(self.respond, history))
 
     async def _stop(self) -> None:
@@ -498,37 +542,47 @@ class ChatLiveView(UiLiveView):
         if not state.runtime.active:
             return
         # Keep what the model wrote before the visitor stopped it.
-        self._fold(state.runtime.stop(), show=False)
-        await self._finish("stopped")
+        try:
+            self._apply_reply_events(state.runtime.stop(), show=False)
+        except Exception:
+            await self._abort_reply()
+        else:
+            await self._finish_reply("stopped")
 
-    def _fold(self, events: list[ChatEvent], *, show: bool = True) -> None:
+    def _apply_reply_events(
+        self, events: list[ChatEvent], *, show: bool = True
+    ) -> None:
         state = self._chat()
         if state.reply is None or not events:
             return
         state.reply = fold_events(state.reply, events)
         if show:
-            self._show(state.reply)
+            self._upsert_message(state.reply)
 
-    async def _finish(
+    async def _finish_reply(
         self, status: ReplyStatus, error: str | None = None, *, show: bool = True
-    ) -> None:
+    ) -> AssistantMessage | None:
         state = self._chat()
         reply = state.reply
         if reply is None:
-            return
+            return None
         state.reply = None
         if reply.status == "streaming":
             reply = replace(reply, status=status, error=error)
         state.messages.append(reply)
-        if show:
-            self._show(reply)
         try:
-            await self.reply_finished(reply)
-        except Exception:
-            _LOGGER.exception(
-                "LiveView Kit reply_finished failed: page=%s",
-                type(self).__qualname__,
-            )
+            if show:
+                self._upsert_message(reply)
+        finally:
+            # Persistence observes the terminal state even if stream insertion fails.
+            try:
+                await self.reply_finished(reply)
+            except Exception:
+                _LOGGER.exception(
+                    "LiveView Kit reply_finished failed: page=%s",
+                    type(self).__qualname__,
+                )
+        return reply
 
     def _describe(self, error: BaseException) -> str:
         try:
@@ -542,7 +596,7 @@ class ChatLiveView(UiLiveView):
             return described
         return self.error_text
 
-    def _show(self, message: Message) -> None:
+    def _upsert_message(self, message: Message) -> None:
         """Insert a message into the stream, or update it in place."""
         try:
             if isinstance(message, UserMessage):
@@ -563,7 +617,7 @@ class ChatLiveView(UiLiveView):
             alert(self.error_text, tone="danger"), role=message.role, id=message.id
         )
 
-    def _abort(self) -> None:
+    async def _abort_reply(self, *, show: bool = True) -> None:
         """End the reply after a failure inside one of this page's callbacks."""
         _LOGGER.exception(
             "LiveView Kit callback failed: page=%s", type(self).__qualname__
@@ -571,10 +625,8 @@ class ChatLiveView(UiLiveView):
         try:
             state = self._chat()
             state.runtime.stop()
-            reply, state.reply = state.reply, None
-            if reply is not None:
-                failed = replace(reply, status="error", error=self.error_text)
-                state.messages.append(failed)
+            failed = await self._finish_reply("error", self.error_text, show=False)
+            if show and failed is not None:
                 self.stream_insert(_LOG, failed.id, self._unrendered(failed))
         except Exception:
             _LOGGER.exception(

@@ -31,7 +31,7 @@ type Source = Callable[[], AsyncIterator[str | ChatEvent]]
 
 
 class _Run:
-    """The buffer of one generator; a stopped run keeps its late events."""
+    """The buffer of one generator; events arriving after it closes are discarded."""
 
     __slots__ = ("closed", "flushed_at", "pending", "queued", "timer")
 

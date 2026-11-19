@@ -126,6 +126,25 @@ async def _events(client: _Client, **options: Any) -> list[ChatEvent]:
     ]
 
 
+@pytest.mark.asyncio
+async def test_usage_counts_the_final_response_snapshot_once() -> None:
+    stream = _text_turn(tokens=(10, 5))
+    stream._events.insert(
+        -2,
+        _EVENT.validate_python(
+            {
+                "type": "message_delta",
+                "delta": {"stop_reason": None, "stop_sequence": None},
+                "usage": {"output_tokens": 2},
+            }
+        ),
+    )
+    # A fallback can update the input count after message_start.
+    stream._final.usage.input_tokens = 42
+    events = await _events(_Client(stream))
+    assert events[-1] == Usage(42, 5)
+
+
 _TEXT = {"type": "text", "text": "", "citations": None}
 _TOOL_USE = {"type": "tool_use", "id": "toolu_1", "name": "get_weather", "input": {}}
 

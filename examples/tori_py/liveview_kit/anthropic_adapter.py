@@ -104,12 +104,7 @@ async def anthropic_events(
             tools=declared or omit,
         ) as stream:
             async for event in stream:
-                if event.type == "message_start":
-                    input_tokens += event.message.usage.input_tokens
-                elif event.type == "message_delta":
-                    # The count is cumulative for this response.
-                    output_tokens += event.usage.output_tokens
-                elif event.type == "content_block_start":
+                if event.type == "content_block_start":
                     block = event.content_block
                     if block.type == "tool_use" or block.type == "server_tool_use":
                         calls[event.index] = _Call(block.id, block.name)
@@ -144,6 +139,11 @@ async def anthropic_events(
                                 # Not an address the page would link to.
                                 pass
             reply = await stream.get_final_message()
+
+        # Deltas contain cumulative snapshots, including updated input counts
+        # after a fallback. Count the final snapshot once per API response.
+        input_tokens += reply.usage.input_tokens
+        output_tokens += reply.usage.output_tokens
 
         if reply.stop_reason == "pause_turn":
             # A tool Anthropic runs reached its limit; the same turn goes on.

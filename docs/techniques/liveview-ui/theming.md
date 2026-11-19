@@ -193,6 +193,10 @@ the module is imported instead of producing a broken stylesheet:
 | Case | `control_text_transform`, `label_text_transform` | `none`, `uppercase`, `lowercase`, or `capitalize` |
 | Opacity | `disabled_opacity`, `field_disabled_opacity` | A number from 0 to 1 |
 
+Border widths, focus widths and offsets, and shadow geometry require lengths
+without `%`. Percentage sizes remain available for properties that accept
+them, such as radii and spacing.
+
 No token accepts free CSS, so a definition cannot add a rule or a URL to a
 stylesheet. The package ships no fonts: a font stack names families the visitor
 has, or ones you load in your own stylesheet.

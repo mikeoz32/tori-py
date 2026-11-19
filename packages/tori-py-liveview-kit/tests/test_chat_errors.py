@@ -16,6 +16,7 @@ from tori_py_liveview_kit import (
     TextPart,
     UserMessage,
 )
+from tori_py_liveview_kit import chat as chat_module
 
 _RETRY = 'phx-click="chat:retry"'
 
@@ -70,6 +71,62 @@ _USER = UserMessage("turn-1-user", "go")
 
 
 @pytest.mark.asyncio
+async def test_a_failed_batch_reports_the_terminal_reply_once(
+    open_page,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    closed = asyncio.Event()
+
+    async def script(messages: Sequence[Message]):
+        try:
+            yield "partial"
+            await asyncio.Event().wait()
+        finally:
+            closed.set()
+
+    def fail_batch(*args: object, **kwargs: object):
+        raise RuntimeError("injected batch failure")
+
+    ErrorsLive.script = script
+    channel = await open_page(ErrorsLive)
+    monkeypatch.setattr(chat_module, "fold_events", fail_batch)
+    await channel.event("chat:send", {"message": "go"})
+    page = _page()
+    await channel.until(lambda: not page.busy and closed.is_set())
+
+    reply = page.messages[-1]
+    assert isinstance(reply, AssistantMessage)
+    assert reply.status == "error"
+    assert ErrorsLive.finished == [page.messages[-1]]
+    assert channel.close_code is None
+    await channel.close()
+    assert len(ErrorsLive.finished) == 1
+
+
+@pytest.mark.asyncio
+async def test_a_retry_for_an_older_message_does_not_restart_the_latest_reply(
+    open_page,
+) -> None:
+    async def script(messages: Sequence[Message]):
+        yield Error("Failed")
+
+    ErrorsLive.script = script
+    channel = await open_page(ErrorsLive)
+    await channel.event("chat:send", {"message": "go"})
+    page = _page()
+    await channel.until(lambda: not page.busy)
+    original = page.messages
+
+    await channel.event("chat:retry", {"message_id": "an-older-reply"})
+    assert page.messages == original
+    assert len(ErrorsLive.calls) == 1
+
+    await channel.event("chat:retry", {"message_id": original[-1].id})
+    await channel.until(lambda: not page.busy)
+    assert len(ErrorsLive.calls) == 2
+
+
+@pytest.mark.asyncio
 async def test_a_raised_exception_becomes_an_error_reply(
     open_page, caplog: pytest.LogCaptureFixture
 ) -> None:
@@ -93,14 +150,14 @@ async def test_a_raised_exception_becomes_an_error_reply(
     )
     assert page.messages == (_USER, failed)
     assert ErrorsLive.finished == [failed]
-    ending = channel.html(-1)
+    ending = channel.sent_text(-1)
     assert "Half an answer" in ending
     assert "tori-ui-alert--danger" in ending
     assert "Something went wrong." in ending
     assert _RETRY in ending
     assert 'aria-label="Send"' in ending
     # The exception is for the log, not for the visitor.
-    assert "sk-secret" not in channel.html(0)
+    assert "sk-secret" not in channel.sent_text(0)
     assert "sk-secret" in caplog.text
     assert channel.close_code is None
 
@@ -133,7 +190,7 @@ async def test_describe_error_chooses_the_text_and_cannot_break_the_page(
     assert page.messages[-1] == AssistantMessage(
         "turn-1-assistant", status="error", error=shown
     )
-    assert shown in channel.html(-1)
+    assert shown in channel.sent_text(-1)
     assert channel.close_code is None
 
 
@@ -185,10 +242,10 @@ async def test_an_error_event_shows_its_message_and_ends_the_reply(open_page) ->
     assert marks == ["closed"]
     assert page.messages[-1] == failed
     assert ErrorsLive.finished == [failed]
-    ending = channel.html(-1)
+    ending = channel.sent_text(-1)
     assert "The model is overloaded. Try again in a minute." in ending
     assert _RETRY in ending
-    assert "never shown" not in channel.html(0)
+    assert "never shown" not in channel.sent_text(0)
 
 
 @pytest.mark.asyncio
@@ -220,8 +277,8 @@ async def test_retry_replaces_a_failed_reply_in_place(open_page) -> None:
     assert [message.status for message in ErrorsLive.finished] == ["error", "done"]
     # The retry rewrote the same stream item instead of adding one.
     assert 'id="turn-1-assistant"' in "".join(_strings(retried))
-    assert "turn-2" not in channel.html(0)
-    ending = channel.html(-1)
+    assert "turn-2" not in channel.sent_text(0)
+    ending = channel.sent_text(-1)
     assert "Second time lucky." in ending
     assert "tori-ui-alert--danger" not in ending
     assert _RETRY not in ending
@@ -245,7 +302,7 @@ async def test_retry_replaces_a_stopped_reply(open_page) -> None:
     page = _page()
 
     await channel.event("chat:send", {"message": "go"})
-    await channel.until(lambda: "<p>Slow</p>" in channel.html(2))
+    await channel.until(lambda: "<p>Slow</p>" in channel.sent_text(2))
     stopped = await channel.event("chat:stop")
     assert _RETRY in "".join(_strings(stopped))
 
@@ -287,7 +344,7 @@ async def test_retry_needs_an_idle_page_and_a_last_reply_that_did_not_finish(
     assert not page.can_retry(done[-1])
 
     await channel.event("chat:send", {"message": "again"})
-    await channel.until(lambda: "turn-2-assistant" in channel.html(0))
+    await channel.until(lambda: "turn-2-assistant" in channel.sent_text(0))
     # Nor is anything while a reply is being written.
     await channel.event("chat:retry")
     assert len(ErrorsLive.calls) == 2
@@ -313,7 +370,7 @@ async def test_a_reply_stops_offering_retry_once_a_later_turn_starts(open_page) 
     await channel.until(lambda: not page.busy)
     failed = page.messages[-1]
     assert page.can_retry(failed)
-    assert _RETRY in channel.html(-1)
+    assert _RETRY in channel.sent_text(-1)
 
     next_turn = "".join(_strings(await channel.event("chat:send", {"message": "next"})))
     await channel.until(lambda: not page.busy)

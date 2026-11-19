@@ -12,7 +12,14 @@ import pytest
 import uvicorn
 from playwright.sync_api import Locator, Page, expect
 from pytest_bdd import given, parsers, scenarios, then, when
-from tori_py_liveview_kit import create_app
+from tori_py_liveview import live_view
+from tori_py_liveview_kit import (
+    AssistantMessage,
+    ChatLiveView,
+    TextPart,
+    UserMessage,
+    create_app,
+)
 from tori_py_liveview_ui import SCRIPT_PATH, STYLESHEET_PATH
 
 from examples.tori_py.liveview_kit.app import (
@@ -83,6 +90,27 @@ def _text(text: str) -> str:
 # ----------------------------------------------------------------- Fixtures
 
 
+@live_view("/restored-history")
+class RestoredHistoryLive(ChatLiveView):
+    async def initial_messages(self, context):
+        return (
+            UserMessage("old-user", "First question"),
+            AssistantMessage(
+                "old-reply",
+                (TextPart("First failure"),),
+                status="error",
+                error="Failed",
+            ),
+            UserMessage("latest-user", "Second question"),
+            AssistantMessage(
+                "latest-reply", (TextPart("Interrupted"),), status="stopped"
+            ),
+        )
+
+    async def respond(self, messages):
+        yield "Regenerated latest answer"
+
+
 @pytest.fixture(scope="module")
 def chat_url() -> Iterator[str]:
     listener = socket.socket()
@@ -92,7 +120,11 @@ def chat_url() -> Iterator[str]:
     listener.close()
     server = uvicorn.Server(
         uvicorn.Config(
-            create_app(AssistantLive, providers=(ScriptedModel, ConversationStore)),
+            create_app(
+                AssistantLive,
+                RestoredHistoryLive,
+                providers=(ScriptedModel, ConversationStore),
+            ),
             host="127.0.0.1",
             port=port,
             log_level="warning",
@@ -121,6 +153,28 @@ def chat_url() -> Iterator[str]:
         thread.join(timeout=45)
         if thread.is_alive():
             pytest.fail("chat server did not stop")
+
+
+@pytest.mark.browser
+def test_restored_history_retries_only_the_latest_answer(
+    page: Page, chat_url: str
+) -> None:
+    page.goto(f"{chat_url}/restored-history")
+    expect(page.locator(_LIVE_ROOT)).to_have_class("phx-connected")
+    expect(
+        page.locator("#old-reply").get_by_role("button", name="Try again")
+    ).to_have_count(0)
+    page.locator("#latest-reply").get_by_role("button", name="Try again").click()
+    expect(page.locator("#latest-reply")).to_contain_text("Regenerated latest answer")
+    expect(page.locator("#old-reply")).to_contain_text("First failure")
+    assert page.locator("#chat-messages > article").evaluate_all(
+        "items => items.map(item => item.id)"
+    ) == [
+        "old-user",
+        "old-reply",
+        "latest-user",
+        "latest-reply",
+    ]
 
 
 @pytest.fixture

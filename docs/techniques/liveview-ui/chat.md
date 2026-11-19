@@ -150,7 +150,7 @@ turns a failure into an error on the reply with a retry.
 | --- | --- |
 | `chat(log, composer, *, label, header)` | A column: optional header, the log, the composer at the bottom |
 | `chat_log(content, *, id, label, stream)` | The scrolling list of messages |
-| `chat_message(content, *, role, id, name, avatar, time, streaming, footer, actions)` | One message |
+| `chat_message(content, *, role, id, name, avatar, time, streaming, footer, actions, copy_text)` | One message |
 | `composer(*, id, submit_event, ...)` | The form a message is written in |
 | `chat_empty(title, *, description, icon, suggestions)` | The welcome shown before the first message |
 | `suggestions(items, *, event)` | Prompts the visitor sends with one click |
@@ -195,6 +195,11 @@ actions = message_actions(
 
 `message_actions` starts with a button that copies the message body; pass
 `copy=False` to leave it out.
+
+Pass `copy_text` to `chat_message` to copy an exact source string, such as the
+original Markdown, independently of the rendered content. The default copies
+the body text without code-block headers or buttons. Artifact copy actions
+include the whole content, including every code block.
 
 ### The Composer
 

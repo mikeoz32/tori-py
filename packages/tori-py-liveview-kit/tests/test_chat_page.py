@@ -136,7 +136,7 @@ async def test_a_turn_streams_a_reply_and_records_the_conversation(open_page) ->
     page = _page()
 
     await channel.event("chat:send", {"message": "  Hi there  "})
-    opening = channel.html(1)
+    opening = channel.sent_text(1)
     assert 'id="turn-1-user"' in opening
     assert "Hi there" in opening
     assert 'id="turn-1-assistant"' in opening
@@ -144,13 +144,13 @@ async def test_a_turn_streams_a_reply_and_records_the_conversation(open_page) ->
     assert page.busy
     assert page.messages == (UserMessage("turn-1-user", "Hi there"),)
 
-    await channel.until(lambda: "<p>Hello</p>" in channel.html(2))
-    assert 'aria-busy="true"' in channel.html(2)
+    await channel.until(lambda: "<p>Hello</p>" in channel.sent_text(2))
+    assert 'aria-busy="true"' in channel.sent_text(2)
 
     gate.set()
     await channel.until(lambda: not page.busy)
     # The last frame renders the finished reply.
-    ending = channel.html(-1)
+    ending = channel.sent_text(-1)
 
     reply = AssistantMessage("turn-1-assistant", (TextPart("Hello **world**"),))
     assert "<strong>world</strong>" in ending
@@ -247,7 +247,7 @@ async def test_stop_keeps_what_was_written_and_the_chat_goes_on(open_page) -> No
     page = _page()
 
     await channel.event("chat:send", {"message": "go"})
-    await channel.until(lambda: "<p>Half</p>" in channel.html(2))
+    await channel.until(lambda: "<p>Half</p>" in channel.sent_text(2))
     gate.set()
     await channel.until(lambda: marks == ["read"])
 
@@ -261,7 +261,7 @@ async def test_stop_keeps_what_was_written_and_the_chat_goes_on(open_page) -> No
     assert not page.busy
     assert page.messages[-1] == stopped
     assert _Scripted.finished == [stopped]
-    ending = channel.html(before_the_stop)
+    ending = channel.sent_text(before_the_stop)
     assert "Half an answer" in ending
     assert "Stopped." in ending
     assert 'aria-label="Send"' in ending
@@ -294,8 +294,8 @@ async def test_a_reply_shows_reasoning_tools_sources_and_usage(open_page) -> Non
     page = _page()
 
     await channel.event("chat:send", {"message": "search"})
-    await channel.until(lambda: "search_docs" in channel.html(2))
-    running = channel.html(2)
+    await channel.until(lambda: "search_docs" in channel.sent_text(2))
+    running = channel.sent_text(2)
     assert 'id="turn-1-assistant-reasoning-0"' in running
     assert "The visitor wants a search." in running
     assert 'id="turn-1-assistant-tool-1"' in running
@@ -306,7 +306,7 @@ async def test_a_reply_shows_reasoning_tools_sources_and_usage(open_page) -> Non
     before_the_end = len(channel.frames)
     gate.set()
     await channel.until(lambda: not page.busy)
-    ending = channel.html(before_the_end)
+    ending = channel.sent_text(before_the_end)
 
     assert "tori-ui-tool-call--done" in ending
     assert "<strong>three</strong>" in ending
@@ -339,7 +339,7 @@ async def test_tokens_that_arrive_together_render_once(open_page) -> None:
     channel = await open_page(ChatLive)
 
     await channel.event("chat:send", {"message": "go"})
-    await channel.until(lambda: "token-19" in channel.html(2))
+    await channel.until(lambda: "token-19" in channel.sent_text(2))
 
     assert len(channel.pushes) == 1
 
@@ -356,7 +356,7 @@ async def test_a_stored_conversation_is_restored_on_every_mount(open_page) -> No
     channel = await open_page(ChatLive)
     page = _page()
 
-    for rendered in (channel.document, channel.html(0)):
+    for rendered in (channel.document, channel.sent_text(0)):
         assert "How can I help?" not in rendered
         assert 'id="question-1"' in rendered
         assert "Earlier answer" in rendered
@@ -411,7 +411,7 @@ async def test_a_disconnect_ends_the_reply_and_reports_it_once(open_page) -> Non
     page = _page()
 
     await channel.event("chat:send", {"message": "go"})
-    await channel.until(lambda: "<p>partial</p>" in channel.html(2))
+    await channel.until(lambda: "<p>partial</p>" in channel.sent_text(2))
     await channel.close()
 
     cut_off = AssistantMessage("turn-1-assistant", (TextPart("partial"),), "stopped")
@@ -471,7 +471,7 @@ async def test_a_renderer_that_fails_falls_back_and_keeps_the_connection(
         await channel.until(lambda: not page.busy)
 
     assert "could not render a message: page=FailingRendererLive" in caplog.text
-    rendered = channel.html(1)
+    rendered = channel.sent_text(1)
     assert 'id="turn-1-assistant"' in rendered
     assert "Something went wrong." in rendered
     assert "another-id" not in rendered
