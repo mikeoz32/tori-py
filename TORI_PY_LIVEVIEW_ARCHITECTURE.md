@@ -64,7 +64,10 @@ be stacked to map several paths to one page class. `LiveView` exposes:
   HTML as `str`;
 - `title()` returning an optional document title;
 - `disconnect()` for connected-session cleanup;
-- `render_document(live_root, client_script)` for document customization.
+- `render_document(live_root, client_script)` for document customization;
+- `document_key()` returning an optional string that identifies the document
+  the page renders into, so that live navigation keeps a document only for
+  pages whose keys are equal.
 
 `UnknownEventError` declares an unsupported event. It produces a successful
 no-render Channel reply carrying the reason, so the official client releases
@@ -421,7 +424,8 @@ For a page request, the generated controller:
 4. Calls `mount` with `connected=False`.
 5. Renders the page, components, and disconnected stream contents once, and
    mounts and renders each child LiveView into its container.
-6. Signs page identity, path params, resource, flash, and issue time.
+6. Signs page identity, path params, resource, flash, the digest of the
+   page's `document_key()` when it has one, and issue time.
 7. Builds `#tori-live-root` with `data-phx-main`, `data-phx-session`, an empty
    `data-phx-static`, and the ToriPy endpoint-base attribute.
 8. Passes the root and deferred client script to `render_document`.
@@ -522,7 +526,8 @@ boundaries.
 Mount tokens use compact JSON, URL-safe Base64 without padding, and an
 HMAC-SHA256 hex signature. Payload fields are page identity, route action,
 session name, path params, resource, the disconnected render's flash when
-present, and issue time. Verification uses constant-time signature comparison,
+present, the SHA-256 digest of the page's document key when it has one, and
+issue time. The digest keeps the token small for any key. Verification uses constant-time signature comparison,
 requires string params and flash, rejects excessive clock skew, and enforces a
 finite age. Flash tokens and reload tokens use the same encoding with distinct
 HMAC purposes, so no kind verifies as another. A reload token carries page
@@ -549,18 +554,26 @@ Before acceptance, the gateway validates Origin. It then:
     document; that HTTP request answers with the same status, so the HTTP
     pipeline renders the error even when the disconnected mount would succeed,
     and the browser cannot reload in a loop.
- 5. Sends the complete Phoenix join render tree and starts the client's render
+ 5. When the join is a live navigation, compares the digest of the mounted
+    page's `document_key()` with the digest in the token, which names the
+    document the browser holds. A difference queues `redirect` to the page's
+    own resource, replacing whatever navigation the page queued, so the join
+    is answered with `{redirect: {to}}` and the browser loads the page in its
+    own document. A first join and a reconnect are never compared: the
+    document was rendered for that page, so a key that changes between the
+    HTTP render and the join cannot reload in a loop.
+ 6. Sends the complete Phoenix join render tree and starts the client's render
     state afresh.
- 6. Waits concurrently for inbound frames, accepted info messages, and finished
+ 7. Waits concurrently for inbound frames, accepted info messages, and finished
     async work.
- 7. Processes one event, heartbeat, component-destruction message, live patch,
+ 8. Processes one event, heartbeat, component-destruction message, live patch,
     info callback, or async result at a time.
- 8. Sends referenced `phx_reply` event diffs or unreferenced server `diff`
+ 9. Sends referenced `phx_reply` event diffs or unreferenced server `diff`
     pushes, each carrying only changes. A queued `push_patch` adds an
     unreferenced `live_patch` push;
     `push_navigate` replies `live_redirect` and the client rejoins on the same
     socket; `redirect` replies `redirect` for a full page reload.
- 9. Detaches the info queue, disconnects all remaining components, and calls page
+10. Detaches the info queue, disconnects all remaining components, and calls page
     `disconnect` exactly once when a connected page session ends. Live navigate
     disconnects the outgoing page and mounts the new page on a fresh join.
 

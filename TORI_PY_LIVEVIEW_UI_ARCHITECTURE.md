@@ -739,7 +739,20 @@ and the `tori-ui-themed` surface class, which applies the paper background, ink
 color, and body font of the look in effect inside it. An attribute that is left
 out is inherited from the document.
 
-### 8.7 The Visitor's Mode
+### 8.7 Live Navigation Between Looks
+
+Live navigation keeps the document, so the theme, the mode, the skin, and the
+stylesheets an application definition adds belong to the page that rendered
+it. `UiLiveView` implements `LiveView.document_key()` as the theme name, the
+server-rendered mode, the skin name, and the sorted stylesheet paths of the
+application definitions the page needs, joined with `|`. LiveView compares
+the digest of the key with the one in the mount token on each live navigation
+join, after `mount` and `handle_params`, and answers a difference with a full
+page load of the page's own resource. The package sends no connect params
+of its own and overrides no lifecycle method for this. Bundled definitions
+add no path, so pages that differ only by bundled definitions differ by name.
+
+### 8.8 The Visitor's Mode
 
 The bundled script applies a mode the visitor stored earlier to
 `data-tori-ui-mode` on `<html>` before the body is parsed, and `mode_toggle`

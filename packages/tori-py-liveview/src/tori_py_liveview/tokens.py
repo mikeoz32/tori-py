@@ -24,6 +24,7 @@ class MountToken:
     params: dict[str, str]
     resource: str
     flash: dict[str, str] = field(default_factory=dict)
+    document: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -131,6 +132,7 @@ class MountTokenCodec:
         session: str = "",
         *,
         flash: Mapping[str, str] | None = None,
+        document: str | None = None,
         now_ms: int | None = None,
     ) -> str:
         payload: dict[str, object] = {
@@ -143,6 +145,8 @@ class MountTokenCodec:
         }
         if flash:
             payload["f"] = dict(flash)
+        if document is not None:
+            payload["d"] = document
         return _sign(self._secret, b"", payload)
 
     def verify(self, token: str, *, now_ms: int | None = None) -> MountToken:
@@ -154,9 +158,11 @@ class MountTokenCodec:
         action = data.get("g")
         session = data.get("s", "")
         flash = data.get("f", {})
+        document = data.get("d")
         now = _clock() if now_ms is None else now_ms
         if (
             not isinstance(page, str)
+            or (document is not None and not isinstance(document, str))
             or (action is not None and not isinstance(action, str))
             or not isinstance(session, str)
             or not isinstance(resource, str)
@@ -165,7 +171,7 @@ class MountTokenCodec:
             or not _fresh(issued, now, self._max_age_ms)
         ):
             raise InvalidMountTokenError("expired or invalid mount token")
-        return MountToken(page, action, session, params, resource, flash)
+        return MountToken(page, action, session, params, resource, flash, document)
 
 
 class FlashTokenCodec:

@@ -67,6 +67,12 @@ one package does not require the same change in every package.
   identity namespace, CIDs, targets, `send_update()`, async work, and
   destruction handshake. A component's root must be a tag in its own template,
   not a nested component or another dynamic value.
+- LiveView document keys. `LiveView.document_key()` returns an optional string
+  that identifies the document a page renders into. The signed mount token
+  carries the digest of the key, and a live navigation to a page with another
+  key is answered with a full page load of that page instead of joining the
+  document the browser holds. The key is read after `mount()` and
+  `handle_params()`; first joins and reconnects are never compared.
 - LiveView child LiveViews. `LiveView.live_render()` places a registered page as
   a child view, rendered into its container over HTTP and joined on its own
   channel topic over the same socket, and `LiveViewModule.for_root(embedded=...)`
@@ -126,6 +132,10 @@ one package does not require the same change in every package.
     those a page returns from `ui_theme()`, `ui_skin()`, and
     `ui_extra_definitions()`, and `stylesheet_link()` accepts definitions.
   - `themed()` gives part of a page its own theme, mode, or skin.
+  - `UiLiveView` implements `document_key()` with its look, so a live
+    navigation to a page with another theme, mode, skin, or application
+    stylesheet loads that page in a new document instead of keeping the old
+    look.
   - The color mode is now separate from the theme: `ui_mode()` and
     `data-tori-ui-mode` carry `auto`, `light`, or `dark`, while `ui_theme()`
     and `data-tori-ui-theme` name a theme. A theme sets each color with

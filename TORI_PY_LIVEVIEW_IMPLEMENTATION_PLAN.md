@@ -143,6 +143,16 @@
   navigation, reload, and titles through package tests, and the browser
   behavior through pytest-bdd scenarios on the exact pinned official clients.
 
+## LV14: Document Keys
+
+- [x] Add `LiveView.document_key()`, sign the digest of its value into the
+  mount token, and answer a live navigation join whose page has another key
+  with a full page load of the page's own resource.
+- [x] Exercise the token, joins, flash, queued navigation, key evaluation
+  after mount, and the absence of a comparison for first joins and
+  reconnects through package tests, and the browser behavior through
+  pytest-bdd scenarios on the exact pinned official clients.
+
 ## Deferred
 
 - Evaluate uploads, sticky child LiveViews, `stream_async`, and keyed list

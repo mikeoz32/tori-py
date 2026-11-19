@@ -62,3 +62,45 @@ Feature: LiveView UI themes, modes, and skins in a real browser
     Given I open the gallery page "/themes?theme=slate"
     Then "#current-theme" shows "slate"
     And "#contrast-summary" contains "56 of 56 contrast requirements met by slate"
+
+  Scenario: Live navigation to a page with another look loads a new document
+    Given I open the gallery page "/themes?theme=paper&mode=light&skin=editorial"
+    When I click the "slate" link in the "Theme" group
+    Then the URL is "/themes?theme=slate&mode=light&skin=editorial"
+    And "html" has "data-tori-ui-theme" set to "slate"
+    And the document was reloaded
+    And "body" has the "paper" of the "slate" theme in the "light" mode as its background
+    And "#current-theme" shows "slate"
+
+  Scenario: Live navigation to another skin loads a new document too
+    Given I open the gallery page "/themes?theme=paper&mode=light&skin=editorial"
+    When I click the "rounded" link in the "Skin of the page" group
+    Then "html" has "data-tori-ui-skin" set to "rounded"
+    And the document was reloaded
+    And the "Save" button in "#skin-editorial" has the style "border-top-left-radius" set to "4.48px"
+
+  Scenario: Live navigation to a page with the same look keeps the document
+    Given the viewport is 1200 by 800
+    And I open the gallery page "/actions?theme=slate&mode=light&skin=rounded"
+    When I click the "Layout" link in the "Components" navigation
+    Then "h1" shows "Layout"
+    And "html" has "data-tori-ui-theme" set to "slate"
+    And the document was not reloaded
+
+  Scenario: Live navigation to a page that needs another stylesheet loads a new document
+    Given the viewport is 1200 by 800
+    And I open the gallery page "/actions?theme=paper&mode=light&skin=editorial"
+    When I click the "Themes" link in the "Components" navigation
+    Then "h1" shows "Themes"
+    And the document was reloaded
+    And the document links 3 stylesheets
+    And the document links the stylesheet of the "orchid" theme
+    And the document links the stylesheet of the "compact" skin
+
+  Scenario: The mode the visitor stored does not count as a different look
+    Given I open the gallery page "/actions?theme=slate&mode=auto&skin=minimal"
+    When I click "#actions-mode [data-tori-ui-mode-value='dark']"
+    And I click the "Layout" link in the "Components" navigation
+    Then "h1" shows "Layout"
+    And "html" has "data-tori-ui-mode" set to "dark"
+    And the document was not reloaded

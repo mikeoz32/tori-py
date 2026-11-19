@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 from collections.abc import Iterable
+from dataclasses import dataclass
 from importlib.resources import files
 
 from tori_py import DeferredModule, HttpResponse, ModuleSpec, controller, get
@@ -143,6 +144,20 @@ class LiveViewUiModule:
         return DeferredModule(cls, key, materialize)
 
 
+def _stylesheet_paths(definitions: Iterable[Theme | Skin]) -> list[str]:
+    """Return the stylesheet path of each application definition, once."""
+    paths: list[str] = []
+    for definition in definitions:
+        if not isinstance(definition, Theme | Skin):
+            raise TypeError("LiveView UI stylesheet definitions must be Theme or Skin")
+        if definition in _BUNDLED:
+            continue
+        path = _stylesheet(definition)[0]
+        if path not in paths:
+            paths.append(path)
+    return paths
+
+
 def stylesheet_link(*definitions: Theme | Skin) -> SafeHtml:
     """Return the link to the package stylesheet and to application definitions.
 
@@ -151,14 +166,10 @@ def stylesheet_link(*definitions: Theme | Skin) -> SafeHtml:
     register those definitions, or the links answer 404.
     """
     links = [f'<link rel="stylesheet" href="{STYLESHEET_PATH}">']
-    for definition in definitions:
-        if not isinstance(definition, Theme | Skin):
-            raise TypeError("LiveView UI stylesheet definitions must be Theme or Skin")
-        if definition in _BUNDLED:
-            continue
-        link = f'<link rel="stylesheet" href="{_stylesheet(definition)[0]}">'
-        if link not in links:
-            links.append(link)
+    links.extend(
+        f'<link rel="stylesheet" href="{path}">'
+        for path in _stylesheet_paths(definitions)
+    )
     return raw("".join(links))
 
 
@@ -188,33 +199,60 @@ class UiLiveView(LiveView):
         """Return further definitions the page uses, for example in ``themed``."""
         return ()
 
+    def document_key(self) -> str | None:
+        """Identify the look this page's document carries.
+
+        The theme, the mode, the skin, and the stylesheets of application
+        definitions belong to the document, and live navigation keeps the
+        document. Pages with the same look share a document; navigating to a page
+        whose look differs loads a new document instead.
+        """
+        look = _look(self)
+        paths = sorted(_stylesheet_paths(look.definitions))
+        return "|".join((look.theme, look.mode, look.skin, *paths))
+
     def render_document(self, live_root: str, client_script: str) -> str:
-        theme = self.ui_theme()
-        mode = self.ui_mode()
-        if mode not in _MODES:
-            choices = ", ".join(sorted(_MODES))
-            raise ValueError(f"LiveView UI mode must be one of: {choices}")
-        skin = self.ui_skin()
-        theme_name = _selected("theme", theme, Theme)
-        skin_name = _selected("skin", skin, Skin)
-        # A name stands for a definition styled in CSS and has no stylesheet.
-        definitions = [
-            *(chosen for chosen in (theme, skin) if not isinstance(chosen, str)),
-            *self.ui_extra_definitions(),
-        ]
+        look = _look(self)
         document = super().render_document(live_root, client_script)
         document = document.replace(
             "<html>",
-            f'<html data-tori-ui-theme="{theme_name}" data-tori-ui-mode="{mode}" '
-            f'data-tori-ui-skin="{skin_name}">',
+            f'<html data-tori-ui-theme="{look.theme}" data-tori-ui-mode="{look.mode}" '
+            f'data-tori-ui-skin="{look.skin}">',
             1,
         )
         document = document.replace(
             "</head>",
-            f"{stylesheet_link(*definitions).value}{script_tag().value}</head>",
+            f"{stylesheet_link(*look.definitions).value}{script_tag().value}</head>",
             1,
         )
         return document.replace("<body>", '<body class="tori-ui-document">', 1)
+
+
+@dataclass(frozen=True, slots=True)
+class _Look:
+    """The theme, mode, and skin of a page and the definitions it needs."""
+
+    theme: str
+    mode: str
+    skin: str
+    definitions: tuple[Theme | Skin, ...]
+
+
+def _look(page: UiLiveView) -> _Look:
+    theme = page.ui_theme()
+    mode = page.ui_mode()
+    if mode not in _MODES:
+        choices = ", ".join(sorted(_MODES))
+        raise ValueError(f"LiveView UI mode must be one of: {choices}")
+    skin = page.ui_skin()
+    theme_name = _selected("theme", theme, Theme)
+    skin_name = _selected("skin", skin, Skin)
+    # A name stands for a definition styled in CSS and has no stylesheet.
+    definitions = (
+        *(chosen for chosen in (theme, skin) if not isinstance(chosen, str)),
+        *page.ui_extra_definitions(),
+    )
+    return _Look(theme_name, mode, skin_name, definitions)
 
 
 __all__ = [

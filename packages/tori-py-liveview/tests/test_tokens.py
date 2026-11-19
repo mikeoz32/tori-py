@@ -12,6 +12,7 @@ from tori_py_liveview.tokens import (
     MountToken,
     MountTokenCodec,
     ReloadTokenCodec,
+    _sign,
 )
 
 
@@ -246,3 +247,23 @@ def test_options_normalize_redirect_hosts_to_bare_host_names() -> None:
     ):
         with pytest.raises(LiveViewConfigurationError, match="bare host names"):
             LiveViewOptions(secret="s" * 32, redirect_hosts=(host,))
+
+
+def test_mount_tokens_carry_the_document_digest() -> None:
+    codec = MountTokenCodec("s" * 32, max_age_ms=60_000)
+    keyed = codec.sign("Counter", {}, "/counter", document="a" * 32, now_ms=1_000_000)
+    plain = codec.sign("Counter", {}, "/counter", now_ms=1_000_000)
+
+    assert codec.verify(keyed, now_ms=1_000_000).document == "a" * 32
+    assert codec.verify(plain, now_ms=1_000_000).document is None
+    # A token without a document is smaller; the field is left out.
+    assert len(plain) < len(keyed)
+
+
+def test_mount_tokens_reject_a_document_that_is_not_a_string() -> None:
+    codec = MountTokenCodec("s" * 32, max_age_ms=60_000)
+    payload = {"p": "Counter", "a": {}, "r": "/counter", "i": 1_000_000, "d": 5}
+    token = _sign(b"s" * 32, b"", payload)
+
+    with pytest.raises(InvalidMountTokenError):
+        codec.verify(token, now_ms=1_000_000)
