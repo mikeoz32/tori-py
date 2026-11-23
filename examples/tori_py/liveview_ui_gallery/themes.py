@@ -127,6 +127,7 @@ class ThemesLive(GalleryPage):
                 link_button(
                     theme.name,
                     href=self.href(self.path, theme=theme),
+                    live="navigate",
                     variant="primary" if theme == self.theme else "secondary",
                     size="sm",
                 )
@@ -139,6 +140,7 @@ class ThemesLive(GalleryPage):
                 link_button(
                     skin.name,
                     href=self.href(self.path, skin=skin),
+                    live="navigate",
                     variant="primary" if skin == self.skin else "secondary",
                     size="sm",
                 )
@@ -151,7 +153,7 @@ class ThemesLive(GalleryPage):
                 text(
                     "A theme is two palettes. The mode toggle in the header picks "
                     "one of them in the browser; the theme and the skin belong to "
-                    "the document, so choosing one loads the page again.",
+                    "the document, so these live links load a new document.",
                     muted=True,
                 ),
                 row([themes, skins], gap="md"),

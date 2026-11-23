@@ -95,17 +95,20 @@
       return;
     }
     // Plain HTTP on another host has no Clipboard API.
+    const focused = document.activeElement;
     const area = document.createElement("textarea");
     area.value = text;
     area.setAttribute("readonly", "");
     area.style.position = "fixed";
     area.style.opacity = "0";
-    document.body.append(area);
+    const dialog = document.activeElement?.closest("dialog[open]");
+    (dialog ?? document.body).append(area);
     area.select();
     try {
-      document.execCommand("copy");
+      if (!document.execCommand("copy")) throw new Error("Clipboard copy failed");
     } finally {
       area.remove();
+      focused?.focus({preventScroll: true});
     }
   };
 
@@ -114,13 +117,52 @@
     return target.querySelector("[data-tori-ui-copy-source]") ?? target;
   };
 
+  // Read content without copying the controls used to present it. Preformatted
+  // text keeps its whitespace; ordinary blocks keep paragraph boundaries.
+  const copyText = (source) => {
+    if (source.nodeType === Node.TEXT_NODE) {
+      return source.textContent.replace(/\s+/g, " ");
+    }
+    if (!(source instanceof Element)) return "";
+    if (source.hasAttribute("data-tori-ui-copy-text")) {
+      return source.getAttribute("data-tori-ui-copy-text");
+    }
+    if (source.matches(
+      "[data-tori-ui-copy-exclude], button, input, select, textarea, svg, script, style",
+    )) {
+      return "";
+    }
+    if (getComputedStyle(source).display === "none") return "";
+    if (source.tagName === "BR") return "\n";
+    if (source.matches("pre, code")) return source.textContent;
+    const children = source.matches("details:not([open])")
+      ? [source.querySelector("summary")].filter(Boolean)
+      : [...source.childNodes];
+    let text = "";
+    for (const child of children) {
+      const part = copyText(child);
+      if (!part) continue;
+      const block = child instanceof Element &&
+        !getComputedStyle(child).display.startsWith("inline");
+      const paragraph = block && child.matches("p, h1, h2, h3, h4, h5, h6");
+      const gap = paragraph ? "\n\n" : block ? "\n" : "";
+      if (gap && text && !text.endsWith("\n")) text += gap;
+      if (!part.trim() && text.endsWith("\n")) continue;
+      text += part;
+      if (gap && !text.endsWith("\n")) text += gap;
+    }
+    return text;
+  };
+
   // copy_button(): a JS dispatch names the element; this listener copies its
   // text and reports back on the button that dispatched.
   window.addEventListener("tori-ui:copy", (event) => {
     if (!(event.target instanceof Element)) return;
     const source = copySource(event.target);
-    const text =
-      typeof source.value === "string" ? source.value : (source.innerText ?? "");
+    const exact = source.hasAttribute("data-tori-ui-copy-text") ||
+      typeof source.value === "string" || source.matches("pre, code");
+    const content = typeof source.value === "string" ? source.value : copyText(source);
+    const text = exact ? content : content.replace(/^\n+|\n+$/g, "");
     const button = event.detail?.dispatcher;
     writeClipboard(text).then(
       () => {
@@ -166,11 +208,13 @@
       if (!(remaining > 0)) return;
       let started = 0;
       let timer = null;
+      let hovered = false;
+      let focused = this.el.contains(document.activeElement);
       const close = () => {
         this.el.querySelector(".tori-ui-toast__dismiss")?.click();
       };
       const resume = () => {
-        if (timer !== null) return;
+        if (timer !== null || hovered || focused) return;
         started = Date.now();
         timer = setTimeout(close, remaining);
       };
@@ -180,10 +224,23 @@
         timer = null;
         remaining = Math.max(remaining - (Date.now() - started), 1000);
       };
-      this.el.addEventListener("pointerenter", pause);
-      this.el.addEventListener("pointerleave", resume);
-      this.el.addEventListener("focusin", pause);
-      this.el.addEventListener("focusout", resume);
+      this.el.addEventListener("pointerenter", () => {
+        hovered = true;
+        pause();
+      });
+      this.el.addEventListener("pointerleave", () => {
+        hovered = false;
+        resume();
+      });
+      this.el.addEventListener("focusin", () => {
+        focused = true;
+        pause();
+      });
+      this.el.addEventListener("focusout", (event) => {
+        focused = event.relatedTarget instanceof Node &&
+          this.el.contains(event.relatedTarget);
+        resume();
+      });
       this.stop = () => clearTimeout(timer);
       resume();
     },
@@ -356,10 +413,12 @@
       const dismiss = () => {
         dialog.querySelector("[data-tori-ui-dismiss]")?.click();
       };
-      dialog.addEventListener("tori-ui:open", () => {
+      dialog.addEventListener("tori-ui:open", (event) => {
+        if (event.target !== dialog) return;
         if (!dialog.open) dialog.showModal();
       });
-      dialog.addEventListener("tori-ui:close", () => {
+      dialog.addEventListener("tori-ui:close", (event) => {
+        if (event.target !== dialog) return;
         if (dialog.open) dialog.close();
       });
       // Escape.
@@ -368,6 +427,8 @@
         if (dismissible()) dismiss();
       });
       dialog.addEventListener("click", (event) => {
+        if (!(event.target instanceof Element) ||
+          event.target.closest("dialog") !== dialog) return;
         // A click on the dialog element itself is a click on its backdrop.
         if (event.target === dialog) {
           if (dismissible()) dismiss();

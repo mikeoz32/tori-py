@@ -13,10 +13,12 @@ application describes a look in Python and writes no stylesheet for it. The
 bundled themes and skins are made with the same API.
 
 All three choices are attributes on the `<html>` element. Connected renders
-patch the live root, not `<html>`, so what the server chooses takes effect on
-the next full page load. The visitor can still switch the mode at any time with
-a [mode toggle](#letting-the-visitor-choose-the-mode), which works in the
-browser.
+patch the live root, not `<html>`, so what the server chooses takes effect with
+a new document: the next full page load, or a live navigation to a page whose
+look differs, which
+[loads a new document](#navigating-between-looks). The visitor can still switch
+the mode at any time with a [mode toggle](#letting-the-visitor-choose-the-mode),
+which works in the browser.
 
 ## Choosing a Look
 
@@ -191,6 +193,10 @@ the module is imported instead of producing a broken stylesheet:
 | Case | `control_text_transform`, `label_text_transform` | `none`, `uppercase`, `lowercase`, or `capitalize` |
 | Opacity | `disabled_opacity`, `field_disabled_opacity` | A number from 0 to 1 |
 
+Border widths, focus widths and offsets, and shadow geometry require lengths
+without `%`. Percentage sizes remain available for properties that accept
+them, such as radii and spacing.
+
 No token accepts free CSS, so a definition cannot add a rule or a URL to a
 stylesheet. The package ships no fonts: a font stack names families the visitor
 has, or ones you load in your own stylesheet.
@@ -248,6 +254,35 @@ class PreviewLive(UiLiveView):
     def ui_extra_definitions(self) -> tuple[Theme | Skin, ...]:
         return (ACME, COMPACT)
 ```
+
+## Navigating Between Looks
+
+Live navigation keeps the document, so the theme, the mode, the skin, and the
+stylesheets of application definitions stay as the first page set them.
+`UiLiveView` therefore returns its look from
+[`document_key()`](../liveview/navigation.md#documents-and-document-keys):
+
+<!-- docs-test: skip -->
+
+```python
+page.document_key()  # "slate|dark|compact|/_tori/liveview-ui/skin-compact.1a2b3c4d5e6f.css"
+```
+
+When a live link, `push_navigate()`, or `JS().navigate()` reaches a page whose
+key differs from the key of the page that rendered the document, the browser
+loads that page in a new document that has its look. Between pages with the
+same look the document is kept, and nothing reloads.
+
+- The key is read after `mount()` and `handle_params()`, so `ui_theme()`,
+  `ui_mode()`, `ui_skin()`, and `ui_extra_definitions()` may depend on what they
+  set, for example a preference loaded in `mount()`.
+- The mode is the one the server renders, not the one the visitor stored. A
+  visitor who used the toggle does not make every navigation reload.
+- A page needs the stylesheets of the application definitions it returns, so a
+  page that returns more of them than the document links loads a new document
+  too.
+- A page that overrides `document_key()` and combines its own value with the
+  look calls `super().document_key()`.
 
 ## Themes and Skins in Your Own CSS
 

@@ -74,6 +74,7 @@ HTTP-only `tori_py.asgi` are the explicit ASGI driver boundaries.
 | Replayable partitioned logs | [Persistent Streams](techniques/persistent-streams/index.md) | the persistent-stream package family |
 | Server-rendered interactive pages | [LiveView](techniques/liveview/index.md) | `tori-py-liveview` |
 | Styled forms and layout for LiveView | [LiveView UI](techniques/liveview-ui/index.md) | `tori-py-liveview-ui` |
+| A chat page for a model, from one generator | [LiveView Kit](techniques/liveview-kit/index.md) | `tori-py-liveview-kit` |
 
 ## Boundaries
 

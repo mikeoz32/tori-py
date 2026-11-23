@@ -298,6 +298,31 @@ def test_offsets_may_be_negative_and_fractions_need_no_leading_zero() -> None:
     assert skin.tokens()["disabled-opacity"] == "1"
 
 
+@pytest.mark.parametrize(
+    "token",
+    [
+        "border_width",
+        "accent_border_width",
+        "shadow_x",
+        "shadow_y",
+        "shadow_blur",
+        "shadow_spread",
+        "focus_width",
+        "focus_offset",
+        "field_focus_offset",
+    ],
+)
+def test_length_only_properties_reject_percentages(token: str) -> None:
+    with pytest.raises(ValueError, match="without a percentage"):
+        Skin.MINIMAL.derive("invalid", **{token: "10%"})
+
+
+def test_percentage_sizes_remain_supported_where_css_accepts_them() -> None:
+    skin = Skin.MINIMAL.derive("relative", radius_control="50%", space_md="5%")
+    assert skin.radius_control == "50%"
+    assert skin.space_md == "5%"
+
+
 def test_skin_derive_rejects_unknown_tokens_and_bad_names() -> None:
     with pytest.raises(TypeError, match="unknown skin tokens: radius"):
         Skin.EDITORIAL.derive("acme", radius="1rem")

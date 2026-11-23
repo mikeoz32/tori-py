@@ -6,6 +6,19 @@ one package does not require the same change in every package.
 
 ## [Unreleased]
 
+### Fixed
+
+- LiveView UI nested dialog dismissal, toast hover/focus pause coordination,
+  and copying complete messages and artifacts without presentation controls.
+  Messages can supply exact copy text independently of their rendered content.
+- LiveView UI skin validation rejects percentage lengths for borders, outlines,
+  and shadows; text in theme tones consistently uses the validated ink mix.
+- LiveView Kit restores retry eligibility from the complete conversation,
+  ignores retry controls for older replies, and reports callback failures
+  through the same reply finalization path as normal completion.
+- The example Anthropic adapter counts each response's final usage snapshot
+  once, including updated input usage after a fallback.
+
 ### Added
 
 - Public package metadata, legal files, security policy, contribution guidance,
@@ -67,6 +80,12 @@ one package does not require the same change in every package.
   identity namespace, CIDs, targets, `send_update()`, async work, and
   destruction handshake. A component's root must be a tag in its own template,
   not a nested component or another dynamic value.
+- LiveView document keys. `LiveView.document_key()` returns an optional string
+  that identifies the document a page renders into. The signed mount token
+  carries the digest of the key, and a live navigation to a page with another
+  key is answered with a full page load of that page instead of joining the
+  document the browser holds. The key is read after `mount()` and
+  `handle_params()`; first joins and reconnects are never compared.
 - LiveView child LiveViews. `LiveView.live_render()` places a registered page as
   a child view, rendered into its container over HTTP and joined on its own
   channel topic over the same socket, and `LiveViewModule.for_root(embedded=...)`
@@ -74,6 +93,21 @@ one package does not require the same change in every package.
   page, view id, parent mount, params, and session, and a child joins only
   under the mount of a joined parent that rendered it. Each child runs its
   callbacks in its own work scope.
+- Separately installable `tori-py-liveview-kit` for prototyping AI
+  applications on LiveView and LiveView UI. `ChatLiveView` turns one async
+  generator, `respond(messages)`, into a chat page with history, a streamed
+  reply, a stop button, error display, and retry. The provider-neutral events
+  are `TextDelta`, `ReasoningDelta`, `ToolCall`, `ToolResult`, `Citation`,
+  `Usage`, and `Error`. The model generator runs in a task its connection owns,
+  its output is rendered in batches, and a stop or a disconnect cancels it and
+  closes it. `initial_messages`, `reply_finished`, and `describe_error` are the
+  hooks for storing conversations and wording failures. `create_app` and
+  `run_app` assemble an application with development defaults. The package has
+  no model client, provider SDK, tool loop, or conversation store; adapters for
+  the Anthropic Messages API and for OpenAI-compatible servers are repository
+  examples.
+- The release metadata check accepts an extra on a family dependency, such as
+  `tori-py-framework[cli]`.
 - LiveView UI component library. `tori-py-liveview-ui` grows from 13 helpers to
   families for layout, content and icons, actions, data display, feedback,
   disclosure, forms, navigation, overlays, and chat and AI, all stateless
@@ -111,6 +145,10 @@ one package does not require the same change in every package.
     those a page returns from `ui_theme()`, `ui_skin()`, and
     `ui_extra_definitions()`, and `stylesheet_link()` accepts definitions.
   - `themed()` gives part of a page its own theme, mode, or skin.
+  - `UiLiveView` implements `document_key()` with its look, so a live
+    navigation to a page with another theme, mode, skin, or application
+    stylesheet loads that page in a new document instead of keeping the old
+    look.
   - The color mode is now separate from the theme: `ui_mode()` and
     `data-tori-ui-mode` carry `auto`, `light`, or `dark`, while `ui_theme()`
     and `data-tori-ui-theme` name a theme. A theme sets each color with

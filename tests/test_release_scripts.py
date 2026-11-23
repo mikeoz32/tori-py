@@ -30,11 +30,12 @@ from scripts.testpypi_smoke import main as run_testpypi_smoke
 
 def test_manifest_covers_family_in_topological_order() -> None:
     manifest = load_manifest()
-    assert len(manifest) == 14
+    assert len(manifest) == 15
     assert EXPECTED_ARTIFACTS == len(manifest) * 2
     names = {item.normalized_name for item in manifest}
     assert "tori-py-framework" in names
     assert "tori-py-liveview-ui" in names
+    assert "tori-py-liveview-kit" in names
     assert "tori-py" not in names
     positions = {item.normalized_name: index for index, item in enumerate(manifest)}
     for item in manifest:
@@ -79,6 +80,10 @@ def test_artifact_pairs_rejects_extra_files(tmp_path: Path) -> None:
         ("tori-example>=2.3.4,<2.4.0", True),
         ("tori-example<2.4.0,>=2.3.4", True),
         ("tori-example == 2.3.4", True),
+        ("tori-example[cli]>=2.3.4,<2.4.0", True),
+        ("tori-example[cli,testing]<2.4.0,>=2.3.4", True),
+        ("tori-example[cli]", False),
+        ("tori-example[cli]>=2.3.4", False),
         ("tori-example", False),
         ("tori-example>=2.3.4", False),
         ("tori-example>=2.3.4,<2.5.0", False),
@@ -195,6 +200,26 @@ def test_distribution_smoke_uses_only_declared_dependency_closure(
         "tori-py-liveview-ui",
     ]
     assert selected == [pairs[item.normalized_name][0].name for item in closure]
+
+
+def test_dependencies_with_extras_stay_in_the_closure() -> None:
+    manifest = load_manifest()
+    liveview_kit = next(
+        item for item in manifest if item.name == "tori-py-liveview-kit"
+    )
+
+    # The extras select optional third-party packages; the family names stay.
+    assert liveview_kit.dependencies == (
+        "tori-py-framework[cli]>=0.1.0,<0.2.0",
+        "tori-py-liveview>=0.1.0,<0.2.0",
+        "tori-py-liveview-ui[markdown]>=0.1.0,<0.2.0",
+    )
+    assert [item.name for item in dependency_closure(liveview_kit, manifest)] == [
+        "tori-py-framework",
+        "tori-py-liveview",
+        "tori-py-liveview-ui",
+        "tori-py-liveview-kit",
+    ]
 
 
 def test_rabbitmq_smoke_installs_local_family_wheels_with_extra(tmp_path: Path) -> None:

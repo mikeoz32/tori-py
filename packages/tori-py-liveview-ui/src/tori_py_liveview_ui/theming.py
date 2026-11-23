@@ -102,6 +102,20 @@ def _offset(label: str, value: object) -> str:
     return value
 
 
+def _length(label: str, value: object) -> str:
+    value = _size(label, value)
+    if value.endswith("%"):
+        raise ValueError(f"{label} must be a length without a percentage")
+    return value
+
+
+def _length_offset(label: str, value: object) -> str:
+    value = _offset(label, value)
+    if value.endswith("%"):
+        raise ValueError(f"{label} must be a signed length without a percentage")
+    return value
+
+
 def _box(label: str, value: object) -> str:
     if not isinstance(value, str):
         raise TypeError(f"{label} must be a string")
@@ -408,7 +422,7 @@ class _Seeds:
     level: ContrastLevel
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class _Levels:
     """OKLCH lightness of each derived color before it is moved for contrast."""
 
@@ -430,18 +444,66 @@ class _Levels:
 _SEED_LEVELS: dict[str, dict[ColorMode, _Levels]] = {
     "standard": {
         "light": _Levels(
-            0.965, 0.995, 0.985, 0.22, 0.52, 0.86, 0.32, 0.6, 0.99, 0.18, 0.16, 0.5, 0.4
+            paper=0.965,
+            panel=0.995,
+            panel_raised=0.985,
+            ink=0.22,
+            muted=0.52,
+            line=0.86,
+            line_strong=0.32,
+            tone=0.6,
+            ink_light=0.99,
+            ink_dark=0.18,
+            shadow_alpha=0.16,
+            scrim_alpha=0.5,
+            surface_chroma=0.4,
         ),
         "dark": _Levels(
-            0.2, 0.245, 0.29, 0.94, 0.74, 0.38, 0.88, 0.72, 0.99, 0.18, 0.42, 0.62, 0.7
+            paper=0.2,
+            panel=0.245,
+            panel_raised=0.29,
+            ink=0.94,
+            muted=0.74,
+            line=0.38,
+            line_strong=0.88,
+            tone=0.72,
+            ink_light=0.99,
+            ink_dark=0.18,
+            shadow_alpha=0.42,
+            scrim_alpha=0.62,
+            surface_chroma=0.7,
         ),
     },
     "high": {
         "light": _Levels(
-            1.0, 1.0, 0.965, 0.0, 0.4, 0.5, 0.0, 0.5, 1.0, 0.0, 0.24, 0.6, 0.0
+            paper=1.0,
+            panel=1.0,
+            panel_raised=0.965,
+            ink=0.0,
+            muted=0.4,
+            line=0.5,
+            line_strong=0.0,
+            tone=0.5,
+            ink_light=1.0,
+            ink_dark=0.0,
+            shadow_alpha=0.24,
+            scrim_alpha=0.6,
+            surface_chroma=0.0,
         ),
         "dark": _Levels(
-            0.0, 0.14, 0.2, 1.0, 0.84, 0.62, 1.0, 0.8, 1.0, 0.0, 0.6, 0.72, 0.0
+            paper=0.0,
+            panel=0.14,
+            panel_raised=0.2,
+            ink=1.0,
+            muted=0.84,
+            line=0.62,
+            line_strong=1.0,
+            tone=0.8,
+            ink_light=1.0,
+            ink_dark=0.0,
+            shadow_alpha=0.6,
+            scrim_alpha=0.72,
+            surface_chroma=0.0,
         ),
     },
 }
@@ -570,7 +632,9 @@ class Skin:
 
     Sizes are ``0`` or a number with ``rem``, ``em``, ``px``, ``%``, ``ch``,
     ``vw``, or ``vh``; offsets may be negative; paddings take one to four
-    sizes. Start from a bundled skin with ``derive()``.
+    sizes. Percentages are accepted only where the CSS property supports them;
+    borders, focus outlines, and shadows require lengths. Start from a bundled
+    skin with ``derive()``.
     """
 
     name: str
@@ -696,8 +760,8 @@ _SKIN_KINDS: dict[str, Callable[[str, object], object]] = {
     "field_control_radius": _size,
     "field_control_padding_block": _size,
     "field_control_padding_inline": _size,
-    "border_width": _size,
-    "accent_border_width": _size,
+    "border_width": _length,
+    "accent_border_width": _length,
     "font_display": _font_stack,
     "font_body": _font_stack,
     "font_code": _font_stack,
@@ -707,13 +771,13 @@ _SKIN_KINDS: dict[str, Callable[[str, object], object]] = {
     "label_font_weight": _weight,
     "label_letter_spacing": _offset,
     "label_text_transform": _case,
-    "shadow_x": _offset,
-    "shadow_y": _offset,
-    "shadow_blur": _size,
-    "shadow_spread": _offset,
-    "focus_width": _size,
-    "focus_offset": _offset,
-    "field_focus_offset": _offset,
+    "shadow_x": _length_offset,
+    "shadow_y": _length_offset,
+    "shadow_blur": _length,
+    "shadow_spread": _length_offset,
+    "focus_width": _length,
+    "focus_offset": _length_offset,
+    "field_focus_offset": _length_offset,
     "disabled_opacity": _opacity,
     "field_disabled_opacity": _opacity,
     "grid_min": _size,

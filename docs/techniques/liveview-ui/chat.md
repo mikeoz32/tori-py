@@ -130,13 +130,27 @@ Three things in it matter for every chat:
 The gallery's chat adds reasoning, a tool call, sources, and token usage to the
 same structure: `examples/tori_py/liveview_ui_gallery/chat.py`.
 
+This page keeps the example short, and three cases are left to you:
+
+- `send_info()` returns `False` when the page's queue is full. If that happens
+  on the last chunk, nothing asks for a flush again and the end of the reply is
+  not rendered.
+- Stop clears the buffer, so chunks that arrived but were not rendered yet are
+  dropped.
+- If `reply_to()` raises, the page stays busy until the visitor presses stop.
+
+[`tori-py-liveview-kit`](../liveview-kit/index.md) packages this pattern with
+those cases handled: it runs the model through `start_async()`, whose
+completion does not depend on the queue, keeps what arrived before a stop, and
+turns a failure into an error on the reply with a retry.
+
 ## Conversation Layout
 
 | Helper | Output |
 | --- | --- |
 | `chat(log, composer, *, label, header)` | A column: optional header, the log, the composer at the bottom |
 | `chat_log(content, *, id, label, stream)` | The scrolling list of messages |
-| `chat_message(content, *, role, id, name, avatar, time, streaming, footer, actions)` | One message |
+| `chat_message(content, *, role, id, name, avatar, time, streaming, footer, actions, copy_text)` | One message |
 | `composer(*, id, submit_event, ...)` | The form a message is written in |
 | `chat_empty(title, *, description, icon, suggestions)` | The welcome shown before the first message |
 | `suggestions(items, *, event)` | Prompts the visitor sends with one click |
@@ -181,6 +195,11 @@ actions = message_actions(
 
 `message_actions` starts with a button that copies the message body; pass
 `copy=False` to leave it out.
+
+Pass `copy_text` to `chat_message` to copy an exact source string, such as the
+original Markdown, independently of the rendered content. The default copies
+the body text without code-block headers or buttons. Artifact copy actions
+include the whole content, including every code block.
 
 ### The Composer
 

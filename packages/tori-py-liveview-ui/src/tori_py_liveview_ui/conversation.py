@@ -133,6 +133,7 @@ def chat_message(
     streaming: bool = False,
     footer: object | None = None,
     actions: object | None = None,
+    copy_text: str | None = None,
 ) -> Template:
     """Render one message of a conversation.
 
@@ -140,11 +141,15 @@ def chat_message(
     caret, and screen readers wait for the message to finish before they read
     it. ``footer`` holds what belongs to the answer, such as ``sources()`` or
     ``token_usage()``, and ``actions`` a ``message_actions()`` row.
+    ``copy_text`` optionally supplies the exact text for the copy action,
+    independently of the rendered reasoning, controls, or status messages.
     """
     one_of("chat message role", role, _MESSAGE_ROLES)
     if id is not None:
         id = html_id("chat message id", id)
     name = optional_nonempty_text("chat message name", name)
+    if copy_text is not None and not isinstance(copy_text, str):
+        raise TypeError("chat message copy text must be a string or None")
     boolean("chat message streaming", streaming)
     attributes = attrs(
         {
@@ -185,10 +190,17 @@ def chat_message(
         else raw("")
     )
     actions_markup = actions if actions is not None else raw("")
+    body = attrs(
+        {
+            "class": "tori-ui-chat-message__body",
+            "data-tori-ui-copy-source": True,
+            "data-tori-ui-copy-text": copy_text,
+        }
+    )
     return (
         t"<article{attributes}>{avatar_markup}"
         t'<div class="tori-ui-chat-message__main">{meta_markup}'
-        t'<div class="tori-ui-chat-message__body" data-tori-ui-copy-source>'
+        t"<div{body}>"
         t"{content}{caret}</div>{footer_markup}{actions_markup}</div></article>"
     )
 
@@ -809,7 +821,8 @@ def artifact_panel(
         t'<h2 id="{id}-title" class="tori-ui-artifact__title">{title}</h2>'
         t'{subtitle_markup}</div><div class="tori-ui-artifact__actions">'
         t"{actions_markup}{copy_markup}</div></header>"
-        t'<div id="{id}-content" class="tori-ui-artifact__content">{content}</div>'
+        t'<div id="{id}-content" class="tori-ui-artifact__content" '
+        t"data-tori-ui-copy-source>{content}</div>"
         t"</section>"
     )
 

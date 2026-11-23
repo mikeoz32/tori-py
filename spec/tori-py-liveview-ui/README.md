@@ -184,3 +184,8 @@ architecture is maintained in
     stylesheet; bundled definitions add no link.
 37. `themed` renders a surface that carries a theme, a mode, or a skin for part
     of a page and inherits what it leaves out.
+38. `UiLiveView.document_key()` returns the theme name, the mode the server
+    renders, the skin name, and the sorted stylesheet paths of the application
+    definitions the page needs, joined with `|`, so LiveView loads a new
+    document when live navigation reaches a page with another look. The script
+    adds no connect params, and the package overrides no lifecycle method.

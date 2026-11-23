@@ -105,6 +105,7 @@ async def mount(self, context: MountContext) -> None:
 | `render()` | After mount and after every state-changing callback | Required |
 | `title()` | With every render | `None`, an empty title |
 | `render_document(live_root, client_script)` | HTTP render only | Minimal HTML5 document |
+| `document_key()` | HTTP render, and each live navigation after `mount()` and `handle_params()` | `None` |
 | `async disconnect()` | Once when a connected page ends | No-op |
 | `live_action` property | Any time | The matched route `action`, or `None` |
 
@@ -230,7 +231,9 @@ Both arguments are framework-generated trusted markup; include each one
 unchanged. Everything else you write in the returned string is trusted application
 HTML, so escape any data you add yourself. Content outside `live_root` is not
 updated by connected renders. [LiveView UI](../liveview-ui/index.md) provides a
-`UiLiveView` base that does this for its stylesheet.
+`UiLiveView` base that does this for its stylesheet. Live navigation keeps
+the document, so pages that render different documents return different
+[document keys](navigation.md#documents-and-document-keys).
 
 ## Server-Initiated Updates
 
