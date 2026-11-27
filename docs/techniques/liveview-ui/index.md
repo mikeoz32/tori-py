@@ -1,14 +1,19 @@
 # LiveView UI
 
-`tori-py-liveview-ui` is a small presentation layer for
-[LiveView](../liveview/index.md) pages: typed, stateless template helpers for
-layout, display, and forms, plus one local stylesheet with color themes and
-visual skins. It adds no JavaScript, no client runtime, no state model, and no
-validation engine. Pages and components keep owning state and behavior.
+`tori-py-liveview-ui` is a component library for
+[LiveView](../liveview/index.md) pages: typed, stateless template helpers
+grouped in families, one local stylesheet, typed themes and skins,
+and local Lit Web Components for behavior that needs the browser. It adds
+no application state model or validation engine.
+Pages and components keep owning state.
 
 ```text
 uv add tori-py-liveview tori-py-liveview-ui
 ```
+
+Two optional extras add features with their own dependency:
+`tori-py-liveview-ui[markdown]` for [`markdown()`](chat.md#markdown) and
+`tori-py-liveview-ui[highlight]` for colored code in it.
 
 ## Setup
 
@@ -55,15 +60,48 @@ class AppModule:
     pass
 ```
 
-`LiveViewUiModule.for_root(key="default")` registers one route that serves the
-bundled CSS at `STYLESHEET_PATH`, a content-addressed path such as
-`/_tori/liveview-ui/<hash>.css` with immutable caching headers and an ETag.
+`LiveViewUiModule.for_root(key="default")` registers the routes that serve the
+bundled CSS at `STYLESHEET_PATH`, document bootstrap at `SCRIPT_PATH`, and
+component modules under a digest of their complete import graph. All
+are content-addressed paths such as `/_tori/liveview-ui/<hash>.css`, served with
+immutable caching headers and an ETag.
 
-`UiLiveView` is a `LiveView` whose `render_document()` adds the stylesheet link
-and the `data-tori-ui-theme` and `data-tori-ui-skin` attributes to `<html>`.
-Override `ui_theme()` and `ui_skin()` to choose them; see
-[Themes and Skins](theming.md). A page with its own `render_document()` can call
-`stylesheet_link()` and set the attributes itself.
+`UiLiveView` is a `LiveView` whose `render_document()`:
+
+- adds the stylesheet link and the script tag to `<head>`;
+- sets the `data-tori-ui-theme`, `data-tori-ui-mode`, and `data-tori-ui-skin`
+  attributes on `<html>`;
+- puts the `tori-ui-document` class on `<body>`, which gives the page the
+  theme's background, text color, and body font, and removes the body margin.
+
+Override `ui_theme()`, `ui_mode()`, and `ui_skin()` to choose the look; see
+[Themes, Modes, and Skins](theming.md). A page with its own `render_document()`
+can call
+`stylesheet_link()` and `script_tag()` and set the attributes and the body class
+itself. Keep the script tag in `<head>` without `defer` or `async`: it registers
+the document mode before paint and loads the component modules. LiveView waits
+for their registration before connecting.
+
+## Browser Behavior
+
+Your state stays on the server. What only the browser needs to know, such as
+whether a menu is open or where a log is scrolled, stays in the browser. The helpers use native elements such as `<details>`
+first, then
+[`JS` commands](../liveview/js-commands.md), and Lit custom elements where
+additional behavior is needed.
+
+For example, `composer(...)` emits `<tori-ui-composer>` around a native form.
+The element owns Enter handling, textarea sizing, and cleanup. Python emits
+escaped attributes and server-rendered contents; LiveView continues updating
+that Light DOM. Lit does not run a second renderer over it. The same pattern
+covers chat logs, dialogs, popups, toasts, tabs, copying, confirmations, tooltips,
+mode selection, and the application shell.
+
+Each behavior has its own local module. The package includes pinned Lit
+ReactiveElement 2.1.2 modules and their license; there is no CDN or Node setup
+for an application. Your [application hooks](../liveview/client-events.md) keep
+using `globalThis.ToriLiveHooks`; UI elements integrate through the public
+Phoenix `createHook` API internally.
 
 ## Helpers
 
@@ -71,30 +109,34 @@ Every helper returns a `Template`, so helpers nest inside each other and inside
 your own templates. Content arguments follow LiveView's escaping rules: strings
 are escaped, and templates and helper results stay markup.
 
-### Layout and Display
+Import them from `tori_py_liveview_ui`. With many helpers on one page, an alias
+keeps the calls short:
 
-| Helper | Output | Options |
+```python
+import tori_py_liveview_ui as ui
+
+panel = ui.card(ui.stack([ui.badge("New"), ui.text("Ready.")]), title="Status")
+```
+
+| Family | Helpers | Guide |
 | --- | --- | --- |
-| `stack(children, *, gap, align)` | Vertical flow | `gap`: `xs`, `sm`, `md`, `lg`, `xl`; `align`: `start`, `center`, `end`, `stretch` |
-| `grid(children, *, columns, gap)` | Responsive grid | `columns`: `"auto"`, `"1"`, `"2"`, `"3"`, `"4"` (strings) |
-| `card(content, *, eyebrow, title, footer)` | `<article>` with optional header and footer | `title` renders as `<h2>` |
-| `alert(content, *, title, tone)` | `<section>` with `role="status"`, or `role="alert"` for `danger` | `tone`: `neutral`, `info`, `success`, `warning`, `danger` |
-| `badge(content, *, tone)` | Inline status label | Same tones as `alert` |
-| `button(label, *, variant, size, button_type, disabled, event, target)` | `<button>` | `variant`: `primary`, `secondary`, `ghost`, `danger`; `size`: `sm`, `md`, `lg`; `button_type`: `button`, `submit`, `reset` |
+| Layout | `app_shell`, `card`, `center`, `container`, `divider`, `grid`, `page_header`, `row`, `scroll_area`, `section`, `spacer`, `split`, `stack`, `toolbar` | [Layout](layout.md) |
+| Content | `blockquote`, `code`, `code_block`, `description_list`, `heading`, `icon`, `image`, `item_list`, `kbd`, `link`, `prose`, `text` | [Content and Icons](content.md) |
+| Actions | `button`, `button_group`, `copy_button`, `icon_button`, `link_button`, `mode_toggle` | [Actions](actions.md) |
+| Display | `avatar`, `avatar_group`, `badge`, `empty_state`, `list_group`, `list_item`, `meter`, `progress`, `sparkline`, `stat`, `status_dot`, `table`, `table_row`, `tag`, `timeline`, `timeline_item`, `tooltip` | [Data Display](display.md) |
+| Feedback | `alert`, `banner`, `busy`, `connection_status`, `flash_group`, `skeleton`, `spinner`, `toast`, `toast_region` | [Feedback](feedback.md) |
+| Disclosure | `accordion`, `collapsible`, `tabs` | [Disclosure and Tabs](disclosure.md) |
+| Navigation | `breadcrumbs`, `nav`, `nav_item`, `navbar`, `pagination`, `skip_link`, `steps`, `tab_links` | [Navigation](navigation.md) |
+| Overlays | `close_overlay`, `confirm_dialog`, `drawer`, `dropdown`, `menu_item`, `modal`, `open_overlay`, `popover` | [Overlays](overlays.md) |
+| Chat and AI | `agent_step`, `agent_steps`, `artifact_panel`, `attachment`, `chat`, `chat_empty`, `chat_log`, `chat_message`, `citation`, `composer`, `conversation_list`, `markdown`, `message_actions`, `reasoning`, `response_branch`, `sources`, `suggestions`, `token_usage`, `tool_call`, `typing_indicator` | [Chat and AI](chat.md) |
+| Themes | `themed`, with the `Theme`, `Palette`, and `Skin` definitions | [Themes, Modes, and Skins](theming.md) |
+| Forms | `checkbox`, `checkbox_group`, `combobox`, `field`, `field_error`, `fieldset`, `form`, `form_actions`, `hidden`, `input`, `multi_select`, `radio_group`, `search`, `segmented`, `select`, `slider`, `switch`, `textarea` | [Forms](forms.md) |
 
-### Forms
+The gallery example shows every helper in each theme and skin:
 
-| Helper | Output |
-| --- | --- |
-| `form(content, *, id, change_event, submit_event, target)` | `<form method="post">` with optional `phx-change`, `phx-submit`, `phx-target` |
-| `input(label, *, id, name, value, input_type, ...)` | Labeled `<input>` with help and error text |
-| `textarea(label, *, id, name, value, rows, ...)` | Labeled `<textarea>` with 1 to 100 rows |
-| `select(label, options, *, id, name, value, prompt, ...)` | Labeled `<select>` over `(value, label)` pairs |
-| `checkbox(label, *, id, name, value, checked, ...)` | Labeled checkbox with an explicit submitted value |
-| `field(label, control, *, control_id, help_text, error, required)` | Label and messages around your own control |
-| `field_error(message, *, id)` | Error paragraph with `role="alert"` |
-
-[Forms](forms.md) explains names, decoded values, validation, and accessibility.
+```text
+uv run tori-py run examples.tori_py.liveview_ui_gallery.app:create_application
+```
 
 ## Events
 
@@ -128,14 +170,19 @@ class TodoComponent(LiveComponent):
 
 The helpers are deliberately closed:
 
-- Visual options are closed sets. An unknown variant, size, tone, gap, or column
-  count raises `ValueError` immediately.
+- Visual options are typed `Literal` sets. Your type checker catches an unknown
+  variant, size, tone, gap, or column count. Python argument types and tuple
+  shapes are trusted rather than checked again at runtime; validate external
+  data before passing it to helpers.
 - There are no `class=` or `**attrs` escape hatches. Style through the theme and
   skin tokens, or write your own template for markup the helpers do not cover.
-- Helpers hold no state and emit no JavaScript. They only render native elements
-  and standard Phoenix bindings.
-- IDs must be non-empty and contain no whitespace; boolean options must be real
-  `bool` values.
+- Python helpers hold no state. They render native elements, standard Phoenix
+  bindings, and `tori-ui-*` custom elements for browser behavior. Each element
+  owns and cleans up only its presentation state.
+- Runtime checks cover semantic constraints: IDs must be non-empty and contain
+  no whitespace, numeric values must meet their documented ranges, accessible
+  names must be non-empty, and related parameters must agree. Escaping and URL
+  scheme restrictions also apply at runtime.
 
 All CSS selectors use the `tori-ui-` prefix and the stylesheet has no global
 reset, so the helpers can sit next to your own styles.
@@ -144,6 +191,15 @@ reset, so the helpers can sit next to your own styles.
 
 | Topic | Read |
 | --- | --- |
+| Rows, grids, panes, regions, and the application shell | [Layout](layout.md) |
+| Headings, text, links, code, lists, images, and icons | [Content and Icons](content.md) |
+| Buttons, link buttons, copying, and the mode toggle | [Actions](actions.md) |
+| Tables, lists, figures, avatars, tags, and progress | [Data Display](display.md) |
+| Alerts, toasts, flash messages, and loading states | [Feedback](feedback.md) |
+| Collapsible sections and tabs | [Disclosure and Tabs](disclosure.md) |
+| Link lists, breadcrumbs, pagination, steps, and the skip link | [Navigation](navigation.md) |
+| Modals, drawers, confirmations, menus, and popovers | [Overlays](overlays.md) |
+| Conversations, streaming replies, model output, and Markdown | [Chat and AI](chat.md) |
 | Form controls, names, validation feedback, accessibility | [Forms](forms.md) |
-| Light and dark themes, bundled skins, custom skins, CSS tokens | [Themes and Skins](theming.md) |
+| Themes, the light and dark mode, skins, your own definitions, CSS tokens | [Themes, Modes, and Skins](theming.md) |
 | Page lifecycle, events, and escaping | [LiveView](../liveview/index.md) |

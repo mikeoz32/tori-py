@@ -5,6 +5,22 @@ A hook can push events to the page and receive a reply, and the page can push
 events to the browser. Pages and components can also update other components
 without passing new assigns through a render.
 
+## Web Components and Client Startup
+
+Libraries can register Web Components before the first LiveView join. After
+loading the pinned official Phoenix APIs, the bootstrap dispatches
+`tori-live:ready` on `window`. A library can call `LiveView.createHook(element,
+callbacks)` from its element's `connectedCallback()`; the element needs a stable
+ID, and hook APIs such as `pushEvent` become available after `mounted`.
+
+A library that loads asynchronously can set `globalThis.ToriLiveReady` to a
+promise before the bootstrap runs. The bootstrap waits for that promise before
+creating and connecting LiveSocket; a rejection reports initialization failure
+without connecting. Libraries should chain an existing readiness promise rather
+than overwrite it. Without a readiness promise, startup is synchronous as before.
+The UI package uses this contract for its local Lit modules; ordinary
+application hooks continue using `ToriLiveHooks`.
+
 ## Register Hooks
 
 The client bootstrap passes `globalThis.ToriLiveHooks` to the official

@@ -1,0 +1,14 @@
+{
+  "package": "@lit/reactive-element",
+  "version": "2.1.2",
+  "source": "https://registry.npmjs.org/@lit/reactive-element/-/reactive-element-2.1.2.tgz",
+  "integrity": "sha512-pbCDiVMnne1lYUIaYNN5wrwQXDtHaYtg7YEFPeW+hws6U47WeFvISGUWekPGKWOP1ygrs0ef0o1VJMk1exos5A==",
+  "license": "BSD-3-Clause",
+  "sha256": {
+    "reactive-element.js": "76e9815ec67d16684bff1444224bf62532d6318dbd8f25e7c1e9546158b1335f",
+    "css-tag.js": "902f8d23ab8fb24afe05596988c22941f080ab58d263e419877006e58ea6c366",
+    "reactive-element.js.map": "b6bdec6d11705ccf7afb499820f2a6a5701bc01430b19e47949dede815096359",
+    "css-tag.js.map": "d125bef52665040f06fd9541630c6756e1223501b41a6db068840b6a276eaa82",
+    "LICENSE": "45d31799d0db956cc3eb5469346abbd9b7025babc5ff29fab10d7095da992ef1"
+  }
+}

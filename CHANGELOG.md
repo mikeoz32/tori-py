@@ -6,6 +6,40 @@ one package does not require the same change in every package.
 
 ## [Unreleased]
 
+### Changed
+
+- LiveView UI browser behavior now lives in local Lit ReactiveElement custom
+  elements with server-owned Light DOM. Python helpers emit `tori-ui-*` tags;
+  native forms, dialogs, Phoenix bindings, application hooks, and UI themes
+  remain supported. The client waits for component registration before joining.
+  Lit ReactiveElement 2.1.2 is included locally with its license and integrity
+  manifest; using the Python package needs neither Node nor a CDN.
+
+- LiveView Kit trusts typed events, messages, hooks, and generators instead of
+  rechecking their Python types at runtime. Semantic constraints and provider
+  boundary validation remain; reply folding keeps typed tool and text records.
+- LiveView UI helpers trust annotated Python arguments and `Literal` options
+  instead of duplicating them with runtime type, tuple-shape, and option checks.
+  Untyped misuse no longer has a guaranteed validation error. Semantic checks,
+  escaping, URL restrictions, and event/target constraints remain enforced.
+- Repository contribution rules require `uv run ty check packages tests examples`
+  and distinguish boundary validation from redundant checks of typed arguments.
+
+### Fixed
+
+- The OpenAI-compatible example keeps distinct Kit tool-call IDs across model
+  requests when a provider omits or reuses its wire IDs.
+- LiveView UI nested dialog dismissal, toast hover/focus pause coordination,
+  and copying complete messages and artifacts without presentation controls.
+  Messages can supply exact copy text independently of their rendered content.
+- LiveView UI skin validation rejects percentage lengths for borders, outlines,
+  and shadows; text in theme tones consistently uses the validated ink mix.
+- LiveView Kit restores retry eligibility from the complete conversation,
+  ignores retry controls for older replies, and reports callback failures
+  through the same reply finalization path as normal completion.
+- The example Anthropic adapter counts each response's final usage snapshot
+  once, including updated input usage after a fallback.
+
 ### Added
 
 - Public package metadata, legal files, security policy, contribution guidance,
@@ -67,6 +101,12 @@ one package does not require the same change in every package.
   identity namespace, CIDs, targets, `send_update()`, async work, and
   destruction handshake. A component's root must be a tag in its own template,
   not a nested component or another dynamic value.
+- LiveView document keys. `LiveView.document_key()` returns an optional string
+  that identifies the document a page renders into. The signed mount token
+  carries the digest of the key, and a live navigation to a page with another
+  key is answered with a full page load of that page instead of joining the
+  document the browser holds. The key is read after `mount()` and
+  `handle_params()`; first joins and reconnects are never compared.
 - LiveView child LiveViews. `LiveView.live_render()` places a registered page as
   a child view, rendered into its container over HTTP and joined on its own
   channel topic over the same socket, and `LiveViewModule.for_root(embedded=...)`
@@ -74,6 +114,66 @@ one package does not require the same change in every package.
   page, view id, parent mount, params, and session, and a child joins only
   under the mount of a joined parent that rendered it. Each child runs its
   callbacks in its own work scope.
+- Separately installable `tori-py-liveview-kit` for prototyping AI
+  applications on LiveView and LiveView UI. `ChatLiveView` turns one async
+  generator, `respond(messages)`, into a chat page with history, a streamed
+  reply, a stop button, error display, and retry. The provider-neutral events
+  are `TextDelta`, `ReasoningDelta`, `ToolCall`, `ToolResult`, `Citation`,
+  `Usage`, and `Error`. The model generator runs in a task its connection owns,
+  its output is rendered in batches, and a stop or a disconnect cancels it and
+  closes it. `initial_messages`, `reply_finished`, and `describe_error` are the
+  hooks for storing conversations and wording failures. `create_app` and
+  `run_app` assemble an application with development defaults. The package has
+  no model client, provider SDK, tool loop, or conversation store; adapters for
+  the Anthropic Messages API and for OpenAI-compatible servers are repository
+  examples.
+- The release metadata check accepts an extra on a family dependency, such as
+  `tori-py-framework[cli]`.
+- LiveView UI component library. `tori-py-liveview-ui` grows from 13 helpers to
+  families for layout, content and icons, actions, data display, feedback,
+  disclosure, forms, navigation, overlays, and chat and AI, all stateless
+  Template helpers with closed options. A gallery example shows every helper in
+  each theme and skin.
+  - The package now also bundles one content-addressed script of
+    `ToriUi`-prefixed Phoenix hooks, served at `SCRIPT_PATH` and linked with
+    `script_tag()`. Helpers use native elements first, `JS` commands second,
+    and a hook only where neither can express a behavior; the browser owns
+    presentation state such as an open menu, a scroll position, or a stored
+    theme, and the page keeps application state.
+  - `UiLiveView` documents load that script, put the `tori-ui-document` surface
+    class on `<body>`, which sets the theme's background, text color, and font
+    and removes the body margin, and apply a color mode the visitor chose
+    with `mode_toggle()` before the first paint.
+  - `button` gains icons, event values, a loading state, `phx-disable-with`, a
+    native confirmation, and full width; `alert` gains actions and dismissal;
+    `input` and `textarea` gain bounds, read-only state, and debounce or
+    throttle.
+  - The optional `markdown` extra adds `markdown()` on `markdown-it-py`, which
+    treats its source as untrusted, and the optional `highlight` extra colors
+    its code blocks with Pygments. The required dependencies are unchanged.
+- LiveView UI theme framework. Themes and skins are typed definitions:
+  `Theme` holds a light and a dark `Palette`, and `Skin` holds the shape
+  tokens. The package generates their CSS, validates every value against the
+  kind of its token, and checks a theme for WCAG AA contrast when it is
+  built, raising `ThemeContrastError` unless `allow_low_contrast=True`.
+  - `Theme.from_seeds()` derives both palettes from an accent and an optional
+    neutral color; `Palette.derive()` and `Skin.derive()` change some values
+    of a definition. `Theme.SLATE` and `Theme.CONTRAST` join `Theme.PAPER`,
+    and the bundled skins are `Skin.EDITORIAL`, `Skin.MINIMAL`, and
+    `Skin.ROUNDED`.
+  - `LiveViewUiModule.for_root(themes=..., skins=...)` serves each application
+    definition as its own content-addressed stylesheet, `UiLiveView` links
+    those a page returns from `ui_theme()`, `ui_skin()`, and
+    `ui_extra_definitions()`, and `stylesheet_link()` accepts definitions.
+  - `themed()` gives part of a page its own theme, mode, or skin.
+  - `UiLiveView` implements `document_key()` with its look, so a live
+    navigation to a page with another theme, mode, skin, or application
+    stylesheet loads that page in a new document instead of keeping the old
+    look.
+  - The color mode is now separate from the theme: `ui_mode()` and
+    `data-tori-ui-mode` carry `auto`, `light`, or `dark`, while `ui_theme()`
+    and `data-tori-ui-theme` name a theme. A theme sets each color with
+    `light-dark()`, which needs Chrome 123, Firefox 120, or Safari 17.5.
 
 ### Fixed
 

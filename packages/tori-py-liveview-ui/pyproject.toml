@@ -28,9 +28,20 @@ Repository = "https://github.com/mikeoz32/tori-py"
 Issues = "https://github.com/mikeoz32/tori-py/issues"
 Changelog = "https://github.com/mikeoz32/tori-py/blob/main/CHANGELOG.md"
 
+[project.optional-dependencies]
+markdown = [
+    "markdown-it-py>=3,<5",
+]
+highlight = [
+    "pygments>=2.17,<3",
+]
+
 [build-system]
 requires = ["uv_build==0.11.28"]
 build-backend = "uv_build"
+
+[tool.uv.build-backend]
+source-include = ["scripts/sync_lit_assets.py"]
 
 [tool.uv.sources]
 tori-py-framework = { workspace = true }

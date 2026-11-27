@@ -12,7 +12,19 @@ uv run ruff format --check .
 uv run pytest
 ```
 
-Run the repository's `ty` command from `AGENTS.md` when changing Python code.
+Type checking is required for every Python change:
+
+```bash
+uv run ty check packages tests examples
+```
+
+Trust annotated Python interfaces instead of repeating their types or `Literal`
+options in runtime checks. Validate untrusted inputs at their boundary, and keep
+semantic constraints such as ranges, required names, and safe URLs and selectors.
+Runtime dispatch should distinguish supported variants with different behavior;
+`typing.overload` declares static signatures, not runtime dispatch. See the
+typing and runtime validation rules in `AGENTS.md`.
+
 Broker integration tests additionally require the documented Docker and
 RabbitMQ setup.
 

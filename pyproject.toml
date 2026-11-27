@@ -15,6 +15,7 @@ members = [
     "packages/tori-py-persistent-streams-rabbitmq",
     "packages/tori-py-liveview",
     "packages/tori-py-liveview-ui",
+    "packages/tori-py-liveview-kit",
 ]
 
 [tool.uv.sources]
@@ -32,6 +33,7 @@ tori-py-persistent-streams = { workspace = true }
 tori-py-persistent-streams-rabbitmq = { workspace = true }
 tori-py-liveview = { workspace = true }
 tori-py-liveview-ui = { workspace = true }
+tori-py-liveview-kit = { workspace = true }
 
 [dependency-groups]
 dev = [
@@ -44,7 +46,8 @@ dev = [
     "tori-py-openapi>=0.1.0,<0.2.0",
     "tori-py-persistent-streams>=0.1.0,<0.2.0",
     "tori-py-liveview>=0.1.0,<0.2.0",
-    "tori-py-liveview-ui>=0.1.0,<0.2.0",
+    "tori-py-liveview-ui[highlight,markdown]>=0.1.0,<0.2.0",
+    "tori-py-liveview-kit[highlight]>=0.1.0,<0.2.0",
     "tori-py-framework[testing]>=0.1.0,<0.2.0",
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",
@@ -59,6 +62,8 @@ dev = [
     "tzdata>=2026.3",
     "pytest-bdd>=8.1,<9",
     "alembic>=1.20,<2",
+    "anthropic>=1,<2",
+    "openai>=2,<3",
 ]
 docs = [
     "mkdocs>=1.6.1,<2",

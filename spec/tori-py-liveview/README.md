@@ -46,6 +46,14 @@ This directory records the executable contract for `tori-py-liveview`.
     back to a full reload. `LiveSession` groups routes with shared `on_mount`
     hooks; authorization lives in hooks, `mount`, and `handle_params`, never in
     the HTTP pipeline alone.
+ 22. `document_key()` returns an optional string, `None` by default, that
+    identifies the document a page renders into. The HTTP render signs the
+    key's SHA-256 digest into the mount token. A live navigation join compares
+    the digest of the mounted page's key, read after `mount` and
+    `handle_params`, with the token's; a difference replies `redirect` to the
+    page's own resource, carrying flash, and replaces any navigation the page
+    queued. A first join and a reconnect never compare. A key that is neither
+    a string nor `None` raises `LiveViewError`.
  16. The bootstrap passes `globalThis.ToriLiveHooks` to the official `LiveSocket`
     as its `hooks` object; hook events reach `handle_event` unchanged.
     `push_event` queues validated JSON-object payloads delivered once under the
@@ -103,3 +111,12 @@ This directory records the executable contract for `tori-py-liveview`.
 
 The complete architectural and wire contract is maintained in
 `TORI_PY_LIVEVIEW_ARCHITECTURE.md`.
+
+## Web Component startup integration
+
+After the pinned official client APIs load, the bootstrap dispatches
+`tori-live:ready` on window and awaits an optional `globalThis.ToriLiveReady`
+promise before creating and connecting LiveSocket. Rejection reports startup
+failure without connecting. With no promise the existing synchronous path is
+preserved. Components can use the public `LiveView.createHook` API from their
+connected lifecycle; the core depends on neither Lit nor the UI package.

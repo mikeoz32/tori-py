@@ -382,23 +382,71 @@ part of the current server surface. Guide:
 
 ### `tori_py_liveview_ui`
 
-The public facade is limited to:
+The public facade is flat and grouped in families:
 
-- Display and layout: `button`, `badge`, `alert`, `card`, `stack`, `grid`.
-- Forms: `form`, `field`, `field_error`, `input`, `textarea`, `select`,
-  `checkbox`.
+- Layout: `app_shell`, `card`, `center`, `container`, `divider`, `grid`,
+  `page_header`, `row`, `scroll_area`, `section`, `spacer`, `split`, `stack`,
+  `toolbar`.
+- Content and icons: `blockquote`, `code`, `code_block`, `description_list`,
+  `heading`, `icon`, `image`, `item_list`, `kbd`, `link`, `prose`, `text`.
+- Actions: `button`, `button_group`, `copy_button`, `icon_button`,
+  `link_button`, `mode_toggle`.
+- Data display: `avatar`, `avatar_group`, `badge`, `empty_state`, `list_group`,
+  `list_item`, `meter`, `progress`, `sparkline`, `stat`, `status_dot`, `table`,
+  `table_row`, `TableColumn`, `tag`, `timeline`, `timeline_item`, `tooltip`.
+- Feedback: `alert`, `banner`, `busy`, `connection_status`, `flash_group`,
+  `skeleton`, `spinner`, `toast`, `toast_region`.
+- Disclosure: `accordion`, `collapsible`, `tabs`.
+- Forms: `checkbox`, `checkbox_group`, `combobox`, `field`, `field_error`,
+  `fieldset`, `form`, `form_actions`, `hidden`, `input`, `multi_select`,
+  `radio_group`, `search`, `segmented`, `select`, `slider`, `switch`,
+  `textarea`.
+- Navigation: `breadcrumbs`, `nav`, `nav_item`, `navbar`, `pagination`,
+  `skip_link`, `steps`, `tab_links`.
+- Overlays: `close_overlay`, `confirm_dialog`, `drawer`, `dropdown`,
+  `menu_item`, `modal`, `open_overlay`, `popover`.
+- Chat and AI: `agent_step`, `agent_steps`, `artifact_panel`, `attachment`,
+  `chat`, `chat_empty`, `chat_log`, `chat_message`, `citation`, `composer`,
+  `conversation_list`, `markdown`, `message_actions`, `reasoning`,
+  `response_branch`, `sources`, `suggestions`, `token_usage`, `tool_call`,
+  `typing_indicator`.
 - Composition and documents: `LiveViewUiModule`, `UiLiveView`,
-  `STYLESHEET_PATH`, `stylesheet_link`.
+  `STYLESHEET_PATH`, `SCRIPT_PATH`, `stylesheet_link`, `script_tag`.
 
-The components are stateless Python 3.14 Template helpers. They reuse LiveView's
-escaping, Phoenix render-tree, `phx-click`, `phx-change`, `phx-submit`,
-`phx-blur`, and `phx-target` contracts and ship one local content-addressed
-stylesheet; they do not add a client runtime, validation engine, or state model.
-`UiLiveView.ui_theme()` selects `auto`, `light`, or `dark` color mode, while
-`ui_skin()` independently selects the default `editorial`, bundled `minimal` or
-`rounded`, or a validated application-owned CSS skin name. Guide:
+The components are stateless Python 3.14 Template helpers with closed options.
+They reuse LiveView's escaping, Phoenix render-tree, `phx-*` binding, `JS`
+command, hook, and component-target contracts. The package ships one local
+content-addressed stylesheet and one local content-addressed script of
+`ToriUi`-prefixed Phoenix hooks; it does not add a client runtime, validation
+engine, or state model. `markdown` needs the optional `markdown` extra.
+`UiLiveView.ui_theme()` selects a `Theme`, `ui_mode()` its `auto`, `light`, or
+`dark` palette, and `ui_skin()` a `Skin`. `Theme`, `Palette`, and `Skin` are
+typed definitions whose CSS the package generates; `LiveViewUiModule.for_root()`
+registers the ones an application defines. Guide:
 [LiveView UI](../techniques/liveview-ui/index.md); generated reference:
 [LiveView UI API](generated/liveview-ui.md).
+
+## `tori-py-liveview-kit`
+
+### `tori_py_liveview_kit`
+
+- Page: `ChatLiveView`.
+- Events: `TextDelta`, `ReasoningDelta`, `ToolCall`, `ToolResult`, `Citation`,
+  `Usage`, `Error`, and their union `ChatEvent`.
+- Conversation: `UserMessage`, `AssistantMessage`, `Message`, `TextPart`,
+  `ReasoningPart`, `ToolPart`, `MessagePart`, `ReplyStatus`.
+- Launcher: `create_app`, `run_app`.
+
+`ChatLiveView` turns one async generator, `respond(messages)`, into a
+conversation: it keeps the history, streams the reply in batches, and stops,
+reports, and retries it. The model generator runs in a task its connection
+owns and reports only through the events it yields. `initial_messages`,
+`reply_finished`, and `describe_error` are the hooks for storing conversations
+and wording failures. `create_app` and `run_app` assemble LiveView and LiveView
+UI with development defaults. The package contains no model client, provider
+SDK, tool loop, or conversation store, and ships no stylesheet or script of its
+own. Guide: [LiveView Kit](../techniques/liveview-kit/index.md); generated
+reference: [LiveView Kit API](generated/liveview-kit.md).
 
 ## Reading generated reference
 

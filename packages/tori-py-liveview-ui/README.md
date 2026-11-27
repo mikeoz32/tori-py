@@ -1,14 +1,27 @@
 # ToriPy LiveView UI
 
-`tori-py-liveview-ui` is a separately installable presentation foundation for
-`tori-py-liveview`. It provides stateless typed display, layout, and form
-template helpers, a local content-addressed stylesheet, and an optional
-`UiLiveView` document base with independent color themes and visual skins. It
-does not add another browser client, protocol, validation engine, state model,
-or JavaScript runtime.
+`tori-py-liveview-ui` is a separately installable component library for
+`tori-py-liveview`. It provides stateless typed template helpers grouped in
+families, a local content-addressed stylesheet, local Lit Web Components, and an optional `UiLiveView` document base with independent
+color themes and visual skins. It does not add another browser client, protocol,
+validation engine, or state model.
+
+Python argument types, tuple shapes, and closed `Literal` options are enforced
+by static type checking. Helpers trust those annotations and do not promise
+runtime type errors for untyped calls. Validate external data before passing it
+to a helper. Runtime checks retain semantic constraints such as required names,
+numeric ranges, safe IDs/selectors, and argument relationships; rendering keeps
+its escaping and URL scheme protections.
 
 ```bash
 uv add tori-py-liveview-ui
+```
+
+The optional `markdown` extra adds the `markdown()` helper on `markdown-it-py`,
+and the optional `highlight` extra colors its code blocks with Pygments:
+
+```bash
+uv add "tori-py-liveview-ui[markdown,highlight]"
 ```
 
 ## Setup
@@ -28,9 +41,11 @@ class ApplicationModule:
     pass
 ```
 
-`LiveViewUiModule` serves the exact bundled CSS bytes at the immutable
-content-addressed `STYLESHEET_PATH`. `UiLiveView` inserts the corresponding
-stylesheet link and sets `data-tori-ui-theme="auto"` plus
+`LiveViewUiModule` serves the exact bundled CSS and JavaScript bytes at the
+immutable content-addressed `STYLESHEET_PATH` and `SCRIPT_PATH`. `UiLiveView`
+inserts the corresponding stylesheet link and script tag, puts the
+`tori-ui-document` surface class on `<body>`, and sets
+`data-tori-ui-theme="paper"`, `data-tori-ui-mode="auto"`, and
 `data-tori-ui-skin="editorial"` by default:
 
 ```python
@@ -49,16 +64,66 @@ class DashboardLive(UiLiveView):
         return "minimal"
 ```
 
-Override `ui_theme()` with `"light"` or `"dark"` for a fixed theme. A custom
-`LiveView.render_document()` can use `stylesheet_link()` and set the theme and
-skin data attributes directly instead.
+Override `ui_mode()` with `"light"` or `"dark"` for a fixed color mode. A custom
+`LiveView.render_document()` can use `stylesheet_link()` and `script_tag()` and
+set the theme, mode, and skin data attributes directly instead.
+
+Browser behavior lives in `tori-ui-*` custom elements built on Lit
+ReactiveElement 2.1.2. Python renders their Light DOM; LiveView keeps updating
+it, while the element owns listeners, observers, timers, and reactive attributes.
+Native forms and dialogs stay native. Public Phoenix `createHook` calls inside
+the elements integrate patch updates without named UI entries in the
+application's `ToriLiveHooks` registry.
+
+`script_tag()` emits a small blocking document bootstrap and an ES module
+entry. The bootstrap applies a stored mode before paint; LiveView waits for
+component registration before connecting. Every component and its pinned Lit
+dependency is served locally under content-addressed paths. The wheel contains
+the upstream license and integrity manifest. No Node setup or CDN is required.
+Maintainers can verify vendored bytes with
+`uv run packages/tori-py-liveview-ui/scripts/sync_lit_assets.py --check` or restore
+them with the same command without `--check`.
 
 ## Components
 
-Display and layout:
+The helpers are grouped in families:
+
+- Layout: `app_shell`, `card`, `center`, `container`, `divider`, `grid`,
+  `page_header`, `row`, `scroll_area`, `section`, `spacer`, `split`, `stack`,
+  and `toolbar`.
+- Content: `blockquote`, `code`, `code_block`, `description_list`, `heading`,
+  `image`, `item_list`, `kbd`, `link`, `prose`, `text`, and `icon` with a closed
+  set of bundled inline SVG icons.
+- Actions: `button`, `button_group`, `copy_button`, `icon_button`,
+  `link_button`, and `mode_toggle`.
+- Display: `avatar`, `avatar_group`, `badge`, `empty_state`, `list_group`,
+  `list_item`, `meter`, `progress`, `sparkline`, `stat`, `status_dot`, `table`,
+  `table_row`, `tag`, `timeline`, `timeline_item`, and `tooltip`.
+- Feedback: `alert`, `banner`, `busy`, `connection_status`, `flash_group`,
+  `skeleton`, `spinner`, `toast`, and `toast_region`.
+- Disclosure: `accordion`, `collapsible`, and `tabs`.
+- Navigation: `navbar`, `nav`, `nav_item`, `breadcrumbs`, `pagination`, `steps`,
+  `tab_links`, and `skip_link`.
+- Overlays: `modal`, `drawer`, `confirm_dialog`, `dropdown`, `menu_item`,
+  `popover`, and the `open_overlay` and `close_overlay` commands.
+- Chat and AI: `chat`, `chat_log`, `chat_message`, `message_actions`,
+  `composer`, `suggestions`, `chat_empty`, `typing_indicator`,
+  `conversation_list`, `response_branch`, `reasoning`, `tool_call`,
+  `agent_steps`, `agent_step`, `sources`, `citation`, `attachment`,
+  `token_usage`, `artifact_panel`, and `markdown`.
+- Forms: `form`, `fieldset`, `form_actions`, `field`, `field_error`, `input`,
+  `textarea`, `select`, `multi_select`, `combobox`, `search`, `slider`,
+  `checkbox`, `checkbox_group`, `radio_group`, `segmented`, `switch`, and
+  `hidden`.
+
+The gallery in `examples/tori_py/liveview_ui_gallery` shows every helper in each
+theme and skin.
+
+Foundation helpers:
 
 - `button`: primary, secondary, ghost, and danger variants; small, medium, and
-  large sizes; optional Phoenix `phx-click` event and component `phx-target`.
+  large sizes; optional Phoenix `phx-click` event and component `phx-target`;
+  icons, event values, loading state, and a native confirmation.
 - `badge`: neutral, info, success, warning, and danger tones.
 - `alert`: accessible status or danger alert with an optional title.
 - `card`: optional eyebrow, heading, and footer regions.
@@ -134,19 +199,37 @@ as `control_id`, connect optional `<control-id>-help` and
 `<control-id>-error` descriptions, and apply native `required` and
 `aria-invalid` state itself.
 
-## Skins
+## Themes, Modes, and Skins
 
-Color theme and visual skin are separate:
+Color theme, color mode, and visual skin are separate:
 
-- `ui_theme()` selects `auto`, `light`, or `dark` palette values.
-- `ui_skin()` selects geometry, density, typography, and shadows.
+- `ui_theme()` selects a `Theme`: one palette for light and one for dark.
+- `ui_mode()` selects the `auto`, `light`, or `dark` palette.
+- `ui_skin()` selects a `Skin`: geometry, density, typography, and shadows.
 
-Bundled skins are `editorial` (default), `minimal`, and `rounded`. Skin selection
-is part of the initial outer document and does not change through normal
-connected LiveView diffs.
+Themes and skins are typed definitions, and the package generates their CSS.
+`Theme.from_seeds()` derives a theme from one or two colors, `Skin.derive()`
+changes some tokens of a bundled skin, every value is validated, and a theme
+is checked for WCAG AA contrast when it is built:
 
-Application-owned skin names match `[a-z][a-z0-9-]{0,63}` and override public
-tokens in application CSS loaded after the package stylesheet:
+```python
+from tori_py_liveview_ui import LiveViewUiModule, Skin, Theme
+
+ACME = Theme.from_seeds("acme", accent="#7c3aed", neutral="#6b7280")
+COMPACT = Skin.MINIMAL.derive("compact", radius_control="0.5rem")
+ui_module = LiveViewUiModule.for_root(themes=[ACME], skins=[COMPACT])
+```
+
+A page returns `ACME` from `ui_theme()` and `COMPACT` from `ui_skin()`. The
+bundled themes are `Theme.PAPER` (default), `Theme.SLATE`, and `Theme.CONTRAST`.
+
+Bundled skins are `Skin.EDITORIAL` (default), `Skin.MINIMAL`, and `Skin.ROUNDED`.
+The theme and the skin are part of the initial outer document and do not change
+through normal connected LiveView diffs; the visitor switches the mode in the
+browser with `mode_toggle()`.
+
+A page may instead return a name that matches `[a-z][a-z0-9-]{0,63}` and define
+the tokens in application CSS loaded after the package stylesheet:
 
 ```python
 class BrandLive(UiLiveView):
@@ -184,9 +267,9 @@ includes explicit and system-driven light/dark themes, three bundled skins,
 responsive grids, visible keyboard focus, disabled behavior, and reduced-motion
 support.
 
-There is no CDN, Node dependency, external font, global reset, runtime
-JavaScript, validation/coercion engine, or widget-owned behavior in this
-package. A future Tailwind integration belongs in a separately distributed
+There is no CDN, Node dependency, external font, global reset, domain
+validation/coercion engine, or client-side application store. Browser
+presentation behavior belongs to the packaged Lit elements. A future Tailwind integration belongs in a separately distributed
 precompiled skin adapter, not in the core runtime dependency graph.
 
 See the [LiveView UI guide](https://mikeoz32.github.io/tori-py/techniques/liveview-ui/)

@@ -123,8 +123,18 @@ nav:
           - Testing: techniques/liveview/testing.md
       - LiveView UI:
           - Overview: techniques/liveview-ui/index.md
+          - Layout: techniques/liveview-ui/layout.md
+          - Content and Icons: techniques/liveview-ui/content.md
+          - Actions: techniques/liveview-ui/actions.md
+          - Data Display: techniques/liveview-ui/display.md
+          - Feedback: techniques/liveview-ui/feedback.md
+          - Disclosure and Tabs: techniques/liveview-ui/disclosure.md
+          - Navigation: techniques/liveview-ui/navigation.md
+          - Overlays: techniques/liveview-ui/overlays.md
+          - Chat and AI: techniques/liveview-ui/chat.md
           - Forms: techniques/liveview-ui/forms.md
-          - Themes and Skins: techniques/liveview-ui/theming.md
+          - Themes, Modes, and Skins: techniques/liveview-ui/theming.md
+      - LiveView Kit: techniques/liveview-kit/index.md
       - CQRS:
           - Overview: techniques/cqrs/index.md
           - Framework-neutral Core: techniques/cqrs/core.md
@@ -177,6 +187,7 @@ nav:
           - OpenAPI: reference/generated/openapi.md
           - LiveView: reference/generated/liveview.md
           - LiveView UI: reference/generated/liveview-ui.md
+          - LiveView Kit: reference/generated/liveview-kit.md
           - Microservices: reference/generated/microservices.md
           - Persistent Streams Core: reference/generated/persistent-streams-core.md
           - ToriPy Persistent Streams: reference/generated/persistent-streams.md
