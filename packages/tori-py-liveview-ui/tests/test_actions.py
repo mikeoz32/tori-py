@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from html import escape
 from string.templatelib import Template
-from typing import Any, cast
+from typing import Any
 
 import pytest
 import tori_py_liveview_ui
@@ -19,8 +19,7 @@ from tori_py_liveview_ui import (
     theme_toggle,
 )
 
-# Calls that break a helper's contract go through an untyped alias.
-ui = cast(Any, tori_py_liveview_ui)
+ui = tori_py_liveview_ui
 
 
 def _render(template: Template) -> str:
@@ -197,22 +196,6 @@ def test_theme_toggle_is_a_browser_owned_group_of_three_options() -> None:
 @pytest.mark.parametrize(
     ("call", "error", "message"),
     [
-        (lambda: ui.button("x", icon="unicorn"), ValueError, "button icon must be"),
-        (
-            lambda: ui.button("x", icon_end="unicorn"),
-            ValueError,
-            "button end icon must be",
-        ),
-        (
-            lambda: ui.button("x", loading=1),
-            TypeError,
-            "button loading must be a boolean",
-        ),
-        (
-            lambda: ui.button("x", full_width=1),
-            TypeError,
-            "button full width must be a boolean",
-        ),
         (
             lambda: ui.button("x", disable_with=" "),
             ValueError,
@@ -224,34 +207,9 @@ def test_theme_toggle_is_a_browser_owned_group_of_three_options() -> None:
             "button confirm cannot be empty",
         ),
         (
-            lambda: ui.button("x", event="e", values=[("id", 1)]),
-            TypeError,
-            "button values must be a mapping or None",
-        ),
-        (
-            lambda: ui.button("x", event="e", values={"id": None}),
-            TypeError,
-            "button values must be strings, numbers, or booleans",
-        ),
-        (
-            lambda: ui.icon_button("unicorn", label="x"),
-            ValueError,
-            "icon button icon must be one of",
-        ),
-        (
             lambda: ui.icon_button("x", label=""),
             ValueError,
             "icon button label cannot be empty",
-        ),
-        (
-            lambda: ui.icon_button("x", label="Close", variant="link"),
-            ValueError,
-            "icon button variant must be one of",
-        ),
-        (
-            lambda: ui.icon_button("x", label="Close", pressed="true"),
-            TypeError,
-            "icon button pressed must be a boolean",
         ),
         (
             lambda: ui.icon_button("x", label="Close", target=1),
@@ -264,11 +222,6 @@ def test_theme_toggle_is_a_browser_owned_group_of_three_options() -> None:
             "link button href cannot be empty",
         ),
         (
-            lambda: ui.link_button("x", href="/a", size="xl"),
-            ValueError,
-            "link button size must be one of",
-        ),
-        (
             lambda: ui.link_button("x", href="docs", live="navigate"),
             ValueError,
             "link button live href must be a root-relative path",
@@ -279,19 +232,9 @@ def test_theme_toggle_is_a_browser_owned_group_of_three_options() -> None:
             "button group label cannot be empty",
         ),
         (
-            lambda: ui.button_group([], label="x", attached=1),
-            TypeError,
-            "button group attached must be a boolean",
-        ),
-        (
             lambda: ui.copy_button(to="#x", label=""),
             ValueError,
             "copy button label cannot be empty",
-        ),
-        (
-            lambda: ui.copy_button(to="#x", variant="link"),
-            ValueError,
-            "copy button variant must be one of",
         ),
         (lambda: ui.theme_toggle(id="a b"), ValueError, "theme toggle id must match"),
         (

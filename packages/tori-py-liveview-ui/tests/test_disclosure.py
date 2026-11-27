@@ -4,15 +4,14 @@ import re
 from collections.abc import Callable
 from html import escape
 from string.templatelib import Template
-from typing import Any, cast
+from typing import Any
 
 import pytest
 import tori_py_liveview_ui
 from tori_py_liveview import JS, html
 from tori_py_liveview_ui import accordion, collapsible, disclosure, icon, tabs
 
-# Calls that break a helper's contract go through an untyped alias.
-ui = cast(Any, tori_py_liveview_ui)
+ui = tori_py_liveview_ui
 
 
 def _render(template: Template) -> str:
@@ -123,11 +122,6 @@ def test_page_owned_tabs_push_the_key_and_render_only_the_active_panel() -> None
     ("call", "error", "message"),
     [
         (
-            lambda: ui.collapsible("a", "b", open=1),
-            TypeError,
-            "collapsible open must be a boolean",
-        ),
-        (
             lambda: ui.collapsible("a", "b", id="a b"),
             ValueError,
             "collapsible id cannot contain whitespace",
@@ -143,11 +137,6 @@ def test_page_owned_tabs_push_the_key_and_render_only_the_active_panel() -> None
             "tabs requires at least one item",
         ),
         (
-            lambda: ui.tabs([("a", "A")], id="t", label="T"),
-            TypeError,
-            "tabs items must be (key, label, content) tuples",
-        ),
-        (
             lambda: ui.tabs([("a b", "A", "x")], id="t", label="T"),
             ValueError,
             "tabs keys must match [A-Za-z0-9_-]+",
@@ -156,11 +145,6 @@ def test_page_owned_tabs_push_the_key_and_render_only_the_active_panel() -> None
             lambda: ui.tabs([("a", "A", "x"), ("a", "B", "y")], id="t", label="T"),
             ValueError,
             "tabs keys must be unique",
-        ),
-        (
-            lambda: ui.tabs([("a", "A", "x")], id="t", label="T", active="b"),
-            ValueError,
-            "tabs active must be one of the item keys",
         ),
         (
             lambda: ui.tabs([("a", "A", "x")], id="t.x", label="T"),

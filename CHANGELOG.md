@@ -6,6 +6,15 @@ one package does not require the same change in every package.
 
 ## [Unreleased]
 
+### Changed
+
+- LiveView UI helpers trust annotated Python arguments and `Literal` options
+  instead of duplicating them with runtime type, tuple-shape, and option checks.
+  Untyped misuse no longer has a guaranteed validation error. Semantic checks,
+  escaping, URL restrictions, and event/target constraints remain enforced.
+- Repository contribution rules require `uv run ty check packages tests examples`
+  and distinguish boundary validation from redundant checks of typed arguments.
+
 ### Added
 
 - Public package metadata, legal files, security policy, contribution guidance,

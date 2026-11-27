@@ -22,8 +22,7 @@ from tori_py_liveview_ui import (
     popover,
 )
 
-# Calls that break a helper's contract go through an untyped alias.
-ui = cast(Any, tori_py_liveview_ui)
+ui = tori_py_liveview_ui
 
 _KEEP_OPEN = JS().ignore_attributes(["open"])
 
@@ -240,51 +239,9 @@ def test_popover_opens_a_labeled_panel_of_any_content() -> None:
         (lambda: ui.modal("x", id="a.b", title="T"), ValueError, "modal id must match"),
         (lambda: ui.modal("x", id="m", title=""), ValueError, "modal title cannot be"),
         (
-            lambda: ui.modal("x", id="m", title="T", size="huge"),
-            ValueError,
-            "modal size must be one of",
-        ),
-        (
-            lambda: ui.modal("x", id="m", title="T", open="yes"),
-            TypeError,
-            "modal open must be a boolean",
-        ),
-        (
             lambda: ui.modal("x", id="m", title="T", target=1),
             ValueError,
             "modal target requires an event",
-        ),
-        (
-            lambda: ui.drawer("x", id="d", title="T", side="top"),
-            ValueError,
-            "drawer side must be one of",
-        ),
-        (
-            lambda: ui.confirm_dialog("x", id="c", title="T", confirm_event=None),
-            ValueError,
-            "confirm dialog confirm event is required",
-        ),
-        (
-            lambda: ui.confirm_dialog(
-                "x", id="c", title="T", confirm_event="e", tone="warning"
-            ),
-            ValueError,
-            "confirm dialog tone must be one of",
-        ),
-        (
-            lambda: ui.dropdown("x", [], id="d", align="center"),
-            ValueError,
-            "dropdown alignment must be one of",
-        ),
-        (
-            lambda: ui.dropdown("x", [], id="d", variant="link"),
-            ValueError,
-            "dropdown variant must be one of",
-        ),
-        (
-            lambda: ui.dropdown("x", [], id="d", icon="unicorn"),
-            ValueError,
-            "dropdown icon must be one of",
         ),
         (
             lambda: ui.menu_item("x"),
@@ -305,11 +262,6 @@ def test_popover_opens_a_labeled_panel_of_any_content() -> None:
             lambda: ui.menu_item("x", event="e", live="patch"),
             ValueError,
             "menu item live requires an href",
-        ),
-        (
-            lambda: ui.menu_item("x", event="e", tone="warning"),
-            ValueError,
-            "menu item tone must be one of",
         ),
         (
             lambda: ui.popover("x", "y", id="p", panel_label=""),

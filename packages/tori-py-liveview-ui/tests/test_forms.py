@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from collections.abc import Callable
 from string.templatelib import Template
-from typing import Any, cast
+from typing import Any
 
 import pytest
 import tori_py_liveview_ui
@@ -26,8 +26,7 @@ from tori_py_liveview_ui import (
     textarea,
 )
 
-# Calls that break a helper's contract go through an untyped alias.
-ui = cast(Any, tori_py_liveview_ui)
+ui = tori_py_liveview_ui
 
 _OPTIONS = [("a", "Alpha"), ("b", "Beta <b>")]
 
@@ -282,16 +281,6 @@ def test_textarea_takes_length_bounds_and_timing() -> None:
     ("call", "error", "message"),
     [
         (
-            lambda: ui.radio_group("P", [("a",)], id="p", name="p"),
-            TypeError,
-            "radio group options must be two-item tuples",
-        ),
-        (
-            lambda: ui.radio_group("P", [(1, "One")], id="p", name="p"),
-            TypeError,
-            "radio group option values must be strings",
-        ),
-        (
             lambda: ui.radio_group("", [], id="p", name="p"),
             ValueError,
             "radio group label cannot be empty",
@@ -302,39 +291,14 @@ def test_textarea_takes_length_bounds_and_timing() -> None:
             "radio group target requires an event",
         ),
         (
-            lambda: ui.checkbox_group("T", [], id="t", name="t[]", values="a"),
-            TypeError,
-            "checkbox group values must be an iterable of strings",
-        ),
-        (
-            lambda: ui.checkbox_group("T", [], id="t", name="t[]", values=[1]),
-            TypeError,
-            "checkbox group values must be an iterable of strings",
-        ),
-        (
             lambda: ui.segmented("V", [], id="a b", name="v"),
             ValueError,
             "segmented id cannot contain whitespace",
         ),
         (
-            lambda: ui.switch("S", id="s", name="s", checked="yes"),
-            TypeError,
-            "switch checked must be a boolean",
-        ),
-        (
             lambda: ui.multi_select("R", [], id="r", name="r[]", size=1),
             ValueError,
             "multi select size must be between",
-        ),
-        (
-            lambda: ui.combobox("C", [1], id="c", name="c"),
-            TypeError,
-            "combobox options must be strings or (value, label) tuples",
-        ),
-        (
-            lambda: ui.combobox("C", [], id="c", name="c", value=None),
-            TypeError,
-            "combobox value must be a string",
         ),
         (
             lambda: ui.search("S", id="q", name="q", debounce=-1),
@@ -357,36 +321,11 @@ def test_textarea_takes_length_bounds_and_timing() -> None:
             "slider step must be positive",
         ),
         (
-            lambda: ui.slider("V", id="v", name="v", value="1"),
-            TypeError,
-            "slider value must be a number",
-        ),
-        (
             lambda: ui.slider("V", id="v", name="v", value=1, debounce=1, throttle=1),
             ValueError,
             "slider cannot both debounce and throttle",
         ),
-        (
-            lambda: ui.hidden(name="t", value=True),
-            TypeError,
-            "hidden value must be a string or a number",
-        ),
         (lambda: ui.fieldset("", "x"), ValueError, "fieldset legend cannot be empty"),
-        (
-            lambda: ui.form_actions([], align="center"),
-            ValueError,
-            "form actions alignment must be one of",
-        ),
-        (
-            lambda: ui.input("L", id="i", name="n", readonly=1),
-            TypeError,
-            "input readonly must be a boolean",
-        ),
-        (
-            lambda: ui.input("L", id="i", name="n", minimum=True),
-            TypeError,
-            "input minimum must be a string, number, or None",
-        ),
         (
             lambda: ui.input("L", id="i", name="n", step=0),
             ValueError,
@@ -396,11 +335,6 @@ def test_textarea_takes_length_bounds_and_timing() -> None:
             lambda: ui.input("L", id="i", name="n", min_length=5, max_length=2),
             ValueError,
             "input minimum length cannot exceed the maximum length",
-        ),
-        (
-            lambda: ui.input("L", id="i", name="n", debounce="change"),
-            TypeError,
-            "input debounce must be an integer",
         ),
         (
             lambda: ui.textarea("L", id="i", name="n", max_length=-1),

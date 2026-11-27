@@ -9,7 +9,6 @@ from typing import TYPE_CHECKING, Any
 
 from tori_py_liveview import html, raw
 
-from tori_py_liveview_ui._shared import boolean
 from tori_py_liveview_ui.content import code_block, prose
 
 if TYPE_CHECKING:
@@ -105,10 +104,6 @@ def markdown(
     nothing is fetched from an address the text chose. ``highlight`` colors
     fenced code and needs the ``highlight`` extra.
     """
-    if not isinstance(source, str):
-        raise TypeError("markdown source must be a string")
-    boolean("markdown highlight", highlight)
-    boolean("markdown images", images)
     return prose(raw(_parser(highlight, images).render(source)))
 
 

@@ -9,26 +9,21 @@ from typing import Literal
 from tori_py_liveview import JS, attrs, classes, fragment, raw
 
 from tori_py_liveview_ui._shared import (
-    boolean,
     bounded_integer,
     event_binding,
     event_target,
     html_id,
-    one_of,
     optional_nonempty_text,
-    required_event,
     required_text,
     selector_id,
 )
 from tori_py_liveview_ui.actions import copy_button
-from tori_py_liveview_ui.icons import IconName, icon_name
+from tori_py_liveview_ui.icons import IconName
 from tori_py_liveview_ui.icons import icon as render_icon
 
 type MessageRole = Literal["user", "assistant", "system", "tool"]
 type StepStatus = Literal["pending", "running", "done", "error"]
 
-_MESSAGE_ROLES = frozenset({"user", "assistant", "system", "tool"})
-_STEP_STATUSES = frozenset({"pending", "running", "done", "error"})
 _STATUS_ICONS: dict[str, IconName] = {
     "pending": "circle",
     "done": "check-circle",
@@ -89,7 +84,6 @@ def chat_log(
     """
     id = selector_id("chat log id", id)
     label = required_text("chat log label", label)
-    boolean("chat log stream", stream)
     jump_label = required_text("chat log jump label", jump_label)
     scroller = attrs(
         {
@@ -141,11 +135,9 @@ def chat_message(
     it. ``footer`` holds what belongs to the answer, such as ``sources()`` or
     ``token_usage()``, and ``actions`` a ``message_actions()`` row.
     """
-    one_of("chat message role", role, _MESSAGE_ROLES)
     if id is not None:
         id = html_id("chat message id", id)
     name = optional_nonempty_text("chat message name", name)
-    boolean("chat message streaming", streaming)
     attributes = attrs(
         {
             "id": id,
@@ -207,7 +199,6 @@ def message_actions(
     Add ``icon_button()`` controls for retry, feedback, and the like.
     """
     label = required_text("message actions label", label)
-    boolean("message actions copy", copy)
     copy_markup = (
         copy_button(
             to=("closest", ".tori-ui-chat-message"),
@@ -251,19 +242,15 @@ def composer(
     as a model select, and ``hint`` a line under the field.
     """
     id = selector_id("composer id", id)
-    submit_event = required_event("composer submit event", submit_event)
+    submit_event = event_binding("composer submit event", submit_event)
     name = required_text("composer name", name)
-    if not isinstance(value, str):
-        raise TypeError("composer value must be a string")
     label = required_text("composer label", label)
     placeholder = optional_nonempty_text("composer placeholder", placeholder)
     change_event = event_binding("composer change event", change_event)
     target = event_target("composer target", target, submit_event)
     submit_label = required_text("composer submit label", submit_label)
-    boolean("composer busy", busy)
     stop_event = event_binding("composer stop event", stop_event)
     stop_label = required_text("composer stop label", stop_label)
-    boolean("composer disabled", disabled)
     bounded_integer("composer maximum rows", max_rows, 1, 40)
     input_id = f"{id}-input"
     form = attrs(
@@ -338,14 +325,12 @@ def suggestions(
     say something shorter. The click pushes ``event`` with the prompt as
     ``prompt``.
     """
-    event = required_event("suggestions event", event)
+    event = event_binding("suggestions event", event)
     target = event_target("suggestions target", target, event)
     label = required_text("suggestions label", label)
     buttons: list[Template] = []
     for item in items:
         if isinstance(item, tuple):
-            if len(item) != 2:
-                raise TypeError("suggestions items must be strings or two-item tuples")
             text, prompt = item
         else:
             text = prompt = item
@@ -378,7 +363,6 @@ def chat_empty(
     title = required_text("chat empty title", title)
     glyph: object = raw("")
     if icon is not None:
-        icon_name("chat empty icon", icon)
         drawing = render_icon(icon, size="lg")
         glyph = t'<div class="tori-ui-chat-empty__icon">{drawing}</div>'
     description_markup = (
@@ -442,8 +426,8 @@ def response_branch(
     """Step through the alternative responses to one message."""
     bounded_integer("response branch total", total, 1, 9999)
     bounded_integer("response branch current", current, 1, total)
-    previous_event = required_event("response branch previous event", previous_event)
-    next_event = required_event("response branch next event", next_event)
+    previous_event = event_binding("response branch previous event", previous_event)
+    next_event = event_binding("response branch next event", next_event)
     target = event_target("response branch target", target, previous_event)
     previous = attrs(
         {
@@ -490,8 +474,6 @@ def reasoning(
     owns it.
     """
     summary = required_text("reasoning summary", summary)
-    boolean("reasoning streaming", streaming)
-    boolean("reasoning open", open)
     if id is not None:
         id = html_id("reasoning id", id)
     attributes = attrs(
@@ -530,9 +512,7 @@ def tool_call(
     text, so pass JSON already serialized.
     """
     name = required_text("tool call name", name)
-    one_of("tool call status", status, _STEP_STATUSES)
     status_label = optional_nonempty_text("tool call status label", status_label)
-    boolean("tool call open", open)
     if id is not None:
         id = html_id("tool call id", id)
     attributes = attrs(
@@ -581,7 +561,6 @@ def agent_step(
     id: str | None = None,
 ) -> Template:
     """Render one step of ``agent_steps()`` with its status."""
-    one_of("agent step status", status, _STEP_STATUSES)
     status_label = optional_nonempty_text("agent step status label", status_label)
     if id is not None:
         id = html_id("agent step id", id)
@@ -625,8 +604,6 @@ def sources(
         id = html_id("sources id", id)
     entries: list[Template] = []
     for number, item in enumerate(items, start=1):
-        if not isinstance(item, tuple) or len(item) != 2:
-            raise TypeError("sources items must be (title, href) tuples")
         title = required_text("sources title", item[0])
         link = attrs(
             {
@@ -694,7 +671,6 @@ def attachment(
     """
     name = required_text("attachment name", name)
     meta = optional_nonempty_text("attachment meta", meta)
-    icon_name("attachment icon", icon)
     remove_event = event_binding("attachment remove event", remove_event)
     remove_label = required_text("attachment remove label", remove_label)
     target = event_target("attachment target", target, remove_event)
@@ -790,7 +766,6 @@ def artifact_panel(
     title = required_text("artifact panel title", title)
     id = selector_id("artifact panel id", id)
     subtitle = optional_nonempty_text("artifact panel subtitle", subtitle)
-    boolean("artifact panel copy", copy)
     subtitle_markup = (
         t'<p class="tori-ui-artifact__subtitle">{subtitle}</p>'
         if subtitle is not None

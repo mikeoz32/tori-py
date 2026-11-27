@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from collections.abc import Callable
 from string.templatelib import Template
-from typing import Any, cast
+from typing import Any
 
 import pytest
 import tori_py_liveview_ui
@@ -30,8 +30,7 @@ from tori_py_liveview_ui import (
     tooltip,
 )
 
-# Calls that break a helper's contract go through an untyped alias.
-ui = cast(Any, tori_py_liveview_ui)
+ui = tori_py_liveview_ui
 
 
 def _render(template: Template) -> str:
@@ -344,44 +343,23 @@ def test_table_column_validates_itself() -> None:
     assert TableColumn("Name", key="n").sort_key == "n"
     with pytest.raises(ValueError, match="table column label cannot be empty"):
         TableColumn(" ")
-    with pytest.raises(ValueError, match="table column alignment must be one of"):
-        ui.TableColumn("A", align="left")
-    with pytest.raises(TypeError, match="table column sortable must be a boolean"):
-        ui.TableColumn("A", sortable=1)
 
 
 @pytest.mark.parametrize(
     ("call", "error", "message"),
     [
         (lambda: ui.table([]), ValueError, "table requires at least one column"),
-        (lambda: ui.table([1]), TypeError, "table columns must be strings or"),
         (
             lambda: ui.table(["A", "B"], [["only"]]),
             ValueError,
             "table row must have one cell per column",
         ),
         (
-            lambda: ui.table(["A"], density="tight"),
-            ValueError,
-            "table density must be one of",
-        ),
-        (
             lambda: ui.table([ui.TableColumn("A", sortable=True)]),
             ValueError,
             "table sortable columns require a sort event",
         ),
-        (
-            lambda: ui.table(["A"], sort=("A", "up"), sort_event="sort"),
-            ValueError,
-            "table sort direction must be one of",
-        ),
-        (
-            lambda: ui.table(["A"], sort="A", sort_event="sort"),
-            TypeError,
-            "table sort must be a",
-        ),
         (lambda: ui.table(["A"], target=1), ValueError, "table target requires"),
-        (lambda: ui.table(["A"], stream="rows"), TypeError, "table stream must be"),
         (
             lambda: ui.table(["A"], stream=("a b", "x")),
             ValueError,
@@ -407,23 +385,11 @@ def test_table_column_validates_itself() -> None:
             ValueError,
             "list item values require an event",
         ),
-        (
-            lambda: ui.list_item("x", selected="yes"),
-            TypeError,
-            "list item selected must be a boolean",
-        ),
         (lambda: ui.stat("", 1), ValueError, "stat label cannot be empty"),
-        (lambda: ui.stat("A", 1, trend="sideways"), ValueError, "stat trend must be"),
-        (lambda: ui.stat("A", 1, tone="blue"), ValueError, "stat tone must be"),
         (
             lambda: ui.sparkline([1], label="x"),
             ValueError,
             "sparkline requires at least two values",
-        ),
-        (
-            lambda: ui.sparkline([1, "2"], label="x"),
-            TypeError,
-            "sparkline value must be a number",
         ),
         (
             lambda: ui.sparkline([1, float("nan")], label="x"),
@@ -432,7 +398,6 @@ def test_table_column_validates_itself() -> None:
         ),
         (lambda: ui.sparkline([1, 2], label=""), ValueError, "sparkline label cannot"),
         (lambda: ui.avatar(" "), ValueError, "avatar name cannot be empty"),
-        (lambda: ui.avatar("A", size="xl"), ValueError, "avatar size must be one of"),
         (
             lambda: ui.avatar("A", src="javascript:alert(1)"),
             ValueError,
@@ -443,19 +408,8 @@ def test_table_column_validates_itself() -> None:
             ValueError,
             "avatar group extra must be between",
         ),
-        (lambda: ui.tag("x", icon="unicorn"), ValueError, "tag icon must be one of"),
         (lambda: ui.tag("x", target=1), ValueError, "tag target requires an event"),
         (lambda: ui.status_dot(""), ValueError, "status dot label cannot be empty"),
-        (
-            lambda: ui.timeline_item("x", tone="blue"),
-            ValueError,
-            "timeline item tone must be one of",
-        ),
-        (
-            lambda: ui.empty_state("x", icon="unicorn"),
-            ValueError,
-            "empty state icon must be one of",
-        ),
         (
             lambda: ui.progress(label="x", value=101),
             ValueError,
@@ -465,11 +419,6 @@ def test_table_column_validates_itself() -> None:
             lambda: ui.progress(label="x", maximum=0),
             ValueError,
             "progress maximum must be positive",
-        ),
-        (
-            lambda: ui.progress(label="x", value=True),
-            TypeError,
-            "progress value must be a number",
         ),
         (
             lambda: ui.meter(label="x", value=5, minimum=10, maximum=1),
@@ -490,11 +439,6 @@ def test_table_column_validates_itself() -> None:
             lambda: ui.tooltip("x", text="", id="t"),
             ValueError,
             "tooltip text cannot be empty",
-        ),
-        (
-            lambda: ui.tooltip("x", text="y", id="t", placement="left"),
-            ValueError,
-            "tooltip placement must be one of",
         ),
     ],
 )

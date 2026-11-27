@@ -35,8 +35,7 @@ from tori_py_liveview_ui import (
     typing_indicator,
 )
 
-# Calls that break a helper's contract go through an untyped alias.
-ui = cast(Any, tori_py_liveview_ui)
+ui = tori_py_liveview_ui
 
 _SPINNER = (
     '<span class="tori-ui-spinner tori-ui-spinner--sm" aria-hidden="true"></span>'
@@ -439,34 +438,9 @@ def test_a_full_assistant_message_is_a_valid_stream_item() -> None:
         (lambda: ui.chat("a", "b", label=""), ValueError, "chat label cannot be"),
         (lambda: ui.chat_log("x", id="a b"), ValueError, "chat log id must match"),
         (
-            lambda: ui.chat_log("x", id="log", stream=1),
-            TypeError,
-            "chat log stream must be a boolean",
-        ),
-        (
-            lambda: ui.chat_message("x", role="bot"),
-            ValueError,
-            "chat message role must be one of",
-        ),
-        (
-            lambda: ui.chat_message("x", streaming="yes"),
-            TypeError,
-            "chat message streaming must be a boolean",
-        ),
-        (
             lambda: ui.composer(id="c", submit_event=""),
             ValueError,
             "composer submit event cannot be empty",
-        ),
-        (
-            lambda: ui.composer(id="c", submit_event=None),
-            ValueError,
-            "composer submit event is required",
-        ),
-        (
-            lambda: ui.composer(id="c", submit_event="s", value=None),
-            TypeError,
-            "composer value must be a string",
         ),
         (
             lambda: ui.composer(id="c", submit_event="s", max_rows=0),
@@ -479,24 +453,9 @@ def test_a_full_assistant_message_is_a_valid_stream_item() -> None:
             "composer id must match",
         ),
         (
-            lambda: ui.suggestions([("a", "b", "c")], event="e"),
-            TypeError,
-            "suggestions items must be strings or two-item tuples",
-        ),
-        (
             lambda: ui.suggestions([""], event="e"),
             ValueError,
             "suggestions label text cannot be empty",
-        ),
-        (
-            lambda: ui.suggestions(["a"], event=None),
-            ValueError,
-            "suggestions event is required",
-        ),
-        (
-            lambda: ui.chat_empty("x", icon="unicorn"),
-            ValueError,
-            "chat empty icon must be one of",
         ),
         (
             lambda: ui.response_branch(
@@ -517,28 +476,8 @@ def test_a_full_assistant_message_is_a_valid_stream_item() -> None:
             ValueError,
             "reasoning summary cannot be empty",
         ),
-        (
-            lambda: ui.tool_call("x", status="queued"),
-            ValueError,
-            "tool call status must be one of",
-        ),
         (lambda: ui.tool_call(""), ValueError, "tool call name cannot be empty"),
-        (
-            lambda: ui.agent_step("x", status="queued"),
-            ValueError,
-            "agent step status must be one of",
-        ),
-        (
-            lambda: ui.sources([("only",)]),
-            TypeError,
-            "sources items must be (title, href) tuples",
-        ),
         (lambda: ui.citation(0), ValueError, "citation number must be between"),
-        (
-            lambda: ui.attachment("a.txt", icon="unicorn"),
-            ValueError,
-            "attachment icon must be one of",
-        ),
         (
             lambda: ui.attachment("a.txt", target=1),
             ValueError,
@@ -548,11 +487,6 @@ def test_a_full_assistant_message_is_a_valid_stream_item() -> None:
             lambda: ui.token_usage(input_tokens=-1, output_tokens=0),
             ValueError,
             "token usage input tokens must be between",
-        ),
-        (
-            lambda: ui.token_usage(input_tokens=1.5, output_tokens=0),
-            TypeError,
-            "token usage input tokens must be an integer",
         ),
         (
             lambda: ui.artifact_panel("x", title="t", id="a b"),

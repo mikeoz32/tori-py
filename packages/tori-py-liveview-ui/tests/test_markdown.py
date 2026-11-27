@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import builtins
 from string.templatelib import Template
-from typing import Any, cast
+from typing import Any
 
 import pytest
 import tori_py_liveview_ui
@@ -10,8 +10,7 @@ from tori_py_liveview import LiveView, html
 from tori_py_liveview_ui import chat_message, markdown, rich_text
 from tori_py_liveview_ui.rich_text import _parser
 
-# Calls that break a helper's contract go through an untyped alias.
-ui = cast(Any, tori_py_liveview_ui)
+ui = tori_py_liveview_ui
 
 
 def _render(template: Template) -> str:
@@ -144,15 +143,6 @@ def test_markdown_output_is_a_valid_stream_item_inside_a_message() -> None:
 
     # Raises when the item is not one balanced root element with this ID.
     Page().stream_insert("messages", "m1", message)
-
-
-def test_markdown_validates_its_arguments() -> None:
-    with pytest.raises(TypeError, match="markdown source must be a string"):
-        ui.markdown(None)
-    with pytest.raises(TypeError, match="markdown highlight must be a boolean"):
-        ui.markdown("x", highlight=1)
-    with pytest.raises(TypeError, match="markdown images must be a boolean"):
-        ui.markdown("x", images="yes")
 
 
 def test_missing_extras_are_reported_with_the_install_command(

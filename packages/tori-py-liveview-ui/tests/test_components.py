@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from string.templatelib import Template
-from typing import Any, cast
+from typing import Any
 
 import pytest
 from tori_py_liveview import JS, html, raw
@@ -68,12 +68,6 @@ def test_form_renders_phoenix_events_target_and_escaped_content() -> None:
             {"id": "profile", "submit_event": "save", "target": 0},
             ValueError,
             "form target must be a positive safe integer",
-        ),
-        ({"id": 1}, TypeError, "form id must be a string"),
-        (
-            {"id": "profile", "submit_event": 1},
-            TypeError,
-            "form submit event must be a string, JS, or None",
         ),
     ],
 )
@@ -239,13 +233,6 @@ def test_checkbox_renders_checked_value_and_accessible_label() -> None:
             "field label",
         ),
         (
-            field,
-            ("Name", "Control"),
-            {"control_id": "name", "required": 1},
-            TypeError,
-            "field required must be a boolean",
-        ),
-        (
             field_error,
             ("",),
             {"id": "name-error"},
@@ -262,27 +249,6 @@ def test_checkbox_renders_checked_value_and_accessible_label() -> None:
         (
             input,
             ("Name",),
-            {"id": "name", "name": "name", "input_type": "color"},
-            ValueError,
-            "input type",
-        ),
-        (
-            input,
-            ("Name",),
-            {"id": "name", "name": "name", "disabled": 1},
-            TypeError,
-            "input disabled must be a boolean",
-        ),
-        (
-            input,
-            ("Name",),
-            {"id": "name", "name": "name", "value": object()},
-            TypeError,
-            "input value must be a string, number, or None",
-        ),
-        (
-            input,
-            ("Name",),
             {"id": "name", "name": "name", "error": ""},
             ValueError,
             "input error cannot be empty",
@@ -293,41 +259,6 @@ def test_checkbox_renders_checked_value_and_accessible_label() -> None:
             {"id": "bio", "name": "bio", "rows": 0},
             ValueError,
             "textarea rows must be between 1 and 100",
-        ),
-        (
-            textarea,
-            ("Biography",),
-            {"id": "bio", "name": "bio", "rows": True},
-            TypeError,
-            "textarea rows must be an integer",
-        ),
-        (
-            textarea,
-            ("Biography",),
-            {"id": "bio", "name": "bio", "value": None},
-            TypeError,
-            "textarea value must be a string",
-        ),
-        (
-            select,
-            ("Role", [(1, "Admin")]),
-            {"id": "role", "name": "role"},
-            TypeError,
-            "select option values must be strings",
-        ),
-        (
-            select,
-            ("Role", [("admin",)]),
-            {"id": "role", "name": "role"},
-            TypeError,
-            "select options must be two-item tuples",
-        ),
-        (
-            checkbox,
-            ("Terms",),
-            {"id": "terms", "name": "terms", "checked": 1},
-            TypeError,
-            "checkbox checked must be a boolean",
         ),
         (
             checkbox,
@@ -375,9 +306,6 @@ def test_button_renders_closed_options_events_and_escaped_content() -> None:
 @pytest.mark.parametrize(
     ("kwargs", "message"),
     [
-        ({"variant": "loud"}, "button variant"),
-        ({"size": "xl"}, "button size"),
-        ({"button_type": "link"}, "button type"),
         ({"event": ""}, "event cannot be empty"),
         ({"target": 1}, "target requires an event"),
         ({"event": "save", "target": 0}, "target must be a positive safe integer"),
@@ -390,17 +318,6 @@ def test_button_renders_closed_options_events_and_escaped_content() -> None:
 def test_button_rejects_invalid_options(kwargs: dict[str, Any], message: str) -> None:
     with pytest.raises(ValueError, match=message):
         button("Save", **kwargs)
-
-
-def test_button_rejects_invalid_option_types() -> None:
-    with pytest.raises(TypeError, match="button variant must be a string"):
-        button("Save", variant=cast(Any, 1))
-    with pytest.raises(TypeError, match="button disabled must be a boolean"):
-        button("Save", disabled=cast(Any, 1))
-    with pytest.raises(TypeError, match="button event must be a string, JS, or None"):
-        button("Save", event=cast(Any, 1))
-    with pytest.raises(TypeError, match="button target must be an integer or None"):
-        button("Save", event="save", target=cast(Any, "1"))
 
 
 def test_event_options_reject_phoenix_js_commands() -> None:
@@ -439,12 +356,6 @@ def test_badge_and_alert_render_semantics_and_tones() -> None:
         '<div class="tori-ui-alert__body">Saved</div></div></section>'
     )
     assert 'role="alert"' in _render(alert("Failed", tone="danger"))
-    with pytest.raises(ValueError, match="badge tone"):
-        badge("Ready", tone=cast(Any, "purple"))
-    with pytest.raises(ValueError, match="alert tone"):
-        alert("Ready", tone=cast(Any, "purple"))
-    with pytest.raises(TypeError, match="alert title"):
-        alert("Ready", title=cast(Any, 1))
 
 
 def test_card_composes_optional_trusted_regions_and_escaped_content() -> None:
@@ -467,8 +378,6 @@ def test_card_composes_optional_trusted_regions_and_escaped_content() -> None:
         'class="tori-ui-button tori-ui-button--ghost tori-ui-button--md" '
         'phx-click="refresh">Refresh</button></footer></article>'
     )
-    with pytest.raises(TypeError, match="card eyebrow"):
-        card("Body", eyebrow=cast(Any, 1))
 
 
 def test_stack_and_grid_consume_children_once_and_preserve_templates() -> None:
@@ -487,24 +396,6 @@ def test_stack_and_grid_consume_children_once_and_preserve_templates() -> None:
         '<div class="tori-ui-grid tori-ui-grid--columns-3 '
         'tori-ui-grid--gap-sm">AB</div>'
     )
-
-
-@pytest.mark.parametrize(
-    ("component", "kwargs", "message"),
-    [
-        (stack, {"gap": "xxl"}, "stack gap"),
-        (stack, {"align": "around"}, "stack alignment"),
-        (grid, {"columns": "5"}, "grid columns"),
-        (grid, {"gap": "xxl"}, "grid gap"),
-    ],
-)
-def test_layout_components_reject_open_ended_options(
-    component: Any,
-    kwargs: dict[str, Any],
-    message: str,
-) -> None:
-    with pytest.raises(ValueError, match=message):
-        component([], **kwargs)
 
 
 def test_every_component_returns_a_template() -> None:

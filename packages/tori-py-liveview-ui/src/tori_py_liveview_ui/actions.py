@@ -9,25 +9,20 @@ from typing import Literal
 from tori_py_liveview import JS, attrs, classes, fragment, raw
 
 from tori_py_liveview_ui._shared import (
-    BUTTON_SIZES,
-    BUTTON_TYPES,
-    BUTTON_VARIANTS,
     ButtonSize,
     ButtonType,
     ButtonVariant,
     EventValue,
     LiveLink,
-    boolean,
     event_binding,
     event_target,
     event_values,
     link_attributes,
-    one_of,
     optional_nonempty_text,
     required_text,
     selector_id,
 )
-from tori_py_liveview_ui.icons import IconName, icon_name
+from tori_py_liveview_ui.icons import IconName
 from tori_py_liveview_ui.icons import icon as render_icon
 
 type CopyTarget = str | tuple[Literal["closest", "inner"], str]
@@ -38,14 +33,11 @@ _SPINNER = raw(
 
 
 def _button_classes(
-    name: str,
     variant: ButtonVariant,
     size: ButtonSize,
     *,
     full_width: bool = False,
 ) -> str:
-    one_of(f"{name} variant", variant, BUTTON_VARIANTS)
-    one_of(f"{name} size", size, BUTTON_SIZES)
     return classes(
         "tori-ui-button",
         f"tori-ui-button--{variant}",
@@ -54,10 +46,9 @@ def _button_classes(
     )
 
 
-def _optional_icon(name: str, value: IconName | None, size: ButtonSize) -> object:
+def _optional_icon(value: IconName | None, size: ButtonSize) -> object:
     if value is None:
         return raw("")
-    icon_name(name, value)
     return render_icon(value, size="sm" if size == "sm" else "md")
 
 
@@ -86,12 +77,7 @@ def button(
     flight. ``confirm`` asks the visitor in a native dialog before the click
     reaches the page.
     """
-    boolean("button full width", full_width)
-    class_name = _button_classes("button", variant, size, full_width=full_width)
-    one_of("button type", button_type, BUTTON_TYPES)
-    if type(disabled) is not bool:
-        raise TypeError("button disabled must be a boolean")
-    boolean("button loading", loading)
+    class_name = _button_classes(variant, size, full_width=full_width)
     event = event_binding("button event", event)
     target = event_target("button target", target, event)
     value_attributes = event_values("button values", values, event)
@@ -111,8 +97,8 @@ def button(
         }
     )
     spinner = _SPINNER if loading else raw("")
-    leading = _optional_icon("button icon", icon, size)
-    trailing = _optional_icon("button end icon", icon_end, size)
+    leading = _optional_icon(icon, size)
+    trailing = _optional_icon(icon_end, size)
     return t"<button{attributes}>{spinner}{leading}{label}{trailing}</button>"
 
 
@@ -135,14 +121,7 @@ def icon_button(
     ``label`` is its accessible name and its tooltip. ``pressed`` makes it a
     toggle button that reports its state.
     """
-    icon_name("icon button icon", icon)
     label = required_text("icon button label", label)
-    one_of("icon button variant", variant, BUTTON_VARIANTS)
-    one_of("icon button size", size, BUTTON_SIZES)
-    one_of("icon button type", button_type, BUTTON_TYPES)
-    boolean("icon button disabled", disabled)
-    if pressed is not None:
-        boolean("icon button pressed", pressed)
     event = event_binding("icon button event", event)
     target = event_target("icon button target", target, event)
     value_attributes = event_values("icon button values", values, event)
@@ -187,16 +166,15 @@ def link_button(
     ``live`` turns it into a LiveView patch or navigate link. ``external``
     opens it in a new tab without access to the opener.
     """
-    boolean("link button full width", full_width)
-    class_name = _button_classes("link button", variant, size, full_width=full_width)
+    class_name = _button_classes(variant, size, full_width=full_width)
     attributes = attrs(
         {
             "class": class_name,
             **link_attributes("link button", href, live, replace, external),
         }
     )
-    leading = _optional_icon("link button icon", icon, size)
-    trailing = _optional_icon("link button end icon", icon_end, size)
+    leading = _optional_icon(icon, size)
+    trailing = _optional_icon(icon_end, size)
     return t"<a{attributes}>{leading}{label}{trailing}</a>"
 
 
@@ -211,7 +189,6 @@ def button_group(
     ``attached`` joins the buttons into one segmented control.
     """
     label = required_text("button group label", label)
-    boolean("button group attached", attached)
     class_name = classes(
         "tori-ui-button-group",
         **{"tori-ui-button-group--attached": attached},
@@ -240,7 +217,7 @@ def copy_button(
     label = required_text("copy button label", label)
     copied_label = required_text("copy button copied label", copied_label)
     class_name = classes(
-        _button_classes("copy button", variant, size),
+        _button_classes(variant, size),
         "tori-ui-copy-button",
     )
     attributes = attrs(

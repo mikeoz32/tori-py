@@ -42,9 +42,15 @@ Every helper follows the same contract:
 - It is a stateless render function, not a `LiveComponent`. It never mounts,
   receives events, retains assigns, or owns page or component state. Pages and
   components supply current values on every render.
-- Its visual vocabulary is closed. Variants, sizes, tones, gaps, alignments,
-  and similar options accept only their documented values, and invalid values
-  fail immediately rather than becoming CSS class or attribute injection.
+- Its visual vocabulary is closed through typed `Literal` options. The
+  mandatory type check enforces Python argument types, tuple shapes, and option
+  membership; helpers do not duplicate those checks at runtime. Untrusted input
+  is validated before it reaches a typed helper.
+- Runtime checks enforce semantic constraints that annotations cannot express:
+  non-empty accessible names, numeric ranges and finiteness, safe IDs and
+  selectors, unique keys, and relationships between arguments. Escaping and URL
+  scheme restrictions remain in the rendering boundary. A union type is
+  inspected only when its supported variants require different behavior.
 - It offers no arbitrary attribute dictionary, `class` parameter, selector
   escape hatch, or automatic class injection. Applications can wrap a helper in
   their own template where they need a separately owned extension point.

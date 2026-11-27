@@ -9,19 +9,12 @@ from typing import Literal
 from tori_py_liveview import JS, attrs, classes, fragment, raw
 
 from tori_py_liveview_ui._shared import (
-    ALIGNMENTS,
-    COLUMNS,
-    GAPS,
-    JUSTIFY,
     Alignment,
     Columns,
     Gap,
     Justify,
-    boolean,
     html_id,
-    one_of,
     optional_nonempty_text,
-    optional_text,
     required_text,
     selector_id,
 )
@@ -35,13 +28,6 @@ type SpacerSize = Literal["grow", "xs", "sm", "md", "lg", "xl"]
 type SplitRatio = Literal["1:1", "1:2", "2:1", "1:3", "3:1"]
 type ScrollHeight = Literal["sm", "md", "lg", "xl"]
 
-_ROW_ALIGNMENTS = ALIGNMENTS | {"baseline"}
-_CONTAINER_SIZES = frozenset({"sm", "md", "lg", "xl", "full"})
-_CENTER_HEIGHTS = frozenset({"content", "half", "screen"})
-_ORIENTATIONS = frozenset({"horizontal", "vertical"})
-_SPACER_SIZES = GAPS | {"grow"}
-_SPLIT_RATIOS = frozenset({"1:1", "1:2", "2:1", "1:3", "3:1"})
-_SCROLL_HEIGHTS = frozenset({"sm", "md", "lg", "xl"})
 _SIDEBAR_OPEN = "tori-ui-app-shell--sidebar-open"
 
 
@@ -52,8 +38,6 @@ def card(
     title: str | None = None,
     footer: object | None = None,
 ) -> Template:
-    eyebrow = optional_text("card eyebrow", eyebrow)
-    title = optional_text("card title", title)
     eyebrow_markup = (
         t'<p class="tori-ui-card__eyebrow">{eyebrow}</p>'
         if eyebrow is not None
@@ -87,8 +71,6 @@ def stack(
     gap: Gap = "md",
     align: Alignment = "stretch",
 ) -> Template:
-    one_of("stack gap", gap, GAPS)
-    one_of("stack alignment", align, ALIGNMENTS)
     class_name = classes(
         "tori-ui-stack",
         f"tori-ui-stack--gap-{gap}",
@@ -104,8 +86,6 @@ def grid(
     columns: Columns = "auto",
     gap: Gap = "md",
 ) -> Template:
-    one_of("grid columns", columns, COLUMNS)
-    one_of("grid gap", gap, GAPS)
     class_name = classes(
         "tori-ui-grid",
         f"tori-ui-grid--columns-{columns}",
@@ -124,10 +104,6 @@ def row(
     wrap: bool = True,
 ) -> Template:
     """Lay children out in a horizontal line that wraps by default."""
-    one_of("row gap", gap, GAPS)
-    one_of("row alignment", align, _ROW_ALIGNMENTS)
-    one_of("row justification", justify, JUSTIFY)
-    boolean("row wrap", wrap)
     class_name = classes(
         "tori-ui-row",
         f"tori-ui-row--gap-{gap}",
@@ -146,8 +122,6 @@ def container(
     padded: bool = True,
 ) -> Template:
     """Center content in a column of bounded width."""
-    one_of("container size", size, _CONTAINER_SIZES)
-    boolean("container padded", padded)
     class_name = classes(
         "tori-ui-container",
         f"tori-ui-container--{size}",
@@ -158,7 +132,6 @@ def container(
 
 def center(content: object, *, min_height: CenterHeight = "content") -> Template:
     """Center content on both axes."""
-    one_of("center minimum height", min_height, _CENTER_HEIGHTS)
     class_name = classes("tori-ui-center", f"tori-ui-center--{min_height}")
     return t'<div class="{class_name}">{content}</div>'
 
@@ -170,7 +143,6 @@ def divider(
 ) -> Template:
     """Separate content with a rule, optionally labeled."""
     label = optional_nonempty_text("divider label", label)
-    one_of("divider orientation", orientation, _ORIENTATIONS)
     if orientation == "vertical":
         if label is not None:
             raise ValueError("divider label requires the horizontal orientation")
@@ -188,7 +160,6 @@ def divider(
 
 def spacer(*, size: SpacerSize = "grow") -> Template:
     """Take up space between siblings of a row or a stack."""
-    one_of("spacer size", size, _SPACER_SIZES)
     class_name = classes("tori-ui-spacer", f"tori-ui-spacer--{size}")
     return t'<span class="{class_name}" aria-hidden="true"></span>'
 
@@ -301,8 +272,6 @@ def split(
     gap: Gap = "lg",
 ) -> Template:
     """Place two panes side by side; they stack on narrow screens."""
-    one_of("split ratio", ratio, _SPLIT_RATIOS)
-    one_of("split gap", gap, GAPS)
     class_name = classes(
         "tori-ui-split",
         f"tori-ui-split--{ratio.replace(':', '-')}",
@@ -322,7 +291,6 @@ def scroll_area(
 ) -> Template:
     """Bound tall content in a labeled region that scrolls from the keyboard."""
     label = required_text("scroll area label", label)
-    one_of("scroll area maximum height", max_height, _SCROLL_HEIGHTS)
     class_name = classes("tori-ui-scroll-area", f"tori-ui-scroll-area--{max_height}")
     return (
         t'<div class="{class_name}" role="region" aria-label="{label}" tabindex="0">'

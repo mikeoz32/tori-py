@@ -9,24 +9,19 @@ from typing import Literal
 from tori_py_liveview import JS, attrs, classes, fragment, raw
 
 from tori_py_liveview_ui._shared import (
-    BUTTON_SIZES,
-    BUTTON_VARIANTS,
     ButtonSize,
     ButtonVariant,
     EventValue,
     LiveLink,
-    boolean,
     event_binding,
     event_target,
     event_values,
     link_attributes,
-    one_of,
     optional_nonempty_text,
-    required_event,
     required_text,
     selector_id,
 )
-from tori_py_liveview_ui.icons import IconName, icon_name
+from tori_py_liveview_ui.icons import IconName
 from tori_py_liveview_ui.icons import icon as render_icon
 
 type ModalSize = Literal["sm", "md", "lg", "xl"]
@@ -35,11 +30,6 @@ type PopupAlignment = Literal["start", "end"]
 type MenuTone = Literal["neutral", "danger"]
 type ConfirmTone = Literal["primary", "danger"]
 
-_MODAL_SIZES = frozenset({"sm", "md", "lg", "xl"})
-_DRAWER_SIDES = frozenset({"start", "end"})
-_POPUP_ALIGNMENTS = frozenset({"start", "end"})
-_MENU_TONES = frozenset({"neutral", "danger"})
-_CONFIRM_TONES = frozenset({"primary", "danger"})
 _POPUP_OPEN = "tori-ui-popup--open"
 # showModal() sets the open attribute; a server render must not remove it.
 _KEEP_OPEN = JS().ignore_attributes(["open"])
@@ -59,7 +49,6 @@ def close_overlay(id: str) -> JS:
 
 
 def _dialog(
-    name: str,
     class_name: str,
     surface: object,
     *,
@@ -70,8 +59,6 @@ def _dialog(
     role: str | None = None,
 ) -> Template:
     """Render the native dialog element every overlay shares."""
-    if open is not None:
-        boolean(f"{name} open", open)
     attributes = attrs(
         {
             "id": id,
@@ -108,7 +95,6 @@ def _panel(
     """Return the header, body, and footer of a modal or a drawer."""
     title = required_text(f"{name} title", title)
     description = optional_nonempty_text(f"{name} description", description)
-    boolean(f"{name} dismissible", dismissible)
     close_event = event_binding(f"{name} close event", close_event)
     close_label = required_text(f"{name} close label", close_label)
     target = event_target(f"{name} target", target, close_event)
@@ -168,7 +154,6 @@ def modal(
     ``dismissible=False`` leaves closing to the controls in the dialog.
     """
     id = selector_id("modal id", id)
-    one_of("modal size", size, _MODAL_SIZES)
     surface, described = _panel(
         "modal",
         content,
@@ -182,7 +167,6 @@ def modal(
         target=target,
     )
     return _dialog(
-        "modal",
         classes("tori-ui-dialog", "tori-ui-modal", f"tori-ui-modal--{size}"),
         surface,
         id=id,
@@ -211,7 +195,6 @@ def drawer(
     It opens, closes, and holds the focus like ``modal()``.
     """
     id = selector_id("drawer id", id)
-    one_of("drawer side", side, _DRAWER_SIDES)
     surface, described = _panel(
         "drawer",
         content,
@@ -225,7 +208,6 @@ def drawer(
         target=target,
     )
     return _dialog(
-        "drawer",
         classes("tori-ui-dialog", "tori-ui-drawer", f"tori-ui-drawer--{side}"),
         surface,
         id=id,
@@ -258,10 +240,9 @@ def confirm_dialog(
     """
     id = selector_id("confirm dialog id", id)
     title = required_text("confirm dialog title", title)
-    confirm_event = required_event("confirm dialog confirm event", confirm_event)
+    confirm_event = event_binding("confirm dialog confirm event", confirm_event)
     confirm_label = required_text("confirm dialog confirm label", confirm_label)
     cancel_label = required_text("confirm dialog cancel label", cancel_label)
-    one_of("confirm dialog tone", tone, _CONFIRM_TONES)
     cancel_event = event_binding("confirm dialog cancel event", cancel_event)
     target = event_target("confirm dialog target", target, confirm_event)
     value_attributes = event_values("confirm dialog values", values, confirm_event)
@@ -296,7 +277,6 @@ def confirm_dialog(
         t"</button><button{confirm}>{confirm_label}</button></footer>"
     )
     return _dialog(
-        "confirm dialog",
         "tori-ui-dialog tori-ui-modal tori-ui-modal--sm",
         surface,
         id=id,
@@ -308,7 +288,6 @@ def confirm_dialog(
 
 
 def _popup(
-    name: str,
     label: object,
     panel: Template,
     *,
@@ -320,12 +299,8 @@ def _popup(
     align: PopupAlignment,
 ) -> Template:
     """Render a button and the panel it opens next to itself."""
-    one_of(f"{name} variant", variant, BUTTON_VARIANTS)
-    one_of(f"{name} size", size, BUTTON_SIZES)
-    one_of(f"{name} alignment", align, _POPUP_ALIGNMENTS)
     glyph: object = raw("")
     if icon is not None:
-        icon_name(f"{name} icon", icon)
         glyph = render_icon(icon, size="sm")
     trigger_selector = f"#{id}-trigger"
     toggle = (
@@ -393,7 +368,6 @@ def dropdown(
         }
     )
     return _popup(
-        "dropdown",
         label,
         t"<div{panel}>{fragment(items)}</div>",
         id=id,
@@ -421,13 +395,10 @@ def menu_item(
     event = event_binding("menu item event", event)
     target = event_target("menu item target", target, event)
     value_attributes = event_values("menu item values", values, event)
-    one_of("menu item tone", tone, _MENU_TONES)
-    boolean("menu item disabled", disabled)
     if (event is None) == (href is None):
         raise ValueError("menu item requires either an event or an href")
     glyph: object = raw("")
     if icon is not None:
-        icon_name("menu item icon", icon)
         glyph = render_icon(icon, size="sm")
     class_name = classes("tori-ui-menu-item", f"tori-ui-menu-item--{tone}")
     if href is not None:
@@ -487,7 +458,6 @@ def popover(
         }
     )
     return _popup(
-        "popover",
         label,
         t"<div{panel}>{content}</div>",
         id=id,

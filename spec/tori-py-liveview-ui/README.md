@@ -11,9 +11,12 @@ architecture is maintained in
    `stylesheet_link`, `script_tag`, and the helpers of each family. Its
    implementation modules are private.
 3. The helpers are stateless and return Python 3.14 `Template` values. Their
-   variants, sizes, tones, gaps, alignment, columns, button/input types, and
-   textarea row bounds are closed to the documented values; unsupported values
-   fail rather than becoming CSS class injection.
+   argument types, tuple shapes, and closed `Literal` options are enforced by
+   the mandatory type check rather than repeated runtime type guards. Runtime
+   checks enforce semantic constraints such as textarea row bounds, accessible
+   names, safe IDs/selectors, unique keys, and argument relationships. External
+   data is validated before it enters typed helpers; escaping and URL scheme
+   checks remain in the rendering boundary.
 4. Helpers preserve LiveView Template escaping and Phoenix render-tree
    composition. Internally generated attributes use `attrs`; callers receive no
    arbitrary attributes or classes parameter.

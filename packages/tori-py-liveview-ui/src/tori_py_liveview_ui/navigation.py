@@ -10,21 +10,18 @@ from tori_py_liveview import JS, attrs, classes, fragment, raw
 
 from tori_py_liveview_ui._shared import (
     LiveLink,
-    boolean,
     bounded_integer,
     event_binding,
     event_target,
     link_attributes,
-    one_of,
     optional_nonempty_text,
     required_text,
 )
-from tori_py_liveview_ui.icons import IconName, icon_name
+from tori_py_liveview_ui.icons import IconName
 from tori_py_liveview_ui.icons import icon as render_icon
 
 type NavOrientation = Literal["vertical", "horizontal"]
 
-_NAV_ORIENTATIONS = frozenset({"vertical", "horizontal"})
 _PAGE_PLACEHOLDER = "{page}"
 
 
@@ -81,7 +78,6 @@ def nav(
 ) -> Template:
     """Render ``nav_item()`` entries as a labeled navigation list."""
     label = required_text("nav label", label)
-    one_of("nav orientation", orientation, _NAV_ORIENTATIONS)
     class_name = classes("tori-ui-nav", f"tori-ui-nav--{orientation}")
     return (
         t'<nav aria-label="{label}"><ul class="{class_name}">{fragment(items)}</ul>'
@@ -104,10 +100,8 @@ def nav_item(
 
     ``current`` marks the link to the page the visitor is on.
     """
-    boolean("nav item current", current)
     glyph: object = raw("")
     if icon is not None:
-        icon_name("nav item icon", icon)
         glyph = render_icon(icon, size="sm")
     badge_markup = (
         t'<span class="tori-ui-nav__badge">{badge}</span>'
@@ -144,8 +138,6 @@ def breadcrumbs(
         raise ValueError("breadcrumbs requires at least one item")
     crumbs: list[Template] = []
     for index, item in enumerate(entries):
-        if not isinstance(item, tuple) or len(item) != 2:
-            raise TypeError("breadcrumbs items must be (label, href) tuples")
         text, href = item
         if index == len(entries) - 1 or href is None:
             crumbs.append(
@@ -313,8 +305,6 @@ def steps(
     stages: list[Template] = []
     for number, item in enumerate(entries, start=1):
         if isinstance(item, tuple):
-            if len(item) != 2:
-                raise TypeError("steps items must be strings or two-item tuples")
             title, description = item
         else:
             title, description = item, None
@@ -372,8 +362,6 @@ def tab_links(
     current = required_text("tab links current", current)
     links: list[Template] = []
     for item in items:
-        if not isinstance(item, tuple) or len(item) != 2:
-            raise TypeError("tab links items must be (label, href) tuples")
         text, href = item
         attributes = attrs(
             {

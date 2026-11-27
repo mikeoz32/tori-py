@@ -12,7 +12,7 @@ from typing import Literal
 
 from tori_py_liveview import attrs, classes, raw
 
-from tori_py_liveview_ui._shared import SIZES, Size, one_of, optional_nonempty_text
+from tori_py_liveview_ui._shared import Size, optional_nonempty_text
 
 type IconName = Literal[
     "alert-circle",
@@ -321,10 +321,6 @@ _SHAPES = {
 }
 
 
-def icon_name(name: str, value: str) -> str:
-    return one_of(name, value, ICON_NAMES)
-
-
 def icon(
     name: IconName,
     *,
@@ -337,8 +333,6 @@ def icon(
     technology. Give a ``label`` only when the icon is the sole content that
     names its control or meaning.
     """
-    icon_name("icon name", name)
-    one_of("icon size", size, SIZES)
     label = optional_nonempty_text("icon label", label)
     attributes = attrs(
         {

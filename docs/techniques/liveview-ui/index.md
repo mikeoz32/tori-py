@@ -156,15 +156,19 @@ class TodoComponent(LiveComponent):
 
 The helpers are deliberately closed:
 
-- Visual options are closed sets. An unknown variant, size, tone, gap, or column
-  count raises `ValueError` immediately.
+- Visual options are typed `Literal` sets. Your type checker catches an unknown
+  variant, size, tone, gap, or column count. Python argument types and tuple
+  shapes are trusted rather than checked again at runtime; validate external
+  data before passing it to helpers.
 - There are no `class=` or `**attrs` escape hatches. Style through the theme and
   skin tokens, or write your own template for markup the helpers do not cover.
 - Helpers hold no state. They render native elements, standard Phoenix
   bindings, and, where a behavior needs one, a `phx-hook` from the bundled
   script.
-- IDs must be non-empty and contain no whitespace; boolean options must be real
-  `bool` values.
+- Runtime checks cover semantic constraints: IDs must be non-empty and contain
+  no whitespace, numeric values must meet their documented ranges, accessible
+  names must be non-empty, and related parameters must agree. Escaping and URL
+  scheme restrictions also apply at runtime.
 
 All CSS selectors use the `tori-ui-` prefix and the stylesheet has no global
 reset, so the helpers can sit next to your own styles.

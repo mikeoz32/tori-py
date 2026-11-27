@@ -4,7 +4,7 @@ import re
 from collections.abc import Callable
 from html import escape
 from string.templatelib import Template
-from typing import Any, cast
+from typing import Any
 
 import pytest
 import tori_py_liveview_ui
@@ -23,8 +23,7 @@ from tori_py_liveview_ui import (
     toast_region,
 )
 
-# Calls that break a helper's contract go through an untyped alias.
-ui = cast(Any, tori_py_liveview_ui)
+ui = tori_py_liveview_ui
 
 
 def _render(template: Template) -> str:
@@ -220,11 +219,6 @@ def test_connection_status_is_a_status_message_with_a_spinner() -> None:
     ("call", "error", "message"),
     [
         (
-            lambda: ui.alert("x", dismissible=1),
-            TypeError,
-            "alert dismissible must be a boolean",
-        ),
-        (
             lambda: ui.alert("x", dismiss_event=""),
             ValueError,
             "alert dismiss event cannot be empty",
@@ -239,39 +233,20 @@ def test_connection_status_is_a_status_message_with_a_spinner() -> None:
             ValueError,
             "alert target requires an event",
         ),
-        (lambda: ui.banner("x", tone="blue"), ValueError, "banner tone must be one of"),
         (lambda: ui.spinner(label=""), ValueError, "spinner label cannot be empty"),
-        (lambda: ui.spinner(size="xl"), ValueError, "spinner size must be one of"),
-        (lambda: ui.skeleton(shape="line"), ValueError, "skeleton shape must be one"),
         (lambda: ui.skeleton(lines=0), ValueError, "skeleton lines must be between"),
         (
             lambda: ui.skeleton(shape="block", lines=2),
             ValueError,
             "skeleton lines require the text shape",
         ),
-        (lambda: ui.busy("x", busy="yes"), TypeError, "busy state must be a boolean"),
         (lambda: ui.toast("x", id="a b"), ValueError, "toast id must match"),
         (
             lambda: ui.toast("x", id="t", duration=10),
             ValueError,
             "toast duration must be between",
         ),
-        (
-            lambda: ui.toast("x", id="t", duration=2.5),
-            TypeError,
-            "toast duration must be an integer",
-        ),
         (lambda: ui.toast("x", id="t", title=" "), ValueError, "toast title cannot"),
-        (
-            lambda: ui.toast_region([], placement="center"),
-            ValueError,
-            "toast region placement must be one of",
-        ),
-        (
-            lambda: ui.flash_group([("info", "x")]),
-            TypeError,
-            "flash group flash must be a mapping",
-        ),
         (lambda: ui.flash_group({}, id="1"), ValueError, "flash group id must match"),
         (
             lambda: ui.connection_status(message=""),

@@ -9,7 +9,6 @@ from string.templatelib import Template
 from tori_py_liveview import JS, attrs, classes, fragment
 
 from tori_py_liveview_ui._shared import (
-    boolean,
     event_binding,
     event_target,
     html_id,
@@ -38,7 +37,6 @@ def collapsible(
     ``open`` is only the state the section starts in: afterwards the browser
     owns it. Sections that share a ``group`` name close each other.
     """
-    boolean("collapsible open", open)
     if id is not None:
         id = html_id("collapsible id", id)
     group = optional_nonempty_text("collapsible group", group)
@@ -86,10 +84,8 @@ def tabs(
     target = event_target("tabs target", target, event)
     entries: list[tuple[str, object, object]] = []
     for item in items:
-        if not isinstance(item, tuple) or len(item) != 3:
-            raise TypeError("tabs items must be (key, label, content) tuples")
         key = item[0]
-        if not isinstance(key, str) or _TAB_KEY.fullmatch(key) is None:
+        if _TAB_KEY.fullmatch(key) is None:
             raise ValueError("tabs keys must match [A-Za-z0-9_-]+")
         entries.append((key, item[1], item[2]))
     keys = [key for key, _, _ in entries]

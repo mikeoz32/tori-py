@@ -9,17 +9,12 @@ from typing import Literal
 from tori_py_liveview import JS, attrs, classes, fragment, raw
 
 from tori_py_liveview_ui._shared import (
-    SIZES,
-    TONES,
     Size,
     Tone,
-    boolean,
     bounded_integer,
     event_binding,
     event_target,
-    one_of,
     optional_nonempty_text,
-    optional_text,
     required_text,
     selector_id,
 )
@@ -28,8 +23,6 @@ from tori_py_liveview_ui.icons import icon
 type SkeletonShape = Literal["text", "block", "circle"]
 type ToastPlacement = Literal["top-start", "top-end", "bottom-start", "bottom-end"]
 
-_SKELETON_SHAPES = frozenset({"text", "block", "circle"})
-_TOAST_PLACEMENTS = frozenset({"top-start", "top-end", "bottom-start", "bottom-end"})
 # Flash kinds the group shows, in order, with the tone each one gets.
 _FLASH_TONES: dict[str, Tone] = {
     "error": "danger",
@@ -58,7 +51,6 @@ def _dismiss(
 
     Without an event the browser hides the block; with one the page decides.
     """
-    boolean(f"{name} dismissible", dismissible)
     dismiss_event = event_binding(f"{name} dismiss event", dismiss_event)
     dismiss_label = required_text(f"{name} dismiss label", dismiss_label)
     target = event_target(f"{name} target", target, dismiss_event)
@@ -97,8 +89,6 @@ def alert(
     ``dismiss_event`` the button pushes that event instead and the page stops
     rendering the alert.
     """
-    title = optional_text("alert title", title)
-    one_of("alert tone", tone, TONES)
     class_name = classes("tori-ui-alert", f"tori-ui-alert--{tone}")
     title_markup = (
         t'<h2 class="tori-ui-alert__title">{title}</h2>'
@@ -138,7 +128,6 @@ def banner(
     target: int | None = None,
 ) -> Template:
     """Render a full-width strip for a notice that concerns the whole page."""
-    one_of("banner tone", tone, TONES)
     class_name = classes("tori-ui-banner", f"tori-ui-banner--{tone}")
     actions_markup = (
         t'<div class="tori-ui-banner__actions">{actions}</div>'
@@ -164,7 +153,6 @@ def banner(
 def spinner(*, label: str = "Loading", size: Size = "md") -> Template:
     """Render a spinner that announces ``label`` to screen readers."""
     label = required_text("spinner label", label)
-    one_of("spinner size", size, SIZES)
     class_name = classes("tori-ui-spinner", f"tori-ui-spinner--{size}")
     return (
         t'<span class="tori-ui-spinner-status" role="status">'
@@ -179,7 +167,6 @@ def skeleton(*, shape: SkeletonShape = "text", lines: int = 1) -> Template:
     Skeletons are hidden from assistive technology; pair them with ``busy()``
     or a ``spinner()`` that says what is loading.
     """
-    one_of("skeleton shape", shape, _SKELETON_SHAPES)
     bounded_integer("skeleton lines", lines, 1, 20)
     if shape != "text" and lines != 1:
         raise ValueError("skeleton lines require the text shape")
@@ -194,7 +181,6 @@ def skeleton(*, shape: SkeletonShape = "text", lines: int = 1) -> Template:
 
 def busy(content: object, *, busy: bool, label: str = "Loading") -> Template:
     """Mark a region as loading and cover it with a spinner while it is."""
-    boolean("busy state", busy)
     label = required_text("busy label", label)
     class_name = classes("tori-ui-busy", **{"tori-ui-busy--active": busy})
     # A busy region is inert: its controls take no pointer or keyboard input.
@@ -230,7 +216,6 @@ def toast(
     """
     id = selector_id("toast id", id)
     title = optional_nonempty_text("toast title", title)
-    one_of("toast tone", tone, TONES)
     if duration is not None:
         bounded_integer("toast duration", duration, 1000, 600000)
     dismiss = _dismiss(
@@ -269,7 +254,6 @@ def toast_region(
 ) -> Template:
     """Pin toasts to a corner of the viewport. Render one region per page."""
     id = selector_id("toast region id", id)
-    one_of("toast region placement", placement, _TOAST_PLACEMENTS)
     label = required_text("toast region label", label)
     class_name = classes("tori-ui-toast-region", f"tori-ui-toast-region--{placement}")
     return (
@@ -292,8 +276,6 @@ def flash_group(
     kinds are shown; ``warning`` and ``error`` stay until dismissed. Closing a
     toast clears its kind through LiveView's built-in ``lv:clear-flash`` event.
     """
-    if not isinstance(flash, Mapping):
-        raise TypeError("flash group flash must be a mapping")
     id = selector_id("flash group id", id)
     toasts: list[Template] = []
     for kind, tone in _FLASH_TONES.items():

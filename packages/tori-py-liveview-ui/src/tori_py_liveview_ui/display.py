@@ -11,24 +11,20 @@ from typing import Literal
 from tori_py_liveview import JS, attrs, classes, fragment, raw
 
 from tori_py_liveview_ui._shared import (
-    SIZES,
-    TONES,
     EventValue,
     LiveLink,
     Size,
     Tone,
-    boolean,
     bounded_integer,
     event_binding,
     event_target,
     event_values,
     html_id,
     link_attributes,
-    one_of,
     optional_nonempty_text,
     required_text,
 )
-from tori_py_liveview_ui.icons import IconName, icon_name
+from tori_py_liveview_ui.icons import IconName
 from tori_py_liveview_ui.icons import icon as render_icon
 
 type CellAlignment = Literal["start", "center", "end"]
@@ -37,21 +33,15 @@ type Density = Literal["comfortable", "compact"]
 type Trend = Literal["up", "down", "flat"]
 type TooltipPlacement = Literal["top", "bottom"]
 
-_CELL_ALIGNMENTS = frozenset({"start", "center", "end"})
-_SORT_DIRECTIONS = frozenset({"asc", "desc"})
-_DENSITIES = frozenset({"comfortable", "compact"})
-_TRENDS = frozenset({"up", "down", "flat"})
 _TREND_ICONS: dict[str, IconName] = {
     "up": "arrow-up",
     "down": "arrow-down",
     "flat": "minus",
 }
-_TOOLTIP_PLACEMENTS = frozenset({"top", "bottom"})
 _ARIA_SORT = {"asc": "ascending", "desc": "descending"}
 
 
 def badge(content: object, *, tone: Tone = "neutral") -> Template:
-    one_of("badge tone", tone, TONES)
     class_name = classes("tori-ui-badge", f"tori-ui-badge--{tone}")
     return t'<span class="{class_name}">{content}</span>'
 
@@ -72,8 +62,6 @@ class TableColumn:
         required_text("table column label", self.label)
         if self.key is not None:
             required_text("table column key", self.key)
-        one_of("table column alignment", self.align, _CELL_ALIGNMENTS)
-        boolean("table column sortable", self.sortable)
 
     @property
     def sort_key(self) -> str:
@@ -85,8 +73,6 @@ def _columns(columns: Iterable[str | TableColumn]) -> tuple[TableColumn, ...]:
     for column in columns:
         if isinstance(column, str):
             column = TableColumn(column)
-        elif not isinstance(column, TableColumn):
-            raise TypeError("table columns must be strings or TableColumn values")
         resolved.append(column)
     if not resolved:
         raise ValueError("table requires at least one column")
@@ -149,22 +135,15 @@ def table(
     """
     resolved = _columns(columns)
     caption = optional_nonempty_text("table caption", caption)
-    one_of("table density", density, _DENSITIES)
-    boolean("table striped", striped)
     sort_event = event_binding("table sort event", sort_event)
     target = event_target("table target", target, sort_event)
     if sort is not None:
-        if not isinstance(sort, tuple) or len(sort) != 2:
-            raise TypeError("table sort must be a (key, direction) tuple")
         required_text("table sort key", sort[0])
-        one_of("table sort direction", sort[1], _SORT_DIRECTIONS)
     if any(column.sortable for column in resolved) and sort_event is None:
         raise ValueError("table sortable columns require a sort event")
     headers = fragment(_header(column, sort, sort_event, target) for column in resolved)
     body: object
     if stream is not None:
-        if not isinstance(stream, tuple) or len(stream) != 2:
-            raise TypeError("table stream must be a (container id, contents) tuple")
         container_id = html_id("table stream id", stream[0])
         body = t'<tbody id="{container_id}" phx-update="stream">{stream[1]}</tbody>'
     else:
@@ -262,7 +241,6 @@ def list_item(
     plain content. ``leading`` and ``trailing`` hold an avatar, an icon, a
     badge, or a control.
     """
-    boolean("list item selected", selected)
     event = event_binding("list item event", event)
     target = event_target("list item target", target, event)
     value_attributes = event_values("list item values", values, event)
@@ -342,9 +320,6 @@ def stat(
     """Render one figure with its label, change, and an optional small chart."""
     label = required_text("stat label", label)
     delta = optional_nonempty_text("stat delta", delta)
-    if trend is not None:
-        one_of("stat trend", trend, _TRENDS)
-    one_of("stat tone", tone, TONES)
     help_text = optional_nonempty_text("stat help text", help_text)
     delta_markup: object = raw("")
     if delta is not None or trend is not None:
@@ -370,8 +345,6 @@ def stat(
 
 
 def _number(name: str, value: float) -> float:
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        raise TypeError(f"{name} must be a number")
     if not math.isfinite(value):
         raise ValueError(f"{name} must be finite")
     return value
@@ -389,8 +362,6 @@ def sparkline(
     ``label`` describes the trend in words for readers who cannot see it.
     """
     label = required_text("sparkline label", label)
-    one_of("sparkline tone", tone, TONES)
-    boolean("sparkline area", area)
     numbers = [float(_number("sparkline value", value)) for value in values]
     if len(numbers) < 2:
         raise ValueError("sparkline requires at least two values")
@@ -430,7 +401,6 @@ def avatar(name: str, *, src: str | None = None, size: Size = "md") -> Template:
     ``name`` is the avatar's accessible name.
     """
     name = required_text("avatar name", name)
-    one_of("avatar size", size, SIZES)
     class_name = classes("tori-ui-avatar", f"tori-ui-avatar--{size}")
     content: object
     if src is None:
@@ -477,14 +447,12 @@ def tag(
 
     With ``remove_event`` the tag ends in a button that pushes the event.
     """
-    one_of("tag tone", tone, TONES)
     remove_event = event_binding("tag remove event", remove_event)
     remove_label = required_text("tag remove label", remove_label)
     target = event_target("tag target", target, remove_event)
     value_attributes = event_values("tag values", values, remove_event)
     leading: object = raw("")
     if icon is not None:
-        icon_name("tag icon", icon)
         leading = render_icon(icon, size="sm")
     remove: object = raw("")
     if remove_event is not None:
@@ -514,8 +482,6 @@ def status_dot(
 ) -> Template:
     """Render a colored dot with the state it stands for in words."""
     label = required_text("status dot label", label)
-    one_of("status dot tone", tone, TONES)
-    boolean("status dot pulse", pulse)
     class_name = classes(
         "tori-ui-status-dot",
         f"tori-ui-status-dot--{tone}",
@@ -541,7 +507,6 @@ def timeline_item(
     id: str | None = None,
 ) -> Template:
     """Render one event of a ``timeline``."""
-    one_of("timeline item tone", tone, TONES)
     if id is not None:
         id = html_id("timeline item id", id)
     time_markup = (
@@ -581,7 +546,6 @@ def empty_state(
     title = required_text("empty state title", title)
     glyph: object = raw("")
     if icon is not None:
-        icon_name("empty state icon", icon)
         drawing = render_icon(icon, size="lg")
         glyph = t'<div class="tori-ui-empty-state__icon">{drawing}</div>'
     description_markup = (
@@ -618,8 +582,6 @@ def progress(
         _number("progress value", value)
         if not 0 <= value <= maximum:
             raise ValueError("progress value must be between 0 and the maximum")
-    one_of("progress tone", tone, TONES)
-    boolean("progress show value", show_value)
     attributes = attrs(
         {
             "class": "tori-ui-progress__bar",
@@ -689,7 +651,6 @@ def tooltip(
     """
     text = required_text("tooltip text", text)
     id = html_id("tooltip id", id)
-    one_of("tooltip placement", placement, _TOOLTIP_PLACEMENTS)
     class_name = classes("tori-ui-tooltip", f"tori-ui-tooltip--{placement}")
     return (
         t'<span class="{class_name}" tabindex="0" aria-describedby="{id}">{content}'

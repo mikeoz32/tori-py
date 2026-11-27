@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from html import escape
 from string.templatelib import Template
-from typing import Any, cast
+from typing import Any
 
 import pytest
 import tori_py_liveview_ui
@@ -23,8 +23,7 @@ from tori_py_liveview_ui import (
     toolbar,
 )
 
-# Calls that break a helper's contract go through an untyped alias.
-ui = cast(Any, tori_py_liveview_ui)
+ui = tori_py_liveview_ui
 
 
 def _render(template: Template) -> str:
@@ -240,36 +239,7 @@ def test_app_shell_header_without_a_sidebar_has_no_menu_button() -> None:
 @pytest.mark.parametrize(
     ("call", "error", "message"),
     [
-        (lambda: ui.row([], gap="huge"), ValueError, "row gap must be one of"),
-        (lambda: ui.row([], align="top"), ValueError, "row alignment must be one of"),
-        (
-            lambda: ui.row([], justify="around"),
-            ValueError,
-            "row justification must be one of",
-        ),
-        (lambda: ui.row([], wrap=1), TypeError, "row wrap must be a boolean"),
-        (
-            lambda: ui.container("x", size="huge"),
-            ValueError,
-            "container size must be one of",
-        ),
-        (
-            lambda: ui.container("x", padded="yes"),
-            TypeError,
-            "container padded must be a boolean",
-        ),
-        (
-            lambda: ui.center("x", min_height="full"),
-            ValueError,
-            "center minimum height must be one of",
-        ),
         (lambda: ui.divider(label=" "), ValueError, "divider label cannot be empty"),
-        (
-            lambda: ui.divider(orientation="diagonal"),
-            ValueError,
-            "divider orientation must be one of",
-        ),
-        (lambda: ui.spacer(size="huge"), ValueError, "spacer size must be one of"),
         (
             lambda: ui.section("x", title=""),
             ValueError,
@@ -281,31 +251,11 @@ def test_app_shell_header_without_a_sidebar_has_no_menu_button() -> None:
             "section id cannot contain whitespace",
         ),
         (lambda: ui.page_header(" "), ValueError, "page header title cannot be empty"),
-        (
-            lambda: ui.page_header("T", eyebrow=1),
-            TypeError,
-            "page header eyebrow must be a string or None",
-        ),
         (lambda: ui.toolbar([], label=""), ValueError, "toolbar label cannot be empty"),
-        (
-            lambda: ui.split("a", "b", ratio="2:3"),
-            ValueError,
-            "split ratio must be one of",
-        ),
-        (
-            lambda: ui.split("a", "b", gap="huge"),
-            ValueError,
-            "split gap must be one of",
-        ),
         (
             lambda: ui.scroll_area("x", label=""),
             ValueError,
             "scroll area label cannot be empty",
-        ),
-        (
-            lambda: ui.scroll_area("x", label="L", max_height="huge"),
-            ValueError,
-            "scroll area maximum height must be one of",
         ),
         (
             lambda: ui.app_shell("x", id="a.b"),
@@ -317,7 +267,6 @@ def test_app_shell_header_without_a_sidebar_has_no_menu_button() -> None:
             ValueError,
             "app shell id must match",
         ),
-        (lambda: ui.app_shell("x", id=1), TypeError, "app shell id must be a string"),
         (
             lambda: ui.app_shell("x", id="app", menu_label=""),
             ValueError,

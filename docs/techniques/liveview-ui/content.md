@@ -123,7 +123,8 @@ safe.
 ## Icons
 
 `icon(name, *, size, label)` renders one of the bundled icons as inline SVG in
-the current text color. The set is closed: an unknown name raises `ValueError`.
+the current text color. Names form a closed `Literal` set checked by your type
+checker.
 `size` is `sm`, `md`, or `lg`, relative to the surrounding text.
 
 An icon is decorative by default and hidden from assistive technology. Give it a

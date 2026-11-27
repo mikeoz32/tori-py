@@ -9,18 +9,13 @@ from typing import Literal
 from tori_py_liveview import JS, attrs, classes, fragment, raw
 
 from tori_py_liveview_ui._shared import (
-    INPUT_TYPES,
     InputType,
-    boolean,
     bounded_integer,
     control_description,
     event_binding,
     event_target,
     html_id,
-    input_value,
-    one_of,
     optional_nonempty_text,
-    optional_text,
     required_text,
 )
 from tori_py_liveview_ui.icons import icon
@@ -28,7 +23,6 @@ from tori_py_liveview_ui.icons import icon
 type Debounce = int | Literal["blur"]
 type FormActionsAlignment = Literal["start", "end", "between"]
 
-_FORM_ACTIONS_ALIGNMENTS = frozenset({"start", "end", "between"})
 # The block, option, control, and label classes of a group of choices.
 _CHOICE = (
     "tori-ui-choice",
@@ -69,19 +63,9 @@ def _lengths(
     return {"minlength": min_length, "maxlength": max_length}
 
 
-def _bound(name: str, value: str | int | float | None) -> str | int | float | None:
-    if value is not None and (
-        isinstance(value, bool) or not isinstance(value, (str, int, float))
-    ):
-        raise TypeError(f"{name} must be a string, number, or None")
-    return value
-
-
 def _step(value: int | float | Literal["any"] | None) -> int | float | str | None:
     if value is None or value == "any":
         return value
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        raise TypeError('input step must be a positive number, "any", or None')
     if value <= 0:
         raise ValueError('input step must be a positive number, "any", or None')
     return value
@@ -138,7 +122,6 @@ def field(
     control_id = html_id("field control id", control_id)
     help_text = optional_nonempty_text("field help text", help_text)
     error = optional_nonempty_text("field error", error)
-    required = boolean("field required", required)
     class_name = classes(
         "tori-ui-field",
         **{"tori-ui-field--invalid": error is not None},
@@ -203,16 +186,8 @@ def input(
     label = required_text("input label", label)
     id = html_id("input id", id)
     name = required_text("input name", name)
-    value = input_value(value)
-    one_of("input type", input_type, INPUT_TYPES)
-    placeholder = optional_text("input placeholder", placeholder)
-    autocomplete = optional_text("input autocomplete", autocomplete)
     help_text = optional_nonempty_text("input help text", help_text)
     error = optional_nonempty_text("input error", error)
-    required = boolean("input required", required)
-    disabled = boolean("input disabled", disabled)
-    boolean("input readonly", readonly)
-    boolean("input autofocus", autofocus)
     change_event = event_binding("input change event", change_event)
     blur_event = event_binding("input blur event", blur_event)
     target = event_target("input target", target, change_event, blur_event)
@@ -229,8 +204,8 @@ def input(
             "disabled": disabled,
             "readonly": readonly,
             "autofocus": autofocus,
-            "min": _bound("input minimum", minimum),
-            "max": _bound("input maximum", maximum),
+            "min": minimum,
+            "max": maximum,
             "step": _step(step),
             **_lengths("input", min_length, max_length),
             "aria-invalid": "true" if error is not None else None,
@@ -288,18 +263,10 @@ def textarea(
     label = required_text("textarea label", label)
     id = html_id("textarea id", id)
     name = required_text("textarea name", name)
-    if not isinstance(value, str):
-        raise TypeError("textarea value must be a string")
-    if type(rows) is not int:
-        raise TypeError("textarea rows must be an integer")
     if not 1 <= rows <= 100:
         raise ValueError("textarea rows must be between 1 and 100")
-    placeholder = optional_text("textarea placeholder", placeholder)
     help_text = optional_nonempty_text("textarea help text", help_text)
     error = optional_nonempty_text("textarea error", error)
-    required = boolean("textarea required", required)
-    disabled = boolean("textarea disabled", disabled)
-    boolean("textarea readonly", readonly)
     change_event = event_binding("textarea change event", change_event)
     blur_event = event_binding("textarea blur event", blur_event)
     target = event_target("textarea target", target, change_event, blur_event)
@@ -352,12 +319,8 @@ def select(
     label = required_text("select label", label)
     id = html_id("select id", id)
     name = required_text("select name", name)
-    value = optional_text("select value", value)
-    prompt = optional_text("select prompt", prompt)
     help_text = optional_nonempty_text("select help text", help_text)
     error = optional_nonempty_text("select error", error)
-    required = boolean("select required", required)
-    disabled = boolean("select disabled", disabled)
     change_event = event_binding("select change event", change_event)
     blur_event = event_binding("select blur event", blur_event)
     target = event_target("select target", target, change_event, blur_event)
@@ -366,11 +329,7 @@ def select(
         prompt_attributes = attrs({"value": "", "selected": value is None})
         option_markup.append(t"<option{prompt_attributes}>{prompt}</option>")
     for option in options:
-        if not isinstance(option, tuple) or len(option) != 2:
-            raise TypeError("select options must be two-item tuples")
         option_value, option_label = option
-        if not isinstance(option_value, str):
-            raise TypeError("select option values must be strings")
         option_attributes = attrs(
             {"value": option_value, "selected": option_value == value}
         )
@@ -422,9 +381,6 @@ def checkbox(
     value = required_text("checkbox value", value)
     help_text = optional_nonempty_text("checkbox help text", help_text)
     error = optional_nonempty_text("checkbox error", error)
-    checked = boolean("checkbox checked", checked)
-    required = boolean("checkbox required", required)
-    disabled = boolean("checkbox disabled", disabled)
     change_event = event_binding("checkbox change event", change_event)
     blur_event = event_binding("checkbox blur event", blur_event)
     target = event_target("checkbox target", target, change_event, blur_event)
@@ -468,28 +424,6 @@ def checkbox(
         t"<input{control_attributes}><label{label_attributes}>{label}"
         t"{required_markup}</label></div>{help_markup}{error_markup}</div>"
     )
-
-
-def _options(
-    name: str, options: Iterable[tuple[str, object]]
-) -> list[tuple[str, object]]:
-    resolved: list[tuple[str, object]] = []
-    for option in options:
-        if not isinstance(option, tuple) or len(option) != 2:
-            raise TypeError(f"{name} options must be two-item tuples")
-        if not isinstance(option[0], str):
-            raise TypeError(f"{name} option values must be strings")
-        resolved.append((option[0], option[1]))
-    return resolved
-
-
-def _selected(name: str, values: Iterable[str]) -> frozenset[str]:
-    if isinstance(values, str):
-        raise TypeError(f"{name} values must be an iterable of strings")
-    chosen = frozenset(values)
-    if not all(isinstance(value, str) for value in chosen):
-        raise TypeError(f"{name} values must be an iterable of strings")
-    return chosen
 
 
 def _messages(
@@ -536,14 +470,11 @@ def _choices(
     field_name = required_text(f"{name} name", field_name)
     help_text = optional_nonempty_text(f"{name} help text", help_text)
     error = optional_nonempty_text(f"{name} error", error)
-    boolean(f"{name} required", required)
-    boolean(f"{name} disabled", disabled)
-    boolean(f"{name} inline", inline)
     change_event = event_binding(f"{name} change event", change_event)
     target = event_target(f"{name} target", target, change_event)
     block, option_class, control_class, label_class = names
     choices: list[Template] = []
-    for index, (value, option_label) in enumerate(_options(name, options), start=1):
+    for index, (value, option_label) in enumerate(options, start=1):
         control = attrs(
             {
                 "type": kind,
@@ -603,7 +534,6 @@ def radio_group(
     target: int | None = None,
 ) -> Template:
     """Render a labeled group of radio buttons over ``(value, label)`` pairs."""
-    value = optional_text("radio group value", value)
     return _choices(
         "radio group",
         "radio",
@@ -649,7 +579,7 @@ def checkbox_group(
         "checkbox",
         label,
         options,
-        _selected("checkbox group", values),
+        frozenset(values),
         id=id,
         field_name=name,
         names=_CHOICE,
@@ -678,7 +608,6 @@ def segmented(
     target: int | None = None,
 ) -> Template:
     """Render radio buttons as one segmented control, for a few short options."""
-    value = optional_text("segmented value", value)
     return _choices(
         "segmented",
         "radio",
@@ -718,8 +647,6 @@ def switch(
     value = required_text("switch value", value)
     help_text = optional_nonempty_text("switch help text", help_text)
     error = optional_nonempty_text("switch error", error)
-    boolean("switch checked", checked)
-    boolean("switch disabled", disabled)
     change_event = event_binding("switch change event", change_event)
     target = event_target("switch target", target, change_event)
     control = attrs(
@@ -772,18 +699,16 @@ def multi_select(
     label = required_text("multi select label", label)
     id = html_id("multi select id", id)
     name = required_text("multi select name", name)
-    chosen = _selected("multi select", values)
+    chosen = frozenset(values)
     bounded_integer("multi select size", size, 2, 20)
     help_text = optional_nonempty_text("multi select help text", help_text)
     error = optional_nonempty_text("multi select error", error)
-    required = boolean("multi select required", required)
-    boolean("multi select disabled", disabled)
     change_event = event_binding("multi select change event", change_event)
     blur_event = event_binding("multi select blur event", blur_event)
     target = event_target("multi select target", target, change_event, blur_event)
     option_markup = [
         t"<option{attrs({'value': value, 'selected': value in chosen})}>{text}</option>"
-        for value, text in _options("multi select", options)
+        for value, text in options
     ]
     attributes = attrs(
         {
@@ -838,13 +763,8 @@ def combobox(
     label = required_text("combobox label", label)
     id = html_id("combobox id", id)
     name = required_text("combobox name", name)
-    if not isinstance(value, str):
-        raise TypeError("combobox value must be a string")
-    placeholder = optional_text("combobox placeholder", placeholder)
     help_text = optional_nonempty_text("combobox help text", help_text)
     error = optional_nonempty_text("combobox error", error)
-    required = boolean("combobox required", required)
-    boolean("combobox disabled", disabled)
     change_event = event_binding("combobox change event", change_event)
     blur_event = event_binding("combobox blur event", blur_event)
     target = event_target("combobox target", target, change_event, blur_event)
@@ -853,16 +773,10 @@ def combobox(
     for option in options:
         if isinstance(option, str):
             suggestions.append(t"<option{attrs({'value': option})}></option>")
-        elif (
-            isinstance(option, tuple)
-            and len(option) == 2
-            and isinstance(option[0], str)
-        ):
+        else:
             suggestions.append(
                 t"<option{attrs({'value': option[0]})}>{option[1]}</option>"
             )
-        else:
-            raise TypeError("combobox options must be strings or (value, label) tuples")
     attributes = attrs(
         {
             "type": "text",
@@ -915,10 +829,6 @@ def search(
     label = required_text("search label", label)
     id = html_id("search id", id)
     name = required_text("search name", name)
-    if not isinstance(value, str):
-        raise TypeError("search value must be a string")
-    placeholder = optional_text("search placeholder", placeholder)
-    boolean("search disabled", disabled)
     change_event = event_binding("search change event", change_event)
     target = event_target("search target", target, change_event)
     attributes = attrs(
@@ -964,23 +874,13 @@ def slider(
     label = required_text("slider label", label)
     id = html_id("slider id", id)
     name = required_text("slider name", name)
-    for part, number in (
-        ("value", value),
-        ("minimum", minimum),
-        ("maximum", maximum),
-        ("step", step),
-    ):
-        if isinstance(number, bool) or not isinstance(number, (int, float)):
-            raise TypeError(f"slider {part} must be a number")
     if minimum >= maximum:
         raise ValueError("slider minimum must be below the maximum")
     if not minimum <= value <= maximum:
         raise ValueError("slider value must be within the range")
     if step <= 0:
         raise ValueError("slider step must be positive")
-    boolean("slider show value", show_value)
     help_text = optional_nonempty_text("slider help text", help_text)
-    boolean("slider disabled", disabled)
     change_event = event_binding("slider change event", change_event)
     target = event_target("slider target", target, change_event)
     attributes = attrs(
@@ -1012,8 +912,6 @@ def slider(
 def hidden(*, name: str, value: str | int | float, id: str | None = None) -> Template:
     """Render a hidden input that travels with its form."""
     name = required_text("hidden name", name)
-    if isinstance(value, bool) or not isinstance(value, (str, int, float)):
-        raise TypeError("hidden value must be a string or a number")
     if id is not None:
         id = html_id("hidden id", id)
     attributes = attrs({"type": "hidden", "id": id, "name": name, "value": value})
@@ -1033,7 +931,6 @@ def fieldset(
     """
     legend = required_text("fieldset legend", legend)
     description = optional_nonempty_text("fieldset description", description)
-    boolean("fieldset disabled", disabled)
     attributes = attrs(
         {"class": "tori-ui-fieldset tori-ui-fieldset--section", "disabled": disabled}
     )
@@ -1055,7 +952,6 @@ def form_actions(
     align: FormActionsAlignment = "end",
 ) -> Template:
     """Line up a form's buttons under its fields."""
-    one_of("form actions alignment", align, _FORM_ACTIONS_ALIGNMENTS)
     class_name = classes("tori-ui-form-actions", f"tori-ui-form-actions--{align}")
     return t'<div class="{class_name}">{fragment(children)}</div>'
 

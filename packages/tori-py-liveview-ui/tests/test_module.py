@@ -76,8 +76,6 @@ def test_ui_module_materializes_one_controller_without_providers() -> None:
 
 
 def test_ui_module_validates_its_instance_key() -> None:
-    with pytest.raises(TypeError, match="key must be a string"):
-        LiveViewUiModule.for_root(key=cast(str, 1))
     with pytest.raises(ValueError, match="key cannot be empty"):
         LiveViewUiModule.for_root(key="")
 
@@ -217,7 +215,7 @@ def test_ui_liveview_injects_stylesheet_theme_and_skin_into_document() -> None:
     assert '<script defer src="/_tori/live/client.js"></script>' in document
 
 
-def test_ui_liveview_supports_explicit_themes_and_rejects_unknown_values() -> None:
+def test_ui_liveview_supports_explicit_themes() -> None:
     class DarkPage(UiLiveView):
         def render(self) -> str:
             return ""
@@ -226,16 +224,6 @@ def test_ui_liveview_supports_explicit_themes_and_rejects_unknown_values() -> No
             return "dark"
 
     assert 'data-tori-ui-theme="dark"' in DarkPage().render_document("", "")
-
-    class InvalidPage(UiLiveView):
-        def render(self) -> str:
-            return ""
-
-        def ui_theme(self):
-            return "sepia"
-
-    with pytest.raises(ValueError, match="theme must be one of"):
-        InvalidPage().render_document("", "")
 
 
 def test_ui_liveview_supports_bundled_and_application_owned_skins() -> None:
@@ -275,18 +263,6 @@ def test_ui_liveview_rejects_invalid_skin_names(skin: str) -> None:
         ValueError,
         match=re.escape("skin must match [a-z][a-z0-9-]{0,63}"),
     ):
-        InvalidPage().render_document("", "")
-
-
-def test_ui_liveview_rejects_non_string_skin_names() -> None:
-    class InvalidPage(UiLiveView):
-        def render(self) -> str:
-            return ""
-
-        def ui_skin(self):
-            return 1
-
-    with pytest.raises(TypeError, match="skin must be a string"):
         InvalidPage().render_document("", "")
 
 

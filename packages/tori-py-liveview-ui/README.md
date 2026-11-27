@@ -7,6 +7,13 @@ of Phoenix hooks, and an optional `UiLiveView` document base with independent
 color themes and visual skins. It does not add another browser client, protocol,
 validation engine, or state model.
 
+Python argument types, tuple shapes, and closed `Literal` options are enforced
+by static type checking. Helpers trust those annotations and do not promise
+runtime type errors for untyped calls. Validate external data before passing it
+to a helper. Runtime checks retain semantic constraints such as required names,
+numeric ranges, safe IDs/selectors, and argument relationships; rendering keeps
+its escaping and URL scheme protections.
+
 ```bash
 uv add tori-py-liveview-ui
 ```

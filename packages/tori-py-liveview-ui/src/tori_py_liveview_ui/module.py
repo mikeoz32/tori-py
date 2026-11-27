@@ -6,7 +6,7 @@ from importlib.resources import files
 from typing import Literal
 
 from tori_py import DeferredModule, HttpResponse, ModuleSpec, controller, get
-from tori_py_liveview import LiveView, SafeHtml, raw
+from tori_py_liveview import LiveView, SafeHtml, attrs, raw
 
 _STATIC = files("tori_py_liveview_ui").joinpath("static")
 _STYLESHEET = _STATIC.joinpath("tori_liveview_ui.css").read_bytes()
@@ -26,7 +26,6 @@ _SCRIPT_HEADERS = {
     "etag": f'"{_SCRIPT_DIGEST}"',
 }
 type UiTheme = Literal["auto", "light", "dark"]
-_THEMES = frozenset({"auto", "light", "dark"})
 _SKIN_NAME = re.compile(r"[a-z][a-z0-9-]{0,63}")
 
 
@@ -50,8 +49,6 @@ class _AssetController:
 class LiveViewUiModule:
     @classmethod
     def for_root(cls, *, key: str = "default") -> DeferredModule:
-        if not isinstance(key, str):
-            raise TypeError("LiveView UI key must be a string")
         if not key:
             raise ValueError("LiveView UI key cannot be empty")
 
@@ -83,20 +80,12 @@ class UiLiveView(LiveView):
 
     def render_document(self, live_root: str, client_script: str) -> str:
         theme = self.ui_theme()
-        if theme not in _THEMES:
-            choices = ", ".join(sorted(_THEMES))
-            raise ValueError(f"LiveView UI theme must be one of: {choices}")
         skin = self.ui_skin()
-        if not isinstance(skin, str):
-            raise TypeError("LiveView UI skin must be a string")
         if _SKIN_NAME.fullmatch(skin) is None:
             raise ValueError("LiveView UI skin must match [a-z][a-z0-9-]{0,63}")
         document = super().render_document(live_root, client_script)
-        document = document.replace(
-            "<html>",
-            f'<html data-tori-ui-theme="{theme}" data-tori-ui-skin="{skin}">',
-            1,
-        )
+        attributes = attrs({"data-tori-ui-theme": theme, "data-tori-ui-skin": skin})
+        document = document.replace("<html>", f"<html{attributes.value}>", 1)
         document = document.replace(
             "</head>",
             f"{stylesheet_link().value}{script_tag().value}</head>",

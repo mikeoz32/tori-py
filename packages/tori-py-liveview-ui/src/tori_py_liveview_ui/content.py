@@ -10,11 +10,9 @@ from tori_py_liveview import attrs, classes, fragment, raw
 
 from tori_py_liveview_ui._shared import (
     LiveLink,
-    boolean,
     bounded_integer,
     html_id,
     link_attributes,
-    one_of,
     optional_nonempty_text,
     required_text,
 )
@@ -29,7 +27,6 @@ type DescriptionLayout = Literal["rows", "stacked"]
 type ImageRatio = Literal["auto", "square", "video", "wide"]
 type ImageFit = Literal["cover", "contain"]
 
-_HEADING_SIZES = frozenset({"xs", "sm", "md", "lg", "xl", "2xl"})
 _HEADING_DEFAULT_SIZES: dict[int, HeadingSize] = {
     1: "2xl",
     2: "xl",
@@ -38,11 +35,6 @@ _HEADING_DEFAULT_SIZES: dict[int, HeadingSize] = {
     5: "sm",
     6: "xs",
 }
-_TEXT_SIZES = frozenset({"sm", "md", "lg"})
-_LIST_MARKERS = frozenset({"bullet", "number", "none"})
-_DESCRIPTION_LAYOUTS = frozenset({"rows", "stacked"})
-_IMAGE_RATIOS = frozenset({"auto", "square", "video", "wide"})
-_IMAGE_FITS = frozenset({"cover", "contain"})
 
 
 def heading(
@@ -57,11 +49,8 @@ def heading(
     Choose ``level`` for the document outline and, when the design calls for
     it, ``size`` for the look. Without ``size`` each level has its own.
     """
-    if type(level) is not int or not 1 <= level <= 6:
-        raise ValueError("heading level must be an integer between 1 and 6")
     if size is None:
         size = _HEADING_DEFAULT_SIZES[level]
-    one_of("heading size", size, _HEADING_SIZES)
     if id is not None:
         id = html_id("heading id", id)
     attributes = attrs(
@@ -89,8 +78,6 @@ def text(
     muted: bool = False,
 ) -> Template:
     """Render a paragraph."""
-    one_of("text size", size, _TEXT_SIZES)
-    boolean("text muted", muted)
     class_name = classes(
         "tori-ui-text",
         f"tori-ui-text--{size}",
@@ -144,8 +131,6 @@ def code_block(
     trusted content when you have it.
     """
     language = optional_nonempty_text("code block language", language)
-    boolean("code block copy", copy)
-    boolean("code block wrap", wrap)
     class_name = classes(
         "tori-ui-code-block",
         **{"tori-ui-code-block--wrap": wrap},
@@ -212,7 +197,6 @@ def item_list(
     marker: ListMarker = "bullet",
 ) -> Template:
     """Render a list; ``marker="number"`` makes it an ordered list."""
-    one_of("item list marker", marker, _LIST_MARKERS)
     class_name = classes("tori-ui-list", f"tori-ui-list--{marker}")
     content = fragment(t"<li>{item}</li>" for item in items)
     if marker == "number":
@@ -226,15 +210,12 @@ def description_list(
     layout: DescriptionLayout = "rows",
 ) -> Template:
     """Render term and detail pairs, side by side or stacked."""
-    one_of("description list layout", layout, _DESCRIPTION_LAYOUTS)
     class_name = classes(
         "tori-ui-description-list",
         f"tori-ui-description-list--{layout}",
     )
     rows: list[Template] = []
     for item in items:
-        if not isinstance(item, tuple) or len(item) != 2:
-            raise TypeError("description list items must be two-item tuples")
         term, detail = item
         rows.append(
             t'<div class="tori-ui-description-list__item"><dt>{term}</dt>'
@@ -260,15 +241,10 @@ def image(
     ``ratio`` reserves the image's space before it loads.
     """
     src = required_text("image source", src)
-    if not isinstance(alt, str):
-        raise TypeError("image alternative text must be a string")
-    one_of("image ratio", ratio, _IMAGE_RATIOS)
-    one_of("image fit", fit, _IMAGE_FITS)
     if width is not None:
         bounded_integer("image width", width, 1, 16384)
     if height is not None:
         bounded_integer("image height", height, 1, 16384)
-    boolean("image lazy", lazy)
     attributes = attrs(
         {
             "class": classes("tori-ui-image__media", f"tori-ui-image__media--{fit}"),
