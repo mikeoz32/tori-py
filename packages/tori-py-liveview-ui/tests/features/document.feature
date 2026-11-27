@@ -14,13 +14,13 @@ Feature: LiveView UI documents in a real browser
     When I click the "Primary" button
     Then "#clicks" shows "1"
 
-  Scenario: Application hooks and package hooks both register
+  Scenario: Application hooks and Lit components coexist
     # The gallery replaces globalThis.ToriLiveHooks from an inline body
     # script, after the package script has run.
     Given I open the gallery page "/"
     Then the hook "GalleryClock" is registered
-    And the hook "ToriUiMode" is registered
-    And every registered hook except "GalleryClock" starts with "ToriUi"
+    And the component "tori-ui-mode" is registered
+    And the UI does not register named application hooks
     And "#clock" is not empty
     And "#gallery-mode [data-tori-ui-mode-value='auto']" is pressed
 

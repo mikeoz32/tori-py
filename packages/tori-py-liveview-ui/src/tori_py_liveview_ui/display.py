@@ -653,9 +653,10 @@ def tooltip(
     id = html_id("tooltip id", id)
     class_name = classes("tori-ui-tooltip", f"tori-ui-tooltip--{placement}")
     return (
-        t'<span class="{class_name}" tabindex="0" aria-describedby="{id}">{content}'
+        t'<tori-ui-tooltip class="{class_name}" tabindex="0" '
+        t'aria-describedby="{id}">{content}'
         t'<span id="{id}" class="tori-ui-tooltip__bubble" role="tooltip">{text}'
-        t"</span></span>"
+        t"</span></tori-ui-tooltip>"
     )
 
 

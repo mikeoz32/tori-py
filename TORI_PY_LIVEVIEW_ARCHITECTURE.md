@@ -193,6 +193,14 @@ deadline.
 
 ### 3.6 Client hooks, pushed events, replies, and component updates
 
+The bootstrap dispatches `tori-live:ready` after loading the unchanged official
+client APIs. Before creating LiveSocket it awaits an optional
+`globalThis.ToriLiveReady` promise, allowing local Web Component modules to
+register elements that use public `LiveView.createHook` before the initial join.
+A rejected readiness promise reports initialization failure without connecting;
+without one the previous synchronous startup path remains. The core has no Lit
+or UI dependency.
+
 The bootstrap passes `globalThis.ToriLiveHooks`, created as an empty object when
 absent, as the official `hooks` option of `LiveSocket`. The client keeps that
 object by reference, so application scripts register hooks by assigning

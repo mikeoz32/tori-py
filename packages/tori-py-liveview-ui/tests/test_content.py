@@ -115,10 +115,11 @@ def test_code_block_marks_the_copy_source_and_targets_its_own_figure() -> None:
         '<figure class="tori-ui-code-block">'
         '<figcaption class="tori-ui-code-block__header" data-tori-ui-copy-exclude>'
         '<span class="tori-ui-code-block__language">python</span>'
+        '<tori-ui-copy to=".tori-ui-code-block" scope="closest">'
         '<button type="button" class="tori-ui-button tori-ui-button--ghost '
-        'tori-ui-button--sm tori-ui-copy-button" aria-label="Copy" phx-click="'
+        'tori-ui-button--sm tori-ui-copy-button" aria-label="Copy" '
     )
-    assert "&quot;closest&quot;:&quot;.tori-ui-code-block&quot;" in result
+    assert "phx-hook" not in result
     assert result.endswith(
         '</figcaption><pre class="tori-ui-code-block__pre" tabindex="0">'
         "<code data-tori-ui-copy-source>print(&#x27;&lt;hi&gt;&#x27;)</code></pre>"

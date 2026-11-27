@@ -66,9 +66,8 @@ def test_browser_owned_tabs_render_every_panel_and_switch_with_js() -> None:
     )
 
     assert result.startswith(
-        '<div id="views" class="tori-ui-tabs"><div id="views-tabs" '
-        'class="tori-ui-tabs__list" role="tablist" aria-label="Views" '
-        'phx-hook="ToriUiTabs">'
+        '<tori-ui-tabs id="views" class="tori-ui-tabs"><div id="views-tabs" '
+        'class="tori-ui-tabs__list" role="tablist" aria-label="Views">'
     )
     assert (
         '<button type="button" role="tab" id="views-tab-one" '

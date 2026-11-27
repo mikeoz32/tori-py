@@ -99,7 +99,12 @@ def button(
     spinner = _SPINNER if loading else raw("")
     leading = _optional_icon(icon, size)
     trailing = _optional_icon(icon_end, size)
-    return t"<button{attributes}>{spinner}{leading}{label}{trailing}</button>"
+    control = t"<button{attributes}>{spinner}{leading}{label}{trailing}</button>"
+    return (
+        t"<tori-ui-confirm>{control}</tori-ui-confirm>"
+        if confirm is not None
+        else control
+    )
 
 
 def icon_button(
@@ -145,7 +150,12 @@ def icon_button(
         }
     )
     glyph = render_icon(icon, size="sm" if size == "sm" else "md")
-    return t"<button{attributes}>{glyph}</button>"
+    control = t"<button{attributes}>{glyph}</button>"
+    return (
+        t"<tori-ui-confirm>{control}</tori-ui-confirm>"
+        if confirm is not None
+        else control
+    )
 
 
 def link_button(
@@ -226,17 +236,20 @@ def copy_button(
             "class": class_name,
             # The name stays the same while the visible label reports success.
             "aria-label": label,
-            "phx-click": JS().dispatch("tori-ui:copy", to=to),
             "data-tori-ui-copied-label": copied_label,
         }
     )
+    scope, selector = ("document", to) if isinstance(to, str) else to
+    selector = required_text("copy button target", selector)
+    component = attrs({"to": selector, "scope": scope})
     idle = render_icon("copy", size="sm")
     done = render_icon("check", size="sm")
     return (
-        t'<button{attributes}><span class="tori-ui-copy-button__idle">{idle}{label}'
+        t"<tori-ui-copy{component}><button{attributes}>"
+        t'<span class="tori-ui-copy-button__idle">{idle}{label}'
         t'</span><span class="tori-ui-copy-button__done" aria-hidden="true">{done}'
         t'{copied_label}</span><span class="tori-ui-visually-hidden" role="status">'
-        t"</span></button>"
+        t"</span></button></tori-ui-copy>"
     )
 
 
@@ -264,9 +277,9 @@ def mode_toggle(
         )
     )
     return (
-        t'<div id="{id}" class="tori-ui-mode-toggle" role="group" '
-        t'aria-label="{label}" phx-hook="ToriUiMode" phx-update="ignore">'
-        t"{options}</div>"
+        t'<tori-ui-mode id="{id}" class="tori-ui-mode-toggle" role="group" '
+        t'aria-label="{label}" phx-update="ignore">'
+        t"{options}</tori-ui-mode>"
     )
 
 

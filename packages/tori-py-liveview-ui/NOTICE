@@ -3,3 +3,8 @@ Copyright 2026 Mykhailo Kozlovskyi
 
 The Tori Py project history was split from mikeoz32/kinker at tag
 kinker-framework-split-2026-08-13, corresponding to source commit c98a4de.
+
+This distribution includes Lit ReactiveElement 2.1.2, Copyright Google LLC,
+licensed under the BSD 3-Clause License. Its unmodified browser modules,
+source maps, complete license, and integrity manifest are in
+src/tori_py_liveview_ui/static/vendor/lit-reactive-element-2.1.2/.

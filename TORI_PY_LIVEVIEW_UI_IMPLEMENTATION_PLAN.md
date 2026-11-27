@@ -2,6 +2,9 @@
 
 ## Status
 
+The current browser implementation is the Lit migration (LVUI20) described
+below. Earlier slices record the historical hook implementation it replaces.
+
 Every slice is complete: the foundation (LVUI0), initial family acceptance
 (LVUI1), forms (LVUI2), skinning (LVUI3), the component library foundation
 (LVUI4), the families for layout, content, icons, and actions (LVUI5), data
@@ -243,3 +246,23 @@ Architecture:
 - An optional separately distributed precompiled Tailwind skin adapter; Tailwind
   remains outside the core package and runtime dependency graph.
 - Arbitrary attribute/class extension APIs and a global design reset.
+
+
+## LVUI20: Lit Web Components
+
+- [x] Keep Python helper signatures and native form/dialog semantics while
+  emitting `tori-ui-*` elements for behaviors that need JavaScript.
+- [x] Move each behavior into a separate Lit ReactiveElement module. Preserve
+  server-owned Light DOM and integrate patch callbacks with public createHook.
+- [x] Clean up listeners, observers, and timers on removal, preserve state on
+  synchronous moves, and restore behavior on reconnect.
+- [x] Coordinate module registration and official client startup through
+  `tori-live:ready` and `ToriLiveReady`, while preserving application hooks and
+  the pre-paint stored mode.
+- [x] Serve native ES modules under a digest of their complete graph; pin and
+  bundle unmodified Lit 2.1.2 ReactiveElement browser modules, source maps,
+  license, integrity manifest, and a uv-only restoration/verification command.
+- [x] Update helper contracts, architecture, guide, repository rules, and
+  browser scenarios for Lit components.
+- [x] Complete the full LiveView/UI/Kit suites, strict documentation build, and
+  wheel/sdist verification with local modules and their license included.

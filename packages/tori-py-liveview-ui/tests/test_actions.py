@@ -155,14 +155,14 @@ def test_button_group_is_a_labeled_group() -> None:
     )
 
 
-def test_copy_button_dispatches_the_copy_event_to_its_target() -> None:
+def test_copy_button_passes_its_target_to_the_component() -> None:
     result = _render(copy_button(to="#snippet", label="Copy code", copied_label="Done"))
-    dispatch = JS().dispatch("tori-ui:copy", to="#snippet")
 
     assert result.startswith(
-        '<button type="button" class="tori-ui-button tori-ui-button--ghost '
-        'tori-ui-button--sm tori-ui-copy-button" aria-label="Copy code" '
-        f'phx-click="{_command(dispatch)}" data-tori-ui-copied-label="Done">'
+        '<tori-ui-copy to="#snippet" scope="document"><button type="button" '
+        'class="tori-ui-button tori-ui-button--ghost tori-ui-button--sm '
+        'tori-ui-copy-button" aria-label="Copy code" '
+        'data-tori-ui-copied-label="Done">'
     )
     assert f"{_render(icon('copy', size='sm'))}Copy code</span>" in result
     assert (
@@ -170,18 +170,19 @@ def test_copy_button_dispatches_the_copy_event_to_its_target() -> None:
         f"{_render(icon('check', size='sm'))}Done</span>"
     ) in result
     assert result.endswith(
-        '<span class="tori-ui-visually-hidden" role="status"></span></button>'
+        '<span class="tori-ui-visually-hidden" '
+        'role="status"></span></button></tori-ui-copy>'
     )
     relative = _render(copy_button(to=("closest", ".message")))
-    assert "&quot;closest&quot;:&quot;.message&quot;" in relative
+    assert '<tori-ui-copy to=".message" scope="closest">' in relative
 
 
 def test_mode_toggle_is_a_browser_owned_group_of_three_options() -> None:
     result = _render(mode_toggle(id="theme"))
 
     assert result.startswith(
-        '<div id="theme" class="tori-ui-mode-toggle" role="group" '
-        'aria-label="Color theme" phx-hook="ToriUiMode" phx-update="ignore">'
+        '<tori-ui-mode id="theme" class="tori-ui-mode-toggle" role="group" '
+        'aria-label="Color theme" phx-update="ignore">'
     )
     for value, label in (("auto", "System"), ("light", "Light"), ("dark", "Dark")):
         assert (

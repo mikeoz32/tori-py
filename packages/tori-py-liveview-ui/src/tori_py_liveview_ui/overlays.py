@@ -66,7 +66,6 @@ def _dialog(
             "role": role,
             "aria-labelledby": f"{id}-title",
             "aria-describedby": f"{id}-description" if described else None,
-            "phx-hook": "ToriUiDialog",
             "phx-mounted": _KEEP_OPEN,
             # Absent: the browser owns the state. Present: the page does.
             "data-tori-ui-open": None if open is None else str(open).lower(),
@@ -74,8 +73,9 @@ def _dialog(
         }
     )
     return (
-        t'<dialog{attributes}><div class="tori-ui-dialog__surface">{surface}</div>'
-        t"</dialog>"
+        t'<tori-ui-dialog id="{id}-component"><dialog{attributes}>'
+        t'<div class="tori-ui-dialog__surface">{surface}</div>'
+        t"</dialog></tori-ui-dialog>"
     )
 
 
@@ -317,7 +317,6 @@ def _popup(
         {
             "id": id,
             "class": classes("tori-ui-popup", f"tori-ui-popup--{align}"),
-            "phx-hook": "ToriUiPopup",
             "phx-click-away": close,
         }
     )
@@ -337,8 +336,8 @@ def _popup(
         }
     )
     return (
-        t"<div{root}><button{trigger}>{glyph}{label}"
-        t"{render_icon('chevron-down', size='sm')}</button>{panel}</div>"
+        t"<tori-ui-popup{root}><button{trigger}>{glyph}{label}"
+        t"{render_icon('chevron-down', size='sm')}</button>{panel}</tori-ui-popup>"
     )
 
 

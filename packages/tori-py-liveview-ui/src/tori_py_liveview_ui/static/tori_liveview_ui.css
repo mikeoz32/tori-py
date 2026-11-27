@@ -584,28 +584,33 @@
   gap: 0;
 }
 
-.tori-ui-button-group--attached > * {
+.tori-ui-button-group--attached > *,
+.tori-ui-button-group--attached > :is(tori-ui-confirm, tori-ui-copy) > button {
   border-radius: 0;
   margin-inline-start: calc(-1 * var(--tori-ui-border-width));
 }
 
-.tori-ui-button-group--attached > :first-child {
+.tori-ui-button-group--attached > :first-child,
+.tori-ui-button-group--attached > :is(tori-ui-confirm, tori-ui-copy):first-child > button {
   border-end-start-radius: var(--tori-ui-radius-control);
   border-start-start-radius: var(--tori-ui-radius-control);
   margin-inline-start: 0;
 }
 
-.tori-ui-button-group--attached > :last-child {
+.tori-ui-button-group--attached > :last-child,
+.tori-ui-button-group--attached > :is(tori-ui-confirm, tori-ui-copy):last-child > button {
   border-end-end-radius: var(--tori-ui-radius-control);
   border-start-end-radius: var(--tori-ui-radius-control);
 }
 
-.tori-ui-button-group--attached > :where(:hover, :focus-visible) {
+.tori-ui-button-group--attached > :where(:hover, :focus-visible),
+.tori-ui-button-group--attached > :is(tori-ui-confirm, tori-ui-copy) > button:where(:hover, :focus-visible) {
   position: relative;
   z-index: 1;
 }
 
-.tori-ui-button-group--attached > .tori-ui-button:hover:not(:disabled) {
+.tori-ui-button-group--attached > .tori-ui-button:hover:not(:disabled),
+.tori-ui-button-group--attached > :is(tori-ui-confirm, tori-ui-copy) > .tori-ui-button:hover:not(:disabled) {
   box-shadow: none;
   transform: none;
 }
@@ -2549,6 +2554,7 @@
 }
 
 .tori-ui-tabs {
+  display: block;
   color: var(--tori-ui-ink);
   display: grid;
   font-family: var(--tori-ui-font-body);
@@ -2646,6 +2652,7 @@
 }
 
 .tori-ui-chat-log {
+  display: block;
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
@@ -4306,4 +4313,9 @@ a.tori-ui-citation:hover {
   .tori-ui-dialog[open] {
     animation: none;
   }
+}
+
+/* Behavioral wrappers preserve the native form/dialog/control layout. */
+tori-ui-composer, tori-ui-dialog, tori-ui-copy, tori-ui-confirm {
+  display: contents;
 }

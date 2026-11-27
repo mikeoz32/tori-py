@@ -2,3 +2,8 @@ packages/tori-py-liveview/NOTICE text eol=lf
 packages/tori-py-liveview/scripts/*.py text eol=lf
 packages/tori-py-liveview/src/tori_py_liveview/static/*.json text eol=lf
 packages/tori-py-liveview/src/tori_py_liveview/static/*.min.js binary
+
+packages/tori-py-liveview-ui/src/tori_py_liveview_ui/static/components/*.js text eol=lf
+packages/tori-py-liveview-ui/src/tori_py_liveview_ui/static/tori_liveview_ui.js text eol=lf
+packages/tori-py-liveview-ui/src/tori_py_liveview_ui/static/vendor/** -text
+packages/tori-py-liveview-ui/src/tori_py_liveview_ui/static/vendor/**/vendor.json text eol=lf

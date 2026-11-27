@@ -329,9 +329,9 @@ def test_meter_is_native_with_its_range_and_thresholds() -> None:
 
 def test_tooltip_describes_focusable_content() -> None:
     assert _render(tooltip("API", text="Application <interface>", id="tip")) == (
-        '<span class="tori-ui-tooltip tori-ui-tooltip--top" tabindex="0" '
+        '<tori-ui-tooltip class="tori-ui-tooltip tori-ui-tooltip--top" tabindex="0" '
         'aria-describedby="tip">API<span id="tip" class="tori-ui-tooltip__bubble" '
-        'role="tooltip">Application &lt;interface&gt;</span></span>'
+        'role="tooltip">Application &lt;interface&gt;</span></tori-ui-tooltip>'
     )
     assert "tori-ui-tooltip--bottom" in _render(
         tooltip("x", text="y", id="t", placement="bottom")

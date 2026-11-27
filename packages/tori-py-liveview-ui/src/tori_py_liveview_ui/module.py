@@ -4,6 +4,7 @@ import hashlib
 from collections.abc import Iterable
 from dataclasses import dataclass
 from importlib.resources import files
+from importlib.resources.abc import Traversable
 
 from tori_py import DeferredModule, HttpResponse, ModuleSpec, controller, get
 from tori_py_liveview import LiveView, SafeHtml, attrs, raw
@@ -31,6 +32,30 @@ STYLESHEET_PATH = f"{_ASSET_PREFIX}{_STYLESHEET_DIGEST[:12]}.css"
 _SCRIPT = _STATIC.joinpath("tori_liveview_ui.js").read_bytes()
 _SCRIPT_DIGEST = hashlib.sha256(_SCRIPT).hexdigest()
 SCRIPT_PATH = f"{_ASSET_PREFIX}{_SCRIPT_DIGEST[:12]}.js"
+
+
+# Relative ES module imports all live under a digest of the complete graph.
+# Changing any dependency changes every URL in the graph, including the entry.
+def _module_sources(directory: Traversable, prefix: str = "") -> dict[str, bytes]:
+    sources: dict[str, bytes] = {}
+    for item in directory.iterdir():
+        name = f"{prefix}{item.name}"
+        if item.is_dir():
+            sources.update(_module_sources(item, f"{name}/"))
+        elif name.endswith((".js", ".js.map")) and name != "tori_liveview_ui.js":
+            sources[name] = item.read_bytes()
+    return sources
+
+
+_MODULE_SOURCES = _module_sources(_STATIC)
+_MODULE_DIGEST = hashlib.sha256(
+    b"".join(
+        name.encode() + b"\0" + hashlib.sha256(body).digest()
+        for name, body in sorted(_MODULE_SOURCES.items())
+    )
+).hexdigest()
+_MODULE_PREFIX = f"{_ASSET_PREFIX}{_MODULE_DIGEST[:12]}/"
+_COMPONENT_PATH = f"{_MODULE_PREFIX}components/index.js"
 _BUNDLED: frozenset[Theme | Skin] = frozenset((*_BUNDLED_THEMES, *_BUNDLED_SKINS))
 
 
@@ -42,43 +67,53 @@ def _headers(content_type: str, digest: str) -> dict[str, str]:
     }
 
 
-_STYLESHEET_HEADERS = _headers("text/css; charset=utf-8", _STYLESHEET_DIGEST)
-_SCRIPT_HEADERS = _headers("text/javascript; charset=utf-8", _SCRIPT_DIGEST)
-
-
-@controller()
-class _AssetController:
-    @get(STYLESHEET_PATH)
-    async def stylesheet(self) -> HttpResponse:
-        return HttpResponse(
-            _STYLESHEET,
-            headers=_STYLESHEET_HEADERS,
-        )
-
-    @get(SCRIPT_PATH)
-    async def script(self) -> HttpResponse:
-        return HttpResponse(
-            _SCRIPT,
-            headers=_SCRIPT_HEADERS,
-        )
-
-
-def _definition_controller(definitions: tuple[Theme | Skin, ...]) -> type[object]:
-    """Build the controller that serves one stylesheet per definition."""
-
-    def endpoint(body: bytes):
-        headers = _headers("text/css; charset=utf-8", hashlib.sha256(body).hexdigest())
+def _asset_controller(
+    name: str, resources: Iterable[tuple[str, str, bytes, str]]
+) -> type[object]:
+    def endpoint(body: bytes, content_type: str):
+        headers = _headers(content_type, hashlib.sha256(body).hexdigest())
 
         async def serve(self) -> HttpResponse:
             return HttpResponse(body, headers=headers)
 
         return serve
 
-    routes: dict[str, object] = {}
-    for index, definition in enumerate(definitions):
-        path, body = _stylesheet(definition)
-        routes[f"definition_{index}"] = get(path)(endpoint(body))
-    return controller()(type("_DefinitionAssetController", (), routes))
+    routes = {
+        method: get(path)(endpoint(body, content_type))
+        for method, path, body, content_type in resources
+    }
+    return controller()(type(name, (), routes))
+
+
+_AssetController = _asset_controller(
+    "_AssetController",
+    (
+        ("stylesheet", STYLESHEET_PATH, _STYLESHEET, "text/css; charset=utf-8"),
+        ("script", SCRIPT_PATH, _SCRIPT, "text/javascript; charset=utf-8"),
+        *(
+            (
+                f"module_{index}",
+                f"{_MODULE_PREFIX}{name}",
+                body,
+                "application/json"
+                if name.endswith(".map")
+                else "text/javascript; charset=utf-8",
+            )
+            for index, (name, body) in enumerate(sorted(_MODULE_SOURCES.items()))
+        ),
+    ),
+)
+
+
+def _definition_controller(definitions: tuple[Theme | Skin, ...]) -> type[object]:
+    return _asset_controller(
+        "_DefinitionAssetController",
+        (
+            (f"definition_{index}", path, body, "text/css; charset=utf-8")
+            for index, definition in enumerate(definitions)
+            for path, body in [_stylesheet(definition)]
+        ),
+    )
 
 
 def _registered[Definition: Theme | Skin](
@@ -164,12 +199,16 @@ def stylesheet_link(*definitions: Theme | Skin) -> SafeHtml:
 
 
 def script_tag() -> SafeHtml:
-    """Return the tag that loads the hooks before the LiveView client runs.
+    """Initialize the document mode and load the local Lit component modules.
 
-    The script registers its hooks once the document is parsed, so it belongs
-    in ``<head>`` without ``defer`` or ``async``.
+    The small blocking script applies the stored mode before paint. The ES
+    module registers components before the LiveView client connects.
     """
-    return raw(f'<script src="{SCRIPT_PATH}"></script>')
+    return raw(
+        f'<script src="{SCRIPT_PATH}"></script>'
+        f'<script type="module" data-tori-ui-components '
+        f'src="{_COMPONENT_PATH}"></script>'
+    )
 
 
 class UiLiveView(LiveView):

@@ -376,10 +376,10 @@ def app_shell(
         else raw("")
     )
     return (
-        t"<div{attributes}>{header_markup}{sidebar_markup}"
+        t"<tori-ui-app-shell{attributes}>{header_markup}{sidebar_markup}"
         t'<main id="{id}-main" class="tori-ui-app-shell__main" tabindex="-1">'
         t"{content}</main>"
-        t"{aside_markup}{footer_markup}</div>"
+        t"{aside_markup}{footer_markup}</tori-ui-app-shell>"
     )
 
 

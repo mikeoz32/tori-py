@@ -92,7 +92,6 @@ def chat_log(
             "role": "log",
             "aria-label": label,
             "tabindex": "0",
-            "phx-hook": "ToriUiChatLog",
         }
     )
     messages = attrs(
@@ -111,8 +110,9 @@ def chat_log(
         }
     )
     return (
-        t"<div{scroller}><div{messages}>{content}</div>"
-        t"<button{jump}>{render_icon('arrow-down', size='sm')}</button></div>"
+        t"<tori-ui-chat-log{scroller}><div{messages}>{content}</div>"
+        t"<button{jump}>{render_icon('arrow-down', size='sm')}</button>"
+        t"</tori-ui-chat-log>"
     )
 
 
@@ -263,6 +263,7 @@ def composer(
     stop_label = required_text("composer stop label", stop_label)
     bounded_integer("composer maximum rows", max_rows, 1, 40)
     input_id = f"{id}-input"
+    component = attrs({"id": f"{id}-component", "max-rows": max_rows, "busy": busy})
     form = attrs(
         {
             "id": id,
@@ -271,8 +272,6 @@ def composer(
             "phx-submit": submit_event,
             "phx-change": change_event,
             "phx-target": target,
-            "phx-hook": "ToriUiComposer",
-            "data-tori-ui-busy": "true" if busy else None,
         }
     )
     field = attrs(
@@ -283,7 +282,6 @@ def composer(
             "rows": 1,
             "placeholder": placeholder,
             "disabled": disabled,
-            "data-tori-ui-max-rows": max_rows,
         }
     )
     if busy and stop_event is not None:
@@ -314,11 +312,12 @@ def composer(
         t'<p class="tori-ui-composer__hint">{hint}</p>' if hint is not None else raw("")
     )
     return (
-        t'<form{form}><label class="tori-ui-visually-hidden" for="{input_id}">'
+        t"<tori-ui-composer{component}><form{form}>"
+        t'<label class="tori-ui-visually-hidden" for="{input_id}">'
         t"{label}</label><textarea{field}>{value}</textarea>"
         t'<div class="tori-ui-composer__bar">'
         t'<div class="tori-ui-composer__actions">{actions_markup}</div>{control}'
-        t"</div>{hint_markup}</form>"
+        t"</div>{hint_markup}</form></tori-ui-composer>"
     )
 
 

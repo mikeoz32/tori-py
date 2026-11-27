@@ -24,6 +24,7 @@ from tori_py_liveview_ui import (
     card,
     chat_message,
     code_block,
+    composer,
     confirm_dialog,
     markdown,
     message_actions,
@@ -40,6 +41,22 @@ pytestmark = pytest.mark.browser
 
 @live_view("/regressions")
 class RegressionLive(UiLiveView):
+    def __init__(self) -> None:
+        self.notice_duration = 600000
+        self.composer_version = "one"
+        self.submissions = 0
+
+    async def handle_event(self, event: str, value: object) -> None:
+        match event:
+            case "shorten-notice":
+                self.notice_duration = 1000
+            case "replace-composer":
+                self.composer_version = "two"
+            case "submit-probe":
+                self.submissions += 1
+            case _:
+                await super().handle_event(event, value)
+
     def render(self):
         answer = markdown("Answer\n\n```python\nfirst()\n```\n\nEnd.")
         artifact = markdown(
@@ -88,8 +105,16 @@ class RegressionLive(UiLiveView):
                     actions=message_actions([]),
                 ),
                 artifact_panel(artifact, id="artifact", title="Artifact"),
-                toast_region([toast("Notice", id="notice", duration=600000)]),
+                toast_region(
+                    [toast("Notice", id="notice", duration=self.notice_duration)]
+                ),
                 button("Outside"),
+                button("Shorten notice", event="shorten-notice"),
+                button("Replace composer", event="replace-composer"),
+                composer(
+                    id=f"probe-{self.composer_version}", submit_event="submit-probe"
+                ),
+                t'<output id="submissions">{self.submissions}</output>',
                 palettes,
             ]
         )
@@ -139,10 +164,20 @@ def regression_url() -> Iterator[str]:
 
 
 @pytest.fixture
-def regression_page(page: Page, regression_url: str) -> Page:
+def regression_page(page: Page, regression_url: str) -> Iterator[Page]:
+    errors: list[str] = []
+    page.route("**/favicon.ico", lambda route: route.fulfill(status=204, body=""))
+    page.on("pageerror", lambda error: errors.append(str(error)))
+    page.on(
+        "console",
+        lambda message: (
+            errors.append(message.text) if message.type == "error" else None
+        ),
+    )
     page.goto(regression_url)
     expect(page.locator("[data-phx-session]")).to_have_class("phx-connected")
-    return page
+    yield page
+    assert errors == []
 
 
 @pytest.mark.parametrize("action", ["Cancel", "Confirm"])
@@ -245,3 +280,137 @@ def test_rendered_badge_text_meets_the_palette_contrast_contract(
     }""")
     assert len(ratios) == 24
     assert min(ratios) >= 4.5
+
+
+def test_server_can_replace_a_composer_without_losing_or_duplicating_submission(
+    regression_page: Page,
+) -> None:
+    page = regression_page
+    page.locator("#probe-one-input").fill("Old draft")
+    page.get_by_role("button", name="Replace composer", exact=True).click()
+    expect(page.locator("#probe-one-component")).to_have_count(0)
+    field = page.locator("#probe-two-input")
+    field.fill("New message")
+    field.press("Enter")
+    expect(page.locator("#submissions")).to_have_text("1")
+    expect(field).to_have_value("")
+
+
+def test_server_can_change_an_existing_toast_duration(regression_page: Page) -> None:
+    page = regression_page
+    page.clock.install()
+    page.mouse.move(0, 0)
+    page.get_by_role("button", name="Shorten notice", exact=True).click()
+    notice = page.locator("#notice")
+    expect(notice).to_have_attribute("data-tori-ui-duration", "1000")
+    notice.evaluate("element => element.updateComplete")
+    page.clock.fast_forward(1300)
+    expect(notice).not_to_be_visible()
+
+
+def test_detached_toast_cancels_its_timer_and_reconnects_once(
+    regression_page: Page,
+) -> None:
+    page = regression_page
+    page.clock.install()
+    page.mouse.move(0, 0)
+    page.evaluate("""async () => {
+      const notice = document.querySelector('#notice');
+      notice.setAttribute('data-tori-ui-duration', '1000');
+      await notice.updateComplete;
+      window.noticeClicks = 0;
+      notice.addEventListener('click', event => {
+        if (event.target.closest('.tori-ui-toast__dismiss')) window.noticeClicks++;
+      });
+      window.savedNotice = notice;
+      window.noticeParent = notice.parentElement;
+      notice.remove();
+    }""")
+    page.clock.fast_forward(5000)
+    assert page.evaluate("window.noticeClicks") == 0
+    page.evaluate("""async () => {
+      window.noticeParent.append(window.savedNotice);
+      await window.savedNotice.updateComplete;
+    }""")
+    page.clock.fast_forward(1300)
+    assert page.evaluate("window.noticeClicks") == 1
+
+
+def test_moving_a_toast_preserves_its_countdown(regression_page: Page) -> None:
+    page = regression_page
+    page.clock.install()
+    page.mouse.move(0, 0)
+    notice = page.locator("#notice")
+    notice.evaluate("""async element => {
+      element.setAttribute('data-tori-ui-duration', '1000');
+      await element.updateComplete;
+    }""")
+    page.clock.fast_forward(600)
+    notice.evaluate("element => element.parentElement.append(element)")
+    page.clock.fast_forward(700)
+    expect(notice).not_to_be_visible()
+
+
+def test_slow_component_modules_finish_loading_before_the_page_is_used(
+    page: Page,
+    regression_url: str,
+) -> None:
+    from playwright.sync_api import Route
+
+    pending: list[Route] = []
+    connections: list[str] = []
+    page.route("**/components/index.js", lambda route: pending.append(route))
+    page.on("websocket", lambda socket: connections.append(socket.url))
+    page.goto(regression_url, wait_until="commit")
+    expect(page.locator("[data-phx-session]")).to_be_attached()
+    page.wait_for_function("globalThis.ToriLiveReady !== undefined")
+    assert connections == []
+    assert len(pending) == 1
+    pending[0].continue_()
+    expect(page.locator("[data-phx-session]")).to_have_class("phx-connected")
+    page.get_by_role("button", name="Open parent", exact=True).click()
+    expect(page.locator("#parent")).to_be_visible()
+    assert len(connections) == 1
+
+
+def test_application_readiness_is_preserved_when_ui_registers_components(
+    page: Page,
+    regression_url: str,
+) -> None:
+    connections: list[str] = []
+    page.add_init_script("""globalThis.ToriLiveReady = new Promise(resolve => {
+      window.finishApplicationSetup = resolve;
+    });""")
+    page.on("websocket", lambda socket: connections.append(socket.url))
+    page.goto(regression_url)
+    page.wait_for_function("Boolean(customElements.get('tori-ui-composer'))")
+    assert connections == []
+    page.evaluate("window.finishApplicationSetup()")
+    expect(page.locator("[data-phx-session]")).to_have_class("phx-connected")
+    page.locator("#probe-one-input").fill("After initialization")
+    page.locator("#probe-one-input").press("Enter")
+    expect(page.locator("#submissions")).to_have_text("1")
+    assert len(connections) == 1
+
+
+def test_failed_component_modules_do_not_join_a_partially_initialized_page(
+    page: Page,
+    regression_url: str,
+) -> None:
+    connections: list[str] = []
+    errors: list[str] = []
+    page.on("websocket", lambda socket: connections.append(socket.url))
+    page.on(
+        "console",
+        lambda message: (
+            errors.append(message.text) if message.type == "error" else None
+        ),
+    )
+    page.route("**/components/index.js", lambda route: route.abort("failed"))
+    page.goto(regression_url)
+    rejected = page.evaluate("""() => globalThis.ToriLiveReady.then(
+      () => false, () => true,
+    )""")
+    assert rejected is True
+    assert connections == []
+    assert any("components could not be loaded" in error for error in errors)

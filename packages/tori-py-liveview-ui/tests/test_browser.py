@@ -577,16 +577,17 @@ def hook_registered(page: Page, name: str) -> None:
     assert name in page.evaluate("Object.keys(globalThis.ToriLiveHooks)")
 
 
-@then(
-    parsers.re(
-        r'every registered hook except "(?P<name>[^"]*)" '
-        r'starts with "(?P<prefix>[^"]*)"'
+@then(parsers.re(r'the component "(?P<name>[^\"]*)" is registered'))
+def component_registered(page: Page, name: str) -> None:
+    assert page.evaluate("name => Boolean(customElements.get(name))", name)
+
+
+@then("the UI does not register named application hooks")
+def ui_has_no_named_hooks(page: Page) -> None:
+    assert not any(
+        name.startswith("ToriUi")
+        for name in page.evaluate("Object.keys(globalThis.ToriLiveHooks)")
     )
-)
-def other_hooks_prefixed(page: Page, name: str, prefix: str) -> None:
-    registered = page.evaluate("Object.keys(globalThis.ToriLiveHooks)")
-    assert [hook for hook in registered if hook != name] != []
-    assert all(hook.startswith(prefix) for hook in registered if hook != name)
 
 
 @then(parsers.re(r'the stored mode is "(?P<mode>[^"]*)"'))

@@ -5,7 +5,7 @@
 `tori-py-liveview-ui` is an optional, separately installable component library
 for `tori-py-liveview`. It provides stateless Python 3.14 template helpers
 grouped in families, one locally bundled, themeable and skinnable stylesheet,
-and one locally bundled script of Phoenix hooks. It does not introduce a second
+and local Lit ReactiveElement custom elements with a small document bootstrap. It does not introduce a second
 LiveView runtime, browser protocol, or state model.
 
 ```text
@@ -16,7 +16,7 @@ tori-py-liveview     -X-> tori-py-liveview-ui
 
 Applications explicitly import `LiveViewUiModule.for_root()` alongside their
 `LiveViewModule`. The UI module materializes one ordinary ToriPy controller for
-the stylesheet and the script; it creates no providers and performs no
+the stylesheet, document bootstrap, and ES modules; it creates no providers and performs no
 discovery, package scan, or global registration.
 
 ## 2. Public Surface
@@ -112,18 +112,17 @@ subject to the `attrs()` scheme rules. `live` maps `patch` and `navigate` to
 `external` adds `target="_blank"` and `rel="noopener noreferrer"`. A link is not
 both live and external, and `replace` requires a live link.
 
-`copy_button` dispatches the `tori-ui:copy` DOM event to its `to` target through
-a `JS` command. `to` is a CSS selector or a `("closest", selector)` or
-`("inner", selector)` pair. One `window` listener in the script copies the text
-of the target's first `data-tori-ui-copy-source` descendant, or of the target
-itself, and marks the dispatching button with `data-tori-ui-copied` for two
-seconds while a `role="status"` element inside it announces `copied_label`. The
-button keeps `label` as its accessible name throughout. The page is not
-notified.
+`copy_button` renders `tori-ui-copy` around a native button. Its `to`
+selector and `scope` attribute select a document, closest, or inner target.
+The component copies the target's first `data-tori-ui-copy-source` descendant,
+or the target itself, and marks the button with `data-tori-ui-copied` for two
+seconds while a `role="status"` element announces `copied_label`. The button
+keeps `label` as its accessible name throughout. The page is not notified.
+
 
 `mode_toggle` renders three `aria-pressed` buttons for the `auto`, `light`,
-and `dark` modes in a `phx-update="ignore"` group with the `ToriUiMode` hook.
-The hook applies the chosen mode to `<html>`, stores it in `localStorage`
+and `dark` modes in a `phx-update="ignore"` group with the `tori-ui-mode` element.
+The element applies the chosen mode to `<html>`, stores it in `localStorage`
 under `tori-ui-mode`, and keeps every toggle on the page in step.
 
 ### 4.2 Layout
@@ -261,7 +260,7 @@ button runs `JS().hide()` on the enclosing block when only `dismissible` is
 set, so the browser hides it and the page is not told; with `dismiss_event` it
 pushes that event and the page owns removal.
 
-A `toast` with a duration carries the `ToriUiToast` hook, which presses the
+A `toast` with a duration carries the `tori-ui-toast` element, which presses the
 toast's own dismiss button when the time is up and pauses while the pointer or
 the focus is inside. `toast_region` is a fixed `role="region"` in a viewport
 corner. `flash_group` renders the `error`, `warning`, `success`, and `info`
@@ -293,8 +292,8 @@ and close each other.
 unique. Without `event` every panel is rendered and a tab's `JS` commands move
 `aria-selected`, `tabindex`, and a hidden class, so the browser owns the choice
 and keeps it across renders. With `event` a tab pushes the event with
-`phx-value-tab` and only the `active` panel is rendered. The `ToriUiTabs` hook
-on the tab list moves focus with the arrow keys, Home, and End and selects the
+`phx-value-tab` and only the `active` panel is rendered. The `tori-ui-tabs` element
+around the tab list and panels moves focus with the arrow keys, Home, and End and selects the
 tab it lands on by clicking it.
 
 ### 4.8 Conversation
@@ -326,9 +325,9 @@ fills its container: an optional header, the log, and the composer.
 
 `chat_log` is a focusable `role="log"` scroller around the message container,
 which is a `phx-update="stream"` container when `stream` is set. Its
-`ToriUiChatLog` hook keeps the log at the bottom as content grows. Only the
+`tori-ui-chat-log` element keeps the log at the bottom as content grows. Only the
 visitor's scrolling releases it; a patch that makes the content taller does not.
-While released the hook marks the log with `data-tori-ui-unpinned`, which shows
+While released the element marks the log with `data-tori-ui-unpinned`, which shows
 a button that returns to the latest message.
 
 `chat_message` is an `article`. Its body is the copy source for
@@ -339,7 +338,7 @@ code sources do not replace the whole artifact. `streaming`
 sets `aria-busy` and appends a decorative caret.
 
 `composer` is a `method="post"` form with one labeled `textarea` and the
-`ToriUiComposer` hook. The hook submits on Enter, leaves Shift+Enter and IME
+`tori-ui-composer` element. The element submits on Enter, leaves Shift+Enter and IME
 composition alone, grows the field to `max_rows`, blocks an empty or busy
 submit before the LiveView client sees it, and empties the field after the
 client has read it. With `busy` and a `stop_event` the submit button is
@@ -416,31 +415,31 @@ focusable for that purpose.
 | `popover` | as `dropdown` | trigger `label`, `content`, required `id` and `panel_label` |
 
 `modal`, `drawer`, and `confirm_dialog` render a native `dialog` named by its
-title, with the `ToriUiDialog` hook and the `phx-mounted` command that makes the
-client keep the `open` attribute. The hook opens the element with `showModal()`,
+title, with the `tori-ui-dialog` wrapper and the `phx-mounted` command that makes the
+client keep the `open` attribute. The element opens the element with `showModal()`,
 so the browser contains the focus, makes the rest of the document inert, draws
 the dialog in the top layer, and returns the focus when it closes.
 
 `open` is tri-state. Left out, the browser owns the state: `open_overlay(id)`
 and `close_overlay(id)` dispatch the `tori-ui:open` and `tori-ui:close` DOM
-events that the hook answers, and the dialog's dismiss control closes it with
+events that the element answers, and the dialog's dismiss control closes it with
 `close_overlay`. Given as a boolean, the page owns it: the helper renders
-`data-tori-ui-open`, the hook follows that attribute on mount and on every
+`data-tori-ui-open`, the element follows that attribute on mount and on every
 update, and the dismiss control pushes `close_event` so the page can render the
 dialog closed.
 
 Every way of closing goes through the dialog's own dismiss control, marked
-`data-tori-ui-dismiss`: the hook presses it on Escape and on a click on the
+`data-tori-ui-dismiss`: the element presses it on Escape and on a click on the
 backdrop, so the browser-owned and the page-owned forms need no second code
 path. `dismissible=False` renders no dismiss control and marks the dialog so
-the hook ignores both. `confirm_dialog` is an `alertdialog` whose cancel button
+the element ignores both. `confirm_dialog` is an `alertdialog` whose cancel button
 is the dismiss control; its confirm button pushes `confirm_event` with
-`phx-value-*` values, and the hook then closes a browser-owned dialog.
+`phx-value-*` values, and the element then closes a browser-owned dialog.
 
 `dropdown` and `popover` render a button with `aria-haspopup`, `aria-expanded`,
 and `aria-controls` beside an absolutely positioned panel. `JS` commands toggle
 an open class on the wrapper and `aria-expanded` on the button, and
-`phx-click-away` closes the panel. The `ToriUiPopup` hook adds what commands
+`phx-click-away` closes the panel. The `tori-ui-popup` element adds what commands
 cannot: it moves the focus into the panel when the open class arrives, moves
 between `menuitem` elements with the arrow keys, Home, and End, closes on
 Escape with the focus back on the button, and closes on a choice and when the
@@ -519,31 +518,62 @@ validation, changeset modeling, or state management.
 
 ## 5. Browser Behavior
 
-Application state stays on the server, in pages and components. Presentation
-state that only the browser needs, such as whether a menu is open, where a log
-is scrolled, or which mode the visitor chose, stays in the browser. Helpers
-reach for browser behavior in this order:
+Application state stays in pages and components. Helpers use native elements
+first and the official Phoenix `JS` commands for patch-preserved presentation
+changes. Remaining behavior belongs to local Lit ReactiveElement custom
+elements. Static helpers remain ordinary HTML.
 
-1. native elements and attributes, such as `<details>`, `<dialog>`, and
-   `<progress>`;
-2. LiveView `JS` commands in `phx-*` bindings, which the official client runs
-   and keeps across patches;
-3. a Phoenix hook from the bundled script, only where the first two cannot
-   express the behavior.
+Each element has its own ES module and owns its listeners, timers, and
+observers. The shared base supplies cleanup and calls the public
+`LiveView.createHook()` from `connectedCallback()` for elements with IDs,
+or waits for `tori-live:ready` when Phoenix is still loading, forwarding
+Phoenix mount/update callbacks into Lit's update cycle. There is no
+package entry in `globalThis.ToriLiveHooks`; that registry remains available
+for application hooks.
 
-The script is plain JavaScript without a build step. It defines hooks whose
-names start with `ToriUi` and adds them to `globalThis.ToriLiveHooks`, the
-object the LiveView client passes to the official `LiveSocket`. It registers
-them when it loads and again when the document has been parsed, which browsers
-do before they run the deferred LiveView client, so an application script that
-replaces the object in between does not lose them. Hooks hold only state that
-belongs to their element, such as a timer or a scroll position. They do not
-store application data, open their own connections, load remote code, or
-evaluate strings as code.
+These components extend `ReactiveElement`, return themselves from
+`createRenderRoot()`, and do not use a template renderer or Shadow DOM. LiveView
+owns their server-rendered Light DOM, including stream contents; Lit owns only
+reactive attributes and browser presentation behavior. A later widget with
+client-owned markup may use `LitElement`, but must not render into nodes
+LiveView also patches. Native forms and native modal dialogs keep their browser
+semantics inside behavioral wrappers.
 
-The script also applies a color mode the visitor stored earlier to
-`data-tori-ui-mode` on `<html>` before the body is parsed. Without a stored
-choice the document keeps the mode the server rendered.
+| Python helper | Custom element | Native content retained |
+| --- | --- | --- |
+| `mode_toggle` | `tori-ui-mode` | Named group of buttons |
+| `button`, `icon_button` with confirmation | `tori-ui-confirm` | Native button |
+| `copy_button` | `tori-ui-copy` | Native button and live status |
+| `toast`, `flash_group` | `tori-ui-toast` | Status/alert and dismiss button |
+| `tabs` | `tori-ui-tabs` | Tablist, buttons, and panels |
+| `tooltip` | `tori-ui-tooltip` | Focus target and tooltip |
+| `chat_log` | `tori-ui-chat-log` | Scroll region and optional stream container |
+| `composer` | `tori-ui-composer` | Native `form`, textarea, and buttons |
+| `modal`, `drawer`, `confirm_dialog` | `tori-ui-dialog` | Native `dialog` |
+| `dropdown`, `popover` | `tori-ui-popup` | Trigger and panel |
+| `app_shell` | `tori-ui-app-shell` | Header, sidebar, main, aside, and footer |
+
+The composer wrapper has `id="<id>-component"`, `max-rows`, and a boolean
+`busy` attribute. The native form keeps the caller's `id` and Phoenix event
+bindings. Dialog wrappers similarly use `<id>-component` while the dialog
+keeps the caller's `id`, so `open_overlay()` and `close_overlay()` keep their
+existing targets. Copy elements expose the selector as `to` and its scope as
+`scope` (`document`, `closest`, or `inner`). All generated attributes remain
+escaped, and template slots remain server-rendered.
+
+Cleanup is deferred one microtask after disconnection so a synchronous DOM move
+preserves countdowns and scroll state. A real removal aborts listeners,
+disconnects observers, and cancels timers. Reconnecting creates a fresh resource
+scope. Event delegation follows replaced controls rather than keeping stale
+references; delayed clipboard completions cannot update a disconnected element.
+
+The document bootstrap applies a stored mode to `<html>` before paint and
+installs a readiness promise. The core bootstrap announces `tori-live:ready`
+after the unchanged official Phoenix client loads. The component entry registers custom elements as soon as its modules load
+and resolves readiness. Each element attaches its Phoenix bridge immediately
+when available, or during the ready event; the core connects only after
+registration and readiness are complete. Failed module loading rejects initialization and
+reports the failure instead of starting an incomplete UI.
 
 ## 6. Rendering and Safety
 
@@ -564,8 +594,10 @@ boundaries and must not receive untrusted input.
 
 ## 7. Assets and Documents
 
-The wheel contains the component rules in `tori_liveview_ui.css` and the script
-`tori_liveview_ui.js`. At import time the package assembles its stylesheet
+The wheel contains `tori_liveview_ui.css`, the document bootstrap
+`tori_liveview_ui.js`, per-component ES modules, and the pinned unmodified
+Lit ReactiveElement 2.1.2 browser modules, source maps, BSD license, and integrity
+manifest. At import time the package assembles its stylesheet
 (section 8.3), computes the SHA-256 digest of the stylesheet and of the script,
 and publishes them at:
 
@@ -574,7 +606,14 @@ and publishes them at:
 /_tori/liveview-ui/<first-12-hex-digest>.js
 ```
 
-`STYLESHEET_PATH` and `SCRIPT_PATH` are the exact paths for the bundled bytes.
+`STYLESHEET_PATH` and `SCRIPT_PATH` name the stylesheet and blocking document
+bootstrap. The ES module entry and its relative imports use
+`/_tori/liveview-ui/<module-graph-digest>/components/index.js` and sibling paths.
+The graph digest includes every module path and content hash, so changing any
+component or dependency invalidates the whole graph's URL namespace. Routes
+serve only packaged assets with content-based ETags and immutable caching.
+The module entry is loaded with `type="module"`. `script_tag()` emits both tags;
+applications should use that helper rather than load only `SCRIPT_PATH`.
 The controller returns those bytes with `text/css; charset=utf-8` or
 `text/javascript; charset=utf-8`, an ETag containing the full digest, and
 `Cache-Control: public, max-age=31536000, immutable`. Changing a file changes
@@ -587,9 +626,9 @@ uses, and `script_tag()` into `<head>`, and puts the `tori-ui-document` class on
 `<body>` while retaining the normal LiveView document, root, and official
 Phoenix browser client. The body class gives the document the theme's paper
 background, ink color, and body font and removes the body margin; it is an
-explicit class, not an element selector. The script tag has no `defer` or
-`async` attribute: it must run before the deferred client reads the hooks, and
-before the first paint to apply a stored mode.
+explicit class, not an element selector. The document bootstrap tag has no
+`defer` or `async` attribute: it applies the stored mode before paint. The second tag
+loads component modules, whose registration is awaited before connection.
 
 All three are selected during initial document rendering; the outer `<html>`
 element is outside the normal LiveView diff root, so the server does not change

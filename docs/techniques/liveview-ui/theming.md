@@ -331,8 +331,9 @@ class PlainLive(LiveView):
 ```
 
 Keep `script_tag()` in the head and do not add `defer` or `async` to it. Leave
-it out only if the page uses no helper that needs a hook, a copy button, a
-confirmation, or the mode toggle.
+it out only if the page uses no interactive UI element and does not need a
+stored mode applied before paint. The helper emits both the document bootstrap
+and the local component module entry; loading only `SCRIPT_PATH` is insufficient.
 
 `STYLESHEET_PATH` and `SCRIPT_PATH` are the content-addressed URLs of the
 bundled files if you need them elsewhere, for example in a `Link` preload

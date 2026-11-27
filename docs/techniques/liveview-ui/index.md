@@ -3,8 +3,8 @@
 `tori-py-liveview-ui` is a component library for
 [LiveView](../liveview/index.md) pages: typed, stateless template helpers
 grouped in families, one local stylesheet, typed themes and skins,
-and one local script of Phoenix hooks for the few behaviors that need the
-browser. It adds no client runtime, no state model, and no validation engine.
+and local Lit Web Components for behavior that needs the browser. It adds
+no application state model or validation engine.
 Pages and components keep owning state.
 
 ```text
@@ -61,7 +61,8 @@ class AppModule:
 ```
 
 `LiveViewUiModule.for_root(key="default")` registers the routes that serve the
-bundled CSS at `STYLESHEET_PATH` and the bundled script at `SCRIPT_PATH`. Both
+bundled CSS at `STYLESHEET_PATH`, document bootstrap at `SCRIPT_PATH`, and
+component modules under a digest of their complete import graph. All
 are content-addressed paths such as `/_tori/liveview-ui/<hash>.css`, served with
 immutable caching headers and an ETag.
 
@@ -78,19 +79,29 @@ Override `ui_theme()`, `ui_mode()`, and `ui_skin()` to choose the look; see
 can call
 `stylesheet_link()` and `script_tag()` and set the attributes and the body class
 itself. Keep the script tag in `<head>` without `defer` or `async`: it registers
-the hooks before the LiveView client starts.
+the document mode before paint and loads the component modules. LiveView waits
+for their registration before connecting.
 
 ## Browser Behavior
 
 Your state stays on the server. What only the browser needs to know, such as
-whether a menu is open or where a log is scrolled, stays in the browser. The
-helpers use native elements such as `<details>` first, then
-[`JS` commands](../liveview/js-commands.md), and a hook from the bundled script
-only where neither is enough.
+whether a menu is open or where a log is scrolled, stays in the browser. The helpers use native elements such as `<details>`
+first, then
+[`JS` commands](../liveview/js-commands.md), and Lit custom elements where
+additional behavior is needed.
 
-The script's hooks all start with `ToriUi` and are added to
-`globalThis.ToriLiveHooks` next to [your own hooks](../liveview/client-events.md).
-The script loads no remote code and keeps none of your data.
+For example, `composer(...)` emits `<tori-ui-composer>` around a native form.
+The element owns Enter handling, textarea sizing, and cleanup. Python emits
+escaped attributes and server-rendered contents; LiveView continues updating
+that Light DOM. Lit does not run a second renderer over it. The same pattern
+covers chat logs, dialogs, popups, toasts, tabs, copying, confirmations, tooltips,
+mode selection, and the application shell.
+
+Each behavior has its own local module. The package includes pinned Lit
+ReactiveElement 2.1.2 modules and their license; there is no CDN or Node setup
+for an application. Your [application hooks](../liveview/client-events.md) keep
+using `globalThis.ToriLiveHooks`; UI elements integrate through the public
+Phoenix `createHook` API internally.
 
 ## Helpers
 
@@ -165,9 +176,9 @@ The helpers are deliberately closed:
   data before passing it to helpers.
 - There are no `class=` or `**attrs` escape hatches. Style through the theme and
   skin tokens, or write your own template for markup the helpers do not cover.
-- Helpers hold no state. They render native elements, standard Phoenix
-  bindings, and, where a behavior needs one, a `phx-hook` from the bundled
-  script.
+- Python helpers hold no state. They render native elements, standard Phoenix
+  bindings, and `tori-ui-*` custom elements for browser behavior. Each element
+  owns and cleans up only its presentation state.
 - Runtime checks cover semantic constraints: IDs must be non-empty and contain
   no whitespace, numeric values must meet their documented ranges, accessible
   names must be non-empty, and related parameters must agree. Escaping and URL

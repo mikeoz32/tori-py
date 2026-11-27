@@ -2,8 +2,7 @@
 
 `tori-py-liveview-ui` is a separately installable component library for
 `tori-py-liveview`. It provides stateless typed template helpers grouped in
-families, a local content-addressed stylesheet, a local content-addressed script
-of Phoenix hooks, and an optional `UiLiveView` document base with independent
+families, a local content-addressed stylesheet, local Lit Web Components, and an optional `UiLiveView` document base with independent
 color themes and visual skins. It does not add another browser client, protocol,
 validation engine, or state model.
 
@@ -69,10 +68,21 @@ Override `ui_mode()` with `"light"` or `"dark"` for a fixed color mode. A custom
 `LiveView.render_document()` can use `stylesheet_link()` and `script_tag()` and
 set the theme, mode, and skin data attributes directly instead.
 
-The script defines `ToriUi`-prefixed Phoenix hooks for the few behaviors that
-native elements and LiveView `JS` commands cannot express, and adds them to
-`globalThis.ToriLiveHooks` beside the application's own hooks. It loads no
-remote code and holds no application state.
+Browser behavior lives in `tori-ui-*` custom elements built on Lit
+ReactiveElement 2.1.2. Python renders their Light DOM; LiveView keeps updating
+it, while the element owns listeners, observers, timers, and reactive attributes.
+Native forms and dialogs stay native. Public Phoenix `createHook` calls inside
+the elements integrate patch updates without named UI entries in the
+application's `ToriLiveHooks` registry.
+
+`script_tag()` emits a small blocking document bootstrap and an ES module
+entry. The bootstrap applies a stored mode before paint; LiveView waits for
+component registration before connecting. Every component and its pinned Lit
+dependency is served locally under content-addressed paths. The wheel contains
+the upstream license and integrity manifest. No Node setup or CDN is required.
+Maintainers can verify vendored bytes with
+`uv run packages/tori-py-liveview-ui/scripts/sync_lit_assets.py --check` or restore
+them with the same command without `--check`.
 
 ## Components
 
@@ -257,9 +267,9 @@ includes explicit and system-driven light/dark themes, three bundled skins,
 responsive grids, visible keyboard focus, disabled behavior, and reduced-motion
 support.
 
-There is no CDN, Node dependency, external font, global reset, runtime
-JavaScript, validation/coercion engine, or widget-owned behavior in this
-package. A future Tailwind integration belongs in a separately distributed
+There is no CDN, Node dependency, external font, global reset, domain
+validation/coercion engine, or client-side application store. Browser
+presentation behavior belongs to the packaged Lit elements. A future Tailwind integration belongs in a separately distributed
 precompiled skin adapter, not in the core runtime dependency graph.
 
 See the [LiveView UI guide](https://mikeoz32.github.io/tori-py/techniques/liveview-ui/)

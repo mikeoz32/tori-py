@@ -134,12 +134,13 @@ def test_toast_closes_itself_through_its_own_dismiss_button() -> None:
     hide = JS().hide(to=("closest", ".tori-ui-toast"))
 
     assert _render(toast("Saved", id="saved", title="Done", tone="success")) == (
-        '<div id="saved" class="tori-ui-toast tori-ui-toast--success" role="status" '
-        'phx-hook="ToriUiToast" data-tori-ui-duration="5000">'
+        '<tori-ui-toast id="saved" class="tori-ui-toast '
+        'tori-ui-toast--success" role="status" '
+        'data-tori-ui-duration="5000">'
         '<div class="tori-ui-toast__content"><p class="tori-ui-toast__title">Done</p>'
         '<div class="tori-ui-toast__body">Saved</div></div>'
         '<button type="button" class="tori-ui-toast__dismiss" aria-label="Dismiss" '
-        f'phx-click="{_command(hide)}">{_close()}</button></div>'
+        f'phx-click="{_command(hide)}">{_close()}</button></tori-ui-toast>'
     )
 
 
@@ -149,7 +150,8 @@ def test_toast_without_a_duration_has_no_hook_and_can_tell_the_page() -> None:
     )
 
     assert result.startswith(
-        '<div id="failed" class="tori-ui-toast tori-ui-toast--danger" role="alert">'
+        '<tori-ui-toast id="failed" class="tori-ui-toast '
+        'tori-ui-toast--danger" role="alert">'
     )
     assert "phx-hook" not in result
     assert "data-tori-ui-duration" not in result
@@ -181,7 +183,7 @@ def test_flash_group_renders_known_kinds_and_clears_them_through_liveview() -> N
     assert result.startswith(
         '<div id="flash" class="tori-ui-toast-region tori-ui-toast-region--top-end" '
         'role="region" aria-label="Notifications">'
-        '<div id="flash-error" class="tori-ui-toast tori-ui-toast--danger" '
+        '<tori-ui-toast id="flash-error" class="tori-ui-toast tori-ui-toast--danger" '
         'role="alert">'
     )
     assert "Failed &lt;hard&gt;" in result
@@ -189,10 +191,10 @@ def test_flash_group_renders_known_kinds_and_clears_them_through_liveview() -> N
     assert f'phx-click="{_command(clear_error)}"' in result
     assert f'phx-click="{_command(clear_info)}"' in result
     # Errors stay until dismissed; information closes itself.
-    assert result.count("phx-hook") == 1
+    assert "phx-hook" not in result
     assert (
-        '<div id="flash-info" class="tori-ui-toast tori-ui-toast--info" '
-        'role="status" phx-hook="ToriUiToast" data-tori-ui-duration="5000">'
+        '<tori-ui-toast id="flash-info" class="tori-ui-toast tori-ui-toast--info" '
+        'role="status" data-tori-ui-duration="5000">'
     ) in result
 
 
@@ -204,7 +206,7 @@ def test_flash_group_without_messages_keeps_an_empty_region() -> None:
     )
     sticky = _render(flash_group({"success": "ok", "warning": "careful"}))
     assert sticky.index("flash-warning") < sticky.index("flash-success")
-    assert sticky.count("phx-hook") == 1
+    assert "phx-hook" not in sticky
 
 
 def test_connection_status_is_a_status_message_with_a_spinner() -> None:

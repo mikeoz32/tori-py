@@ -44,7 +44,7 @@ def _source_classes() -> tuple[set[str], set[str]]:
         source = path.read_text(encoding="utf-8")
         # Attribute names such as data-tori-ui-confirm and custom properties
         # such as --tori-ui-shadow are not classes.
-        source = re.sub(r"(?:data|-)-tori-ui-[a-z-]*", "", source)
+        source = re.sub(r"(?:data|-)-tori-ui-[a-z-]*|</?tori-ui-[a-z-]+", "", source)
         for name in _CLASS.findall(source):
             if name == "tori-ui-":
                 continue

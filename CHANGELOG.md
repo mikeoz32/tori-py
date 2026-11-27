@@ -8,6 +8,13 @@ one package does not require the same change in every package.
 
 ### Changed
 
+- LiveView UI browser behavior now lives in local Lit ReactiveElement custom
+  elements with server-owned Light DOM. Python helpers emit `tori-ui-*` tags;
+  native forms, dialogs, Phoenix bindings, application hooks, and UI themes
+  remain supported. The client waits for component registration before joining.
+  Lit ReactiveElement 2.1.2 is included locally with its license and integrity
+  manifest; using the Python package needs neither Node nor a CDN.
+
 - LiveView Kit trusts typed events, messages, hooks, and generators instead of
   rechecking their Python types at runtime. Semantic constraints and provider
   boundary validation remain; reply folding keeps typed tool and text records.

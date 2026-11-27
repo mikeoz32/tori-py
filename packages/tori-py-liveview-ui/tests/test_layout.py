@@ -168,9 +168,9 @@ def test_split_and_scroll_area_render_their_closed_options() -> None:
 
 def test_app_shell_without_regions_renders_only_the_main_landmark() -> None:
     assert _render(app_shell("content", id="app")) == (
-        '<div id="app" class="tori-ui-app-shell">'
+        '<tori-ui-app-shell id="app" class="tori-ui-app-shell">'
         '<main id="app-main" class="tori-ui-app-shell__main" tabindex="-1">'
-        "content</main></div>"
+        "content</main></tori-ui-app-shell>"
     )
 
 
@@ -199,7 +199,7 @@ def test_app_shell_sidebar_is_opened_and_closed_by_js_commands() -> None:
     )
 
     assert result.startswith(
-        '<div id="app" class="tori-ui-app-shell" phx-window-keydown="'
+        '<tori-ui-app-shell id="app" class="tori-ui-app-shell" phx-window-keydown="'
     )
     assert 'phx-key="Escape"' in result
     assert f'phx-click="{_command(toggle)}"' in result

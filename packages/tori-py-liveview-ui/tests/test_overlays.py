@@ -63,9 +63,10 @@ def test_modal_is_a_named_native_dialog_the_browser_owns_by_default() -> None:
     assert _render(
         modal("BODY", id="settings", title="Settings", description="For this account")
     ) == (
-        '<dialog id="settings" class="tori-ui-dialog tori-ui-modal tori-ui-modal--md" '
+        '<tori-ui-dialog id="settings-component"><dialog id="settings" '
+        'class="tori-ui-dialog tori-ui-modal tori-ui-modal--md" '
         'aria-labelledby="settings-title" aria-describedby="settings-description" '
-        f'phx-hook="ToriUiDialog" phx-mounted="{_command(_KEEP_OPEN)}">'
+        f'phx-mounted="{_command(_KEEP_OPEN)}">'
         '<div class="tori-ui-dialog__surface">'
         '<header class="tori-ui-dialog__header">'
         '<h2 id="settings-title" class="tori-ui-dialog__title">Settings</h2>'
@@ -74,7 +75,7 @@ def test_modal_is_a_named_native_dialog_the_browser_owns_by_default() -> None:
         f"{_icon('x')}</button></header>"
         '<p id="settings-description" class="tori-ui-dialog__description">'
         "For this account</p>"
-        '<div class="tori-ui-dialog__body">BODY</div></div></dialog>'
+        '<div class="tori-ui-dialog__body">BODY</div></div></dialog></tori-ui-dialog>'
     )
 
 
@@ -114,9 +115,10 @@ def test_drawer_is_a_dialog_on_one_side() -> None:
     result = _render(drawer("BODY", id="filters", title="Filters", side="start"))
 
     assert result.startswith(
-        '<dialog id="filters" class="tori-ui-dialog tori-ui-drawer '
+        '<tori-ui-dialog id="filters-component"><dialog id="filters" '
+        'class="tori-ui-dialog tori-ui-drawer '
         'tori-ui-drawer--start" aria-labelledby="filters-title" '
-        'phx-hook="ToriUiDialog"'
+        "phx-mounted="
     )
     assert "tori-ui-drawer--end" in _render(drawer("x", id="d", title="T"))
 
@@ -133,10 +135,11 @@ def test_confirm_dialog_is_an_alert_dialog_with_two_actions() -> None:
             values={"id": 7},
         )
     ) == (
-        '<dialog id="confirm-delete" class="tori-ui-dialog tori-ui-modal '
+        '<tori-ui-dialog id="confirm-delete-component"><dialog '
+        'id="confirm-delete" class="tori-ui-dialog tori-ui-modal '
         'tori-ui-modal--sm" role="alertdialog" '
         'aria-labelledby="confirm-delete-title" '
-        'aria-describedby="confirm-delete-description" phx-hook="ToriUiDialog" '
+        'aria-describedby="confirm-delete-description" '
         f'phx-mounted="{_command(_KEEP_OPEN)}">'
         '<div class="tori-ui-dialog__surface">'
         '<header class="tori-ui-dialog__header">'
@@ -150,7 +153,7 @@ def test_confirm_dialog_is_an_alert_dialog_with_two_actions() -> None:
         f'phx-click="{_command(close_overlay("confirm-delete"))}">Cancel</button>'
         '<button type="button" class="tori-ui-button tori-ui-button--danger '
         'tori-ui-button--md" data-tori-ui-confirm-action phx-click="delete" '
-        'phx-value-id="7">Delete</button></footer></div></dialog>'
+        'phx-value-id="7">Delete</button></footer></div></dialog></tori-ui-dialog>'
     )
 
 
@@ -186,15 +189,15 @@ def test_dropdown_is_a_button_that_toggles_a_menu() -> None:
     )
 
     assert _render(dropdown("Actions", ["ITEMS"], id="actions", align="end")) == (
-        '<div id="actions" class="tori-ui-popup tori-ui-popup--end" '
-        f'phx-hook="ToriUiPopup" phx-click-away="{_command(close)}">'
+        '<tori-ui-popup id="actions" class="tori-ui-popup tori-ui-popup--end" '
+        f'phx-click-away="{_command(close)}">'
         '<button type="button" id="actions-trigger" class="tori-ui-button '
         'tori-ui-button--secondary tori-ui-button--md" aria-haspopup="menu" '
         'aria-expanded="false" aria-controls="actions-panel" '
         f'phx-click="{_command(toggle)}">Actions{_icon("chevron-down")}</button>'
         '<div id="actions-panel" class="tori-ui-popup__panel tori-ui-menu" '
         'role="menu" aria-labelledby="actions-trigger" tabindex="-1">ITEMS</div>'
-        "</div>"
+        "</tori-ui-popup>"
     )
     with_icon = _render(dropdown("More", [], id="more", icon="settings", size="sm"))
     assert f">{_icon('settings')}More{_icon('chevron-down')}</button>" in with_icon

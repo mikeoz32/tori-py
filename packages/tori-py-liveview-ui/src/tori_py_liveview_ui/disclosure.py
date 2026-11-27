@@ -147,9 +147,9 @@ def tabs(
             )
             panels.append(t"<div{panel}>{content}</div>")
     return (
-        t'<div id="{id}" class="tori-ui-tabs"><div id="{id}-tabs" '
-        t'class="tori-ui-tabs__list" role="tablist" aria-label="{label}" '
-        t'phx-hook="ToriUiTabs">{fragment(buttons)}</div>{fragment(panels)}</div>'
+        t'<tori-ui-tabs id="{id}" class="tori-ui-tabs"><div id="{id}-tabs" '
+        t'class="tori-ui-tabs__list" role="tablist" aria-label="{label}">'
+        t"{fragment(buttons)}</div>{fragment(panels)}</tori-ui-tabs>"
     )
 
 

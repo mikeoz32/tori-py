@@ -111,3 +111,12 @@ This directory records the executable contract for `tori-py-liveview`.
 
 The complete architectural and wire contract is maintained in
 `TORI_PY_LIVEVIEW_ARCHITECTURE.md`.
+
+## Web Component startup integration
+
+After the pinned official client APIs load, the bootstrap dispatches
+`tori-live:ready` on window and awaits an optional `globalThis.ToriLiveReady`
+promise before creating and connecting LiveSocket. Rejection reports startup
+failure without connecting. With no promise the existing synchronous path is
+preserved. Components can use the public `LiveView.createHook` API from their
+connected lifecycle; the core depends on neither Lit nor the UI package.

@@ -89,12 +89,13 @@ def test_chat_stacks_a_header_a_log_and_a_composer() -> None:
 
 def test_chat_log_is_a_followed_log_region_around_the_messages() -> None:
     assert _render(chat_log("ITEMS", id="messages", label="Support chat")) == (
-        '<div id="messages-scroller" class="tori-ui-chat-log" role="log" '
-        'aria-label="Support chat" tabindex="0" phx-hook="ToriUiChatLog">'
+        '<tori-ui-chat-log id="messages-scroller" class="tori-ui-chat-log" role="log" '
+        'aria-label="Support chat" tabindex="0">'
         '<div id="messages" class="tori-ui-chat-log__messages">ITEMS</div>'
         '<button type="button" class="tori-ui-chat-log__jump" '
         'aria-label="Jump to the latest message" '
-        f'title="Jump to the latest message">{_icon("arrow-down")}</button></div>'
+        f'title="Jump to the latest message">{_icon("arrow-down")}</button>'
+        "</tori-ui-chat-log>"
     )
     streamed = _render(chat_log("ITEMS", id="messages", stream=True))
     assert (
@@ -152,20 +153,21 @@ def test_message_actions_start_with_a_copy_of_the_message() -> None:
     assert "tori-ui-copy-button" not in _render(message_actions([], copy=False))
 
 
-def test_composer_is_a_hooked_form_with_a_send_button() -> None:
+def test_composer_wraps_a_native_form_with_a_send_button() -> None:
     assert _render(
         composer(id="composer", submit_event="send", placeholder="Ask anything")
     ) == (
-        '<form id="composer" method="post" class="tori-ui-composer" '
-        'phx-submit="send" phx-hook="ToriUiComposer">'
+        '<tori-ui-composer id="composer-component" max-rows="8"><form id="composer" '
+        'method="post" class="tori-ui-composer" '
+        'phx-submit="send">'
         '<label class="tori-ui-visually-hidden" for="composer-input">Message</label>'
         '<textarea id="composer-input" name="message" '
-        'class="tori-ui-composer__input" rows="1" placeholder="Ask anything" '
-        'data-tori-ui-max-rows="8"></textarea>'
+        'class="tori-ui-composer__input" rows="1" '
+        'placeholder="Ask anything"></textarea>'
         '<div class="tori-ui-composer__bar">'
         '<div class="tori-ui-composer__actions"></div>'
         '<button type="submit" class="tori-ui-composer__send" aria-label="Send" '
-        f'title="Send">{_icon("send")}</button></div></form>'
+        f'title="Send">{_icon("send")}</button></div></form></tori-ui-composer>'
     )
 
 
@@ -185,11 +187,9 @@ def test_busy_composer_offers_to_stop_and_does_not_submit() -> None:
         )
     )
 
-    assert (
-        'phx-submit="send" phx-change="draft" phx-target="3" '
-        'phx-hook="ToriUiComposer" data-tori-ui-busy="true"'
-    ) in result
-    assert 'data-tori-ui-max-rows="4">half &lt;typed&gt;</textarea>' in result
+    assert 'phx-submit="send" phx-change="draft" phx-target="3"' in result
+    assert '<tori-ui-composer id="composer-component" max-rows="4" busy>' in result
+    assert ">half &lt;typed&gt;</textarea>" in result
     assert '<div class="tori-ui-composer__actions">MODEL</div>' in result
     assert (
         '<button type="button" class="tori-ui-composer__send '

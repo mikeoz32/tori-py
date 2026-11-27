@@ -168,33 +168,41 @@ def test_stylesheet_link_is_local_and_uses_the_public_path() -> None:
 
 
 def test_script_tag_is_local_blocking_and_uses_the_public_path() -> None:
-    assert script_tag().value == f'<script src="{SCRIPT_PATH}"></script>'
-
-
-def test_script_registers_hooks_without_remote_code_or_dynamic_evaluation() -> None:
-    script = (
-        files("tori_py_liveview_ui")
-        .joinpath("static", "tori_liveview_ui.js")
-        .read_text(encoding="utf-8")
+    assert script_tag().value == (
+        f'<script src="{SCRIPT_PATH}"></script>'
+        f'<script type="module" data-tori-ui-components '
+        f'src="{ui_module._COMPONENT_PATH}"></script>'
     )
 
-    assert "globalThis.ToriLiveHooks ??= {}" in script
-    assert '"readystatechange"' in script
-    for forbidden in (
-        "http://",
-        "https://",
-        "import(",
-        "eval(",
-        "new Function",
-        "innerHTML",
-        "document.write",
-        "fetch(",
-        "XMLHttpRequest",
-    ):
-        assert forbidden not in script
-    # Every hook the script defines carries the package prefix.
-    for name in re.findall(r"^  hooks\.(\w+) = ", script, re.MULTILINE):
-        assert name.startswith("ToriUi")
+
+@pytest.mark.asyncio
+async def test_component_modules_are_served_locally_with_immutable_headers() -> None:
+    @module(imports=[LiveViewUiModule.for_root()])
+    class Root:
+        pass
+
+    application = await NestApplication.create(Root, adapter=StarletteAdapter())
+    await application.start()
+    transport = httpx.ASGITransport(app=application.get_adapter(StarletteAdapter).app)
+    try:
+        async with httpx.AsyncClient(
+            transport=transport, base_url="http://testserver"
+        ) as client:
+            for name, body in ui_module._MODULE_SOURCES.items():
+                response = await client.get(f"{ui_module._MODULE_PREFIX}{name}")
+                assert response.status_code == 200
+                assert response.content == body
+                assert (
+                    response.headers["etag"] == f'"{hashlib.sha256(body).hexdigest()}"'
+                )
+                assert (
+                    response.headers["cache-control"]
+                    == "public, max-age=31536000, immutable"
+                )
+            unknown = await client.get(f"{ui_module._MODULE_PREFIX}missing.js")
+            assert unknown.status_code == 404
+    finally:
+        await application.shutdown()
 
 
 def test_ui_liveview_injects_stylesheet_theme_and_skin_into_document() -> None:
@@ -217,7 +225,7 @@ def test_ui_liveview_injects_stylesheet_theme_and_skin_into_document() -> None:
     assert document.count(stylesheet_link().value) == 1
     assert stylesheet_link().value in document.split("</head>", 1)[0]
     assert document.count(script_tag().value) == 1
-    # The hooks script runs before the deferred LiveView client in the body.
+    # Document initialization runs before paint; modules register before connection.
     assert script_tag().value in document.split("</head>", 1)[0]
     assert '<title data-default="">Dashboard</title>' in document
     assert document.count('<body class="tori-ui-document">') == 1

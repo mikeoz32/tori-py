@@ -232,7 +232,6 @@ def toast(
             "id": id,
             "class": classes("tori-ui-toast", f"tori-ui-toast--{tone}"),
             "role": _role(tone),
-            "phx-hook": "ToriUiToast" if duration is not None else None,
             "data-tori-ui-duration": duration,
         }
     )
@@ -240,8 +239,9 @@ def toast(
         t'<p class="tori-ui-toast__title">{title}</p>' if title is not None else raw("")
     )
     return (
-        t'<div{attributes}><div class="tori-ui-toast__content">{title_markup}'
-        t'<div class="tori-ui-toast__body">{content}</div></div>{dismiss}</div>'
+        t'<tori-ui-toast{attributes}><div class="tori-ui-toast__content">{title_markup}'
+        t'<div class="tori-ui-toast__body">{content}</div></div>{dismiss}'
+        t"</tori-ui-toast>"
     )
 
 

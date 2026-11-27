@@ -40,6 +40,9 @@ highlight = [
 requires = ["uv_build==0.11.28"]
 build-backend = "uv_build"
 
+[tool.uv.build-backend]
+source-include = ["scripts/sync_lit_assets.py"]
+
 [tool.uv.sources]
 tori-py-framework = { workspace = true }
 tori-py-liveview = { workspace = true }

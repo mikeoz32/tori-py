@@ -31,23 +31,34 @@ _PHOENIX = _STATIC.joinpath("phoenix-1.8.13.min.js").read_bytes()
 _PHOENIX_LIVE_VIEW = _STATIC.joinpath("phoenix_live_view-1.2.11.min.js").read_bytes()
 _BOOTSTRAP = b"""
 ;(() => {
-  const root = document.querySelector("[data-phx-session][data-tori-live-socket]");
-  if (!root) return;
-  const hooks = (globalThis.ToriLiveHooks ??= {});
-  // LiveSocket and Phoenix.Socket share this option, and LiveView writes its
-  // join fields into the returned object. A fresh copy per call keeps those
-  // fields out of the WebSocket URL that Phoenix.Socket builds on reconnect.
-  const params = (el) => {
-    const source = globalThis.ToriLiveParams;
-    return {...(typeof source === "function" ? source(el) : source)};
+  // Libraries may register custom elements using the now-loaded official APIs.
+  window.dispatchEvent(new CustomEvent("tori-live:ready"));
+  const connect = () => {
+    const root = document.querySelector("[data-phx-session][data-tori-live-socket]");
+    if (!root) return;
+    const hooks = (globalThis.ToriLiveHooks ??= {});
+    // LiveSocket and Phoenix.Socket share this option, and LiveView writes its
+    // join fields into the returned object. A fresh copy per call keeps those
+    // fields out of the WebSocket URL that Phoenix.Socket builds on reconnect.
+    const params = (el) => {
+      const source = globalThis.ToriLiveParams;
+      return {...(typeof source === "function" ? source(el) : source)};
+    };
+    const liveSocket = new LiveView.LiveSocket(
+      root.dataset.toriLiveSocket,
+      Phoenix.Socket,
+      {hooks, params},
+    );
+    globalThis.liveSocket = liveSocket;
+    liveSocket.connect();
   };
-  const liveSocket = new LiveView.LiveSocket(
-    root.dataset.toriLiveSocket,
-    Phoenix.Socket,
-    {hooks, params},
-  );
-  liveSocket.connect();
-  globalThis.liveSocket = liveSocket;
+  if (globalThis.ToriLiveReady) {
+    Promise.resolve(globalThis.ToriLiveReady).then(connect).catch((error) => {
+      console.error("LiveView client initialization failed", error);
+    });
+  } else {
+    connect();
+  }
 })();
 """
 _CLIENT = b"\n".join((_PHOENIX, _PHOENIX_LIVE_VIEW, _BOOTSTRAP))

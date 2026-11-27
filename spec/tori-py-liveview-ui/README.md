@@ -64,10 +64,11 @@ architecture is maintained in
    checkboxes remain absent, and application pages/components own coercion,
    validation, current values, and error state.
 10. `LiveViewUiModule.for_root()` materializes one normal controller serving the
-    exact bundled CSS and JavaScript bytes. `STYLESHEET_PATH` and `SCRIPT_PATH`
-    include the first 12 hexadecimal characters of each file's SHA-256 digest;
-    each response has the full-digest ETag and one-year public immutable cache
-    policy.
+    exact bundled CSS, document bootstrap, and Lit ES modules. `STYLESHEET_PATH`
+    and `SCRIPT_PATH` include each file's SHA-256 prefix. Module URLs share a
+    namespace hashed from every module path and byte hash. Each response has
+    its content's full-digest ETag and one-year public immutable cache policy.
+    `script_tag()` loads both the blocking bootstrap and the module entry.
 11. `UiLiveView` defaults independently to the paper theme, the `auto` mode,
     and the editorial skin, adds `data-tori-ui-theme`, `data-tori-ui-mode`,
     and `data-tori-ui-skin` to the document HTML element, inserts the local
@@ -86,20 +87,26 @@ architecture is maintained in
     Application definitions and application CSS stay separate from the
     immutable package stylesheet and load after it.
 14. Browser behavior uses native elements first, LiveView `JS` commands second,
-    and hooks from the bundled script last. The script defines only
-    `ToriUi`-prefixed hooks, adds them to `globalThis.ToriLiveHooks` when it
-    loads and again when the document has been parsed, and applies a stored
-    visitor mode before the first paint. It holds no application state, opens
-    no connections, loads no remote code, and evaluates no strings as code.
+    and Lit ReactiveElement custom elements for the remaining behavior.
+    Elements own listeners, observers, and timers; LiveView owns their Light
+    DOM. They have no renderer over server-owned content, no application state,
+    connections, remote code, or string evaluation. Public Phoenix `createHook`
+    is called inside connected elements with IDs; the UI adds no named hooks
+    to the application's `ToriLiveHooks` registry. Moves preserve presentation
+    state, real removals release resources, and reconnects restore behavior.
+    A small document bootstrap applies the stored visitor mode before paint.
+    The core client announces `tori-live:ready` after loading the official APIs
+    and awaits `ToriLiveReady` before connecting; modules register before that
+    promise resolves. Failed module loading rejects initialization.
 15. Links are plain, live, or external. Live links carry `data-phx-link` and
     `data-phx-link-state` and need a root-relative path; external links open a
     new tab with `rel="noopener noreferrer"`; executable URL schemes fail.
 16. Icons are a closed set of static inline SVG drawings selected by name. An
     unlabeled icon is hidden from assistive technology; an icon-only button
     requires a label.
-17. `copy_button` and `code_block` copy in the browser through a `JS` dispatch
-    and one script listener, keep the button's accessible name, and announce
-    the result. `mode_toggle` applies and stores the visitor's mode in the
+17. `copy_button` and `code_block` copy through `tori-ui-copy`, whose `to`
+    and `scope` attributes select the source. The native button keeps its
+    accessible name and announces the result. `mode_toggle` applies and stores the visitor's mode in the
     browser. Neither notifies the page.
 18. `app_shell` renders the main landmark in a viewport-filling grid. Below
     56rem its sidebar opens over the content through `JS` commands; the open
@@ -155,7 +162,7 @@ architecture is maintained in
     arrow-key navigation that also closes on a choice.
 31. The core package has no CDN, Node or Tailwind dependency, external font,
     remote asset, global reset, domain validation/coercion system, arbitrary
-    attributes/classes, client runtime, or application-state ownership.
+    attributes/classes, second LiveView client, or application-state ownership.
     Optional features ship as extras, and the package contains no model client
     or provider adapter. A future Tailwind skin adapter remains a
     separate precompiled distribution.
@@ -192,3 +199,20 @@ architecture is maintained in
     definitions the page needs, joined with `|`, so LiveView loads a new
     document when live navigation reaches a page with another look. The script
     adds no connect params, and the package overrides no lifecycle method.
+
+
+## Lit component distribution
+
+Lit ReactiveElement 2.1.2 browser modules are pinned, unmodified, and bundled
+with their source maps, BSD-3-Clause license, and SHA-512/SHA-256 integrity
+manifest. Maintainers verify or restore them using `sync_lit_assets.py` through
+`uv`; no Node build, import map, or CDN is needed by the package or applications.
+Native relative ES module imports resolve entirely to explicit local routes.
+
+`composer` renders a `tori-ui-composer` wrapper with `<id>-component`, reactive
+`max-rows`, and boolean `busy`; its native form retains the caller's ID and
+Phoenix bindings. Dialog wrappers follow the same ID convention and retain
+the native dialog ID, command targets, focus behavior, and top-layer semantics.
+Static helpers remain ordinary HTML. A future client-rendered LitElement widget
+must have an explicit ownership boundary and must not render into LiveView's
+server-owned nodes.
