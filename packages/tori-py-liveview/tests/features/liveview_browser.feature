@@ -211,3 +211,19 @@ Feature: LiveView pages in a real browser
     When I click "#child-bump"
     Then "#child-count" shows "1"
     And the document was loaded once
+
+  Scenario: Live navigation between pages of one document keeps the document
+    Given I open the "/browser-document/one" live page
+    And "#which" shows "one"
+    When I click "#to-two"
+    Then the URL is "/browser-document/two"
+    And "#which" shows "two"
+    And the document was not reloaded
+
+  Scenario: Live navigation to a page of another document loads that document
+    Given I open the "/browser-document/one" live page
+    And "#which" shows "one"
+    When I click "#to-other"
+    Then the URL is "/browser-document/other"
+    And "#which" shows "other"
+    And the document was reloaded

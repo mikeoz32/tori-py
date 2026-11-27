@@ -13,10 +13,10 @@ from tori_py_liveview_ui import (
     grid,
     icon_button,
     link_button,
+    mode_toggle,
     row,
     stack,
     text,
-    theme_toggle,
 )
 
 from examples.tori_py.liveview_ui_gallery.shell import GalleryPage, demo
@@ -148,9 +148,9 @@ class ActionsLive(GalleryPage):
             ],
             align="start",
         )
-        theme = stack(
+        mode = stack(
             [
-                theme_toggle(id="actions-theme"),
+                mode_toggle(id="actions-mode"),
                 text(
                     "The browser stores the choice and applies it before paint.",
                     size="sm",
@@ -170,7 +170,7 @@ class ActionsLive(GalleryPage):
                     demo("Link buttons", links),
                     demo("Button groups", groups),
                     demo("Copy button", copy),
-                    demo("Theme toggle", theme),
+                    demo("Mode toggle", mode),
                 ],
                 columns="2",
                 gap="lg",

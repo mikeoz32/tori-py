@@ -133,7 +133,8 @@ nav:
           - Overlays: techniques/liveview-ui/overlays.md
           - Chat and AI: techniques/liveview-ui/chat.md
           - Forms: techniques/liveview-ui/forms.md
-          - Themes and Skins: techniques/liveview-ui/theming.md
+          - Themes, Modes, and Skins: techniques/liveview-ui/theming.md
+      - LiveView Kit: techniques/liveview-kit/index.md
       - CQRS:
           - Overview: techniques/cqrs/index.md
           - Framework-neutral Core: techniques/cqrs/core.md
@@ -186,6 +187,7 @@ nav:
           - OpenAPI: reference/generated/openapi.md
           - LiveView: reference/generated/liveview.md
           - LiveView UI: reference/generated/liveview-ui.md
+          - LiveView Kit: reference/generated/liveview-kit.md
           - Microservices: reference/generated/microservices.md
           - Persistent Streams Core: reference/generated/persistent-streams-core.md
           - ToriPy Persistent Streams: reference/generated/persistent-streams.md

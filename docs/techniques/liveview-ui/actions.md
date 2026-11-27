@@ -158,13 +158,13 @@ Browsers allow clipboard access on HTTPS and on `localhost`. On plain HTTP from
 another host the button falls back to the older copy command, which most
 browsers still honor.
 
-## Theme Toggle
+## Mode Toggle
 
-`theme_toggle(*, id, label, auto_label, light_label, dark_label)` lets the
-visitor choose the system, light, or dark theme. The browser stores the choice
+`mode_toggle(*, id, label, auto_label, light_label, dark_label)` lets the
+visitor choose the system, light, or dark color mode. The browser stores the choice
 and applies it to every `UiLiveView` document before it paints, so there is no
-flash of the other theme and nothing for the page to handle. See
-[Themes and Skins](theming.md#letting-the-visitor-choose).
+flash of the other mode and nothing for the page to handle. See
+[Themes, Modes, and Skins](theming.md#letting-the-visitor-choose-the-mode).
 
 `id` is required and must be unique on the page; several toggles on one page
 stay in step.

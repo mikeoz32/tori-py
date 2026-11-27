@@ -397,6 +397,15 @@ def test_token_usage_shortens_large_counts(count: int, shown: str) -> None:
     assert '<span class="tori-ui-token-usage__cost">$0.01</span>' in result
 
 
+def test_message_copy_text_is_escaped_as_data_without_changing_the_body() -> None:
+    result = _render(chat_message("Displayed", copy_text='"<script>alert(1)</script>'))
+    assert (
+        'data-tori-ui-copy-text="&quot;&lt;script&gt;alert(1)&lt;/script&gt;"' in result
+    )
+    assert ">Displayed</div>" in result
+    assert "<script>" not in result
+
+
 def test_artifact_panel_names_itself_and_copies_its_content() -> None:
     copy = _render(copy_button(to="#artifact-content"))
 
@@ -410,7 +419,8 @@ def test_artifact_panel_names_itself_and_copies_its_content() -> None:
         '<h2 id="artifact-title" class="tori-ui-artifact__title">hello.py</h2>'
         '<p class="tori-ui-artifact__subtitle">Program</p></div>'
         f'<div class="tori-ui-artifact__actions">{copy}</div></header>'
-        '<div id="artifact-content" class="tori-ui-artifact__content">BODY</div>'
+        '<div id="artifact-content" class="tori-ui-artifact__content" '
+        "data-tori-ui-copy-source>BODY</div>"
         "</section>"
     )
 

@@ -1,26 +1,26 @@
 @browser
 Feature: LiveView UI actions in a real browser
-  Buttons send their events and values to the page, and the theme toggle,
+  Buttons send their events and values to the page, and the mode toggle,
   the confirmation, and the copy button keep their state in the browser.
 
-  Scenario: The theme toggle applies, stores, and marks the choice
-    Given I open the gallery page "/actions?theme=light"
-    Then "#actions-theme [data-tori-ui-theme-value='light']" is pressed
-    When I click "#actions-theme [data-tori-ui-theme-value='dark']"
-    Then "html" has "data-tori-ui-theme" set to "dark"
-    And "#actions-theme [data-tori-ui-theme-value='dark']" is pressed
-    And "#actions-theme [data-tori-ui-theme-value='light']" is not pressed
+  Scenario: The mode toggle applies, stores, and marks the choice
+    Given I open the gallery page "/actions?mode=light"
+    Then "#actions-mode [data-tori-ui-mode-value='light']" is pressed
+    When I click "#actions-mode [data-tori-ui-mode-value='dark']"
+    Then "html" has "data-tori-ui-mode" set to "dark"
+    And "#actions-mode [data-tori-ui-mode-value='dark']" is pressed
+    And "#actions-mode [data-tori-ui-mode-value='light']" is not pressed
     # Every toggle on the page follows the one that was used.
-    And "#gallery-theme [data-tori-ui-theme-value='dark']" is pressed
-    And the stored theme is "dark"
+    And "#gallery-mode [data-tori-ui-mode-value='dark']" is pressed
+    And the stored mode is "dark"
     # A server render leaves the browser-owned state alone.
     When I click the "Add 1" button
     Then "#total" shows "1"
-    And "#actions-theme [data-tori-ui-theme-value='dark']" is pressed
-    # The stored choice wins over the theme the server renders.
+    And "#actions-mode [data-tori-ui-mode-value='dark']" is pressed
+    # The stored choice wins over the mode the server renders.
     When I reload the page
-    Then "html" has "data-tori-ui-theme" set to "dark"
-    And "#actions-theme [data-tori-ui-theme-value='dark']" is pressed
+    Then "html" has "data-tori-ui-mode" set to "dark"
+    And "#actions-mode [data-tori-ui-mode-value='dark']" is pressed
 
   Scenario: Event values and pressed state reach the page
     Given I open the gallery page "/actions"

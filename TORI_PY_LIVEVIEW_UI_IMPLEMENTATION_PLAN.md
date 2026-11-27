@@ -7,7 +7,11 @@ Every slice is complete: the foundation (LVUI0), initial family acceptance
 (LVUI4), the families for layout, content, icons, and actions (LVUI5), data
 display, feedback, and disclosure (LVUI6), chat and AI (LVUI7), extended forms
 (LVUI8), navigation (LVUI9), and overlays (LVUI10), and the acceptance of the
-whole library (LVUI11).
+whole library (LVUI11), and the theme framework: its contract (LVUI12), the
+mode and theme vocabulary (LVUI13), the definitions (LVUI14), the bundled
+definitions (LVUI15), application definitions (LVUI16), derivation (LVUI17),
+scoped looks with their browser acceptance (LVUI18), its acceptance (LVUI19),
+and live navigation between looks (LVUI20).
 
 Architecture:
 [`TORI_PY_LIVEVIEW_UI_ARCHITECTURE.md`](TORI_PY_LIVEVIEW_UI_ARCHITECTURE.md).
@@ -165,7 +169,67 @@ Architecture:
 - [x] Run the full-family test, Ruff, formatter, Ty, build, artifact, and strict
   documentation gates.
 
+## LVUI12: Theme Framework Contract - Complete
+
+- [x] Record the theme, mode, and skin contract, the typed definitions, the
+  contrast rules, the generated CSS, and application definitions in the
+  architecture, and change the repository rule that kept application skins
+  CSS-only.
+
+## LVUI13: Mode and Theme Vocabulary - Complete
+
+- [x] Move the color mode to `data-tori-ui-mode`, `ui_mode()`, and
+  `mode_toggle`, so that `data-tori-ui-theme` and `ui_theme()` name a theme.
+
+## LVUI14: Definitions and Generated CSS - Complete
+
+- [x] `Palette`, `Theme`, and `Skin` with a validated value kind for every
+  field, `derive()`, and `css()`.
+- [x] Contrast checks when a theme is built, `ThemeContrastError`,
+  `allow_low_contrast`, and `Theme.report()`.
+
+## LVUI15: Bundled Definitions - Complete
+
+- [x] Define the paper theme and the editorial, minimal, and rounded skins with
+  the framework and assemble the package stylesheet from their generated rules
+  and the component rules.
+
+## LVUI16: Application Definitions - Complete
+
+- [x] `LiveViewUiModule.for_root(themes=..., skins=...)` serves one
+  content-addressed stylesheet per definition, and `UiLiveView` links those a
+  page returns from `ui_theme()`, `ui_skin()`, and `ui_extra_definitions()`.
+
+## LVUI17: Derivation - Complete
+
+- [x] `Theme.from_seeds()` in OKLCH at a standard and a high contrast level,
+  and the bundled slate and contrast themes derived with it.
+
+## LVUI18: Scoped Looks and Acceptance - Complete
+
+- [x] `themed` for a look on part of a page.
+- [x] A gallery page that shows every theme and skin with its contrast report,
+  an application theme and skin registered by the gallery, and browser
+  scenarios through the official Phoenix client.
+
+## LVUI19: Theme Framework Acceptance - Complete
+
+- [x] Rewrite the theming guide, update the specification, and run the
+  full-family test, Ruff, formatter, Ty, build, artifact, and strict
+  documentation gates.
+
+## LVUI20: Live Navigation Between Looks - Complete
+
+- [x] Implement `UiLiveView.document_key()` on LiveView document keys, so a
+  live navigation to a page with another theme, mode, skin, or application
+  stylesheet loads a new document.
+- [x] Show it in the gallery's Themes page and cover it with browser scenarios
+  for a changed theme, a changed skin, a needed stylesheet, an unchanged look,
+  and a mode the visitor stored.
+
 ## Deferred
+
+- A theme the visitor picks among registered themes, and a theme editor.
 
 - File inputs, drop zones, and upload integration, until LiveView implements
   the Phoenix upload contract.

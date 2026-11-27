@@ -113,7 +113,7 @@ def test_code_block_marks_the_copy_source_and_targets_its_own_figure() -> None:
 
     assert result.startswith(
         '<figure class="tori-ui-code-block">'
-        '<figcaption class="tori-ui-code-block__header">'
+        '<figcaption class="tori-ui-code-block__header" data-tori-ui-copy-exclude>'
         '<span class="tori-ui-code-block__language">python</span>'
         '<button type="button" class="tori-ui-button tori-ui-button--ghost '
         'tori-ui-button--sm tori-ui-copy-button" aria-label="Copy" phx-click="'

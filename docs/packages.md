@@ -19,6 +19,7 @@ is typed, and is on the coordinated `0.1.0` beta release train.
 | OpenAPI 3.1 and Swagger UI for Tori Py HTTP controllers | `tori-py-openapi` / `tori_py_openapi` | Documentation should be compiled from Tori Py route plans | Depends on Tori Py, `msgspec`, and Starlette's public route compiler. Security and error responses are explicit metadata, not inferred from guards or filters. Default Swagger assets are external CDN assets. |
 | Server-rendered interactive pages | `tori-py-liveview` / `tori_py_liveview` | Page, component, and collection state should remain server-directed with the official Phoenix LiveView browser runtime | Depends on Tori Py and Starlette. It targets Phoenix 1.8.13 and Phoenix LiveView 1.2.11 Channels/render-tree contracts, including changed-only diffs, stateful component CIDs, browser-owned streams, serialized connection-local `send_info`, route-aware live navigation, a `JS` builder for client JS commands, client hooks, `push_event`, event replies, `send_update`, flash, async work, connect params, nested components, and child LiveViews; uploads and sticky child LiveViews are not implemented. |
 | Styled LiveView foundation components | `tori-py-liveview-ui` / `tori_py_liveview_ui` | LiveView pages need a small stateless visual vocabulary, local stylesheet, and overridable themes/skins | Depends on Tori Py and LiveView. It adds no browser runtime, state model, validation engine, global reset, arbitrary classes/attributes, CDN, or remote assets. |
+| Chat pages for prototyping AI applications | `tori-py-liveview-kit` / `tori_py_liveview_kit` | One async generator of model events should become a chat with history, streaming, stop, errors, and retry | Depends on the Tori Py `cli` extra, LiveView, and the LiveView UI `markdown` extra. It contains no model client, provider SDK, tool loop, or conversation store; its launcher sets development defaults only. |
 | Transport-neutral RPC and queue-event delivery | `tori-py-microservices` / `tori_py_microservices` | One Tori Py application exposes one logical service or calls service clusters | Base runtime depends on Tori Py and `msgspec`; RabbitMQ is an extra. RPC and events are at least once and need application idempotency/outbox/inbox policy. |
 | Framework-neutral partitioned persistent-log contracts | `tori-py-persistent-streams-core` / `tori_py_persistent_streams_core` | Defining an adapter, testing log semantics, or using opaque byte records without Tori Py | Runtime dependency-free. The included in-memory log loses all state at process exit and is not a production adapter. |
 | Typed persistent-stream handlers and publishers in Tori Py | `tori-py-persistent-streams` / `tori_py_persistent_streams` | Tori Py should discover stream controllers and own work scopes and checkpoints | Depends on Tori Py and streams core. It contains no broker driver. Delivery is at least once; failed records stop their partition. |
@@ -45,6 +46,7 @@ uv add tori-py-sqlalchemy
 uv add tori-py-openapi
 uv add tori-py-liveview
 uv add tori-py-liveview-ui
+uv add tori-py-liveview-kit
 uv add tori-py-microservices
 uv add tori-py-persistent-streams-core
 uv add tori-py-persistent-streams
@@ -84,6 +86,9 @@ uv add "tori-py-microservices[rabbitmq]"
 # Styled Phoenix LiveView pages
 uv add tori-py-liveview tori-py-liveview-ui
 
+# A chat page for a model, with LiveView and LiveView UI
+uv add tori-py-liveview-kit
+
 # Tori Py persistent streams with the provisional RabbitMQ adapter
 uv add tori-py-persistent-streams-rabbitmq
 ```
@@ -114,6 +119,7 @@ tori-py-sqlalchemy -> tori-py-framework, sqlalchemy[asyncio]
 tori-py-openapi -> tori-py-framework, msgspec, starlette
 tori-py-liveview -> tori-py-framework, starlette
 tori-py-liveview-ui -> tori-py-framework, tori-py-liveview
+tori-py-liveview-kit -> tori-py-framework[cli], tori-py-liveview, tori-py-liveview-ui[markdown]
 tori-py-microservices -> tori-py-framework, msgspec
 tori-py-microservices[rabbitmq] -> aio-pika
 
@@ -145,7 +151,7 @@ The boundaries are intentionally one-way:
 
 ## Maturity and production decisions
 
-All 14 distributions are beta. Before `1.0.0`, compatible-looking APIs may still
+All 15 distributions are beta. Before `1.0.0`, compatible-looking APIs may still
 change in a minor release. Pin and test the complete resolved set in an
 application lockfile.
 

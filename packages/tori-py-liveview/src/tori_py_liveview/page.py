@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import html
 import inspect
 import json
@@ -308,6 +309,43 @@ class LiveView(ABC):
 
     def title(self) -> str | None:
         return None
+
+    def document_key(self) -> str | None:
+        """Identify the document this page renders into.
+
+        ``render_document()`` builds the HTML document once, and live navigation
+        keeps that document. A page whose document would differ from the one the
+        browser holds, for example because it links other stylesheets, returns a
+        different key, and navigating to it loads a new document instead.
+
+        Pages whose keys are equal share a document. The default is ``None`` for
+        every page. The key is read after ``mount()`` and ``handle_params()``, so
+        it may depend on what they set, and it must be the same for every
+        render of the document.
+        """
+        return None
+
+    def _document_digest(self) -> str | None:
+        key = self.document_key()
+        if key is None:
+            return None
+        if not isinstance(key, str):
+            raise LiveViewError("document_key must return a string or None")
+        # A fixed-size value keeps the mount token small for any key.
+        return hashlib.sha256(key.encode()).hexdigest()[:32]
+
+    def _load_in_own_document(self, document: str | None, resource: str) -> bool:
+        """Queue a full page load when this page cannot join ``document``.
+
+        ``document`` is the digest of the key of the page that rendered the
+        document the browser holds. The page's own navigation, if any, is
+        dropped: the page never displays in that document, and the new document
+        runs the page again.
+        """
+        if self._document_digest() == document:
+            return False
+        self.redirect(resource)
+        return True
 
     def render_document(self, live_root: str, client_script: str) -> str:
         title = self.title()

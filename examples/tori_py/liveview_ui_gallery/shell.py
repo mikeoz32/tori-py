@@ -7,6 +7,8 @@ from typing import ClassVar, Literal
 
 from tori_py_liveview import MountContext
 from tori_py_liveview_ui import (
+    Skin,
+    Theme,
     UiLiveView,
     app_shell,
     button_group,
@@ -15,6 +17,7 @@ from tori_py_liveview_ui import (
     container,
     flash_group,
     link_button,
+    mode_toggle,
     nav,
     nav_item,
     page_header,
@@ -22,13 +25,15 @@ from tori_py_liveview_ui import (
     skip_link,
     spacer,
     stack,
-    theme_toggle,
 )
 
-type Theme = Literal["auto", "light", "dark"]
+from examples.tori_py.liveview_ui_gallery.looks import SKINS, THEMES
 
-THEMES: tuple[Theme, ...] = ("auto", "light", "dark")
-SKINS = ("editorial", "minimal", "rounded")
+type Mode = Literal["auto", "light", "dark"]
+
+MODES: tuple[Mode, ...] = ("auto", "light", "dark")
+# The header offers the bundled skins; the Themes page offers every look.
+_HEADER_SKINS = (Skin.EDITORIAL, Skin.MINIMAL, Skin.ROUNDED)
 
 # The gallery's pages in navigation order: path and label.
 SECTIONS: list[tuple[str, str]] = [
@@ -44,6 +49,7 @@ SECTIONS: list[tuple[str, str]] = [
     ("/overlays", "Overlays"),
     ("/ai", "AI"),
     ("/chat", "Chat"),
+    ("/themes", "Themes"),
 ]
 
 # An application hook, defined the documented way: the object is replaced
@@ -65,26 +71,31 @@ def demo(title: str, content: object) -> Template:
 
 
 class GalleryPage(UiLiveView):
-    """A gallery page whose theme and skin come from the query string."""
+    """A gallery page whose theme, mode, and skin come from the query string."""
 
     heading: ClassVar[str]
     summary: ClassVar[str]
     path: ClassVar[str]
 
     def __init__(self) -> None:
-        self.theme: Theme = "auto"
-        self.skin = "editorial"
+        self.theme: Theme = Theme.PAPER
+        self.mode: Mode = "auto"
+        self.skin: Skin = Skin.EDITORIAL
 
     async def mount(self, context: MountContext) -> None:
-        theme = context.query_params.get("theme", "auto")
-        skin = context.query_params.get("skin", "editorial")
-        self.theme = theme if theme in THEMES else "auto"
-        self.skin = skin if skin in SKINS else "editorial"
+        params = context.query_params
+        mode = params.get("mode", "auto")
+        self.theme = THEMES.get(params.get("theme", ""), Theme.PAPER)
+        self.mode = mode if mode in MODES else "auto"
+        self.skin = SKINS.get(params.get("skin", ""), Skin.EDITORIAL)
 
     def ui_theme(self) -> Theme:
         return self.theme
 
-    def ui_skin(self) -> str:
+    def ui_mode(self) -> Mode:
+        return self.mode
+
+    def ui_skin(self) -> Skin:
         return self.skin
 
     def title(self) -> str | None:
@@ -95,8 +106,12 @@ class GalleryPage(UiLiveView):
         # An empty icon keeps browsers from requesting /favicon.ico.
         return document.replace("</head>", '<link rel="icon" href="data:,"></head>', 1)
 
-    def href(self, path: str, *, skin: str | None = None) -> str:
-        return f"{path}?theme={self.theme}&skin={skin or self.skin}"
+    def href(
+        self, path: str, *, theme: Theme | None = None, skin: Skin | None = None
+    ) -> str:
+        theme = theme or self.theme
+        skin = skin or self.skin
+        return f"{path}?theme={theme.name}&mode={self.mode}&skin={skin.name}"
 
     def page(self, content: object) -> Template:
         """Put a page's content under its header, in a scrolling column."""
@@ -132,12 +147,12 @@ class GalleryPage(UiLiveView):
         skins = button_group(
             (
                 link_button(
-                    skin,
+                    skin.name,
                     href=self.href(self.path, skin=skin),
                     variant="primary" if skin == self.skin else "secondary",
                     size="sm",
                 )
-                for skin in SKINS
+                for skin in _HEADER_SKINS
             ),
             label="Skin",
         )
@@ -146,7 +161,7 @@ class GalleryPage(UiLiveView):
                 t"<strong>Tori UI</strong>",
                 spacer(),
                 skins,
-                theme_toggle(id="gallery-theme"),
+                mode_toggle(id="gallery-mode"),
             ],
             gap="sm",
             wrap=False,

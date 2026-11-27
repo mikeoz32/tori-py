@@ -22,6 +22,7 @@ Tori Py requires Python 3.14.
 | `tori-py-openapi` | `tori_py_openapi` | OpenAPI 3.1 and Swagger UI integration |
 | `tori-py-liveview` | `tori_py_liveview` | Server-rendered interactive pages over WebSockets |
 | `tori-py-liveview-ui` | `tori_py_liveview_ui` | Styled LiveView foundation components and bundled CSS |
+| `tori-py-liveview-kit` | `tori_py_liveview_kit` | Chat pages and a launcher for prototyping AI applications |
 | `tori-py-microservices` | `tori_py_microservices` | Transport-neutral RPC and event delivery |
 | `tori-py-persistent-streams-core` | `tori_py_persistent_streams_core` | Framework-neutral persistent-log contracts |
 | `tori-py-persistent-streams` | `tori_py_persistent_streams` | Tori Py persistent-stream handlers and publishers |
@@ -36,6 +37,7 @@ uv add tori-py-framework
 uv add tori-py-cqrs tori-py-cqrs-event-sourcing
 uv add tori-py-sqlalchemy tori-py-openapi
 uv add tori-py-liveview tori-py-liveview-ui
+uv add tori-py-liveview-kit
 uv add "tori-py-microservices[rabbitmq]"
 ```
 

@@ -53,6 +53,7 @@ REQUIRED_FILES = (
     "techniques/persistent-streams/index.md",
     "techniques/liveview/index.md",
     "techniques/liveview-ui/index.md",
+    "techniques/liveview-kit/index.md",
     "operations/index.md",
     "operations/security.md",
     "operations/limitations.md",

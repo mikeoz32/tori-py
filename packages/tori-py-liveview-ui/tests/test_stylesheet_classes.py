@@ -42,8 +42,9 @@ def _source_classes() -> tuple[set[str], set[str]]:
     prefixes: set[str] = set()
     for path in _SOURCES.glob("*.py"):
         source = path.read_text(encoding="utf-8")
-        # Attribute names such as data-tori-ui-confirm are not classes.
-        source = re.sub(r"data-tori-ui-[a-z-]*", "", source)
+        # Attribute names such as data-tori-ui-confirm and custom properties
+        # such as --tori-ui-shadow are not classes.
+        source = re.sub(r"(?:data|-)-tori-ui-[a-z-]*", "", source)
         for name in _CLASS.findall(source):
             if name == "tori-ui-":
                 continue

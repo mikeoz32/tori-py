@@ -2,65 +2,66 @@
 ;(() => {
   "use strict";
 
-  const THEME_KEY = "tori-ui-theme";
-  const THEMES = ["auto", "light", "dark"];
+  const MODE_KEY = "tori-ui-mode";
+  const MODES = ["auto", "light", "dark"];
   const root = document.documentElement;
 
-  // ---------------------------------------------------------------- Theme
+  // ----------------------------------------------------------------- Mode
 
-  // A theme the visitor chose earlier wins over the document's default. It is
-  // applied here, before the body is parsed, so the page never paints twice.
-  const storedTheme = () => {
+  // A color mode the visitor chose earlier wins over the document's default.
+  // It is applied here, before the body is parsed, so the page never paints
+  // twice.
+  const storedMode = () => {
     try {
-      const theme = localStorage.getItem(THEME_KEY);
-      return THEMES.includes(theme) ? theme : null;
+      const mode = localStorage.getItem(MODE_KEY);
+      return MODES.includes(mode) ? mode : null;
     } catch {
       return null;
     }
   };
-  const applyTheme = (theme) => {
-    root.dataset.toriUiTheme = theme;
+  const applyMode = (mode) => {
+    root.dataset.toriUiMode = mode;
   };
-  const initialTheme = storedTheme();
-  if (initialTheme !== null) applyTheme(initialTheme);
+  const initialMode = storedMode();
+  if (initialMode !== null) applyMode(initialMode);
 
   const hooks = {};
 
-  // theme_toggle(): marks the current theme and stores the visitor's choice.
-  hooks.ToriUiTheme = {
+  // mode_toggle(): marks the current mode and stores the visitor's choice.
+  hooks.ToriUiMode = {
     mounted() {
       this.sync = () => {
-        const current = root.dataset.toriUiTheme ?? "auto";
-        for (const option of this.el.querySelectorAll("[data-tori-ui-theme-value]")) {
-          const pressed = option.dataset.toriUiThemeValue === current;
+        const current = root.dataset.toriUiMode ?? "auto";
+        for (const option of this.el.querySelectorAll("[data-tori-ui-mode-value]")) {
+          const pressed = option.dataset.toriUiModeValue === current;
           option.setAttribute("aria-pressed", String(pressed));
         }
       };
       this.el.addEventListener("click", (event) => {
         const option =
           event.target instanceof Element
-            ? event.target.closest("[data-tori-ui-theme-value]")
+            ? event.target.closest("[data-tori-ui-mode-value]")
             : null;
         if (option === null || !this.el.contains(option)) return;
-        const theme = option.dataset.toriUiThemeValue;
-        if (!THEMES.includes(theme)) return;
-        applyTheme(theme);
+        const mode = option.dataset.toriUiModeValue;
+        if (!MODES.includes(mode)) return;
+        applyMode(mode);
         try {
-          localStorage.setItem(THEME_KEY, theme);
+          localStorage.setItem(MODE_KEY, mode);
         } catch {
           // Storage can be unavailable; the choice then lasts for this page.
         }
         // Every toggle on the page follows the one that was used.
-        window.dispatchEvent(new CustomEvent("tori-ui:theme"));
+        window.dispatchEvent(new CustomEvent("tori-ui:mode"));
       });
-      window.addEventListener("tori-ui:theme", this.sync);
+      window.addEventListener("tori-ui:mode", this.sync);
       this.sync();
     },
     updated() {
       this.sync();
     },
     destroyed() {
-      window.removeEventListener("tori-ui:theme", this.sync);
+      window.removeEventListener("tori-ui:mode", this.sync);
     },
   };
 
@@ -94,17 +95,20 @@
       return;
     }
     // Plain HTTP on another host has no Clipboard API.
+    const focused = document.activeElement;
     const area = document.createElement("textarea");
     area.value = text;
     area.setAttribute("readonly", "");
     area.style.position = "fixed";
     area.style.opacity = "0";
-    document.body.append(area);
+    const dialog = document.activeElement?.closest("dialog[open]");
+    (dialog ?? document.body).append(area);
     area.select();
     try {
-      document.execCommand("copy");
+      if (!document.execCommand("copy")) throw new Error("Clipboard copy failed");
     } finally {
       area.remove();
+      focused?.focus({preventScroll: true});
     }
   };
 
@@ -113,13 +117,52 @@
     return target.querySelector("[data-tori-ui-copy-source]") ?? target;
   };
 
+  // Read content without copying the controls used to present it. Preformatted
+  // text keeps its whitespace; ordinary blocks keep paragraph boundaries.
+  const copyText = (source) => {
+    if (source.nodeType === Node.TEXT_NODE) {
+      return source.textContent.replace(/\s+/g, " ");
+    }
+    if (!(source instanceof Element)) return "";
+    if (source.hasAttribute("data-tori-ui-copy-text")) {
+      return source.getAttribute("data-tori-ui-copy-text");
+    }
+    if (source.matches(
+      "[data-tori-ui-copy-exclude], button, input, select, textarea, svg, script, style",
+    )) {
+      return "";
+    }
+    if (getComputedStyle(source).display === "none") return "";
+    if (source.tagName === "BR") return "\n";
+    if (source.matches("pre, code")) return source.textContent;
+    const children = source.matches("details:not([open])")
+      ? [source.querySelector("summary")].filter(Boolean)
+      : [...source.childNodes];
+    let text = "";
+    for (const child of children) {
+      const part = copyText(child);
+      if (!part) continue;
+      const block = child instanceof Element &&
+        !getComputedStyle(child).display.startsWith("inline");
+      const paragraph = block && child.matches("p, h1, h2, h3, h4, h5, h6");
+      const gap = paragraph ? "\n\n" : block ? "\n" : "";
+      if (gap && text && !text.endsWith("\n")) text += gap;
+      if (!part.trim() && text.endsWith("\n")) continue;
+      text += part;
+      if (gap && !text.endsWith("\n")) text += gap;
+    }
+    return text;
+  };
+
   // copy_button(): a JS dispatch names the element; this listener copies its
   // text and reports back on the button that dispatched.
   window.addEventListener("tori-ui:copy", (event) => {
     if (!(event.target instanceof Element)) return;
     const source = copySource(event.target);
-    const text =
-      typeof source.value === "string" ? source.value : (source.innerText ?? "");
+    const exact = source.hasAttribute("data-tori-ui-copy-text") ||
+      typeof source.value === "string" || source.matches("pre, code");
+    const content = typeof source.value === "string" ? source.value : copyText(source);
+    const text = exact ? content : content.replace(/^\n+|\n+$/g, "");
     const button = event.detail?.dispatcher;
     writeClipboard(text).then(
       () => {
@@ -165,11 +208,13 @@
       if (!(remaining > 0)) return;
       let started = 0;
       let timer = null;
+      let hovered = false;
+      let focused = this.el.contains(document.activeElement);
       const close = () => {
         this.el.querySelector(".tori-ui-toast__dismiss")?.click();
       };
       const resume = () => {
-        if (timer !== null) return;
+        if (timer !== null || hovered || focused) return;
         started = Date.now();
         timer = setTimeout(close, remaining);
       };
@@ -179,10 +224,23 @@
         timer = null;
         remaining = Math.max(remaining - (Date.now() - started), 1000);
       };
-      this.el.addEventListener("pointerenter", pause);
-      this.el.addEventListener("pointerleave", resume);
-      this.el.addEventListener("focusin", pause);
-      this.el.addEventListener("focusout", resume);
+      this.el.addEventListener("pointerenter", () => {
+        hovered = true;
+        pause();
+      });
+      this.el.addEventListener("pointerleave", () => {
+        hovered = false;
+        resume();
+      });
+      this.el.addEventListener("focusin", () => {
+        focused = true;
+        pause();
+      });
+      this.el.addEventListener("focusout", (event) => {
+        focused = event.relatedTarget instanceof Node &&
+          this.el.contains(event.relatedTarget);
+        resume();
+      });
       this.stop = () => clearTimeout(timer);
       resume();
     },
@@ -355,10 +413,12 @@
       const dismiss = () => {
         dialog.querySelector("[data-tori-ui-dismiss]")?.click();
       };
-      dialog.addEventListener("tori-ui:open", () => {
+      dialog.addEventListener("tori-ui:open", (event) => {
+        if (event.target !== dialog) return;
         if (!dialog.open) dialog.showModal();
       });
-      dialog.addEventListener("tori-ui:close", () => {
+      dialog.addEventListener("tori-ui:close", (event) => {
+        if (event.target !== dialog) return;
         if (dialog.open) dialog.close();
       });
       // Escape.
@@ -367,6 +427,8 @@
         if (dismissible()) dismiss();
       });
       dialog.addEventListener("click", (event) => {
+        if (!(event.target instanceof Element) ||
+          event.target.closest("dialog") !== dialog) return;
         // A click on the dialog element itself is a click on its backdrop.
         if (event.target === dialog) {
           if (dismissible()) dismiss();

@@ -19,22 +19,38 @@ Feature: LiveView UI documents in a real browser
     # script, after the package script has run.
     Given I open the gallery page "/"
     Then the hook "GalleryClock" is registered
-    And the hook "ToriUiTheme" is registered
+    And the hook "ToriUiMode" is registered
     And every registered hook except "GalleryClock" starts with "ToriUi"
     And "#clock" is not empty
-    And "#gallery-theme [data-tori-ui-theme-value='auto']" is pressed
+    And "#gallery-mode [data-tori-ui-mode-value='auto']" is pressed
 
-  Scenario: A stored theme is applied before the body renders
-    Given I open the gallery page "/?theme=light"
-    Then "html" has "data-tori-ui-theme" set to "light"
-    When the browser stores the theme "dark"
-    And I reload the page watching the theme the body starts with
-    Then "html" has "data-tori-ui-theme" set to "dark"
-    And the body started with the theme "dark"
-    # A stored value that is not a theme is ignored.
-    When the browser stores the theme "sepia"
+  Scenario: A stored mode is applied before the body renders
+    Given I open the gallery page "/?mode=light"
+    Then "html" has "data-tori-ui-mode" set to "light"
+    When the browser stores the mode "dark"
+    And I reload the page watching the mode the body starts with
+    Then "html" has "data-tori-ui-mode" set to "dark"
+    And the body started with the mode "dark"
+    # A stored value that is not a mode is ignored.
+    When the browser stores the mode "sepia"
     And I reload the page
-    Then "html" has "data-tori-ui-theme" set to "light"
+    Then "html" has "data-tori-ui-mode" set to "light"
+
+  Scenario Outline: The mode picks the palette of the theme
+    Given I open the gallery page "/?mode=<mode>"
+    Then "body" has the style "background-color" set to "<paper>"
+    And "body" has the style "color" set to "<ink>"
+
+    Examples:
+      | mode  | paper              | ink                |
+      | light | rgb(242, 236, 223) | rgb(32, 32, 29)    |
+      | dark  | rgb(25, 24, 22)    | rgb(244, 237, 223) |
+
+  Scenario: The automatic mode follows the color scheme the browser prefers
+    Given the browser prefers a dark color scheme
+    And I open the gallery page "/?mode=auto"
+    Then "body" has the style "background-color" set to "rgb(25, 24, 22)"
+    And "body" has the style "color" set to "rgb(244, 237, 223)"
 
   Scenario Outline: Every gallery page has sound markup
     # IDs are unique, every control has an accessible name, every image has
@@ -56,12 +72,13 @@ Feature: LiveView UI documents in a real browser
       | /overlays   |
       | /ai         |
       | /chat       |
+      | /themes     |
 
-  Scenario Outline: Every page renders in each theme and skin
-    Then every gallery page fits the viewport with the "<theme>" theme and the "<skin>" skin
+  Scenario Outline: Every page renders in each mode and skin
+    Then every gallery page fits the viewport in the "<mode>" mode with the "<skin>" skin
 
     Examples:
-      | theme | skin      |
+      | mode  | skin      |
       | light | editorial |
       | light | minimal   |
       | light | rounded   |

@@ -46,7 +46,8 @@ class ApplicationModule:
 immutable content-addressed `STYLESHEET_PATH` and `SCRIPT_PATH`. `UiLiveView`
 inserts the corresponding stylesheet link and script tag, puts the
 `tori-ui-document` surface class on `<body>`, and sets
-`data-tori-ui-theme="auto"` plus `data-tori-ui-skin="editorial"` by default:
+`data-tori-ui-theme="paper"`, `data-tori-ui-mode="auto"`, and
+`data-tori-ui-skin="editorial"` by default:
 
 ```python
 from string.templatelib import Template
@@ -64,9 +65,9 @@ class DashboardLive(UiLiveView):
         return "minimal"
 ```
 
-Override `ui_theme()` with `"light"` or `"dark"` for a fixed theme. A custom
+Override `ui_mode()` with `"light"` or `"dark"` for a fixed color mode. A custom
 `LiveView.render_document()` can use `stylesheet_link()` and `script_tag()` and
-set the theme and skin data attributes directly instead.
+set the theme, mode, and skin data attributes directly instead.
 
 The script defines `ToriUi`-prefixed Phoenix hooks for the few behaviors that
 native elements and LiveView `JS` commands cannot express, and adds them to
@@ -84,7 +85,7 @@ The helpers are grouped in families:
   `image`, `item_list`, `kbd`, `link`, `prose`, `text`, and `icon` with a closed
   set of bundled inline SVG icons.
 - Actions: `button`, `button_group`, `copy_button`, `icon_button`,
-  `link_button`, and `theme_toggle`.
+  `link_button`, and `mode_toggle`.
 - Display: `avatar`, `avatar_group`, `badge`, `empty_state`, `list_group`,
   `list_item`, `meter`, `progress`, `sparkline`, `stat`, `status_dot`, `table`,
   `table_row`, `tag`, `timeline`, `timeline_item`, and `tooltip`.
@@ -188,19 +189,37 @@ as `control_id`, connect optional `<control-id>-help` and
 `<control-id>-error` descriptions, and apply native `required` and
 `aria-invalid` state itself.
 
-## Skins
+## Themes, Modes, and Skins
 
-Color theme and visual skin are separate:
+Color theme, color mode, and visual skin are separate:
 
-- `ui_theme()` selects `auto`, `light`, or `dark` palette values.
-- `ui_skin()` selects geometry, density, typography, and shadows.
+- `ui_theme()` selects a `Theme`: one palette for light and one for dark.
+- `ui_mode()` selects the `auto`, `light`, or `dark` palette.
+- `ui_skin()` selects a `Skin`: geometry, density, typography, and shadows.
 
-Bundled skins are `editorial` (default), `minimal`, and `rounded`. Skin selection
-is part of the initial outer document and does not change through normal
-connected LiveView diffs.
+Themes and skins are typed definitions, and the package generates their CSS.
+`Theme.from_seeds()` derives a theme from one or two colors, `Skin.derive()`
+changes some tokens of a bundled skin, every value is validated, and a theme
+is checked for WCAG AA contrast when it is built:
 
-Application-owned skin names match `[a-z][a-z0-9-]{0,63}` and override public
-tokens in application CSS loaded after the package stylesheet:
+```python
+from tori_py_liveview_ui import LiveViewUiModule, Skin, Theme
+
+ACME = Theme.from_seeds("acme", accent="#7c3aed", neutral="#6b7280")
+COMPACT = Skin.MINIMAL.derive("compact", radius_control="0.5rem")
+ui_module = LiveViewUiModule.for_root(themes=[ACME], skins=[COMPACT])
+```
+
+A page returns `ACME` from `ui_theme()` and `COMPACT` from `ui_skin()`. The
+bundled themes are `Theme.PAPER` (default), `Theme.SLATE`, and `Theme.CONTRAST`.
+
+Bundled skins are `Skin.EDITORIAL` (default), `Skin.MINIMAL`, and `Skin.ROUNDED`.
+The theme and the skin are part of the initial outer document and do not change
+through normal connected LiveView diffs; the visitor switches the mode in the
+browser with `mode_toggle()`.
+
+A page may instead return a name that matches `[a-z][a-z0-9-]{0,63}` and define
+the tokens in application CSS loaded after the package stylesheet:
 
 ```python
 class BrandLive(UiLiveView):
